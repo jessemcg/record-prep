@@ -6634,34 +6634,97 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 encoding="utf-8",
                 errors="ignore",
             ).splitlines()
-            linked_lines: list[str] = []
-            modified = 0
+
+            def _heading_date_key(line: str) -> str | None:
+                stripped = line.strip()
+                if not stripped:
+                    return None
+                without_links = re.sub(r"\[[^\]]+\]\(page:\d{4}\)", "", stripped)
+                without_links = re.sub(r"\s+", " ", without_links).strip()
+                date_key = _hearing_date_key(without_links)
+                if not date_key or date_key not in display_date_by_key:
+                    return None
+                return date_key
+
+            def _date_sort_tuple(date_key: str) -> tuple[int, datetime.datetime, str]:
+                display = display_date_by_key.get(date_key, "").strip()
+                try:
+                    parsed = datetime.datetime.strptime(display, "%B %d, %Y")
+                except ValueError:
+                    return (1, datetime.datetime.max, date_key)
+                return (0, parsed, date_key)
+
+            def _render_heading_line(date_key: str) -> str:
+                display_date = display_date_by_key.get(date_key, "")
+                hearing_page = hearing_page_by_date.get(date_key)
+                minute_page = minute_page_by_date.get(date_key)
+                pieces = [display_date or date_key]
+                if hearing_page:
+                    pieces.append(f"[Hearing](page:{hearing_page})")
+                if minute_page:
+                    pieces.append(f"[Minute Order](page:{minute_page})")
+                return " ".join(pieces).strip()
+
+            preamble_lines: list[str] = []
+            sections: list[dict[str, Any]] = []
+            current_section: dict[str, Any] | None = None
 
             for line in hearing_summary_lines:
                 self._raise_if_stop_requested()
-                stripped = line.strip()
-                if not stripped:
-                    linked_lines.append(line)
+                date_key = _heading_date_key(line)
+                if date_key:
+                    current_section = {"date_key": date_key, "body_lines": []}
+                    sections.append(current_section)
                     continue
-                stripped_for_date = re.sub(r"\[[^\]]+\]\(page:\d{4}\)", "", stripped)
-                stripped_for_date = re.sub(r"\s+", " ", stripped_for_date).strip()
-                date_key = _hearing_date_key(stripped_for_date)
-                rt_page = hearing_page_by_date.get(date_key)
-                if not rt_page:
-                    linked_lines.append(line)
-                    continue
-                display_date = display_date_by_key.get(date_key) or _format_long_us_date(
-                    stripped_for_date
-                )
-                pieces = [f"{display_date} [Hearing](page:{rt_page})"]
-                minute_page = minute_page_by_date.get(date_key)
-                if minute_page:
-                    pieces.append(f"[Minute Order](page:{minute_page})")
-                linked_lines.append(" ".join(pieces))
-                modified += 1
+                if current_section is None:
+                    preamble_lines.append(line)
+                else:
+                    current_section["body_lines"].append(line)
 
-            if modified == 0:
-                raise ValueError("No hearing date headings matched boundary dates.")
+            existing_section_keys = [str(section["date_key"]) for section in sections]
+            missing_minute_keys = [
+                key for key in minute_page_by_date if key not in set(existing_section_keys)
+            ]
+            missing_minute_keys.sort(key=_date_sort_tuple)
+
+            for missing_key in missing_minute_keys:
+                self._raise_if_stop_requested()
+                missing_sort = _date_sort_tuple(missing_key)
+                insert_at = len(sections)
+                for index, section in enumerate(sections):
+                    current_key = str(section["date_key"])
+                    if _date_sort_tuple(current_key) > missing_sort:
+                        insert_at = index
+                        break
+                sections.insert(insert_at, {"date_key": missing_key, "body_lines": []})
+
+            if not sections:
+                raise ValueError("No date headings found and no minute dates available to add links.")
+
+            linked_lines: list[str] = list(preamble_lines)
+            modified = 0
+            inserted = 0
+            existing_key_set = set(existing_section_keys)
+
+            for section in sections:
+                self._raise_if_stop_requested()
+                date_key = str(section["date_key"])
+                body_lines = list(section["body_lines"])
+                heading_line = _render_heading_line(date_key)
+                if not heading_line:
+                    continue
+                if linked_lines and linked_lines[-1].strip():
+                    linked_lines.append("")
+                linked_lines.append(heading_line)
+                if date_key not in existing_key_set:
+                    inserted += 1
+                else:
+                    modified += 1
+                if body_lines:
+                    linked_lines.extend(body_lines)
+
+            if modified == 0 and inserted == 0:
+                raise ValueError("No hearing/minute date headings matched boundary dates.")
 
             summaries_path.write_text(
                 _collapse_blank_lines("\n".join(linked_lines)),

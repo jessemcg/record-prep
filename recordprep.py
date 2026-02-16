@@ -264,6 +264,45 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
 )
 DEFAULT_SUMMARIZE_CHUNK_SIZE = 15
 DEFAULT_OVERVIEW_PROMPT = (
+    "I will provide you with hearing summaries, report summaries, and minute order "
+    "summaries from a legal case. Produce output using exactly these three markdown "
+    "headings and no others.\n\n"
+    "## Parties\n"
+    "Write one concise paragraph identifying the parties and specifying which attorney "
+    "represented each party. Identify each attorney by name rather than only by law "
+    "firm.\n\n"
+    "## Factual History\n"
+    "Write a chronological list from earliest to latest of the most significant "
+    "factual events (what happened out of court). Each list item must start with a "
+    "date and then one concise sentence describing the event. Include no more than 20 "
+    "events. If there are more than 20 significant events, include only the most "
+    "significant 20.\n\n"
+    "## Procedural History\n"
+    "Write a chronological list from earliest to latest of the most significant "
+    "procedural events (what happened in court). Each list item must start with a "
+    "date and then one concise sentence describing the event. Include no more than 20 "
+    "events. If there are more than 20 significant events, include only the most "
+    "significant 20.\n\n"
+    "Do not add any other headings, preface text, or commentary. Okay, here are the "
+    "summaries:"
+)
+PREVIOUS_DEFAULT_OVERVIEW_PROMPT = (
+    "I will provide you with hearing summaries, report summaries, and minute order "
+    "summaries from a legal case. Produce output using exactly these two markdown "
+    "headings and no others.\n\n"
+    "## Parties\n"
+    "Write one concise paragraph identifying the parties and specifying which attorney "
+    "represented each party. Identify each attorney by name rather than only by law "
+    "firm.\n\n"
+    "## Case Chronology\n"
+    "Write a chronological list from earliest to latest. Each list item must start "
+    "with a date and then one concise sentence describing a significant event. Events "
+    "may be factual or procedural. Include no more than 20 events total. If there are "
+    "more than 20 significant events, include only the most significant 20.\n\n"
+    "Do not add any other headings, preface text, or commentary. Okay, here are the "
+    "summaries:"
+)
+LEGACY_DEFAULT_OVERVIEW_PROMPT = (
     "I will provide you with summaries from a legal case. Please provide concise "
     "details about the case in the form of three paragraphs. In the first paragraph, "
     "identify the parties and specify which attorney represented them. Identify each "
@@ -1893,6 +1932,8 @@ def load_overview_settings() -> dict[str, str]:
     model_id = str(config.get(CONFIG_KEY_OVERVIEW_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_OVERVIEW_API_KEY, "") or "").strip()
     prompt = str(config.get(CONFIG_KEY_OVERVIEW_PROMPT, DEFAULT_OVERVIEW_PROMPT) or "").strip()
+    if prompt in {LEGACY_DEFAULT_OVERVIEW_PROMPT, PREVIOUS_DEFAULT_OVERVIEW_PROMPT}:
+        prompt = DEFAULT_OVERVIEW_PROMPT
     return {
         "api_url": api_url,
         "model_id": model_id,
@@ -3574,7 +3615,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_eleven_row = Adw.ActionRow(
             title="Case overview",
-            subtitle="Create a three-paragraph overview for RAG context.",
+            subtitle="Create parties plus factual/procedural dated histories for RAG context.",
         )
         self.step_eleven_row.set_activatable(False)
         self._attach_step_controls(
@@ -6761,15 +6802,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if self.selected_pdfs:
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
-            summaries_dir = root_dir / "summaries"
             summaries_path, reports_path = _summary_output_paths(root_dir)
-            if not summaries_path.exists() or not reports_path.exists():
-                raise FileNotFoundError("Run Create summaries to generate summarized files first.")
+            minutes_path = _minutes_summary_output_path(root_dir)
+            if (
+                not summaries_path.exists()
+                or not reports_path.exists()
+                or not minutes_path.exists()
+            ):
+                raise FileNotFoundError(
+                    "Run Create summaries to generate hearing, report, and minute summaries first."
+                )
             settings = load_overview_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure overview API URL, model ID, and API key in Settings.")
             hearings_text = summaries_path.read_text(encoding="utf-8", errors="ignore")
             reports_text = reports_path.read_text(encoding="utf-8", errors="ignore")
+            minutes_text = minutes_path.read_text(encoding="utf-8", errors="ignore")
             combined = "\n\n".join(
                 [
                     "Summarized Hearings:",
@@ -6777,6 +6825,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "",
                     "Summarized Reports:",
                     reports_text.strip(),
+                    "",
+                    "Summarized Minute Orders:",
+                    minutes_text.strip(),
                 ]
             ).strip()
             overview = self._request_plain_text(

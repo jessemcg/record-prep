@@ -77,7 +77,7 @@ case_bundle/
 - Create raw: compile raw hearing and report text files.
 - Create optimized: LLM-reformat text for retrieval.
 - Create summaries: generate hearing/report/minute summaries (case-named when available).
-- Case overview: create a three-paragraph RAG overview.
+- Case overview: create parties, factual history, and procedural history for RAG context.
 - Create RAG index: build a VoyageAI/Chroma or Isaacus/Chroma vector store.
 
 ## Settings

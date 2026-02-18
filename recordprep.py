@@ -401,18 +401,20 @@ def _extract_prompt_keys(prompt: str) -> list[str]:
         index = lower_prompt.find(marker)
         if index == -1:
             continue
-        segment = prompt[index:]
+        segment = prompt[index + len(marker) :]
         segment = segment.splitlines()[0]
         if "." in segment:
             segment = segment.split(".", 1)[0]
-        tokens = re.findall(r"['\"]([A-Za-z0-9_]+)['\"]", segment)
+        tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", segment)
         if tokens:
             return _unique_in_order(tokens)
-    tokens = re.findall(r"['\"]([A-Za-z0-9_]+)['\"]", prompt)
-    likely = [token for token in tokens if token.upper() == token or "_" in token]
-    if likely:
-        return _unique_in_order(likely)
-    return _unique_in_order(tokens)
+    json_key_tokens = re.findall(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*:", prompt)
+    if json_key_tokens:
+        return _unique_in_order(json_key_tokens)
+    backtick_tokens = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", prompt)
+    if backtick_tokens:
+        return _unique_in_order(backtick_tokens)
+    return []
 
 
 def _normalize_key(key: str) -> str:
@@ -673,6 +675,34 @@ def _last_jsonl_file_name(path: Path) -> str:
             if file_name:
                 last_file_name = file_name
     return last_file_name
+
+
+def _dedupe_jsonl_by_file_name(path: Path) -> int:
+    entries = _load_jsonl_entries(path)
+    if not entries:
+        return 0
+    by_file: dict[str, dict[str, Any]] = {}
+    valid_count = 0
+    for entry in entries:
+        file_name = _extract_entry_value(entry, "file_name", "filename")
+        if not file_name:
+            continue
+        valid_count += 1
+        by_file[file_name] = entry
+    deduped_entries = list(by_file.values())
+    deduped_entries.sort(
+        key=lambda entry: _natural_sort_key(
+            _extract_entry_value(entry, "file_name", "filename")
+        )
+    )
+    removed_count = len(entries) - len(deduped_entries)
+    if removed_count <= 0 and len(deduped_entries) == len(entries):
+        return 0
+    with path.open("w", encoding="utf-8") as handle:
+        for entry in deduped_entries:
+            handle.write(json.dumps(entry))
+            handle.write("\n")
+    return removed_count if removed_count > 0 else max(len(entries) - valid_count, 0)
 
 
 def _load_json_entries(path: Path) -> list[dict[str, Any]]:
@@ -5007,6 +5037,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 rt_basic_path.touch(exist_ok=True)
             if need_ct:
                 ct_basic_path.touch(exist_ok=True)
+            if need_rt:
+                removed_rt = _dedupe_jsonl_by_file_name(rt_basic_path)
+                if removed_rt > 0:
+                    GLib.idle_add(
+                        self.show_toast,
+                        f"Classification basic RT: removed {removed_rt} duplicate/invalid rows.",
+                    )
+            if need_ct:
+                removed_ct = _dedupe_jsonl_by_file_name(ct_basic_path)
+                if removed_ct > 0:
+                    GLib.idle_add(
+                        self.show_toast,
+                        f"Classification basic CT: removed {removed_ct} duplicate/invalid rows.",
+                    )
             done_rt = _load_jsonl_file_names(rt_basic_path) if need_rt else set()
             done_ct = _load_jsonl_file_names(ct_basic_path) if need_ct else set()
             rt_last_done = _last_jsonl_file_name(rt_basic_path) if need_rt else ""

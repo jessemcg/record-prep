@@ -3634,7 +3634,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_correct_boundaries_row = Adw.ActionRow(
             title="Correct boundaries",
-            subtitle="Remove single-page report boundaries unless they are last-minute.",
+            subtitle="Remove hearing boundaries without dates and single-page report boundaries unless they are last-minute.",
         )
         self.step_correct_boundaries_row.set_activatable(False)
         self._attach_step_controls(
@@ -4088,7 +4088,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         _set_done(
             self.step_correct_boundaries_row,
-            (artifacts_dir / "report_boundaries.json").exists(),
+            (artifacts_dir / "hearing_boundaries.json").exists()
+            and (artifacts_dir / "report_boundaries.json").exists(),
         )
         _set_done(
             self.step_eight_row,
@@ -6302,15 +6303,34 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             derived_dir = root_dir / "artifacts"
+            hearing_path = derived_dir / "hearing_boundaries.json"
             report_path = derived_dir / "report_boundaries.json"
-            if not report_path.exists():
-                raise FileNotFoundError("Run Find boundaries to generate report boundaries first.")
-            entries = _load_json_entries(report_path)
-            if not entries:
-                raise FileNotFoundError("No report boundaries found.")
-            removed = 0
-            filtered: list[dict[str, str]] = []
-            for entry in entries:
+            if not hearing_path.exists() or not report_path.exists():
+                raise FileNotFoundError(
+                    "Run Find boundaries to generate hearing/report boundaries first."
+                )
+            hearing_entries = _load_json_entries(hearing_path)
+            report_entries = _load_json_entries(report_path)
+            if not hearing_entries and not report_entries:
+                raise FileNotFoundError("No hearing/report boundaries found.")
+
+            hearing_removed = 0
+            filtered_hearings: list[dict[str, str]] = []
+            for entry in hearing_entries:
+                self._raise_if_stop_requested()
+                date_value = _extract_entry_value(entry, "date")
+                if not date_value:
+                    hearing_removed += 1
+                    continue
+                filtered_hearings.append(entry)
+            hearing_path.write_text(
+                json.dumps(filtered_hearings, indent=2),
+                encoding="utf-8",
+            )
+
+            report_removed = 0
+            filtered_reports: list[dict[str, str]] = []
+            for entry in report_entries:
                 self._raise_if_stop_requested()
                 start_label = _extract_entry_value(entry, "start_page")
                 end_label = _extract_entry_value(entry, "end_page")
@@ -6322,13 +6342,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     is_single = start_number == end_number
                 report_name = _extract_entry_value(entry, "report_name", "report", "name")
                 if is_single and "last minute" not in report_name.lower():
-                    removed += 1
+                    report_removed += 1
                     continue
-                filtered.append(entry)
+                filtered_reports.append(entry)
             report_path.write_text(
-                json.dumps(filtered, indent=2),
+                json.dumps(filtered_reports, indent=2),
                 encoding="utf-8",
             )
+            removed = hearing_removed + report_removed
         except StopRequested:
             success = None
         except Exception as exc:
@@ -6345,7 +6366,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             GLib.idle_add(
                 self.show_toast,
-                f"Correct boundaries complete. {removed} entries removed.",
+                "Correct boundaries complete. "
+                f"{hearing_removed} hearing entries without dates and "
+                f"{report_removed} report entries removed ({removed} total).",
             )
         finally:
             GLib.idle_add(self.step_correct_boundaries_row.set_sensitive, True)

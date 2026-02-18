@@ -75,6 +75,7 @@ CONFIG_KEY_CLASSIFIER_API_KEY = "classifier_api_key"
 CONFIG_KEY_CLASSIFIER_PROMPT = "classifier_prompt"
 CONFIG_KEY_CLASSIFIER_RT_PROMPT = "classifier_rt_prompt"
 CONFIG_KEY_CLASSIFIER_CT_PROMPT = "classifier_ct_prompt"
+CONFIG_KEY_CLASSIFIER_THINKING_ENABLED = "classifier_thinking_enabled"
 CONFIG_KEY_CLASSIFY_DATES_HEARING_PROMPT = "classify_dates_hearing_prompt"
 CONFIG_KEY_CLASSIFY_DATES_MINUTE_PROMPT = "classify_dates_minute_prompt"
 CONFIG_KEY_CLASSIFY_NAMES_REPORT_PROMPT = "classify_names_report_prompt"
@@ -699,6 +700,19 @@ def _extract_entry_value(entry: dict[str, Any], *keys: str) -> str:
             value = entry.get(source_key)
             return str(value).strip() if value is not None else ""
     return ""
+
+
+def _extract_page_type_from_jsonish(text: str) -> str:
+    if not text:
+        return ""
+    match = re.search(
+        r'["\']?page[_\-\s]?type["\']?\s*:\s*["\']?([A-Za-z0-9_\-]+)["\']?',
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    return match.group(1).strip()
 
 
 def _page_label_from_filename(filename: str) -> str:
@@ -1343,11 +1357,27 @@ def _write_config(config: dict[str, Any]) -> None:
         pass
 
 
-def load_classifier_settings() -> dict[str, str]:
+def _read_config_bool(config: dict[str, Any], key: str, default: bool) -> bool:
+    value = config.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def load_classifier_settings() -> dict[str, Any]:
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_CLASSIFIER_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_CLASSIFIER_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_CLASSIFIER_API_KEY, "") or "").strip()
+    thinking_enabled = _read_config_bool(config, CONFIG_KEY_CLASSIFIER_THINKING_ENABLED, True)
     prompt = str(config.get(CONFIG_KEY_CLASSIFIER_PROMPT, DEFAULT_CLASSIFIER_PROMPT) or "").strip()
     rt_prompt = str(
         config.get(CONFIG_KEY_CLASSIFIER_RT_PROMPT, prompt or DEFAULT_CLASSIFIER_PROMPT) or ""
@@ -1362,6 +1392,7 @@ def load_classifier_settings() -> dict[str, str]:
         "prompt": prompt or DEFAULT_CLASSIFIER_PROMPT,
         "rt_prompt": rt_prompt or DEFAULT_CLASSIFIER_PROMPT,
         "ct_prompt": ct_prompt or DEFAULT_CLASSIFIER_PROMPT,
+        "thinking_enabled": thinking_enabled,
     }
 
 
@@ -1371,6 +1402,7 @@ def save_classifier_settings(
     api_key: str,
     rt_prompt: str,
     ct_prompt: str,
+    thinking_enabled: bool,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_CLASSIFIER_API_URL] = api_url
@@ -1381,10 +1413,11 @@ def save_classifier_settings(
     config[CONFIG_KEY_CLASSIFIER_PROMPT] = normalized_rt
     config[CONFIG_KEY_CLASSIFIER_RT_PROMPT] = normalized_rt
     config[CONFIG_KEY_CLASSIFIER_CT_PROMPT] = normalized_ct
+    config[CONFIG_KEY_CLASSIFIER_THINKING_ENABLED] = bool(thinking_enabled)
     _write_config(config)
 
 
-def load_advanced_classify_settings() -> dict[str, str]:
+def load_advanced_classify_settings() -> dict[str, Any]:
     config = _read_config()
     shared = load_classifier_settings()
     api_url = shared["api_url"] or str(config.get(CONFIG_KEY_ADVANCED_CLASSIFY_API_URL, "") or "").strip()
@@ -1410,6 +1443,7 @@ def load_advanced_classify_settings() -> dict[str, str]:
         "hearing_prompt": hearing_prompt or DEFAULT_ADVANCED_HEARING_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT,
         "form_prompt": form_prompt or DEFAULT_ADVANCED_FORM_PROMPT,
+        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
     }
 
 
@@ -1430,7 +1464,7 @@ def save_advanced_classify_settings(
     )
     _write_config(config)
 
-def load_classify_dates_settings() -> dict[str, str]:
+def load_classify_dates_settings() -> dict[str, Any]:
     config = _read_config()
     shared = load_classifier_settings()
     api_url = shared["api_url"]
@@ -1450,6 +1484,7 @@ def load_classify_dates_settings() -> dict[str, str]:
         "api_key": api_key,
         "hearing_prompt": hearing_prompt or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT,
+        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
     }
 
 
@@ -1467,7 +1502,7 @@ def save_classify_dates_settings(
     _write_config(config)
 
 
-def load_classify_names_settings() -> dict[str, str]:
+def load_classify_names_settings() -> dict[str, Any]:
     config = _read_config()
     shared = load_classifier_settings()
     api_url = shared["api_url"]
@@ -1486,6 +1521,7 @@ def load_classify_names_settings() -> dict[str, str]:
         "api_key": api_key,
         "report_prompt": report_prompt or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT,
         "form_prompt": form_prompt or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT,
+        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
     }
 
 
@@ -1762,6 +1798,7 @@ class ClassifySettingsWidgets:
     api_key_row: Adw.EntryRow
     prompt_buffer: Gtk.TextBuffer
     ct_prompt_buffer: Gtk.TextBuffer | None = None
+    thinking_switch: Gtk.Switch | None = None
 
 
 @dataclass
@@ -2448,6 +2485,18 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row = self._build_password_row("API Key")
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
+        thinking_switch: Gtk.Switch | None = None
+        if is_classify_basic:
+            thinking_row = Adw.ActionRow(
+                title="Enable thinking mode",
+                subtitle="Turn off for faster Kimi K2.5 instant-style classification requests.",
+            )
+            thinking_switch = Gtk.Switch()
+            thinking_switch.set_valign(Gtk.Align.CENTER)
+            thinking_switch.set_active(bool(settings.get("thinking_enabled", True)))
+            thinking_row.add_suffix(thinking_switch)
+            thinking_row.set_activatable_widget(thinking_switch)
+            credentials_group.add(thinking_row)
 
         buffer: Gtk.TextBuffer
         ct_buffer: Gtk.TextBuffer | None = None
@@ -2497,6 +2546,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_key_row=api_key_row,
             prompt_buffer=buffer,
             ct_prompt_buffer=ct_buffer,
+            thinking_switch=thinking_switch,
         )
         return page
 
@@ -3002,6 +3052,11 @@ class SettingsWindow(Adw.ApplicationWindow):
                 classify_basic_widgets.api_key_row.get_text().strip(),
                 rt_prompt,
                 ct_prompt,
+                (
+                    classify_basic_widgets.thinking_switch.get_active()
+                    if classify_basic_widgets.thinking_switch
+                    else True
+                ),
             )
         if advanced_classify_widgets:
             save_advanced_classify_settings(
@@ -3709,7 +3764,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._test_classification_window = None
         return False
 
-    def _build_test_classification_settings(self, mode_id: str) -> dict[str, str]:
+    def _build_test_classification_settings(self, mode_id: str) -> dict[str, Any]:
         if mode_id == "basic_rt":
             shared = load_classifier_settings()
             return {
@@ -3717,6 +3772,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared["model_id"],
                 "api_key": shared["api_key"],
                 "prompt": shared.get("rt_prompt") or shared.get("prompt"),
+                "thinking_enabled": bool(shared.get("thinking_enabled", True)),
             }
         if mode_id == "basic_ct":
             shared = load_classifier_settings()
@@ -3725,6 +3781,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared["model_id"],
                 "api_key": shared["api_key"],
                 "prompt": shared.get("ct_prompt") or shared.get("prompt"),
+                "thinking_enabled": bool(shared.get("thinking_enabled", True)),
             }
         if mode_id == "advanced_hearing":
             settings = load_advanced_classify_settings()
@@ -3733,6 +3790,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["hearing_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "advanced_minute":
             settings = load_advanced_classify_settings()
@@ -3741,6 +3799,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["minute_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "advanced_form":
             settings = load_advanced_classify_settings()
@@ -3749,6 +3808,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["form_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "dates_hearing":
             settings = load_classify_dates_settings()
@@ -3757,6 +3817,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["hearing_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "dates_minute":
             settings = load_classify_dates_settings()
@@ -3765,6 +3826,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["minute_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "names_report":
             settings = load_classify_names_settings()
@@ -3773,6 +3835,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["report_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         if mode_id == "names_form":
             settings = load_classify_names_settings()
@@ -3781,6 +3844,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["form_prompt"],
+                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
             }
         raise ValueError(f"Unknown classification mode: {mode_id}")
 
@@ -4962,12 +5026,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("rt_prompt") or shared_settings.get("prompt"),
+                "thinking_enabled": bool(shared_settings.get("thinking_enabled", True)),
             }
             basic_ct_settings = {
                 "api_url": shared_settings["api_url"],
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("ct_prompt") or shared_settings.get("prompt"),
+                "thinking_enabled": bool(shared_settings.get("thinking_enabled", True)),
             }
             for index, text_path in enumerate(text_files, start=1):
                 self._raise_if_stop_requested()
@@ -5126,6 +5192,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "model_id": settings["model_id"],
                     "api_key": settings["api_key"],
                     "prompt": prompt,
+                    "thinking_enabled": bool(settings.get("thinking_enabled", True)),
                 }
                 response = self._classify_image(payload, file_name, image_path)
                 if _is_truthy(_extract_entry_value(response, *truthy_keys)):
@@ -5444,6 +5511,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["hearing_prompt"],
+                                    "thinking_enabled": bool(
+                                        shared_settings.get("thinking_enabled", True)
+                                    ),
                                 },
                                 file_name,
                                 image_path,
@@ -5495,6 +5565,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["minute_prompt"],
+                                    "thinking_enabled": bool(
+                                        shared_settings.get("thinking_enabled", True)
+                                    ),
                                 },
                                 file_name,
                                 image_path,
@@ -5649,6 +5722,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["report_prompt"],
+                                    "thinking_enabled": bool(
+                                        shared_settings.get("thinking_enabled", True)
+                                    ),
                                 },
                                 file_name,
                                 image_path,
@@ -5665,6 +5741,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["form_prompt"],
+                                    "thinking_enabled": bool(
+                                        shared_settings.get("thinking_enabled", True)
+                                    ),
                                 },
                                 file_name,
                                 image_path,
@@ -7054,7 +7133,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _classify_image(
         self,
-        settings: dict[str, str],
+        settings: dict[str, Any],
         filename: str,
         image_path: Path,
     ) -> dict[str, str]:
@@ -7086,6 +7165,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 },
             ],
         }
+        if not bool(settings.get("thinking_enabled", True)):
+            body["thinking"] = {"type": "disabled"}
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
         payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
@@ -7096,6 +7177,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             parsed = {}
         if not isinstance(parsed, dict):
             parsed = {}
+        if not _extract_entry_value(parsed, "page_type", "pagetype"):
+            fallback_page_type = _extract_page_type_from_jsonish(response_text)
+            if fallback_page_type:
+                parsed["page_type"] = fallback_page_type
         expected_keys = _extract_prompt_keys(settings.get("prompt", ""))
         filename_key = "file_name"
         if not expected_keys:
@@ -7121,7 +7206,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _classify_text(
         self,
-        settings: dict[str, str],
+        settings: dict[str, Any],
         filename: str,
         content: str,
     ) -> dict[str, str]:
@@ -7140,6 +7225,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 {"role": "user", "content": content},
             ],
         }
+        if not bool(settings.get("thinking_enabled", True)):
+            body["thinking"] = {"type": "disabled"}
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
         payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
@@ -7150,6 +7237,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             parsed = {}
         if not isinstance(parsed, dict):
             parsed = {}
+        if not _extract_entry_value(parsed, "page_type", "pagetype"):
+            fallback_page_type = _extract_page_type_from_jsonish(response_text)
+            if fallback_page_type:
+                parsed["page_type"] = fallback_page_type
         expected_keys = _extract_prompt_keys(settings.get("prompt", ""))
         filename_key = "file_name"
         if not expected_keys:
@@ -7203,6 +7294,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 content = message.get("content")
                 if isinstance(content, str):
                     return content
+                if isinstance(content, list):
+                    parts: list[str] = []
+                    for part in content:
+                        if isinstance(part, str):
+                            parts.append(part)
+                        elif isinstance(part, dict):
+                            text_value = part.get("text")
+                            if isinstance(text_value, str):
+                                parts.append(text_value)
+                    if parts:
+                        return "\n".join(parts)
             for key in ("output", "text", "data"):
                 value = payload.get(key)
                 if isinstance(value, str):

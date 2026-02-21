@@ -83,6 +83,8 @@ CONFIG_KEY_CLASSIFY_NAMES_FORM_PROMPT = "classify_names_form_prompt"
 CONFIG_KEY_CASE_NAME_API_URL = "case_name_api_url"
 CONFIG_KEY_CASE_NAME_MODEL_ID = "case_name_model_id"
 CONFIG_KEY_CASE_NAME_API_KEY = "case_name_api_key"
+CONFIG_KEY_CASE_NAME_KIMI_REASONING = "case_name_kimi_reasoning"
+CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING = "case_name_deepseek_reasoning"
 CONFIG_KEY_CASE_NAME_PROMPT = "case_name_prompt"
 CONFIG_KEY_CASE_NAME = "case_name"
 CONFIG_KEY_CASE_ROOT_DIR = "case_root_dir"
@@ -106,12 +108,16 @@ CONFIG_KEY_CLASSIFY_FORMS_PROMPT = "classify_form_names_prompt"
 CONFIG_KEY_OPTIMIZE_API_URL = "optimize_api_url"
 CONFIG_KEY_OPTIMIZE_MODEL_ID = "optimize_model_id"
 CONFIG_KEY_OPTIMIZE_API_KEY = "optimize_api_key"
+CONFIG_KEY_OPTIMIZE_KIMI_REASONING = "optimize_kimi_reasoning"
+CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING = "optimize_deepseek_reasoning"
 CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
 CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
 CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT = "optimize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_API_URL = "summarize_api_url"
 CONFIG_KEY_SUMMARIZE_MODEL_ID = "summarize_model_id"
 CONFIG_KEY_SUMMARIZE_API_KEY = "summarize_api_key"
+CONFIG_KEY_SUMMARIZE_KIMI_REASONING = "summarize_kimi_reasoning"
+CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING = "summarize_deepseek_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
@@ -119,6 +125,8 @@ CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_OVERVIEW_API_URL = "overview_api_url"
 CONFIG_KEY_OVERVIEW_MODEL_ID = "overview_model_id"
 CONFIG_KEY_OVERVIEW_API_KEY = "overview_api_key"
+CONFIG_KEY_OVERVIEW_KIMI_REASONING = "overview_kimi_reasoning"
+CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING = "overview_deepseek_reasoning"
 CONFIG_KEY_OVERVIEW_PROMPT = "overview_prompt"
 CONFIG_KEY_RAG_PROVIDER = "rag_provider"
 CONFIG_KEY_RAG_VOYAGE_API_KEY = "rag_voyage_api_key"
@@ -317,7 +325,19 @@ LEGACY_DEFAULT_OVERVIEW_PROMPT = (
 )
 DEFAULT_RAG_VOYAGE_MODEL = "voyage-law-2"
 DEFAULT_RAG_ISAACUS_MODEL = "kanon-2-embedder"
+DEFAULT_KIMI_REASONING_ENABLED = True
+DEFAULT_DEEPSEEK_REASONING_ENABLED = True
 ISAACUS_MAX_EMBED_BATCH = 128
+
+
+def _model_looks_kimi(model_id: str) -> bool:
+    normalized = (model_id or "").strip().lower()
+    return "kimi" in normalized or "moonshot" in normalized
+
+
+def _model_looks_deepseek(model_id: str) -> bool:
+    normalized = (model_id or "").strip().lower()
+    return "deepseek" in normalized
 
 
 def _extract_embedding_vectors(response: Any) -> list[list[float]]:
@@ -1567,25 +1587,46 @@ def save_classify_names_settings(
     _write_config(config)
 
 
-def load_case_name_settings() -> dict[str, str]:
+def load_case_name_settings() -> dict[str, Any]:
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_CASE_NAME_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_CASE_NAME_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_CASE_NAME_API_KEY, "") or "").strip()
+    kimi_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_CASE_NAME_KIMI_REASONING,
+        DEFAULT_KIMI_REASONING_ENABLED,
+    )
+    deepseek_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING,
+        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+    )
     prompt = str(config.get(CONFIG_KEY_CASE_NAME_PROMPT, DEFAULT_CASE_NAME_PROMPT) or "").strip()
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
+        "kimi_reasoning": kimi_reasoning,
+        "deepseek_reasoning": deepseek_reasoning,
         "prompt": prompt or DEFAULT_CASE_NAME_PROMPT,
     }
 
 
-def save_case_name_settings(api_url: str, model_id: str, api_key: str, prompt: str) -> None:
+def save_case_name_settings(
+    api_url: str,
+    model_id: str,
+    api_key: str,
+    kimi_reasoning: bool,
+    deepseek_reasoning: bool,
+    prompt: str,
+) -> None:
     config = _read_config()
     config[CONFIG_KEY_CASE_NAME_API_URL] = api_url
     config[CONFIG_KEY_CASE_NAME_MODEL_ID] = model_id
     config[CONFIG_KEY_CASE_NAME_API_KEY] = api_key
+    config[CONFIG_KEY_CASE_NAME_KIMI_REASONING] = bool(kimi_reasoning)
+    config[CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
     config[CONFIG_KEY_CASE_NAME_PROMPT] = prompt or DEFAULT_CASE_NAME_PROMPT
     _write_config(config)
 
@@ -1829,6 +1870,8 @@ class ClassifySettingsWidgets:
     prompt_buffer: Gtk.TextBuffer
     ct_prompt_buffer: Gtk.TextBuffer | None = None
     thinking_switch: Gtk.Switch | None = None
+    kimi_reasoning_row: Adw.SwitchRow | None = None
+    deepseek_reasoning_row: Adw.SwitchRow | None = None
 
 
 @dataclass
@@ -1862,6 +1905,8 @@ class OptimizeSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
+    kimi_reasoning_row: Adw.SwitchRow
+    deepseek_reasoning_row: Adw.SwitchRow
     attorneys_prompt_buffer: Gtk.TextBuffer
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -1872,6 +1917,8 @@ class SummarizeSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
+    kimi_reasoning_row: Adw.SwitchRow
+    deepseek_reasoning_row: Adw.SwitchRow
     chunk_size_row: Adw.EntryRow
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -1883,6 +1930,8 @@ class OverviewSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
+    kimi_reasoning_row: Adw.SwitchRow
+    deepseek_reasoning_row: Adw.SwitchRow
     prompt_buffer: Gtk.TextBuffer
 
 
@@ -1896,11 +1945,21 @@ class RagSettingsWidgets:
     isaacus_key_row: Adw.EntryRow
 
 
-def load_optimize_settings() -> dict[str, str]:
+def load_optimize_settings() -> dict[str, Any]:
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_OPTIMIZE_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_OPTIMIZE_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_OPTIMIZE_API_KEY, "") or "").strip()
+    kimi_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OPTIMIZE_KIMI_REASONING,
+        DEFAULT_KIMI_REASONING_ENABLED,
+    )
+    deepseek_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING,
+        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+    )
     attorneys_prompt = str(
         config.get(CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT, DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT) or ""
     ).strip()
@@ -1914,6 +1973,8 @@ def load_optimize_settings() -> dict[str, str]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
+        "kimi_reasoning": kimi_reasoning,
+        "deepseek_reasoning": deepseek_reasoning,
         "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
         "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT,
@@ -1924,6 +1985,8 @@ def save_optimize_settings(
     api_url: str,
     model_id: str,
     api_key: str,
+    kimi_reasoning: bool,
+    deepseek_reasoning: bool,
     attorneys_prompt: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -1932,17 +1995,29 @@ def save_optimize_settings(
     config[CONFIG_KEY_OPTIMIZE_API_URL] = api_url
     config[CONFIG_KEY_OPTIMIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_OPTIMIZE_API_KEY] = api_key
+    config[CONFIG_KEY_OPTIMIZE_KIMI_REASONING] = bool(kimi_reasoning)
+    config[CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
     config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT] = reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT
     _write_config(config)
 
 
-def load_summarize_settings() -> dict[str, str]:
+def load_summarize_settings() -> dict[str, Any]:
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_SUMMARIZE_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_SUMMARIZE_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_SUMMARIZE_API_KEY, "") or "").strip()
+    kimi_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_SUMMARIZE_KIMI_REASONING,
+        DEFAULT_KIMI_REASONING_ENABLED,
+    )
+    deepseek_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING,
+        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+    )
     chunk_size_raw = str(config.get(CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, "") or "").strip()
     chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
     if chunk_size_raw:
@@ -1963,6 +2038,8 @@ def load_summarize_settings() -> dict[str, str]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
+        "kimi_reasoning": kimi_reasoning,
+        "deepseek_reasoning": deepseek_reasoning,
         "chunk_size": str(chunk_size),
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
@@ -1974,6 +2051,8 @@ def save_summarize_settings(
     api_url: str,
     model_id: str,
     api_key: str,
+    kimi_reasoning: bool,
+    deepseek_reasoning: bool,
     chunk_size: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -1983,6 +2062,8 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_API_URL] = api_url
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
+    config[CONFIG_KEY_SUMMARIZE_KIMI_REASONING] = bool(kimi_reasoning)
+    config[CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
     config[CONFIG_KEY_SUMMARIZE_CHUNK_SIZE] = chunk_size
     config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = (
         hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
@@ -1996,11 +2077,21 @@ def save_summarize_settings(
     _write_config(config)
 
 
-def load_overview_settings() -> dict[str, str]:
+def load_overview_settings() -> dict[str, Any]:
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_OVERVIEW_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_OVERVIEW_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_OVERVIEW_API_KEY, "") or "").strip()
+    kimi_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OVERVIEW_KIMI_REASONING,
+        DEFAULT_KIMI_REASONING_ENABLED,
+    )
+    deepseek_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING,
+        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+    )
     prompt = str(config.get(CONFIG_KEY_OVERVIEW_PROMPT, DEFAULT_OVERVIEW_PROMPT) or "").strip()
     if prompt in {LEGACY_DEFAULT_OVERVIEW_PROMPT, PREVIOUS_DEFAULT_OVERVIEW_PROMPT}:
         prompt = DEFAULT_OVERVIEW_PROMPT
@@ -2008,6 +2099,8 @@ def load_overview_settings() -> dict[str, str]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
+        "kimi_reasoning": kimi_reasoning,
+        "deepseek_reasoning": deepseek_reasoning,
         "prompt": prompt or DEFAULT_OVERVIEW_PROMPT,
     }
 
@@ -2016,12 +2109,16 @@ def save_overview_settings(
     api_url: str,
     model_id: str,
     api_key: str,
+    kimi_reasoning: bool,
+    deepseek_reasoning: bool,
     prompt: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_OVERVIEW_API_URL] = api_url
     config[CONFIG_KEY_OVERVIEW_MODEL_ID] = model_id
     config[CONFIG_KEY_OVERVIEW_API_KEY] = api_key
+    config[CONFIG_KEY_OVERVIEW_KIMI_REASONING] = bool(kimi_reasoning)
+    config[CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
     config[CONFIG_KEY_OVERVIEW_PROMPT] = prompt or DEFAULT_OVERVIEW_PROMPT
     _write_config(config)
 
@@ -2474,7 +2571,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self,
         key: str,
         title: str,
-        settings: dict[str, str],
+        settings: dict[str, Any],
         default_prompt: str,
     ) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -2489,6 +2586,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.append(title_label)
 
         is_classify_basic = key == "classify-basic"
+        is_case_name = key == "case-name"
 
         if is_classify_basic:
             info_label = Gtk.Label(
@@ -2516,6 +2614,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
         thinking_switch: Gtk.Switch | None = None
+        kimi_reasoning_row: Adw.SwitchRow | None = None
+        deepseek_reasoning_row: Adw.SwitchRow | None = None
         if is_classify_basic:
             thinking_row = Adw.ActionRow(
                 title="Enable thinking mode",
@@ -2527,6 +2627,24 @@ class SettingsWindow(Adw.ApplicationWindow):
             thinking_row.add_suffix(thinking_switch)
             thinking_row.set_activatable_widget(thinking_switch)
             credentials_group.add(thinking_row)
+        elif is_case_name:
+            kimi_reasoning_row = Adw.SwitchRow(
+                title="Kimi Reasoning",
+                subtitle="Enable reasoning mode for Kimi models.",
+            )
+            kimi_reasoning_row.set_active(
+                bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED))
+            )
+            credentials_group.add(kimi_reasoning_row)
+
+            deepseek_reasoning_row = Adw.SwitchRow(
+                title="Deepseek Reasoning",
+                subtitle="Enable thinking mode for Deepseek models.",
+            )
+            deepseek_reasoning_row.set_active(
+                bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+            )
+            credentials_group.add(deepseek_reasoning_row)
 
         buffer: Gtk.TextBuffer
         ct_buffer: Gtk.TextBuffer | None = None
@@ -2577,6 +2695,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             prompt_buffer=buffer,
             ct_prompt_buffer=ct_buffer,
             thinking_switch=thinking_switch,
+            kimi_reasoning_row=kimi_reasoning_row,
+            deepseek_reasoning_row=deepseek_reasoning_row,
         )
         return page
 
@@ -2754,7 +2874,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         return page
 
-    def _build_optimize_prompt_page(self, settings: dict[str, str]) -> Gtk.Widget:
+    def _build_optimize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         page_box.set_margin_top(12)
         page_box.set_margin_bottom(12)
@@ -2782,6 +2902,22 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row = self._build_password_row("API Key")
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
+
+        kimi_reasoning_row = Adw.SwitchRow(
+            title="Kimi Reasoning",
+            subtitle="Enable reasoning mode for Kimi models.",
+        )
+        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
+        credentials_group.add(kimi_reasoning_row)
+
+        deepseek_reasoning_row = Adw.SwitchRow(
+            title="Deepseek Reasoning",
+            subtitle="Enable thinking mode for Deepseek models.",
+        )
+        deepseek_reasoning_row.set_active(
+            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+        )
+        credentials_group.add(deepseek_reasoning_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -2823,13 +2959,15 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
+            kimi_reasoning_row=kimi_reasoning_row,
+            deepseek_reasoning_row=deepseek_reasoning_row,
             attorneys_prompt_buffer=attorneys_buffer,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
         )
         return page
 
-    def _build_summarize_prompt_page(self, settings: dict[str, str]) -> Gtk.Widget:
+    def _build_summarize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         page_box.set_margin_top(12)
         page_box.set_margin_bottom(12)
@@ -2857,6 +2995,22 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row = self._build_password_row("API Key")
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
+
+        kimi_reasoning_row = Adw.SwitchRow(
+            title="Kimi Reasoning",
+            subtitle="Enable reasoning mode for Kimi models.",
+        )
+        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
+        credentials_group.add(kimi_reasoning_row)
+
+        deepseek_reasoning_row = Adw.SwitchRow(
+            title="Deepseek Reasoning",
+            subtitle="Enable thinking mode for Deepseek models.",
+        )
+        deepseek_reasoning_row.set_active(
+            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+        )
+        credentials_group.add(deepseek_reasoning_row)
 
         chunk_size_row = Adw.EntryRow(title="Chunk Size (paragraphs)")
         chunk_size_row.set_text(settings.get("chunk_size", str(DEFAULT_SUMMARIZE_CHUNK_SIZE)))
@@ -2902,6 +3056,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
+            kimi_reasoning_row=kimi_reasoning_row,
+            deepseek_reasoning_row=deepseek_reasoning_row,
             chunk_size_row=chunk_size_row,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
@@ -2909,7 +3065,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         return page
 
-    def _build_overview_prompt_page(self, settings: dict[str, str]) -> Gtk.Widget:
+    def _build_overview_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         page_box.set_margin_top(12)
         page_box.set_margin_bottom(12)
@@ -2938,6 +3094,22 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
 
+        kimi_reasoning_row = Adw.SwitchRow(
+            title="Kimi Reasoning",
+            subtitle="Enable reasoning mode for Kimi models.",
+        )
+        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
+        credentials_group.add(kimi_reasoning_row)
+
+        deepseek_reasoning_row = Adw.SwitchRow(
+            title="Deepseek Reasoning",
+            subtitle="Enable thinking mode for Deepseek models.",
+        )
+        deepseek_reasoning_row.set_active(
+            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+        )
+        credentials_group.add(deepseek_reasoning_row)
+
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
@@ -2960,6 +3132,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
+            kimi_reasoning_row=kimi_reasoning_row,
+            deepseek_reasoning_row=deepseek_reasoning_row,
             prompt_buffer=buffer,
         )
         return page
@@ -3067,6 +3241,16 @@ class SettingsWindow(Adw.ApplicationWindow):
                 case_widgets.api_url_row.get_text().strip(),
                 case_widgets.model_row.get_text().strip(),
                 case_widgets.api_key_row.get_text().strip(),
+                (
+                    bool(case_widgets.kimi_reasoning_row.get_active())
+                    if case_widgets.kimi_reasoning_row
+                    else DEFAULT_KIMI_REASONING_ENABLED
+                ),
+                (
+                    bool(case_widgets.deepseek_reasoning_row.get_active())
+                    if case_widgets.deepseek_reasoning_row
+                    else DEFAULT_DEEPSEEK_REASONING_ENABLED
+                ),
                 self._prompt_text(case_widgets.prompt_buffer).strip(),
             )
         if classify_basic_widgets:
@@ -3115,6 +3299,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 optimize_widgets.api_url_row.get_text().strip(),
                 optimize_widgets.model_row.get_text().strip(),
                 optimize_widgets.api_key_row.get_text().strip(),
+                bool(optimize_widgets.kimi_reasoning_row.get_active()),
+                bool(optimize_widgets.deepseek_reasoning_row.get_active()),
                 self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
@@ -3124,6 +3310,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 summarize_widgets.api_url_row.get_text().strip(),
                 summarize_widgets.model_row.get_text().strip(),
                 summarize_widgets.api_key_row.get_text().strip(),
+                bool(summarize_widgets.kimi_reasoning_row.get_active()),
+                bool(summarize_widgets.deepseek_reasoning_row.get_active()),
                 summarize_widgets.chunk_size_row.get_text().strip(),
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
@@ -3134,6 +3322,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 overview_widgets.api_url_row.get_text().strip(),
                 overview_widgets.model_row.get_text().strip(),
                 overview_widgets.api_key_row.get_text().strip(),
+                bool(overview_widgets.kimi_reasoning_row.get_active()),
+                bool(overview_widgets.deepseek_reasoning_row.get_active()),
                 self._prompt_text(overview_widgets.prompt_buffer).strip(),
             )
         if rag_widgets:
@@ -6548,6 +6738,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "api_url": settings["api_url"],
                         "model_id": settings["model_id"],
                         "api_key": settings["api_key"],
+                        "kimi_reasoning": bool(
+                            settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                        ),
+                        "deepseek_reasoning": bool(
+                            settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                        ),
                         "prompt": attorneys_prompt,
                     },
                     attorney_excerpt,
@@ -6560,6 +6756,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
+                            "kimi_reasoning": bool(
+                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                            ),
+                            "deepseek_reasoning": bool(
+                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            ),
                             "prompt": hearings_prompt,
                         },
                         payload,
@@ -6586,6 +6788,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
+                            "kimi_reasoning": bool(
+                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                            ),
+                            "deepseek_reasoning": bool(
+                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            ),
                             "prompt": reports_prompt,
                         },
                         chunk,
@@ -6697,6 +6905,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
+                            "kimi_reasoning": bool(
+                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                            ),
+                            "deepseek_reasoning": bool(
+                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            ),
                             "prompt": settings["hearings_prompt"],
                         },
                         chunk,
@@ -6741,6 +6955,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "api_url": settings["api_url"],
                         "model_id": settings["model_id"],
                         "api_key": settings["api_key"],
+                        "kimi_reasoning": bool(
+                            settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                        ),
+                        "deepseek_reasoning": bool(
+                            settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                        ),
                         "prompt": settings["reports_prompt"],
                     },
                     chunk,
@@ -6793,6 +7013,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
+                            "kimi_reasoning": bool(
+                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                            ),
+                            "deepseek_reasoning": bool(
+                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            ),
                             "prompt": settings["minutes_prompt"],
                         },
                         minutes_payload,
@@ -7059,6 +7285,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "api_url": settings["api_url"],
                     "model_id": settings["model_id"],
                     "api_key": settings["api_key"],
+                    "kimi_reasoning": bool(
+                        settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
+                    ),
+                    "deepseek_reasoning": bool(
+                        settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                    ),
                     "prompt": settings["prompt"],
                 },
                 combined,
@@ -7406,26 +7638,151 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 result[expected_key] = ""
         return result
 
-    def _request_plain_text(self, settings: dict[str, str], content: str) -> str:
+    def _request_plain_text(self, settings: dict[str, Any], content: str) -> str:
         self._raise_if_stop_requested()
         headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "Authorization": f"Bearer {settings['api_key']}",
             "User-Agent": "RecordPrep/0.1",
         }
         body = {
             "model": settings["model_id"],
-            "stream": False,
+            "stream": True,
             "messages": [
                 {"role": "system", "content": settings["prompt"]},
                 {"role": "user", "content": content},
             ],
         }
-        data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
-        payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
-        return self._extract_response_text(payload).strip()
+        if "deepseek_reasoning" in settings or "kimi_reasoning" in settings:
+            if _model_looks_deepseek(settings["model_id"]):
+                body["thinking"] = {
+                    "type": "enabled"
+                    if bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+                    else "disabled"
+                }
+            elif _model_looks_kimi(settings["model_id"]):
+                if not bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)):
+                    body["thinking"] = {"type": "disabled"}
+        error_label = "Classifier request failed"
+        attempted_without_thinking = False
+
+        while True:
+            data = json.dumps(body).encode("utf-8")
+            req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
+            try:
+                return self._stream_text_with_retries(req, timeout=300, error_label=error_label).strip()
+            except RuntimeError as exc:
+                message = str(exc).lower()
+                if (
+                    not attempted_without_thinking
+                    and "thinking" in body
+                    and "thinking" in message
+                    and "unsupported" in message
+                ):
+                    attempted_without_thinking = True
+                    body.pop("thinking", None)
+                    continue
+                raise
+
+    def _stream_text_with_retries(
+        self,
+        req: urllib.request.Request,
+        *,
+        timeout: int,
+        error_label: str,
+    ) -> str:
+        for attempt in range(1, LLM_MAX_RETRIES + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return self._read_sse_text_response(resp)
+            except urllib.error.HTTPError as exc:
+                retry_after = _retry_after_seconds(exc)
+                if exc.code in LLM_RETRYABLE_HTTP_CODES and attempt < LLM_MAX_RETRIES:
+                    time.sleep(_retry_delay_seconds(attempt, retry_after))
+                    continue
+                error_body = ""
+                try:
+                    error_body = exc.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    error_body = ""
+                detail = error_body.strip() or exc.reason or "request failed"
+                raise RuntimeError(f"{error_label}: HTTP {exc.code} {detail}") from exc
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if attempt < LLM_MAX_RETRIES:
+                    time.sleep(_retry_delay_seconds(attempt, None))
+                    continue
+                raise RuntimeError(f"{error_label}: {exc}") from exc
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"{error_label}: {exc}") from exc
+        raise RuntimeError(f"{error_label}: exhausted retries")
+
+    def _read_sse_text_response(self, resp: Any) -> str:
+        parts: list[str] = []
+        while True:
+            self._raise_if_stop_requested()
+            raw = resp.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="ignore").strip()
+            if not line:
+                continue
+            payload_text = ""
+            if line.startswith("data:"):
+                payload_text = line[5:].lstrip()
+            else:
+                payload_text = line
+            if payload_text == "[DONE]":
+                break
+            if not payload_text:
+                continue
+            try:
+                payload = json.loads(payload_text)
+            except json.JSONDecodeError:
+                continue
+            answer_text, _reasoning_text = self._extract_stream_text_parts(payload)
+            if answer_text:
+                parts.append(answer_text)
+        return "".join(parts).strip()
+
+    def _extract_stream_text_parts(self, payload: Any) -> tuple[str, str]:
+        answer_text = ""
+        reasoning_text = ""
+        choices = payload.get("choices") if isinstance(payload, dict) else None
+        if isinstance(choices, list) and choices:
+            first = choices[0] or {}
+            delta = first.get("delta") or first.get("message") or first
+            if isinstance(delta, dict):
+                answer_text = self._coerce_stream_text(
+                    delta.get("content") if "content" in delta else delta.get("text")
+                )
+                reasoning_text = self._coerce_stream_text(
+                    delta.get("reasoning_content")
+                    if "reasoning_content" in delta
+                    else delta.get("reasoning")
+                    if "reasoning" in delta
+                    else delta.get("thinking")
+                )
+        if isinstance(payload, dict):
+            fallback = payload.get("data") or payload.get("text")
+            if isinstance(fallback, str):
+                answer_text = answer_text or fallback
+        return answer_text, reasoning_text
+
+    def _coerce_stream_text(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if not isinstance(value, list):
+            return ""
+        merged: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                candidate = item.get("text")
+                if isinstance(candidate, str):
+                    merged.append(candidate)
+            elif isinstance(item, str):
+                merged.append(item)
+        return "".join(merged)
 
     def _extract_response_text(self, payload: Any) -> str:
         if isinstance(payload, dict):

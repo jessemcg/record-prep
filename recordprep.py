@@ -3420,6 +3420,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
         self._test_classification_window: TestClassificationWindow | None = None
+        self._log_buffer: Gtk.TextBuffer | None = None
+        self._log_view: Gtk.TextView | None = None
 
         header_bar = Adw.HeaderBar()
 
@@ -3445,10 +3447,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
         header_bar.pack_end(self.menu_button)
 
-        self.toast_overlay = Adw.ToastOverlay()
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header_bar)
-        toolbar_view.set_content(self.toast_overlay)
         self.set_content(toolbar_view)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -3460,7 +3460,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroller.set_child(content)
-        self.toast_overlay.set_child(scroller)
+        scroller.set_vexpand(True)
+        toolbar_view.set_content(scroller)
+
+        log_frame = Gtk.Frame(label="Log")
+        log_frame.set_hexpand(True)
+        log_frame.set_margin_top(6)
+        log_scroller = Gtk.ScrolledWindow()
+        log_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        log_scroller.set_min_content_height(140)
+        log_scroller.set_vexpand(False)
+        log_view = Gtk.TextView()
+        log_view.set_editable(False)
+        log_view.set_cursor_visible(False)
+        log_view.set_monospace(True)
+        log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        log_scroller.set_child(log_view)
+        log_frame.set_child(log_scroller)
+        self._log_view = log_view
+        self._log_buffer = log_view.get_buffer()
+        self._log_buffer.create_tag("log_info", foreground="#1f2937")
+        self._log_buffer.create_tag("log_warn", foreground="#b45309")
+        self._log_buffer.create_tag("log_error", foreground="#b91c1c")
 
         transcript_section = self._build_transcript_split_section()
         content.append(transcript_section)
@@ -3726,6 +3747,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_twelve_row)
         self.step_list.append(self.step_twelve_row)
+        content.append(log_frame)
 
         self._setup_menu(app)
         self._load_selected_pdfs()
@@ -3932,15 +3954,66 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._toc_editor_window = None
         return False
 
-    def show_toast(self, message: str) -> None:
-        display_message = " ".join(str(message).split()).strip()
-        if len(display_message) > 100:
-            display_message = display_message[:97].rstrip() + "..."
-        toast = Adw.Toast(title=display_message)
-        toast.set_timeout(10)
-        self.toast_overlay.add_toast(toast)
-        # Also log to stderr so short toasts don't hide errors.
-        print(message, file=sys.stderr)
+    def _infer_log_level(self, message: str) -> str:
+        text = message.lower()
+        error_markers = (
+            " failed",
+            "error",
+            "unable to",
+            "missing ",
+            "no ",
+            "invalid",
+            "exception",
+            "fix the errors",
+        )
+        warn_markers = (
+            "stop requested",
+            "pipeline stopped",
+            "choose ",
+            "set the ",
+            "configure ",
+            "unknown ",
+            "not open",
+            "must be",
+            "before ",
+        )
+        if any(marker in text for marker in error_markers):
+            return "ERROR"
+        if any(marker in text for marker in warn_markers):
+            return "WARN"
+        return "INFO"
+
+    def _append_log_message(self, message: str, level: str = "INFO") -> bool:
+        if self._log_buffer is None:
+            return False
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        text = " ".join(str(message).split()).strip()
+        if not text:
+            return False
+        level_normalized = str(level or "").upper()
+        if level_normalized not in {"INFO", "WARN", "ERROR"}:
+            level_normalized = self._infer_log_level(text)
+        tag_name = {
+            "INFO": "log_info",
+            "WARN": "log_warn",
+            "ERROR": "log_error",
+        }[level_normalized]
+        end_iter = self._log_buffer.get_end_iter()
+        self._log_buffer.insert_with_tags_by_name(
+            end_iter,
+            f"[{timestamp}] [{level_normalized}] {text}\n",
+            tag_name,
+        )
+        if self._log_view is not None:
+            end_iter = self._log_buffer.get_end_iter()
+            self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
+        return False
+
+    def show_toast(self, message: str, level: str | None = None) -> None:
+        resolved_level = level or self._infer_log_level(str(message))
+        GLib.idle_add(self._append_log_message, str(message), resolved_level)
+        # Keep stderr logging so errors are still visible when launching from terminal.
+        print(f"[{resolved_level}] {message}", file=sys.stderr)
 
     def _toc_path(self) -> Path | None:
         root_dir = self._resolve_case_root()

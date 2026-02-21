@@ -3422,6 +3422,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._test_classification_window: TestClassificationWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
+        self.run_indicator_spinner: Gtk.Spinner | None = None
 
         header_bar = Adw.HeaderBar()
 
@@ -3479,9 +3480,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         log_frame.set_child(log_scroller)
         self._log_view = log_view
         self._log_buffer = log_view.get_buffer()
-        self._log_buffer.create_tag("log_info", foreground="#1f2937")
-        self._log_buffer.create_tag("log_warn", foreground="#b45309")
-        self._log_buffer.create_tag("log_error", foreground="#b91c1c")
 
         transcript_section = self._build_transcript_split_section()
         content.append(transcript_section)
@@ -3501,6 +3499,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(False)
         self.stop_button.connect("clicked", self.on_stop_clicked)
         action_box.append(self.stop_button)
+        self.run_indicator_spinner = Gtk.Spinner()
+        self.run_indicator_spinner.set_tooltip_text("Pipeline running")
+        action_box.append(self.run_indicator_spinner)
 
         content.append(action_box)
 
@@ -3993,17 +3994,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         level_normalized = str(level or "").upper()
         if level_normalized not in {"INFO", "WARN", "ERROR"}:
             level_normalized = self._infer_log_level(text)
-        tag_name = {
-            "INFO": "log_info",
-            "WARN": "log_warn",
-            "ERROR": "log_error",
-        }[level_normalized]
         end_iter = self._log_buffer.get_end_iter()
-        self._log_buffer.insert_with_tags_by_name(
-            end_iter,
-            f"[{timestamp}] [{level_normalized}] {text}\n",
-            tag_name,
-        )
+        self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
@@ -4031,8 +4023,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.status_label.set_text(message)
         if active:
             self.status_spinner.start()
+            if self.run_indicator_spinner is not None:
+                self.run_indicator_spinner.start()
         else:
             self.status_spinner.stop()
+            if self.run_indicator_spinner is not None:
+                self.run_indicator_spinner.stop()
 
     def _attach_step_status(self, row: Adw.ActionRow) -> None:
         status_label = Gtk.Label(label="Pending", xalign=1)
@@ -4614,7 +4610,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
-        self.step_list.set_sensitive(False)
         threading.Thread(target=self._run_all_steps, daemon=True).start()
 
     def on_run_from_step_clicked(self, step_id: str) -> None:
@@ -4644,7 +4639,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
-        self.step_list.set_sensitive(False)
         threading.Thread(
             target=self._run_steps_from_index,
             args=(start_index, root_dir),
@@ -4661,7 +4655,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
-        self.step_list.set_sensitive(False)
         row.set_sensitive(False)
         self._start_step(row)
         threading.Thread(
@@ -4680,7 +4673,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
-        self.step_list.set_sensitive(True)
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
@@ -5062,7 +5054,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
-        self.step_list.set_sensitive(True)
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()

@@ -5475,17 +5475,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                 )
                 previous_was_first = False
+                previous_page_type = ""
                 with rt_corrected_path.open("w", encoding="utf-8") as handle:
                     for entry in rt_entries:
                         self._raise_if_stop_requested()
                         page_type = _extract_entry_value(
                             entry, "page_type", "pagetype"
                         ).strip().lower()
+                        if (
+                            page_type == "rt_body"
+                            and previous_page_type in {"rt_cover", "rt_index"}
+                        ):
+                            entry["page_type"] = "RT_body_first_page"
+                            page_type = "rt_body_first_page"
+                            updates += 1
                         is_rt_first_page = page_type == "rt_body_first_page"
                         if is_rt_first_page and previous_was_first:
                             entry["page_type"] = "RT_body"
+                            page_type = "rt_body"
+                            is_rt_first_page = False
                             updates += 1
                         previous_was_first = is_rt_first_page
+                        previous_page_type = page_type
                         handle.write(json.dumps(entry))
                         handle.write("\n")
 

@@ -30,7 +30,7 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 ## Recommended models
 - OCR model: LightOnOCR-2-1B-Q8_0.gguf via llama.cpp
 - Vision model: Qwen_Qwen3.5-27B-Q4_K_L.gguf via llama.cpp
-- Optimize model: llama-3.3-70b via Cerebras Fireworks API
+- Optimize model: llama-3.3-70b via Fireworks API
 - Summarization model: deepseek-v3p2 via Fireworks API
 - Embeddings model: kanon-2-embedder via Isaacus API
 

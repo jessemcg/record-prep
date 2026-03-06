@@ -45,6 +45,14 @@ LLM_MAX_RETRIES = 5
 LLM_RETRY_BASE_SECONDS = 1.0
 LLM_RETRY_MAX_SECONDS = 30.0
 LLM_RETRYABLE_HTTP_CODES = {408, 409, 429, 500, 502, 503, 504}
+LOCAL_OCR_SERVER_STARTUP_SECONDS = 1.0
+LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
+VISION_CLASSIFICATION_STEP_IDS = {
+    "classify_basic",
+    "classify_advanced",
+    "classify_dates",
+    "classify_names",
+}
 MODEL_ID = "LightOnOCR-2-1B-Q8_0.gguf"
 DEFAULT_SERVER_URL = "http://localhost:8000/v1/chat/completions"
 START_SERVER_COMMAND = """\
@@ -76,6 +84,9 @@ CONFIG_KEY_CLASSIFIER_PROMPT = "classifier_prompt"
 CONFIG_KEY_CLASSIFIER_RT_PROMPT = "classifier_rt_prompt"
 CONFIG_KEY_CLASSIFIER_CT_PROMPT = "classifier_ct_prompt"
 CONFIG_KEY_CLASSIFIER_THINKING_ENABLED = "classifier_thinking_enabled"
+CONFIG_KEY_CLASSIFIER_DISABLE_REASONING = "classifier_disable_reasoning"
+CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED = "classifier_local_vision_enabled"
+CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND = "classifier_local_vision_start_command"
 CONFIG_KEY_CLASSIFY_DATES_HEARING_PROMPT = "classify_dates_hearing_prompt"
 CONFIG_KEY_CLASSIFY_DATES_MINUTE_PROMPT = "classify_dates_minute_prompt"
 CONFIG_KEY_CLASSIFY_NAMES_REPORT_PROMPT = "classify_names_report_prompt"
@@ -83,8 +94,7 @@ CONFIG_KEY_CLASSIFY_NAMES_FORM_PROMPT = "classify_names_form_prompt"
 CONFIG_KEY_CASE_NAME_API_URL = "case_name_api_url"
 CONFIG_KEY_CASE_NAME_MODEL_ID = "case_name_model_id"
 CONFIG_KEY_CASE_NAME_API_KEY = "case_name_api_key"
-CONFIG_KEY_CASE_NAME_KIMI_REASONING = "case_name_kimi_reasoning"
-CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING = "case_name_deepseek_reasoning"
+CONFIG_KEY_CASE_NAME_DISABLE_REASONING = "case_name_disable_reasoning"
 CONFIG_KEY_CASE_NAME_PROMPT = "case_name_prompt"
 CONFIG_KEY_CASE_NAME = "case_name"
 CONFIG_KEY_CASE_ROOT_DIR = "case_root_dir"
@@ -108,16 +118,14 @@ CONFIG_KEY_CLASSIFY_FORMS_PROMPT = "classify_form_names_prompt"
 CONFIG_KEY_OPTIMIZE_API_URL = "optimize_api_url"
 CONFIG_KEY_OPTIMIZE_MODEL_ID = "optimize_model_id"
 CONFIG_KEY_OPTIMIZE_API_KEY = "optimize_api_key"
-CONFIG_KEY_OPTIMIZE_KIMI_REASONING = "optimize_kimi_reasoning"
-CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING = "optimize_deepseek_reasoning"
+CONFIG_KEY_OPTIMIZE_DISABLE_REASONING = "optimize_disable_reasoning"
 CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
 CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
 CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT = "optimize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_API_URL = "summarize_api_url"
 CONFIG_KEY_SUMMARIZE_MODEL_ID = "summarize_model_id"
 CONFIG_KEY_SUMMARIZE_API_KEY = "summarize_api_key"
-CONFIG_KEY_SUMMARIZE_KIMI_REASONING = "summarize_kimi_reasoning"
-CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING = "summarize_deepseek_reasoning"
+CONFIG_KEY_SUMMARIZE_DISABLE_REASONING = "summarize_disable_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
@@ -125,8 +133,7 @@ CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_OVERVIEW_API_URL = "overview_api_url"
 CONFIG_KEY_OVERVIEW_MODEL_ID = "overview_model_id"
 CONFIG_KEY_OVERVIEW_API_KEY = "overview_api_key"
-CONFIG_KEY_OVERVIEW_KIMI_REASONING = "overview_kimi_reasoning"
-CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING = "overview_deepseek_reasoning"
+CONFIG_KEY_OVERVIEW_DISABLE_REASONING = "overview_disable_reasoning"
 CONFIG_KEY_OVERVIEW_PROMPT = "overview_prompt"
 CONFIG_KEY_RAG_PROVIDER = "rag_provider"
 CONFIG_KEY_RAG_VOYAGE_API_KEY = "rag_voyage_api_key"
@@ -138,6 +145,7 @@ CONFIG_KEY_RT_CT_SPLIT_PAGE = "rt_ct_split_page"
 TEXT_SOURCE_EMBEDDED = "embedded"
 TEXT_SOURCE_LOCAL_OCR = "local_ocr"
 DEFAULT_TEXT_SOURCE = TEXT_SOURCE_EMBEDDED
+DEFAULT_LOCAL_VISION_START_COMMAND = ""
 RAG_PROVIDER_VOYAGE = "voyage"
 RAG_PROVIDER_ISAACUS = "isaacus"
 DEFAULT_RAG_PROVIDER = RAG_PROVIDER_VOYAGE
@@ -325,8 +333,7 @@ LEGACY_DEFAULT_OVERVIEW_PROMPT = (
 )
 DEFAULT_RAG_VOYAGE_MODEL = "voyage-law-2"
 DEFAULT_RAG_ISAACUS_MODEL = "kanon-2-embedder"
-DEFAULT_KIMI_REASONING_ENABLED = True
-DEFAULT_DEEPSEEK_REASONING_ENABLED = True
+DEFAULT_DISABLE_REASONING = False
 ISAACUS_MAX_EMBED_BATCH = 128
 
 
@@ -1228,6 +1235,20 @@ def _post_json_with_retries(
     raise RuntimeError(f"{error_label}: exhausted retries")
 
 
+def _endpoint_responding(url: str, timeout: float = 1.0) -> bool:
+    target = str(url or "").strip()
+    if not target:
+        return False
+    req = urllib.request.Request(target, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout):
+            return True
+    except urllib.error.HTTPError as exc:
+        return exc.code in {400, 401, 403, 404, 405}
+    except Exception:
+        return False
+
+
 def _manifest_path(root_dir: Path) -> Path:
     return root_dir / "manifest.json"
 
@@ -1427,7 +1448,26 @@ def load_classifier_settings() -> dict[str, Any]:
     api_url = str(config.get(CONFIG_KEY_CLASSIFIER_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_CLASSIFIER_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_CLASSIFIER_API_KEY, "") or "").strip()
-    thinking_enabled = _read_config_bool(config, CONFIG_KEY_CLASSIFIER_THINKING_ENABLED, True)
+    if CONFIG_KEY_CLASSIFIER_DISABLE_REASONING in config:
+        disable_reasoning = _read_config_bool(
+            config,
+            CONFIG_KEY_CLASSIFIER_DISABLE_REASONING,
+            DEFAULT_DISABLE_REASONING,
+        )
+    else:
+        disable_reasoning = not _read_config_bool(
+            config,
+            CONFIG_KEY_CLASSIFIER_THINKING_ENABLED,
+            True,
+        )
+    local_vision_enabled = _read_config_bool(config, CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED, False)
+    local_vision_start_command = str(
+        config.get(
+            CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND,
+            DEFAULT_LOCAL_VISION_START_COMMAND,
+        )
+        or ""
+    ).strip()
     prompt = str(config.get(CONFIG_KEY_CLASSIFIER_PROMPT, DEFAULT_CLASSIFIER_PROMPT) or "").strip()
     rt_prompt = str(
         config.get(CONFIG_KEY_CLASSIFIER_RT_PROMPT, prompt or DEFAULT_CLASSIFIER_PROMPT) or ""
@@ -1442,7 +1482,9 @@ def load_classifier_settings() -> dict[str, Any]:
         "prompt": prompt or DEFAULT_CLASSIFIER_PROMPT,
         "rt_prompt": rt_prompt or DEFAULT_CLASSIFIER_PROMPT,
         "ct_prompt": ct_prompt or DEFAULT_CLASSIFIER_PROMPT,
-        "thinking_enabled": thinking_enabled,
+        "disable_reasoning": disable_reasoning,
+        "local_vision_enabled": local_vision_enabled,
+        "local_vision_start_command": local_vision_start_command,
     }
 
 
@@ -1452,7 +1494,9 @@ def save_classifier_settings(
     api_key: str,
     rt_prompt: str,
     ct_prompt: str,
-    thinking_enabled: bool,
+    disable_reasoning: bool,
+    local_vision_enabled: bool,
+    local_vision_start_command: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_CLASSIFIER_API_URL] = api_url
@@ -1463,7 +1507,9 @@ def save_classifier_settings(
     config[CONFIG_KEY_CLASSIFIER_PROMPT] = normalized_rt
     config[CONFIG_KEY_CLASSIFIER_RT_PROMPT] = normalized_rt
     config[CONFIG_KEY_CLASSIFIER_CT_PROMPT] = normalized_ct
-    config[CONFIG_KEY_CLASSIFIER_THINKING_ENABLED] = bool(thinking_enabled)
+    config[CONFIG_KEY_CLASSIFIER_DISABLE_REASONING] = bool(disable_reasoning)
+    config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED] = bool(local_vision_enabled)
+    config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND] = local_vision_start_command.strip()
     _write_config(config)
 
 
@@ -1493,7 +1539,11 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         "hearing_prompt": hearing_prompt or DEFAULT_ADVANCED_HEARING_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT,
         "form_prompt": form_prompt or DEFAULT_ADVANCED_FORM_PROMPT,
-        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
+        "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
+        "local_vision_start_command": str(
+            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
+        ).strip(),
     }
 
 
@@ -1534,7 +1584,11 @@ def load_classify_dates_settings() -> dict[str, Any]:
         "api_key": api_key,
         "hearing_prompt": hearing_prompt or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT,
-        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
+        "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
+        "local_vision_start_command": str(
+            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
+        ).strip(),
     }
 
 
@@ -1571,7 +1625,11 @@ def load_classify_names_settings() -> dict[str, Any]:
         "api_key": api_key,
         "report_prompt": report_prompt or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT,
         "form_prompt": form_prompt or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT,
-        "thinking_enabled": bool(shared.get("thinking_enabled", True)),
+        "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
+        "local_vision_start_command": str(
+            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
+        ).strip(),
     }
 
 
@@ -1592,23 +1650,17 @@ def load_case_name_settings() -> dict[str, Any]:
     api_url = str(config.get(CONFIG_KEY_CASE_NAME_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_CASE_NAME_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_CASE_NAME_API_KEY, "") or "").strip()
-    kimi_reasoning = _read_config_bool(
+    disable_reasoning = _read_config_bool(
         config,
-        CONFIG_KEY_CASE_NAME_KIMI_REASONING,
-        DEFAULT_KIMI_REASONING_ENABLED,
-    )
-    deepseek_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING,
-        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+        CONFIG_KEY_CASE_NAME_DISABLE_REASONING,
+        DEFAULT_DISABLE_REASONING,
     )
     prompt = str(config.get(CONFIG_KEY_CASE_NAME_PROMPT, DEFAULT_CASE_NAME_PROMPT) or "").strip()
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "kimi_reasoning": kimi_reasoning,
-        "deepseek_reasoning": deepseek_reasoning,
+        "disable_reasoning": disable_reasoning,
         "prompt": prompt or DEFAULT_CASE_NAME_PROMPT,
     }
 
@@ -1617,16 +1669,14 @@ def save_case_name_settings(
     api_url: str,
     model_id: str,
     api_key: str,
-    kimi_reasoning: bool,
-    deepseek_reasoning: bool,
+    disable_reasoning: bool,
     prompt: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_CASE_NAME_API_URL] = api_url
     config[CONFIG_KEY_CASE_NAME_MODEL_ID] = model_id
     config[CONFIG_KEY_CASE_NAME_API_KEY] = api_key
-    config[CONFIG_KEY_CASE_NAME_KIMI_REASONING] = bool(kimi_reasoning)
-    config[CONFIG_KEY_CASE_NAME_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
+    config[CONFIG_KEY_CASE_NAME_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_CASE_NAME_PROMPT] = prompt or DEFAULT_CASE_NAME_PROMPT
     _write_config(config)
 
@@ -1837,7 +1887,7 @@ def _generate_text_files_with_local_ocr(
     server_url: str = DEFAULT_SERVER_URL,
     start_command: str = START_SERVER_COMMAND,
     model_id: str = MODEL_ID,
-    sleep_seconds: float = 1.0,
+    sleep_seconds: float = LOCAL_OCR_SERVER_STARTUP_SECONDS,
 ) -> None:
     server_process: subprocess.Popen[str] | None = None
     try:
@@ -1869,9 +1919,10 @@ class ClassifySettingsWidgets:
     api_key_row: Adw.EntryRow
     prompt_buffer: Gtk.TextBuffer
     ct_prompt_buffer: Gtk.TextBuffer | None = None
-    thinking_switch: Gtk.Switch | None = None
-    kimi_reasoning_row: Adw.SwitchRow | None = None
-    deepseek_reasoning_row: Adw.SwitchRow | None = None
+    disable_reasoning_switch: Gtk.Switch | None = None
+    local_server_switch: Gtk.Switch | None = None
+    local_start_command_buffer: Gtk.TextBuffer | None = None
+    disable_reasoning_row: Adw.SwitchRow | None = None
 
 
 @dataclass
@@ -1905,8 +1956,7 @@ class OptimizeSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
-    kimi_reasoning_row: Adw.SwitchRow
-    deepseek_reasoning_row: Adw.SwitchRow
+    disable_reasoning_row: Adw.SwitchRow
     attorneys_prompt_buffer: Gtk.TextBuffer
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -1917,8 +1967,7 @@ class SummarizeSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
-    kimi_reasoning_row: Adw.SwitchRow
-    deepseek_reasoning_row: Adw.SwitchRow
+    disable_reasoning_row: Adw.SwitchRow
     chunk_size_row: Adw.EntryRow
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -1930,8 +1979,7 @@ class OverviewSettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
-    kimi_reasoning_row: Adw.SwitchRow
-    deepseek_reasoning_row: Adw.SwitchRow
+    disable_reasoning_row: Adw.SwitchRow
     prompt_buffer: Gtk.TextBuffer
 
 
@@ -1950,15 +1998,10 @@ def load_optimize_settings() -> dict[str, Any]:
     api_url = str(config.get(CONFIG_KEY_OPTIMIZE_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_OPTIMIZE_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_OPTIMIZE_API_KEY, "") or "").strip()
-    kimi_reasoning = _read_config_bool(
+    disable_reasoning = _read_config_bool(
         config,
-        CONFIG_KEY_OPTIMIZE_KIMI_REASONING,
-        DEFAULT_KIMI_REASONING_ENABLED,
-    )
-    deepseek_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING,
-        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+        CONFIG_KEY_OPTIMIZE_DISABLE_REASONING,
+        DEFAULT_DISABLE_REASONING,
     )
     attorneys_prompt = str(
         config.get(CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT, DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT) or ""
@@ -1973,8 +2016,7 @@ def load_optimize_settings() -> dict[str, Any]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "kimi_reasoning": kimi_reasoning,
-        "deepseek_reasoning": deepseek_reasoning,
+        "disable_reasoning": disable_reasoning,
         "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
         "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT,
@@ -1985,8 +2027,7 @@ def save_optimize_settings(
     api_url: str,
     model_id: str,
     api_key: str,
-    kimi_reasoning: bool,
-    deepseek_reasoning: bool,
+    disable_reasoning: bool,
     attorneys_prompt: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -1995,8 +2036,7 @@ def save_optimize_settings(
     config[CONFIG_KEY_OPTIMIZE_API_URL] = api_url
     config[CONFIG_KEY_OPTIMIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_OPTIMIZE_API_KEY] = api_key
-    config[CONFIG_KEY_OPTIMIZE_KIMI_REASONING] = bool(kimi_reasoning)
-    config[CONFIG_KEY_OPTIMIZE_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
+    config[CONFIG_KEY_OPTIMIZE_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT] = reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT
@@ -2008,15 +2048,10 @@ def load_summarize_settings() -> dict[str, Any]:
     api_url = str(config.get(CONFIG_KEY_SUMMARIZE_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_SUMMARIZE_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_SUMMARIZE_API_KEY, "") or "").strip()
-    kimi_reasoning = _read_config_bool(
+    disable_reasoning = _read_config_bool(
         config,
-        CONFIG_KEY_SUMMARIZE_KIMI_REASONING,
-        DEFAULT_KIMI_REASONING_ENABLED,
-    )
-    deepseek_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING,
-        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+        CONFIG_KEY_SUMMARIZE_DISABLE_REASONING,
+        DEFAULT_DISABLE_REASONING,
     )
     chunk_size_raw = str(config.get(CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, "") or "").strip()
     chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
@@ -2038,8 +2073,7 @@ def load_summarize_settings() -> dict[str, Any]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "kimi_reasoning": kimi_reasoning,
-        "deepseek_reasoning": deepseek_reasoning,
+        "disable_reasoning": disable_reasoning,
         "chunk_size": str(chunk_size),
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
@@ -2051,8 +2085,7 @@ def save_summarize_settings(
     api_url: str,
     model_id: str,
     api_key: str,
-    kimi_reasoning: bool,
-    deepseek_reasoning: bool,
+    disable_reasoning: bool,
     chunk_size: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -2062,8 +2095,7 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_API_URL] = api_url
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
-    config[CONFIG_KEY_SUMMARIZE_KIMI_REASONING] = bool(kimi_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
+    config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_SUMMARIZE_CHUNK_SIZE] = chunk_size
     config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = (
         hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
@@ -2082,15 +2114,10 @@ def load_overview_settings() -> dict[str, Any]:
     api_url = str(config.get(CONFIG_KEY_OVERVIEW_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_OVERVIEW_MODEL_ID, "") or "").strip()
     api_key = str(config.get(CONFIG_KEY_OVERVIEW_API_KEY, "") or "").strip()
-    kimi_reasoning = _read_config_bool(
+    disable_reasoning = _read_config_bool(
         config,
-        CONFIG_KEY_OVERVIEW_KIMI_REASONING,
-        DEFAULT_KIMI_REASONING_ENABLED,
-    )
-    deepseek_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING,
-        DEFAULT_DEEPSEEK_REASONING_ENABLED,
+        CONFIG_KEY_OVERVIEW_DISABLE_REASONING,
+        DEFAULT_DISABLE_REASONING,
     )
     prompt = str(config.get(CONFIG_KEY_OVERVIEW_PROMPT, DEFAULT_OVERVIEW_PROMPT) or "").strip()
     if prompt in {LEGACY_DEFAULT_OVERVIEW_PROMPT, PREVIOUS_DEFAULT_OVERVIEW_PROMPT}:
@@ -2099,8 +2126,7 @@ def load_overview_settings() -> dict[str, Any]:
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "kimi_reasoning": kimi_reasoning,
-        "deepseek_reasoning": deepseek_reasoning,
+        "disable_reasoning": disable_reasoning,
         "prompt": prompt or DEFAULT_OVERVIEW_PROMPT,
     }
 
@@ -2109,16 +2135,14 @@ def save_overview_settings(
     api_url: str,
     model_id: str,
     api_key: str,
-    kimi_reasoning: bool,
-    deepseek_reasoning: bool,
+    disable_reasoning: bool,
     prompt: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_OVERVIEW_API_URL] = api_url
     config[CONFIG_KEY_OVERVIEW_MODEL_ID] = model_id
     config[CONFIG_KEY_OVERVIEW_API_KEY] = api_key
-    config[CONFIG_KEY_OVERVIEW_KIMI_REASONING] = bool(kimi_reasoning)
-    config[CONFIG_KEY_OVERVIEW_DEEPSEEK_REASONING] = bool(deepseek_reasoning)
+    config[CONFIG_KEY_OVERVIEW_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_OVERVIEW_PROMPT] = prompt or DEFAULT_OVERVIEW_PROMPT
     _write_config(config)
 
@@ -2613,38 +2637,59 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row = self._build_password_row("API Key")
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
-        thinking_switch: Gtk.Switch | None = None
-        kimi_reasoning_row: Adw.SwitchRow | None = None
-        deepseek_reasoning_row: Adw.SwitchRow | None = None
+        disable_reasoning_switch: Gtk.Switch | None = None
+        local_server_switch: Gtk.Switch | None = None
+        local_start_command_buffer: Gtk.TextBuffer | None = None
+        disable_reasoning_row: Adw.SwitchRow | None = None
         if is_classify_basic:
-            thinking_row = Adw.ActionRow(
-                title="Enable thinking mode",
-                subtitle="Turn off for faster Kimi K2.5 instant-style classification requests.",
+            disable_reasoning_row = Adw.ActionRow(
+                title="Disable reasoning",
+                subtitle="Leave off to use the model's default behavior.",
             )
-            thinking_switch = Gtk.Switch()
-            thinking_switch.set_valign(Gtk.Align.CENTER)
-            thinking_switch.set_active(bool(settings.get("thinking_enabled", True)))
-            thinking_row.add_suffix(thinking_switch)
-            thinking_row.set_activatable_widget(thinking_switch)
-            credentials_group.add(thinking_row)
-        elif is_case_name:
-            kimi_reasoning_row = Adw.SwitchRow(
-                title="Kimi Reasoning",
-                subtitle="Enable reasoning mode for Kimi models.",
+            disable_reasoning_switch = Gtk.Switch()
+            disable_reasoning_switch.set_valign(Gtk.Align.CENTER)
+            disable_reasoning_switch.set_active(
+                bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
             )
-            kimi_reasoning_row.set_active(
-                bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED))
-            )
-            credentials_group.add(kimi_reasoning_row)
+            disable_reasoning_row.add_suffix(disable_reasoning_switch)
+            disable_reasoning_row.set_activatable_widget(disable_reasoning_switch)
+            credentials_group.add(disable_reasoning_row)
 
-            deepseek_reasoning_row = Adw.SwitchRow(
-                title="Deepseek Reasoning",
-                subtitle="Enable thinking mode for Deepseek models.",
+            local_server_row = Adw.ActionRow(
+                title="Use local llama.cpp vision server",
+                subtitle="Start local server automatically and stop it after classification tasks.",
             )
-            deepseek_reasoning_row.set_active(
-                bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
+            local_server_switch = Gtk.Switch()
+            local_server_switch.set_valign(Gtk.Align.CENTER)
+            local_server_switch.set_active(bool(settings.get("local_vision_enabled", False)))
+            local_server_row.add_suffix(local_server_switch)
+            local_server_row.set_activatable_widget(local_server_switch)
+            credentials_group.add(local_server_row)
+        elif is_case_name:
+            disable_reasoning_row = Adw.SwitchRow(
+                title="Disable reasoning",
+                subtitle="Leave off to use the model's default behavior.",
             )
-            credentials_group.add(deepseek_reasoning_row)
+            disable_reasoning_row.set_active(
+                bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
+            )
+            credentials_group.add(disable_reasoning_row)
+
+        if is_classify_basic:
+            command_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            command_section.set_hexpand(True)
+            command_section.set_vexpand(True)
+
+            command_label = Gtk.Label(label="Local server start command", xalign=0)
+            command_label.add_css_class("dim-label")
+            command_section.append(command_label)
+            command_scroller, local_start_command_buffer = self._build_prompt_editor(
+                settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+            )
+            command_scroller.set_vexpand(True)
+            command_scroller.set_size_request(-1, 140)
+            command_section.append(command_scroller)
+            page_box.append(command_section)
 
         buffer: Gtk.TextBuffer
         ct_buffer: Gtk.TextBuffer | None = None
@@ -2694,9 +2739,10 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_key_row=api_key_row,
             prompt_buffer=buffer,
             ct_prompt_buffer=ct_buffer,
-            thinking_switch=thinking_switch,
-            kimi_reasoning_row=kimi_reasoning_row,
-            deepseek_reasoning_row=deepseek_reasoning_row,
+            disable_reasoning_switch=disable_reasoning_switch,
+            local_server_switch=local_server_switch,
+            local_start_command_buffer=local_start_command_buffer,
+            disable_reasoning_row=disable_reasoning_row,
         )
         return page
 
@@ -2903,21 +2949,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
 
-        kimi_reasoning_row = Adw.SwitchRow(
-            title="Kimi Reasoning",
-            subtitle="Enable reasoning mode for Kimi models.",
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
         )
-        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
-        credentials_group.add(kimi_reasoning_row)
-
-        deepseek_reasoning_row = Adw.SwitchRow(
-            title="Deepseek Reasoning",
-            subtitle="Enable thinking mode for Deepseek models.",
+        disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
         )
-        deepseek_reasoning_row.set_active(
-            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
-        )
-        credentials_group.add(deepseek_reasoning_row)
+        credentials_group.add(disable_reasoning_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -2959,8 +2998,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
-            kimi_reasoning_row=kimi_reasoning_row,
-            deepseek_reasoning_row=deepseek_reasoning_row,
+            disable_reasoning_row=disable_reasoning_row,
             attorneys_prompt_buffer=attorneys_buffer,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
@@ -2996,21 +3034,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
 
-        kimi_reasoning_row = Adw.SwitchRow(
-            title="Kimi Reasoning",
-            subtitle="Enable reasoning mode for Kimi models.",
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
         )
-        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
-        credentials_group.add(kimi_reasoning_row)
-
-        deepseek_reasoning_row = Adw.SwitchRow(
-            title="Deepseek Reasoning",
-            subtitle="Enable thinking mode for Deepseek models.",
+        disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
         )
-        deepseek_reasoning_row.set_active(
-            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
-        )
-        credentials_group.add(deepseek_reasoning_row)
+        credentials_group.add(disable_reasoning_row)
 
         chunk_size_row = Adw.EntryRow(title="Chunk Size (paragraphs)")
         chunk_size_row.set_text(settings.get("chunk_size", str(DEFAULT_SUMMARIZE_CHUNK_SIZE)))
@@ -3056,8 +3087,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
-            kimi_reasoning_row=kimi_reasoning_row,
-            deepseek_reasoning_row=deepseek_reasoning_row,
+            disable_reasoning_row=disable_reasoning_row,
             chunk_size_row=chunk_size_row,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
@@ -3094,21 +3124,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
 
-        kimi_reasoning_row = Adw.SwitchRow(
-            title="Kimi Reasoning",
-            subtitle="Enable reasoning mode for Kimi models.",
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
         )
-        kimi_reasoning_row.set_active(bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)))
-        credentials_group.add(kimi_reasoning_row)
-
-        deepseek_reasoning_row = Adw.SwitchRow(
-            title="Deepseek Reasoning",
-            subtitle="Enable thinking mode for Deepseek models.",
+        disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
         )
-        deepseek_reasoning_row.set_active(
-            bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
-        )
-        credentials_group.add(deepseek_reasoning_row)
+        credentials_group.add(disable_reasoning_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         prompt_section.set_hexpand(True)
@@ -3132,8 +3155,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
-            kimi_reasoning_row=kimi_reasoning_row,
-            deepseek_reasoning_row=deepseek_reasoning_row,
+            disable_reasoning_row=disable_reasoning_row,
             prompt_buffer=buffer,
         )
         return page
@@ -3242,14 +3264,9 @@ class SettingsWindow(Adw.ApplicationWindow):
                 case_widgets.model_row.get_text().strip(),
                 case_widgets.api_key_row.get_text().strip(),
                 (
-                    bool(case_widgets.kimi_reasoning_row.get_active())
-                    if case_widgets.kimi_reasoning_row
-                    else DEFAULT_KIMI_REASONING_ENABLED
-                ),
-                (
-                    bool(case_widgets.deepseek_reasoning_row.get_active())
-                    if case_widgets.deepseek_reasoning_row
-                    else DEFAULT_DEEPSEEK_REASONING_ENABLED
+                    bool(case_widgets.disable_reasoning_row.get_active())
+                    if case_widgets.disable_reasoning_row
+                    else DEFAULT_DISABLE_REASONING
                 ),
                 self._prompt_text(case_widgets.prompt_buffer).strip(),
             )
@@ -3267,9 +3284,19 @@ class SettingsWindow(Adw.ApplicationWindow):
                 rt_prompt,
                 ct_prompt,
                 (
-                    classify_basic_widgets.thinking_switch.get_active()
-                    if classify_basic_widgets.thinking_switch
-                    else True
+                    bool(classify_basic_widgets.disable_reasoning_switch.get_active())
+                    if classify_basic_widgets.disable_reasoning_switch
+                    else DEFAULT_DISABLE_REASONING
+                ),
+                (
+                    bool(classify_basic_widgets.local_server_switch.get_active())
+                    if classify_basic_widgets.local_server_switch
+                    else False
+                ),
+                (
+                    self._prompt_text(classify_basic_widgets.local_start_command_buffer).strip()
+                    if classify_basic_widgets.local_start_command_buffer
+                    else DEFAULT_LOCAL_VISION_START_COMMAND
                 ),
             )
         if advanced_classify_widgets:
@@ -3299,8 +3326,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 optimize_widgets.api_url_row.get_text().strip(),
                 optimize_widgets.model_row.get_text().strip(),
                 optimize_widgets.api_key_row.get_text().strip(),
-                bool(optimize_widgets.kimi_reasoning_row.get_active()),
-                bool(optimize_widgets.deepseek_reasoning_row.get_active()),
+                bool(optimize_widgets.disable_reasoning_row.get_active()),
                 self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
@@ -3310,8 +3336,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 summarize_widgets.api_url_row.get_text().strip(),
                 summarize_widgets.model_row.get_text().strip(),
                 summarize_widgets.api_key_row.get_text().strip(),
-                bool(summarize_widgets.kimi_reasoning_row.get_active()),
-                bool(summarize_widgets.deepseek_reasoning_row.get_active()),
+                bool(summarize_widgets.disable_reasoning_row.get_active()),
                 summarize_widgets.chunk_size_row.get_text().strip(),
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
@@ -3322,8 +3347,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 overview_widgets.api_url_row.get_text().strip(),
                 overview_widgets.model_row.get_text().strip(),
                 overview_widgets.api_key_row.get_text().strip(),
-                bool(overview_widgets.kimi_reasoning_row.get_active()),
-                bool(overview_widgets.deepseek_reasoning_row.get_active()),
+                bool(overview_widgets.disable_reasoning_row.get_active()),
                 self._prompt_text(overview_widgets.prompt_buffer).strip(),
             )
         if rag_widgets:
@@ -3557,7 +3581,7 @@ class TestClassificationWindow(Adw.ApplicationWindow):
     def _set_initial_paned_position(self) -> bool:
         if self._paned_position_set:
             return False
-        width = self._paned.get_allocated_width()
+        width = self._paned.get_width()
         if width <= 0:
             return True
         self._paned.set_position(width // 2)
@@ -3591,6 +3615,248 @@ class TestClassificationWindow(Adw.ApplicationWindow):
 
         self._parent.run_test_classification(mode_id, self._selected_image_path, _on_done)
 
+
+class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
+    def __init__(self, app: Adw.Application, parent: "RecordPrepWindow") -> None:
+        super().__init__(application=app, title="Test Optimize and Summarize")
+        self.set_default_size(960, 640)
+        self.set_resizable(True)
+        self._parent = parent
+        self._mode_values: list[str] = []
+        self._running = False
+        self._paned_position_set = False
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        header.set_title_widget(Gtk.Label(label="Test Optimize and Summarize", xalign=0))
+        view.add_top_bar(header)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_top(18)
+        content.set_margin_bottom(12)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+
+        settings_group = Adw.PreferencesGroup(title="Test settings")
+        settings_group.add_css_class("list-stack")
+        content.append(settings_group)
+
+        options = [
+            ("Optimize (Attorneys prompt)", "optimize_attorneys"),
+            ("Optimize (Hearings prompt)", "optimize_hearings"),
+            ("Optimize (Reports prompt)", "optimize_reports"),
+            ("Summarize (Hearings prompt)", "summarize_hearings"),
+            ("Summarize (Reports prompt)", "summarize_reports"),
+            ("Summarize (Minutes prompt)", "summarize_minutes"),
+        ]
+        labels = [label for label, _value in options]
+        self._mode_values = [value for _label, value in options]
+        mode_model = Gtk.StringList.new(labels)
+        mode_row = Adw.ComboRow(title="Test mode")
+        mode_row.set_model(mode_model)
+        mode_row.set_selected(0)
+        mode_row.connect("notify::selected", self._on_mode_changed)
+        settings_group.add(mode_row)
+        self._mode_row = mode_row
+
+        details_row = Adw.ActionRow(title="Prompt and input")
+        settings_group.add(details_row)
+        self._details_row = details_row
+
+        credentials_group = Adw.PreferencesGroup(title="LLM credentials")
+        credentials_group.add_css_class("list-stack")
+        content.append(credentials_group)
+
+        api_url_row = Adw.EntryRow(title="API URL")
+        credentials_group.add(api_url_row)
+        self._api_url_row = api_url_row
+
+        model_row = Adw.EntryRow(title="Model ID")
+        credentials_group.add(model_row)
+        self._model_row = model_row
+
+        api_key_row = Adw.EntryRow(title="API key")
+        credentials_group.add(api_key_row)
+        self._api_key_row = api_key_row
+
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
+        )
+        credentials_group.add(disable_reasoning_row)
+        self._disable_reasoning_row = disable_reasoning_row
+
+        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        paned.set_hexpand(True)
+        paned.set_vexpand(True)
+        paned.set_shrink_start_child(False)
+        paned.set_shrink_end_child(False)
+        paned.set_resize_start_child(True)
+        paned.set_resize_end_child(True)
+        self._paned = paned
+
+        input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        input_box.set_hexpand(True)
+        input_box.set_vexpand(True)
+        input_box.set_margin_top(6)
+        input_box.set_margin_end(6)
+        input_box.append(Gtk.Label(label="Raw input", xalign=0))
+        input_scroller = Gtk.ScrolledWindow()
+        input_scroller.set_hexpand(True)
+        input_scroller.set_vexpand(True)
+        input_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        input_view = Gtk.TextView()
+        input_view.set_monospace(True)
+        input_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        input_view.set_vexpand(True)
+        input_view.set_hexpand(True)
+        input_view.set_top_margin(10)
+        input_view.set_bottom_margin(10)
+        input_view.set_left_margin(10)
+        input_view.set_right_margin(10)
+        input_scroller.set_child(input_view)
+        input_box.append(input_scroller)
+        self._input_buffer = input_view.get_buffer()
+
+        output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        output_box.set_hexpand(True)
+        output_box.set_vexpand(True)
+        output_box.set_margin_top(6)
+        output_box.append(Gtk.Label(label="Output", xalign=0))
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._run_button = Gtk.Button(label="Run test")
+        self._run_button.add_css_class("suggested-action")
+        self._run_button.add_css_class("flat")
+        self._run_button.connect("clicked", self._on_run_clicked)
+        action_box.append(self._run_button)
+
+        self._status_spinner = Gtk.Spinner()
+        self._status_label = Gtk.Label(label="Idle", xalign=0)
+        action_box.append(self._status_spinner)
+        action_box.append(self._status_label)
+        output_box.append(action_box)
+
+        output_scroller = Gtk.ScrolledWindow()
+        output_scroller.set_hexpand(True)
+        output_scroller.set_vexpand(True)
+        output_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        output_view = Gtk.TextView()
+        output_view.set_monospace(True)
+        output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        output_view.set_editable(False)
+        output_view.set_cursor_visible(False)
+        output_view.set_vexpand(True)
+        output_view.set_hexpand(True)
+        output_view.set_top_margin(10)
+        output_view.set_bottom_margin(10)
+        output_view.set_left_margin(10)
+        output_view.set_right_margin(10)
+        output_scroller.set_child(output_view)
+        output_box.append(output_scroller)
+        self._output_buffer = output_view.get_buffer()
+
+        paned.set_start_child(input_box)
+        paned.set_end_child(output_box)
+        content.append(paned)
+
+        view.set_content(content)
+        self.set_content(view)
+        self._apply_mode_settings(self._mode_values[0])
+        GLib.idle_add(self._set_initial_paned_position)
+
+    def _buffer_text(self, buffer: Gtk.TextBuffer) -> str:
+        start, end = buffer.get_bounds()
+        return buffer.get_text(start, end, True)
+
+    def _set_status(self, message: str, running: bool) -> None:
+        self._status_label.set_text(message)
+        if running:
+            self._status_spinner.start()
+        else:
+            self._status_spinner.stop()
+
+    def _set_initial_paned_position(self) -> bool:
+        if self._paned_position_set:
+            return False
+        width = self._paned.get_width()
+        if width <= 0:
+            return True
+        self._paned.set_position(width // 2)
+        self._paned_position_set = True
+        return False
+
+    def _mode_details(self, mode_id: str) -> str:
+        if mode_id == "optimize_attorneys":
+            return "Uses the saved Optimize attorneys prompt. Paste hearing transcript text."
+        if mode_id == "optimize_hearings":
+            return (
+                "Uses the saved Optimize hearings prompt. If the first line starts with "
+                "'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
+            )
+        if mode_id == "optimize_reports":
+            return "Uses the saved Optimize reports prompt. Paste raw report text."
+        if mode_id == "summarize_hearings":
+            return "Uses the saved Summarize hearings prompt. Paste optimized hearing text."
+        if mode_id == "summarize_reports":
+            return "Uses the saved Summarize reports prompt. Paste optimized report text."
+        if mode_id == "summarize_minutes":
+            return "Uses the saved Summarize minutes prompt. Paste minute order text."
+        return "Uses the saved prompt for the selected mode."
+
+    def _apply_mode_settings(self, mode_id: str) -> None:
+        settings = self._parent._build_test_optimize_summarize_settings(mode_id)
+        self._api_url_row.set_text(str(settings.get("api_url", "") or ""))
+        self._model_row.set_text(str(settings.get("model_id", "") or ""))
+        self._api_key_row.set_text(str(settings.get("api_key", "") or ""))
+        self._disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
+        )
+        self._details_row.set_subtitle(self._mode_details(mode_id))
+
+    def _on_mode_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
+        selected = self._mode_row.get_selected()
+        if 0 <= selected < len(self._mode_values):
+            self._apply_mode_settings(self._mode_values[selected])
+
+    def _on_run_clicked(self, _button: Gtk.Button) -> None:
+        if self._running:
+            return
+        selected = self._mode_row.get_selected()
+        if not (0 <= selected < len(self._mode_values)):
+            self._set_status("Choose a test mode.", False)
+            return
+        raw_text = self._buffer_text(self._input_buffer).strip()
+        if not raw_text:
+            self._set_status("Enter raw text first.", False)
+            return
+        mode_id = self._mode_values[selected]
+        overrides = {
+            "api_url": self._api_url_row.get_text().strip(),
+            "model_id": self._model_row.get_text().strip(),
+            "api_key": self._api_key_row.get_text().strip(),
+            "disable_reasoning": bool(self._disable_reasoning_row.get_active()),
+        }
+        self._running = True
+        self._run_button.set_sensitive(False)
+        self._set_status("Running...", True)
+
+        def _on_done(output: str, error: str | None) -> None:
+            if error:
+                self._set_status(f"Failed: {error}", False)
+                output = error
+            else:
+                self._set_status("Done", False)
+            self._output_buffer.set_text(output)
+            self._run_button.set_sensitive(True)
+            self._running = False
+
+        self._parent.run_test_optimize_summarize(mode_id, raw_text, overrides, _on_done)
+
+
 class RecordPrepWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=APPLICATION_NAME)
@@ -3610,9 +3876,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
         self._test_classification_window: TestClassificationWindow | None = None
+        self._test_optimize_summarize_window: TestOptimizeSummarizeWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
         self.run_indicator_spinner: Gtk.Spinner | None = None
+        self._local_vision_server_process: subprocess.Popen[str] | None = None
+        self._local_vision_server_owned = False
 
         header_bar = Adw.HeaderBar()
 
@@ -3951,6 +4220,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         menu.append("Edit TOC", "app.edit-toc")
         menu.append("Test Classification...", "app.test-classification")
+        menu.append("Test Optimize/Summarize...", "app.test-optimize-summarize")
         menu.append("Settings", "app.settings")
         self.menu_button.set_menu_model(menu)
 
@@ -3975,6 +4245,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             test_action = Gio.SimpleAction.new("test-classification", None)
             test_action.connect("activate", self.on_test_classification)
             app.add_action(test_action)
+
+        if app.lookup_action("test-optimize-summarize") is None:
+            optimize_summarize_action = Gio.SimpleAction.new(
+                "test-optimize-summarize", None
+            )
+            optimize_summarize_action.connect(
+                "activate", self.on_test_optimize_summarize
+            )
+            app.add_action(optimize_summarize_action)
 
     def on_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if self._settings_window:
@@ -4007,6 +4286,25 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._test_classification_window = None
         return False
 
+    def on_test_optimize_summarize(
+        self, _action: Gio.SimpleAction, _param: object
+    ) -> None:
+        if self._test_optimize_summarize_window:
+            self._test_optimize_summarize_window.present()
+            return
+        test_window = TestOptimizeSummarizeWindow(self.get_application(), parent=self)
+        test_window.connect(
+            "close-request", self._on_test_optimize_summarize_close_request
+        )
+        self._test_optimize_summarize_window = test_window
+        test_window.present()
+
+    def _on_test_optimize_summarize_close_request(
+        self, _window: TestOptimizeSummarizeWindow
+    ) -> bool:
+        self._test_optimize_summarize_window = None
+        return False
+
     def _build_test_classification_settings(self, mode_id: str) -> dict[str, Any]:
         if mode_id == "basic_rt":
             shared = load_classifier_settings()
@@ -4015,7 +4313,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared["model_id"],
                 "api_key": shared["api_key"],
                 "prompt": shared.get("rt_prompt") or shared.get("prompt"),
-                "thinking_enabled": bool(shared.get("thinking_enabled", True)),
+                "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "basic_ct":
             shared = load_classifier_settings()
@@ -4024,7 +4327,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared["model_id"],
                 "api_key": shared["api_key"],
                 "prompt": shared.get("ct_prompt") or shared.get("prompt"),
-                "thinking_enabled": bool(shared.get("thinking_enabled", True)),
+                "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "advanced_hearing":
             settings = load_advanced_classify_settings()
@@ -4033,7 +4341,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["hearing_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "advanced_minute":
             settings = load_advanced_classify_settings()
@@ -4042,7 +4355,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["minute_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "advanced_form":
             settings = load_advanced_classify_settings()
@@ -4051,7 +4369,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["form_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "dates_hearing":
             settings = load_classify_dates_settings()
@@ -4060,7 +4383,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["hearing_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "dates_minute":
             settings = load_classify_dates_settings()
@@ -4069,7 +4397,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["minute_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "names_report":
             settings = load_classify_names_settings()
@@ -4078,7 +4411,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["report_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         if mode_id == "names_form":
             settings = load_classify_names_settings()
@@ -4087,9 +4425,57 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": settings["model_id"],
                 "api_key": settings["api_key"],
                 "prompt": settings["form_prompt"],
-                "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
+                "local_vision_start_command": str(
+                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
+                    or ""
+                ).strip(),
             }
         raise ValueError(f"Unknown classification mode: {mode_id}")
+
+    def _build_test_optimize_summarize_settings(self, mode_id: str) -> dict[str, Any]:
+        if mode_id.startswith("optimize_"):
+            settings = load_optimize_settings()
+            prompt = settings["reports_prompt"]
+            if mode_id == "optimize_attorneys":
+                prompt = settings["attorneys_prompt"]
+            elif mode_id == "optimize_hearings":
+                prompt = settings["hearings_prompt"]
+            elif mode_id == "optimize_reports":
+                prompt = settings["reports_prompt"]
+            else:
+                raise ValueError(f"Unknown optimize test mode: {mode_id}")
+            return {
+                "api_url": settings["api_url"],
+                "model_id": settings["model_id"],
+                "api_key": settings["api_key"],
+                "disable_reasoning": bool(
+                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
+                "prompt": prompt,
+            }
+        if mode_id.startswith("summarize_"):
+            settings = load_summarize_settings()
+            prompt = settings["reports_prompt"]
+            if mode_id == "summarize_hearings":
+                prompt = settings["hearings_prompt"]
+            elif mode_id == "summarize_reports":
+                prompt = settings["reports_prompt"]
+            elif mode_id == "summarize_minutes":
+                prompt = settings["minutes_prompt"]
+            else:
+                raise ValueError(f"Unknown summarize test mode: {mode_id}")
+            return {
+                "api_url": settings["api_url"],
+                "model_id": settings["model_id"],
+                "api_key": settings["api_key"],
+                "disable_reasoning": bool(
+                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
+                "prompt": prompt,
+            }
+        raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
 
     def run_test_classification(
         self,
@@ -4098,15 +4484,192 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         on_done: Callable[[str, str | None], None],
     ) -> None:
         def _worker() -> None:
+            local_server_started = False
             try:
                 settings = self._build_test_classification_settings(mode_id)
-                if not settings.get("api_url") or not settings.get("model_id"):
-                    raise ValueError("Configure API URL and model ID in Settings.")
+                self._validate_vision_settings(settings)
                 if not settings.get("prompt"):
                     raise ValueError("Prompt is empty in Settings.")
+                if bool(settings.get("local_vision_enabled", False)):
+                    local_server_started = self._ensure_local_vision_server_running()
                 result = self._classify_image(settings, image_path.name, image_path)
                 output = json.dumps(result, indent=2)
                 GLib.idle_add(on_done, output, None)
+            except StopRequested:
+                GLib.idle_add(on_done, "", "Stopped.")
+            except Exception as exc:
+                GLib.idle_add(on_done, "", str(exc))
+            finally:
+                if local_server_started:
+                    self._stop_local_vision_server()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _parse_optimize_hearing_test_input(self, raw_text: str) -> tuple[str, str]:
+        cleaned = raw_text.strip()
+        if not cleaned:
+            return "TEST DATE", ""
+        lines = cleaned.splitlines()
+        first_line = lines[0].strip() if lines else ""
+        if first_line.lower().startswith("hearing date:"):
+            date_value = first_line.split(":", 1)[1].strip() or "TEST DATE"
+            transcript = "\n".join(lines[1:]).strip()
+            return date_value, transcript or cleaned
+        return "TEST DATE", cleaned
+
+    def _summarize_hearing_test_text(
+        self,
+        settings: dict[str, Any],
+        raw_text: str,
+    ) -> str:
+        chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+        chunk_size_raw = settings.get("chunk_size", "")
+        if chunk_size_raw:
+            try:
+                chunk_size = max(1, int(chunk_size_raw))
+            except ValueError:
+                chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+
+        hearing_paragraphs = _split_paragraphs(raw_text)
+        hearing_groups: list[tuple[str, list[str]]] = []
+        current_date: str | None = None
+        for paragraph in hearing_paragraphs:
+            cleaned, date_value = _strip_hearing_date_prefix(paragraph)
+            if date_value:
+                date_value = _normalize_hearing_date(date_value)
+                if current_date != date_value:
+                    hearing_groups.append((date_value, []))
+                    current_date = date_value
+            if not hearing_groups:
+                hearing_groups.append(("HEARING", []))
+            hearing_groups[-1][1].append(
+                _remove_standalone_date_lines(_remove_hearing_date_mentions(cleaned))
+            )
+
+        output_lines: list[str] = []
+        first_section = True
+        for date_value, paragraphs in hearing_groups:
+            self._raise_if_stop_requested()
+            if not first_section:
+                output_lines.append("")
+            output_lines.append(date_value or "HEARING")
+            output_lines.append("")
+            first_section = False
+            for chunk in _chunk_paragraphs(paragraphs, chunk_size):
+                self._raise_if_stop_requested()
+                response = self._request_plain_text(
+                    {
+                        "api_url": settings["api_url"],
+                        "model_id": settings["model_id"],
+                        "api_key": settings["api_key"],
+                        "disable_reasoning": bool(
+                            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                        ),
+                        "prompt": settings["hearings_prompt"],
+                    },
+                    chunk,
+                )
+                cleaned_response = response.strip() if response else ""
+                if cleaned_response:
+                    cleaned_response = _remove_hearing_date_mentions(cleaned_response)
+                    output_lines.append(
+                        _remove_standalone_date_lines(cleaned_response)
+                    )
+                    output_lines.append("")
+        return _collapse_blank_lines("\n".join(output_lines)).strip()
+
+    def _summarize_report_test_text(
+        self,
+        settings: dict[str, Any],
+        raw_text: str,
+    ) -> str:
+        chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+        chunk_size_raw = settings.get("chunk_size", "")
+        if chunk_size_raw:
+            try:
+                chunk_size = max(1, int(chunk_size_raw))
+            except ValueError:
+                chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+
+        report_paragraphs = _split_paragraphs(raw_text)
+        report_paragraphs = [
+            re.sub(r"^Reporting:\s*", "", paragraph) for paragraph in report_paragraphs
+        ]
+        output_lines: list[str] = []
+        for chunk in _chunk_paragraphs(report_paragraphs, chunk_size):
+            self._raise_if_stop_requested()
+            response = self._request_plain_text(
+                {
+                    "api_url": settings["api_url"],
+                    "model_id": settings["model_id"],
+                    "api_key": settings["api_key"],
+                    "disable_reasoning": bool(
+                        settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                    ),
+                    "prompt": settings["reports_prompt"],
+                },
+                chunk,
+            )
+            cleaned_response = response.strip() if response else ""
+            if cleaned_response:
+                output_lines.append(cleaned_response)
+                output_lines.append("")
+        return _collapse_blank_lines("\n".join(output_lines)).strip()
+
+    def run_test_optimize_summarize(
+        self,
+        mode_id: str,
+        raw_text: str,
+        overrides: dict[str, Any],
+        on_done: Callable[[str, str | None], None],
+    ) -> None:
+        def _worker() -> None:
+            try:
+                settings = self._build_test_optimize_summarize_settings(mode_id)
+                settings.update(overrides)
+                if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
+                    raise ValueError("Enter API URL, model ID, and API key.")
+                if not settings.get("prompt"):
+                    raise ValueError("Prompt is empty in Settings.")
+
+                output = ""
+                if mode_id == "optimize_attorneys":
+                    output = self._request_plain_text(settings, raw_text)
+                elif mode_id == "optimize_hearings":
+                    optimize_settings = load_optimize_settings()
+                    date_value, transcript = self._parse_optimize_hearing_test_input(raw_text)
+                    if not transcript:
+                        raise ValueError("Enter transcript text for optimize hearing testing.")
+                    attorney_settings = dict(settings)
+                    attorney_settings["prompt"] = optimize_settings["attorneys_prompt"]
+                    attorney_info = self._request_plain_text(attorney_settings, transcript)
+                    payload = (
+                        f"Hearing date: {date_value}\n"
+                        f"Attorney info: {attorney_info}\n"
+                        f"Transcript:\n{transcript}"
+                    )
+                    output = self._request_plain_text(settings, payload)
+                elif mode_id == "optimize_reports":
+                    output = self._request_plain_text(settings, raw_text)
+                elif mode_id == "summarize_hearings":
+                    summarize_settings = load_summarize_settings()
+                    summarize_settings.update(overrides)
+                    output = self._summarize_hearing_test_text(
+                        summarize_settings,
+                        raw_text,
+                    )
+                elif mode_id == "summarize_reports":
+                    summarize_settings = load_summarize_settings()
+                    summarize_settings.update(overrides)
+                    output = self._summarize_report_test_text(
+                        summarize_settings,
+                        raw_text,
+                    )
+                elif mode_id == "summarize_minutes":
+                    output = self._request_plain_text(settings, raw_text)
+                else:
+                    raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
+                GLib.idle_add(on_done, output.strip(), None)
             except StopRequested:
                 GLib.idle_add(on_done, "", "Stopped.")
             except Exception as exc:
@@ -4583,6 +5146,71 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._stop_event.is_set():
             raise StopRequested()
 
+    def _validate_vision_settings(self, settings: dict[str, Any]) -> None:
+        api_url = str(settings.get("api_url", "") or "").strip()
+        model_id = str(settings.get("model_id", "") or "").strip()
+        if not api_url or not model_id:
+            raise ValueError("Configure vision API URL and model ID in Settings.")
+        local_vision_enabled = bool(settings.get("local_vision_enabled", False))
+        api_key = str(settings.get("api_key", "") or "").strip()
+        if not local_vision_enabled and not api_key:
+            raise ValueError(
+                "Configure vision API key in Settings, or enable local llama.cpp vision server."
+            )
+        if local_vision_enabled:
+            start_command = str(settings.get("local_vision_start_command", "") or "").strip()
+            if not start_command:
+                raise ValueError(
+                    "Configure local vision start command in Classification basic settings."
+                )
+
+    def _ensure_local_vision_server_running(self) -> bool:
+        settings = load_classifier_settings()
+        if not bool(settings.get("local_vision_enabled", False)):
+            return False
+        self._validate_vision_settings(settings)
+
+        process = self._local_vision_server_process
+        if process is not None and process.poll() is None and self._local_vision_server_owned:
+            return True
+        if process is not None and process.poll() is not None:
+            self._local_vision_server_process = None
+            self._local_vision_server_owned = False
+
+        api_url = str(settings.get("api_url", "") or "").strip()
+        if _endpoint_responding(api_url, timeout=1.0):
+            return False
+
+        start_command = str(settings.get("local_vision_start_command", "") or "").strip()
+        process = _start_server(start_command)
+        self._local_vision_server_process = process
+        self._local_vision_server_owned = True
+        time.sleep(LOCAL_VISION_SERVER_STARTUP_SECONDS)
+        if process.poll() is not None:
+            detail = "process exited before startup completed."
+            output = ""
+            if process.stdout is not None:
+                try:
+                    output = process.stdout.read()
+                except Exception:
+                    output = ""
+            output = output.strip()
+            if output:
+                detail = output.splitlines()[-1]
+            self._local_vision_server_process = None
+            self._local_vision_server_owned = False
+            raise RuntimeError(f"Local vision server exited during startup: {detail}")
+        return True
+
+    def _stop_local_vision_server(self) -> None:
+        process = self._local_vision_server_process
+        owned = self._local_vision_server_owned
+        self._local_vision_server_process = None
+        self._local_vision_server_owned = False
+        if process is None or not owned:
+            return
+        _stop_server(process)
+
     def on_stop_clicked(self, _button: Gtk.Button) -> None:
         if self._stop_event.is_set():
             return
@@ -4836,7 +5464,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         ).start()
 
     def _launch_single_step(
-        self, row: Adw.ActionRow, handler: Callable[[], bool]
+        self,
+        row: Adw.ActionRow,
+        handler: Callable[[], bool],
+        step_id: str | None = None,
     ) -> None:
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
@@ -4849,14 +5480,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._start_step(row)
         threading.Thread(
             target=self._run_single_step_thread,
-            args=(handler,),
+            args=(handler, row, step_id),
             daemon=True,
         ).start()
 
-    def _run_single_step_thread(self, handler: Callable[[], bool]) -> None:
+    def _run_single_step_thread(
+        self,
+        handler: Callable[[], bool],
+        row: Adw.ActionRow,
+        step_id: str | None,
+    ) -> None:
+        local_server_started = False
         try:
+            if step_id in VISION_CLASSIFICATION_STEP_IDS:
+                local_server_started = self._ensure_local_vision_server_running()
             handler()
+        except Exception as exc:
+            title = row.get_title() or "Step"
+            GLib.idle_add(self.show_toast, f"{title} failed: {exc}")
+            GLib.idle_add(row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, row, False)
         finally:
+            if local_server_started:
+                self._stop_local_vision_server()
             GLib.idle_add(self._finish_single_step)
 
     def _finish_single_step(self) -> None:
@@ -5067,7 +5713,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        self._launch_single_step(self.step_two_row, self._run_step_two)
+        self._launch_single_step(self.step_two_row, self._run_step_two, "classify_basic")
 
     def on_step_advanced_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -5077,7 +5723,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        self._launch_single_step(self.step_advanced_row, self._run_step_advanced)
+        self._launch_single_step(self.step_advanced_row, self._run_step_advanced, "classify_advanced")
 
     def on_step_dates_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -5087,7 +5733,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        self._launch_single_step(self.step_dates_row, self._run_step_dates)
+        self._launch_single_step(self.step_dates_row, self._run_step_dates, "classify_dates")
 
     def on_step_correct_advanced_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -5109,7 +5755,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        self._launch_single_step(self.step_names_row, self._run_step_names)
+        self._launch_single_step(self.step_names_row, self._run_step_names, "classify_names")
 
     def on_step_six_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -5222,20 +5868,40 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _run_steps_from_index(self, start_index: int, root_dir: Path | None) -> None:
         steps = self._pipeline_steps()
+        steps_to_run = steps[start_index:]
+        classification_offsets = [
+            offset
+            for offset, (step_id, _row, _handler) in enumerate(steps_to_run)
+            if step_id in VISION_CLASSIFICATION_STEP_IDS
+        ]
+        manage_local_vision = (
+            bool(load_classifier_settings().get("local_vision_enabled", False))
+            and bool(classification_offsets)
+        )
+        first_classify_offset = classification_offsets[0] if classification_offsets else -1
+        last_classify_offset = classification_offsets[-1] if classification_offsets else -1
+        local_server_started = False
         success = True
         try:
-            for step_id, row, handler in steps[start_index:]:
+            for offset, (step_id, row, handler) in enumerate(steps_to_run):
                 self._raise_if_stop_requested()
+                if manage_local_vision and offset == first_classify_offset:
+                    local_server_started = self._ensure_local_vision_server_running()
                 GLib.idle_add(self._start_step, row)
                 if not handler():
                     success = False
                     break
+                if manage_local_vision and local_server_started and offset == last_classify_offset:
+                    self._stop_local_vision_server()
+                    local_server_started = False
         except StopRequested:
             success = False
         except Exception as exc:
             success = False
             GLib.idle_add(self.show_toast, f"Pipeline failed: {exc}")
         finally:
+            if local_server_started:
+                self._stop_local_vision_server()
             GLib.idle_add(self._finish_run_all, success)
 
     def _finish_run_all(self, success: bool) -> None:
@@ -5270,14 +5936,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not image_dir.exists():
                 raise FileNotFoundError("Run Create files to generate image files first.")
             shared_settings = load_classifier_settings()
-            if (
-                not shared_settings["api_url"]
-                or not shared_settings["model_id"]
-                or not shared_settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure vision API URL, model ID, and API key in Settings."
-                )
+            self._validate_vision_settings(shared_settings)
             classification_dir = root_dir / "classification"
             classification_dir.mkdir(parents=True, exist_ok=True)
             rt_basic_path = classification_dir / "RT_basic.jsonl"
@@ -5325,14 +5984,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("rt_prompt") or shared_settings.get("prompt"),
-                "thinking_enabled": bool(shared_settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(
+                    shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
             }
             basic_ct_settings = {
                 "api_url": shared_settings["api_url"],
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("ct_prompt") or shared_settings.get("prompt"),
-                "thinking_enabled": bool(shared_settings.get("thinking_enabled", True)),
+                "disable_reasoning": bool(
+                    shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
             }
             for index, text_path in enumerate(text_files, start=1):
                 self._raise_if_stop_requested()
@@ -5447,14 +6110,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError("Run Create files to generate image files first.")
             classification_dir = root_dir / "classification"
             settings = load_advanced_classify_settings()
-            if (
-                not settings["api_url"]
-                or not settings["model_id"]
-                or not settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure vision API URL, model ID, and API key in Settings."
-                )
+            self._validate_vision_settings(settings)
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -5491,7 +6147,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "model_id": settings["model_id"],
                     "api_key": settings["api_key"],
                     "prompt": prompt,
-                    "thinking_enabled": bool(settings.get("thinking_enabled", True)),
+                    "disable_reasoning": bool(
+                        settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                    ),
                 }
                 response = self._classify_image(payload, file_name, image_path)
                 if _is_truthy(_extract_entry_value(response, *truthy_keys)):
@@ -5751,14 +6409,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             classification_dir = root_dir / "classification"
             settings = load_classify_dates_settings()
             shared_settings = load_classifier_settings()
-            if (
-                not shared_settings["api_url"]
-                or not shared_settings["model_id"]
-                or not shared_settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure vision API URL, model ID, and API key in Settings."
-                )
+            self._validate_vision_settings(shared_settings)
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -5821,8 +6472,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["hearing_prompt"],
-                                    "thinking_enabled": bool(
-                                        shared_settings.get("thinking_enabled", True)
+                                    "disable_reasoning": bool(
+                                        shared_settings.get(
+                                            "disable_reasoning",
+                                            DEFAULT_DISABLE_REASONING,
+                                        )
                                     ),
                                 },
                                 file_name,
@@ -5875,8 +6529,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["minute_prompt"],
-                                    "thinking_enabled": bool(
-                                        shared_settings.get("thinking_enabled", True)
+                                    "disable_reasoning": bool(
+                                        shared_settings.get(
+                                            "disable_reasoning",
+                                            DEFAULT_DISABLE_REASONING,
+                                        )
                                     ),
                                 },
                                 file_name,
@@ -5930,14 +6587,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             classification_dir = root_dir / "classification"
             settings = load_classify_names_settings()
             shared_settings = load_classifier_settings()
-            if (
-                not shared_settings["api_url"]
-                or not shared_settings["model_id"]
-                or not shared_settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure vision API URL, model ID, and API key in Settings."
-                )
+            self._validate_vision_settings(shared_settings)
             split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -6032,8 +6682,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["report_prompt"],
-                                    "thinking_enabled": bool(
-                                        shared_settings.get("thinking_enabled", True)
+                                    "disable_reasoning": bool(
+                                        shared_settings.get(
+                                            "disable_reasoning",
+                                            DEFAULT_DISABLE_REASONING,
+                                        )
                                     ),
                                 },
                                 file_name,
@@ -6051,8 +6704,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                     "model_id": shared_settings["model_id"],
                                     "api_key": shared_settings["api_key"],
                                     "prompt": settings["form_prompt"],
-                                    "thinking_enabled": bool(
-                                        shared_settings.get("thinking_enabled", True)
+                                    "disable_reasoning": bool(
+                                        shared_settings.get(
+                                            "disable_reasoning",
+                                            DEFAULT_DISABLE_REASONING,
+                                        )
                                     ),
                                 },
                                 file_name,
@@ -6738,11 +7394,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "api_url": settings["api_url"],
                         "model_id": settings["model_id"],
                         "api_key": settings["api_key"],
-                        "kimi_reasoning": bool(
-                            settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                        ),
-                        "deepseek_reasoning": bool(
-                            settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                        "disable_reasoning": bool(
+                            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                         ),
                         "prompt": attorneys_prompt,
                     },
@@ -6756,11 +7409,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
-                            "kimi_reasoning": bool(
-                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                            ),
-                            "deepseek_reasoning": bool(
-                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            "disable_reasoning": bool(
+                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                             ),
                             "prompt": hearings_prompt,
                         },
@@ -6788,11 +7438,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
-                            "kimi_reasoning": bool(
-                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                            ),
-                            "deepseek_reasoning": bool(
-                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            "disable_reasoning": bool(
+                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                             ),
                             "prompt": reports_prompt,
                         },
@@ -6905,11 +7552,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
-                            "kimi_reasoning": bool(
-                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                            ),
-                            "deepseek_reasoning": bool(
-                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            "disable_reasoning": bool(
+                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                             ),
                             "prompt": settings["hearings_prompt"],
                         },
@@ -6955,11 +7599,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "api_url": settings["api_url"],
                         "model_id": settings["model_id"],
                         "api_key": settings["api_key"],
-                        "kimi_reasoning": bool(
-                            settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                        ),
-                        "deepseek_reasoning": bool(
-                            settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                        "disable_reasoning": bool(
+                            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                         ),
                         "prompt": settings["reports_prompt"],
                     },
@@ -7013,11 +7654,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "api_url": settings["api_url"],
                             "model_id": settings["model_id"],
                             "api_key": settings["api_key"],
-                            "kimi_reasoning": bool(
-                                settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                            ),
-                            "deepseek_reasoning": bool(
-                                settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                            "disable_reasoning": bool(
+                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                             ),
                             "prompt": settings["minutes_prompt"],
                         },
@@ -7285,11 +7923,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "api_url": settings["api_url"],
                     "model_id": settings["model_id"],
                     "api_key": settings["api_key"],
-                    "kimi_reasoning": bool(
-                        settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)
-                    ),
-                    "deepseek_reasoning": bool(
-                        settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED)
+                    "disable_reasoning": bool(
+                        settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                     ),
                     "prompt": settings["prompt"],
                 },
@@ -7539,7 +8174,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 },
             ],
         }
-        if not bool(settings.get("thinking_enabled", True)):
+        if bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)):
             body["thinking"] = {"type": "disabled"}
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
@@ -7599,7 +8234,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 {"role": "user", "content": content},
             ],
         }
-        if not bool(settings.get("thinking_enabled", True)):
+        if bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)):
             body["thinking"] = {"type": "disabled"}
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
@@ -7646,26 +8281,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "Authorization": f"Bearer {settings['api_key']}",
             "User-Agent": "RecordPrep/0.1",
         }
+        model_id = settings["model_id"]
+        disable_reasoning = bool(
+            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+        )
         body = {
-            "model": settings["model_id"],
+            "model": model_id,
             "stream": True,
             "messages": [
                 {"role": "system", "content": settings["prompt"]},
                 {"role": "user", "content": content},
             ],
         }
-        if "deepseek_reasoning" in settings or "kimi_reasoning" in settings:
-            if _model_looks_deepseek(settings["model_id"]):
-                body["thinking"] = {
-                    "type": "enabled"
-                    if bool(settings.get("deepseek_reasoning", DEFAULT_DEEPSEEK_REASONING_ENABLED))
-                    else "disabled"
-                }
-            elif _model_looks_kimi(settings["model_id"]):
-                if not bool(settings.get("kimi_reasoning", DEFAULT_KIMI_REASONING_ENABLED)):
-                    body["thinking"] = {"type": "disabled"}
+        if disable_reasoning:
+            if _model_looks_deepseek(model_id) or _model_looks_kimi(model_id):
+                body["thinking"] = {"type": "disabled"}
+            else:
+                body["reasoning_effort"] = "none"
         error_label = "Classifier request failed"
         attempted_without_thinking = False
+        attempted_without_reasoning_effort = False
 
         while True:
             data = json.dumps(body).encode("utf-8")
@@ -7678,10 +8313,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     not attempted_without_thinking
                     and "thinking" in body
                     and "thinking" in message
-                    and "unsupported" in message
+                    and any(marker in message for marker in ("unsupported", "unknown", "invalid"))
                 ):
                     attempted_without_thinking = True
                     body.pop("thinking", None)
+                    continue
+                if (
+                    not attempted_without_reasoning_effort
+                    and "reasoning_effort" in body
+                    and "reasoning_effort" in message
+                    and any(marker in message for marker in ("unsupported", "unknown", "invalid"))
+                ):
+                    attempted_without_reasoning_effort = True
+                    body.pop("reasoning_effort", None)
                     continue
                 raise
 

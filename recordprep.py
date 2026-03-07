@@ -3897,13 +3897,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.file_button.connect("clicked", self.on_choose_pdf)
         header_bar.pack_start(self.file_button)
 
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.status_spinner = Gtk.Spinner()
-        self.status_label = Gtk.Label(label="Idle", xalign=0)
-        status_box.append(self.status_spinner)
-        status_box.append(self.status_label)
-        header_bar.set_title_widget(status_box)
-
         self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
         header_bar.pack_end(self.menu_button)
 
@@ -3935,6 +3928,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         log_view.set_cursor_visible(False)
         log_view.set_monospace(True)
         log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        log_view.set_left_margin(10)
+        log_view.set_right_margin(10)
+        log_view.set_top_margin(8)
+        log_view.set_bottom_margin(8)
         log_scroller.set_child(log_view)
         log_frame.set_child(log_scroller)
         self._log_view = log_view
@@ -3946,6 +3943,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.selected_label = Gtk.Label(label="Selected: None", xalign=0)
         self.selected_label.add_css_class("dim-label")
         content.append(self.selected_label)
+
+        content.append(log_frame)
 
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.run_all_button = Gtk.Button(label="Run all steps")
@@ -4207,7 +4206,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_twelve_row)
         self.step_list.append(self.step_twelve_row)
-        content.append(log_frame)
 
         self._setup_menu(app)
         self._load_selected_pdfs()
@@ -4773,13 +4771,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._edit_toc_action.set_enabled(enabled)
 
     def _set_status(self, message: str, active: bool) -> None:
-        self.status_label.set_text(message)
         if active:
-            self.status_spinner.start()
             if self.run_indicator_spinner is not None:
                 self.run_indicator_spinner.start()
         else:
-            self.status_spinner.stop()
             if self.run_indicator_spinner is not None:
                 self.run_indicator_spinner.stop()
 
@@ -4941,13 +4936,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             and _dir_has_files(rag_dir / "vector_database", "*"),
         )
 
-    def _finish_step(self, row: Adw.ActionRow, success: bool | None) -> None:
+    def _finish_step(self, row: Adw.ActionRow, success: bool | str | None) -> None:
+        if isinstance(success, str):
+            self._set_step_status(row, success)
+            return
         self._set_step_status(row, "Done" if success else "Pending")
 
     def _start_step(self, row: Adw.ActionRow) -> None:
         title = row.get_title() or "Working"
         self._set_step_status(row, "Pending")
         self._set_status(f"Working: {title}", True)
+        self.show_toast(f"Working on {title}.", "INFO")
 
     def _stop_status(self) -> None:
         self._set_status(APPLICATION_NAME, False)
@@ -6949,7 +6948,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return success is True
 
     def _run_step_seven(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7192,6 +7191,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 json.dumps(filtered_minutes, indent=2),
                 encoding="utf-8",
             )
+            total_boundaries = (
+                len(hearing_boundaries)
+                + len(report_boundaries)
+                + len(filtered_minutes)
+            )
         except StopRequested:
             success = None
         except Exception as exc:
@@ -7206,7 +7210,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "last_failed_at": None,
                 },
             )
-            GLib.idle_add(self.show_toast, "Find boundaries complete.")
+            if total_boundaries == 0:
+                GLib.idle_add(
+                    self.show_toast,
+                    "No boundaries detected. Continuing with any remaining steps that can still run.",
+                    "WARN",
+                )
+            else:
+                GLib.idle_add(self.show_toast, "Find boundaries complete.")
         finally:
             GLib.idle_add(self.step_seven_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_seven_row, success)
@@ -7215,7 +7226,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return success is True
 
     def _run_step_correct_boundaries(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7233,7 +7244,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearing_entries = _load_json_entries(hearing_path)
             report_entries = _load_json_entries(report_path)
             if not hearing_entries and not report_entries:
-                raise FileNotFoundError("No hearing/report boundaries found.")
+                GLib.idle_add(
+                    self.show_toast,
+                    "No hearing/report boundaries found. Skipping Correct boundaries.",
+                    "WARN",
+                )
+                success = "Skipped"
+                return True
 
             hearing_removed = 0
             filtered_hearings: list[dict[str, str]] = []
@@ -7296,10 +7313,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_step, self.step_correct_boundaries_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return success is True or success == "Skipped"
 
     def _run_step_eight(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7319,8 +7336,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             hearing_entries = _load_json_entries(hearing_path)
             report_entries = _load_json_entries(report_path)
-            if not hearing_entries and not report_entries:
-                raise FileNotFoundError("No hearing/report boundaries found.")
             raw_hearings = _compile_raw_sections(hearing_entries, ("date",), text_dir)
             raw_reports = _compile_raw_sections(
                 report_entries,
@@ -7343,7 +7358,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "last_failed_at": None,
                 },
             )
-            GLib.idle_add(self.show_toast, "Create raw complete.")
+            if not hearing_entries and not report_entries:
+                GLib.idle_add(
+                    self.show_toast,
+                    "No hearing/report boundaries found. Created empty raw files and continued.",
+                    "WARN",
+                )
+            else:
+                GLib.idle_add(self.show_toast, "Create raw complete.")
         finally:
             GLib.idle_add(self.step_eight_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_eight_row, success)
@@ -7352,7 +7374,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return success is True
 
     def _run_step_nine(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7375,7 +7397,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearing_sections = _split_tagged_sections(raw_hearings_path.read_text(encoding="utf-8"))
             report_sections = _split_tagged_sections(raw_reports_path.read_text(encoding="utf-8"))
             if not hearing_sections and not report_sections:
-                raise FileNotFoundError("No hearing/report sections found in raw files.")
+                (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
+                (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
+                self._safe_update_manifest(
+                    root_dir,
+                    {
+                        "last_completed_step": "create_optimized",
+                        "last_failed_step": None,
+                        "last_failed_at": None,
+                    },
+                )
+                GLib.idle_add(
+                    self.show_toast,
+                    "No hearing/report raw sections found. Created empty optimized files and continued.",
+                    "WARN",
+                )
+                success = "Skipped"
+                return True
 
             optimized_hearings: list[str] = []
             for label, content in hearing_sections:
@@ -7477,7 +7515,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_step, self.step_nine_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return success is True or success == "Skipped"
 
     def _run_step_ten(self) -> bool:
         success: bool | None = False
@@ -7705,7 +7743,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return success is True
 
     def _run_step_add_hearing_date_links(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7726,8 +7764,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
             hearing_entries = _load_json_entries(hearing_boundaries_path)
             minute_entries = _load_json_entries(minutes_boundaries_path)
-            if not hearing_entries:
-                raise FileNotFoundError("No hearing boundaries found.")
+            if not hearing_entries and not minute_entries:
+                GLib.idle_add(
+                    self.show_toast,
+                    "No hearing or minute boundaries found. Skipping Add date links to hearing Sum.",
+                    "WARN",
+                )
+                success = "Skipped"
+                return True
 
             hearing_page_by_date: dict[str, str] = {}
             minute_page_by_date: dict[str, str] = {}
@@ -7879,10 +7923,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_step, self.step_add_hearing_date_links_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return success is True or success == "Skipped"
 
     def _run_step_eleven(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7906,6 +7950,37 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearings_text = summaries_path.read_text(encoding="utf-8", errors="ignore")
             reports_text = reports_path.read_text(encoding="utf-8", errors="ignore")
             minutes_text = minutes_path.read_text(encoding="utf-8", errors="ignore")
+            generic_lines = {
+                "hearings summary",
+                "reports summary",
+                "minutes summary",
+            }
+            case_name, _root_dir = load_case_context()
+            display_case_name = case_name.replace("_", " ").strip() if case_name else ""
+
+            def _has_meaningful_summary_content(text: str) -> bool:
+                for line in text.splitlines():
+                    cleaned = " ".join(line.split()).strip()
+                    if not cleaned:
+                        continue
+                    if cleaned.lower() in generic_lines:
+                        continue
+                    if display_case_name and cleaned == display_case_name:
+                        continue
+                    return True
+                return False
+
+            if not any(
+                _has_meaningful_summary_content(text)
+                for text in (hearings_text, reports_text, minutes_text)
+            ):
+                GLib.idle_add(
+                    self.show_toast,
+                    "No summary content available for Case overview. Skipping.",
+                    "WARN",
+                )
+                success = "Skipped"
+                return True
             combined = "\n\n".join(
                 [
                     "Summarized Hearings:",
@@ -7958,10 +8033,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_step, self.step_eleven_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return success is True or success == "Skipped"
 
     def _run_step_twelve(self) -> bool:
-        success: bool | None = False
+        success: bool | str | None = False
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -8037,7 +8112,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 encoding="utf-8", errors="ignore"
             )
             if not hearing_text.strip() and not report_text.strip():
-                raise ValueError("No optimized content available for RAG index.")
+                GLib.idle_add(
+                    self.show_toast,
+                    "No optimized content available for RAG index. Skipping.",
+                    "WARN",
+                )
+                success = "Skipped"
+                return True
 
             documents: list[Document] = []
             for paragraph in _split_paragraphs(hearing_text):
@@ -8080,7 +8161,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_step, self.step_twelve_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return success is True or success == "Skipped"
 
     def _append_boundary_entry(
         self,

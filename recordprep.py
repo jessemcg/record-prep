@@ -253,6 +253,8 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "Organize the output into paragraphs of about five sentences each. "
     "Each paragraph must be on a single line and separated by a blank line. "
     "Each paragraph must begin with 'Reporting:' followed by a space and the report text. "
+    "Do not output HTML, XML, markdown tables, or angle-bracket tags. "
+    "If the source includes tabular content, rewrite it as plain text in source order. "
     "Use the report name and chunk metadata only as context; do not echo them unless they "
     "appear in the report text. "
     "Do not add commentary or reorder events."
@@ -1859,6 +1861,13 @@ def _convert_html_tables(content: str) -> str:
         table.replace_with(NavigableString(f"\n{table_text}\n"))
 
     return soup.get_text(separator="\n\n", strip=True)
+
+
+def _normalize_optimized_text(content: str) -> str:
+    normalized = content
+    if "<table" in normalized.lower():
+        normalized = _convert_html_tables(normalized)
+    return normalized.strip()
 
 
 def _strip_markdown(content: str) -> str:
@@ -7441,7 +7450,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             f"{chunk}"
         )
         response = self._request_plain_text(request_settings, payload)
-        return response.strip() if response else ""
+        return _normalize_optimized_text(response) if response else ""
 
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False
@@ -7524,7 +7533,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         },
                         payload,
                     )
-                    cleaned_response = response.strip() if response else ""
+                    cleaned_response = _normalize_optimized_text(response) if response else ""
                     if cleaned_response:
                         optimized_hearings.append(cleaned_response)
 

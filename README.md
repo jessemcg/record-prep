@@ -20,8 +20,6 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 - Generates raw and optimized text, summaries, and a case overview.
 - Optionally builds a VoyageAI/Chroma or Isaacus/Chroma RAG index from optimized hearing/report content.
 
-<img src="recordprep_screenshot.png" alt="Record Prep screenshot" width="500">
-
 ## Requirements
 - Python 3.13+
 - GTK4/Libadwaita (via `pygobject`)

@@ -47,6 +47,8 @@ LLM_RETRY_MAX_SECONDS = 30.0
 LLM_RETRYABLE_HTTP_CODES = {408, 409, 429, 500, 502, 503, 504}
 LOCAL_OCR_SERVER_STARTUP_SECONDS = 1.0
 LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
+LOCAL_SERVER_READY_TIMEOUT_SECONDS = 120.0
+LOCAL_SERVER_READY_POLL_SECONDS = 1.0
 VISION_CLASSIFICATION_STEP_IDS = {
     "classify_basic",
     "classify_advanced",
@@ -242,11 +244,33 @@ DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "Do not add commentary or change wording."
 )
 DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
-    "Reproduce the meaningful portions of the report text verbatim. "
+    "You are reformatting a report chunk for retrieval. "
+    "Preserve every factual statement from the report text and keep the same source order. "
+    "Do not summarize, omit, generalize, or add commentary. "
+    "Do not replace specific facts with descriptions of what the report says. "
+    "Keep all dates, names, notice facts, ICWA facts, visit facts, and quoted language. "
+    "You may remove exact repeated headers or footers and normalize spacing and sentence case. "
     "Organize the output into paragraphs of about five sentences each. "
     "Each paragraph must be on a single line and separated by a blank line. "
-    "Each paragraph must begin with 'Reporting:' followed by a space and the verbatim text. "
-    "Do not add commentary or change wording."
+    "Each paragraph must begin with 'Reporting:' followed by a space and the report text. "
+    "Use the report name and chunk metadata only as context; do not echo them unless they "
+    "appear in the report text. "
+    "Do not add commentary or reorder events."
+)
+DEFAULT_OPTIMIZE_REPORTS_RETRY_PROMPT = (
+    "You are reformatting a report chunk for retrieval. "
+    "This is a lossless rewrite task, not a summary. "
+    "Preserve every factual statement from the report text and keep the same source order. "
+    "Do not omit any date, name, relative, ICWA statement, notice statement, visit detail, "
+    "or quoted language. "
+    "Do not add commentary, explanations, metadata descriptions, or phrases such as "
+    "'the report states' or 'the table shows.' "
+    "Only reformat the report text itself. "
+    "You may remove exact repeated headers or footers and normalize spacing and sentence case. "
+    "Organize the output into paragraphs of about five sentences each. "
+    "Each paragraph must be on a single line and separated by a blank line. "
+    "Each paragraph must begin with 'Reporting:' followed by a space and the report text. "
+    "Do not reorder events."
 )
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "Summarize the following court hearing in one very concise paragraph using plain "
@@ -977,6 +1001,90 @@ def _chunk_paragraphs(paragraphs: list[str], max_count: int) -> list[str]:
     return grouped
 
 
+def _strip_reporting_prefixes(text: str) -> str:
+    return re.sub(r"(?m)^Reporting:\s*", "", text).strip()
+
+
+def _extract_report_dates(text: str) -> set[str]:
+    matches: set[str] = set()
+    patterns = (
+        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+        r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Sept(?:ember)?|Oct(?:ober)?|"
+        r"Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s*\d{2,4}\b",
+    )
+    for pattern in patterns:
+        for match in re.findall(pattern, text, flags=re.IGNORECASE):
+            normalized = re.sub(r"\s+", " ", match).strip().lower()
+            if normalized:
+                matches.add(normalized)
+    return matches
+
+
+def _find_report_commentary_markers(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    markers = (
+        "the table provided shows",
+        "the report includes information about",
+        "the report states that",
+        "the document states",
+        "the document includes",
+        "information about the child",
+        "for court use only",
+        "is also provided",
+        "are also provided",
+        "is listed",
+        "are listed",
+    )
+    return [marker for marker in markers if marker in normalized]
+
+
+def _format_raw_report_chunk(text: str) -> str:
+    sentences = _split_into_sentences(text)
+    if not sentences:
+        normalized = re.sub(r"\s+", " ", text).strip()
+        return f"Reporting: {normalized}" if normalized else ""
+    paragraphs: list[str] = []
+    for index in range(0, len(sentences), 5):
+        paragraph = " ".join(sentences[index : index + 5]).strip()
+        if paragraph:
+            paragraphs.append(f"Reporting: {paragraph}")
+    return "\n\n".join(paragraphs)
+
+
+def _validate_report_optimized_chunk(source_text: str, optimized_text: str) -> list[str]:
+    issues: list[str] = []
+    cleaned_output = _strip_reporting_prefixes(optimized_text)
+    if not cleaned_output:
+        return ["empty output"]
+
+    commentary_markers = _find_report_commentary_markers(cleaned_output)
+    if commentary_markers:
+        issues.append(f"commentary markers: {', '.join(commentary_markers[:3])}")
+
+    source_dates = _extract_report_dates(source_text)
+    output_dates = _extract_report_dates(cleaned_output)
+    missing_dates = sorted(source_dates - output_dates)
+    if missing_dates:
+        issues.append(f"missing dates: {', '.join(missing_dates[:4])}")
+
+    source_sentences = _split_into_sentences(source_text)
+    output_sentences = _split_into_sentences(cleaned_output)
+    if len(source_sentences) >= 5 and len(output_sentences) < max(3, len(source_sentences) // 2):
+        issues.append(
+            f"sentence coverage dropped from {len(source_sentences)} to {len(output_sentences)}"
+        )
+
+    normalized_source = re.sub(r"\s+", " ", source_text).strip()
+    normalized_output = re.sub(r"\s+", " ", cleaned_output).strip()
+    if len(normalized_source) >= 500 and len(normalized_output) < int(len(normalized_source) * 0.6):
+        issues.append(
+            f"length dropped from {len(normalized_source)} to {len(normalized_output)} characters"
+        )
+
+    return issues
+
+
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
     match = re.match(r"^\s*Hearing date:\s*([^.\n]+)\.\s*(.*)$", text, re.DOTALL)
     if match:
@@ -1247,6 +1355,36 @@ def _endpoint_responding(url: str, timeout: float = 1.0) -> bool:
         return exc.code in {400, 401, 403, 404, 405}
     except Exception:
         return False
+
+
+def _wait_for_endpoint_ready(
+    url: str,
+    *,
+    timeout_seconds: float = LOCAL_SERVER_READY_TIMEOUT_SECONDS,
+    poll_seconds: float = LOCAL_SERVER_READY_POLL_SECONDS,
+    process: subprocess.Popen[str] | None = None,
+    stop_check: Callable[[], None] | None = None,
+) -> None:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    while time.monotonic() < deadline:
+        if stop_check:
+            stop_check()
+        if _endpoint_responding(url, timeout=1.0):
+            return
+        if process is not None and process.poll() is not None:
+            detail = "process exited before startup completed."
+            output = ""
+            if process.stdout is not None:
+                try:
+                    output = process.stdout.read()
+                except Exception:
+                    output = ""
+            output = output.strip()
+            if output:
+                detail = output.splitlines()[-1]
+            raise RuntimeError(f"Local OCR server exited during startup: {detail}")
+        time.sleep(max(0.1, poll_seconds))
+    raise RuntimeError(f"Local OCR server did not become ready within {timeout_seconds:.0f} seconds.")
 
 
 def _manifest_path(root_dir: Path) -> Path:
@@ -1892,7 +2030,13 @@ def _generate_text_files_with_local_ocr(
     server_process: subprocess.Popen[str] | None = None
     try:
         server_process = _start_server(start_command)
-        time.sleep(sleep_seconds)
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+        _wait_for_endpoint_ready(
+            server_url,
+            process=server_process,
+            stop_check=stop_check,
+        )
 
         if stop_check:
             stop_check()
@@ -5184,21 +5328,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         process = _start_server(start_command)
         self._local_vision_server_process = process
         self._local_vision_server_owned = True
-        time.sleep(LOCAL_VISION_SERVER_STARTUP_SECONDS)
-        if process.poll() is not None:
-            detail = "process exited before startup completed."
-            output = ""
-            if process.stdout is not None:
-                try:
-                    output = process.stdout.read()
-                except Exception:
-                    output = ""
-            output = output.strip()
-            if output:
-                detail = output.splitlines()[-1]
+        if LOCAL_VISION_SERVER_STARTUP_SECONDS > 0:
+            time.sleep(LOCAL_VISION_SERVER_STARTUP_SECONDS)
+        try:
+            _wait_for_endpoint_ready(
+                api_url,
+                process=process,
+                stop_check=self._raise_if_stop_requested,
+            )
+        except Exception:
             self._local_vision_server_process = None
             self._local_vision_server_owned = False
-            raise RuntimeError(f"Local vision server exited during startup: {detail}")
+            raise
         return True
 
     def _stop_local_vision_server(self) -> None:
@@ -7373,6 +7514,51 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
 
+    def _optimize_report_chunk(
+        self,
+        settings: dict[str, Any],
+        reports_prompt: str,
+        label: str,
+        chunk: str,
+        chunk_index: int,
+        chunk_total: int,
+    ) -> str:
+        request_settings = {
+            "api_url": settings["api_url"],
+            "model_id": settings["model_id"],
+            "api_key": settings["api_key"],
+            "disable_reasoning": bool(
+                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+            ),
+            "prompt": reports_prompt,
+        }
+        payload = (
+            f"Report name: {label}\n"
+            f"Chunk: {chunk_index} of {chunk_total}\n"
+            "Preserve chronology exactly as it appears in this chunk.\n"
+            "Report text:\n"
+            f"{chunk}"
+        )
+        response = self._request_plain_text(request_settings, payload)
+        cleaned_response = response.strip() if response else ""
+        issues = _validate_report_optimized_chunk(chunk, cleaned_response)
+        if not issues:
+            return cleaned_response
+
+        retry_response = self._request_plain_text(
+            {
+                **request_settings,
+                "prompt": DEFAULT_OPTIMIZE_REPORTS_RETRY_PROMPT,
+            },
+            payload,
+        )
+        retry_cleaned = retry_response.strip() if retry_response else ""
+        retry_issues = _validate_report_optimized_chunk(chunk, retry_cleaned)
+        if not retry_issues:
+            return retry_cleaned
+
+        return _format_raw_report_chunk(chunk)
+
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False
         try:
@@ -7469,21 +7655,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 chunks = _chunk_sentences(sentences, 3500)
                 if not chunks:
                     continue
-                for chunk in chunks:
+                for chunk_index, chunk in enumerate(chunks, start=1):
                     self._raise_if_stop_requested()
-                    response = self._request_plain_text(
-                        {
-                            "api_url": settings["api_url"],
-                            "model_id": settings["model_id"],
-                            "api_key": settings["api_key"],
-                            "disable_reasoning": bool(
-                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                            ),
-                            "prompt": reports_prompt,
-                        },
+                    cleaned_response = self._optimize_report_chunk(
+                        settings,
+                        reports_prompt,
+                        label,
                         chunk,
+                        chunk_index,
+                        len(chunks),
                     )
-                    cleaned_response = response.strip() if response else ""
                     if cleaned_response:
                         optimized_reports.append(cleaned_response)
 

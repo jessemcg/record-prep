@@ -257,21 +257,6 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "appear in the report text. "
     "Do not add commentary or reorder events."
 )
-DEFAULT_OPTIMIZE_REPORTS_RETRY_PROMPT = (
-    "You are reformatting a report chunk for retrieval. "
-    "This is a lossless rewrite task, not a summary. "
-    "Preserve every factual statement from the report text and keep the same source order. "
-    "Do not omit any date, name, relative, ICWA statement, notice statement, visit detail, "
-    "or quoted language. "
-    "Do not add commentary, explanations, metadata descriptions, or phrases such as "
-    "'the report states' or 'the table shows.' "
-    "Only reformat the report text itself. "
-    "You may remove exact repeated headers or footers and normalize spacing and sentence case. "
-    "Organize the output into paragraphs of about five sentences each. "
-    "Each paragraph must be on a single line and separated by a blank line. "
-    "Each paragraph must begin with 'Reporting:' followed by a space and the report text. "
-    "Do not reorder events."
-)
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "Summarize the following court hearing in one very concise paragraph using plain "
     "and simple English. Include short direct quotes (3-6 words) from the hearing to "
@@ -999,90 +984,6 @@ def _chunk_paragraphs(paragraphs: list[str], max_count: int) -> list[str]:
     for index in range(0, len(paragraphs), max_count):
         grouped.append("\n\n".join(paragraphs[index : index + max_count]))
     return grouped
-
-
-def _strip_reporting_prefixes(text: str) -> str:
-    return re.sub(r"(?m)^Reporting:\s*", "", text).strip()
-
-
-def _extract_report_dates(text: str) -> set[str]:
-    matches: set[str] = set()
-    patterns = (
-        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
-        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-        r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Sept(?:ember)?|Oct(?:ober)?|"
-        r"Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s*\d{2,4}\b",
-    )
-    for pattern in patterns:
-        for match in re.findall(pattern, text, flags=re.IGNORECASE):
-            normalized = re.sub(r"\s+", " ", match).strip().lower()
-            if normalized:
-                matches.add(normalized)
-    return matches
-
-
-def _find_report_commentary_markers(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip().lower()
-    markers = (
-        "the table provided shows",
-        "the report includes information about",
-        "the report states that",
-        "the document states",
-        "the document includes",
-        "information about the child",
-        "for court use only",
-        "is also provided",
-        "are also provided",
-        "is listed",
-        "are listed",
-    )
-    return [marker for marker in markers if marker in normalized]
-
-
-def _format_raw_report_chunk(text: str) -> str:
-    sentences = _split_into_sentences(text)
-    if not sentences:
-        normalized = re.sub(r"\s+", " ", text).strip()
-        return f"Reporting: {normalized}" if normalized else ""
-    paragraphs: list[str] = []
-    for index in range(0, len(sentences), 5):
-        paragraph = " ".join(sentences[index : index + 5]).strip()
-        if paragraph:
-            paragraphs.append(f"Reporting: {paragraph}")
-    return "\n\n".join(paragraphs)
-
-
-def _validate_report_optimized_chunk(source_text: str, optimized_text: str) -> list[str]:
-    issues: list[str] = []
-    cleaned_output = _strip_reporting_prefixes(optimized_text)
-    if not cleaned_output:
-        return ["empty output"]
-
-    commentary_markers = _find_report_commentary_markers(cleaned_output)
-    if commentary_markers:
-        issues.append(f"commentary markers: {', '.join(commentary_markers[:3])}")
-
-    source_dates = _extract_report_dates(source_text)
-    output_dates = _extract_report_dates(cleaned_output)
-    missing_dates = sorted(source_dates - output_dates)
-    if missing_dates:
-        issues.append(f"missing dates: {', '.join(missing_dates[:4])}")
-
-    source_sentences = _split_into_sentences(source_text)
-    output_sentences = _split_into_sentences(cleaned_output)
-    if len(source_sentences) >= 5 and len(output_sentences) < max(3, len(source_sentences) // 2):
-        issues.append(
-            f"sentence coverage dropped from {len(source_sentences)} to {len(output_sentences)}"
-        )
-
-    normalized_source = re.sub(r"\s+", " ", source_text).strip()
-    normalized_output = re.sub(r"\s+", " ", cleaned_output).strip()
-    if len(normalized_source) >= 500 and len(normalized_output) < int(len(normalized_source) * 0.6):
-        issues.append(
-            f"length dropped from {len(normalized_source)} to {len(normalized_output)} characters"
-        )
-
-    return issues
 
 
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
@@ -7540,24 +7441,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             f"{chunk}"
         )
         response = self._request_plain_text(request_settings, payload)
-        cleaned_response = response.strip() if response else ""
-        issues = _validate_report_optimized_chunk(chunk, cleaned_response)
-        if not issues:
-            return cleaned_response
-
-        retry_response = self._request_plain_text(
-            {
-                **request_settings,
-                "prompt": DEFAULT_OPTIMIZE_REPORTS_RETRY_PROMPT,
-            },
-            payload,
-        )
-        retry_cleaned = retry_response.strip() if retry_response else ""
-        retry_issues = _validate_report_optimized_chunk(chunk, retry_cleaned)
-        if not retry_issues:
-            return retry_cleaned
-
-        return _format_raw_report_chunk(chunk)
+        return response.strip() if response else ""
 
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False

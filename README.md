@@ -5,7 +5,6 @@
 Record Prep is a GTK4/Libadwaita desktop app that turns OCR'd legal transcript PDFs into a structured
 case bundle with classifications, summaries, and retrieval-ready artifacts for appellate workflows.
 
-## Current state
 - Functional GTK4/Libadwaita desktop UI with the full pipeline exposed as step-by-step actions.
 - Pipeline implementation and settings UI live in a single entry point (`recordprep.py`).
 - Settings are stored in `config.json` and cover API URLs, model IDs, keys, and prompts.
@@ -18,7 +17,8 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 - Classifies pages, adds dates/names, and builds a table of contents.
 - Finds hearing/report/minute order boundaries.
 - Generates raw and optimized text, summaries, and a case overview.
-- Optionally builds a VoyageAI/Chroma or Isaacus/Chroma RAG index from optimized hearing/report content.
+- Stores chunk metadata separately from optimized chunk text and writes per-chunk JSONL artifacts.
+- Optionally builds a VoyageAI/Chroma or Isaacus/Chroma RAG index from optimized hearing/report content, with similarity search filters driven by chunk metadata such as hearing date and report name.
 
 ## Requirements
 - Python 3.13+
@@ -28,7 +28,7 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 ## Recommended models
 - OCR model: LightOnOCR-2-1B-Q8_0.gguf via llama.cpp
 - Vision model: Qwen_Qwen3.5-27B-Q4_K_L.gguf via llama.cpp
-- Optimize model: llama-3.3-70b via Fireworks API
+- Optimize model: gpt-oss-120b via Cerebras API
 - Summarization model: deepseek-v3p2 via Fireworks API
 - Embeddings model: kanon-2-embedder via Isaacus API
 
@@ -53,7 +53,7 @@ case_bundle/
   text_pages/           # 0001.txt, 0002.txt, ...
   image_pages/          # 0001.png, 0002.png, ... (300 DPI grayscale)
   classification/       # basic.jsonl, basic_corrected.jsonl, ...
-  artifacts/            # toc.txt, boundary json, raw/optimized text
+  artifacts/            # toc.txt, boundary json, raw/optimized text, optimized_*_chunks.jsonl
   summaries/            # hearings_sum_<case>.txt, reports_sum_<case>.txt, minutes_sum_<case>.txt (or summarized_*.txt)
   rag/                  # case_overview.txt, vector_database/
   temp/                 # merged.pdf (when multiple PDFs are selected)
@@ -73,10 +73,10 @@ case_bundle/
 - Correct TOC: remove duplicate minute order dates.
 - Find boundaries: write hearing/report/minute boundaries JSON.
 - Create raw: compile raw hearing and report text files.
-- Create optimized: LLM-reformat text for retrieval.
+- Create optimized: LLM-reformat text for retrieval and save per-chunk metadata in JSONL alongside the optimized text.
 - Create summaries: generate hearing/report/minute summaries (case-named when available).
 - Case overview: create parties, factual history, and procedural history for RAG context.
-- Create RAG index: build a VoyageAI/Chroma or Isaacus/Chroma vector store.
+- Create RAG index: build a VoyageAI/Chroma or Isaacus/Chroma vector store that supports metadata-aware similarity search filters.
 
 ## Settings
 Settings are stored in `config.json` next to `recordprep.py` and include API URLs, model IDs,

@@ -234,14 +234,13 @@ DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "Use the exact words from the transcript. "
     "Organize the output into paragraphs of about five sentences each. "
     "Each paragraph must be on a single line and separated by a blank line. "
-    "Each paragraph must begin with 'Hearing date: <date>.' followed by a space. "
     "Use the hearing date provided to you in the input header; do not infer or copy "
     "dates from the transcript header or footer. "
     "then label each speaker before their dialogue using sentence case "
     "(for example, 'Ms. Smith speaking: ...'). "
     "The transcript may be all caps; convert dialogue to normal sentence case "
     "while preserving words exactly and ensuring pronoun 'I' is capitalized. "
-    "Do not add commentary or change wording."
+    "Do not add metadata headers, commentary, or change wording."
 )
 DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "You are reformatting a report chunk for retrieval. "
@@ -252,11 +251,10 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "You may remove exact repeated headers or footers and normalize spacing and sentence case. "
     "Organize the output into paragraphs of about five sentences each. "
     "Each paragraph must be on a single line and separated by a blank line. "
-    "Each paragraph must begin with 'Reporting:' followed by a space and the report text. "
     "Do not output HTML, XML, markdown tables, or angle-bracket tags. "
     "If the source includes tabular content, rewrite it as plain text in source order. "
     "Use the report name and chunk metadata only as context; do not echo them unless they "
-    "appear in the report text. "
+    "appear in the report text. Do not add metadata headers. "
     "Do not add commentary or reorder events."
 )
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
@@ -929,6 +927,196 @@ def _strip_nonstandard_characters(text: str) -> str:
         elif unicodedata.category(ch) != "Cc":
             cleaned_chars.append(ch)
     return "".join(cleaned_chars)
+
+
+@dataclass
+class RetrievalSection:
+    section_type: str
+    content: str
+    metadata: dict[str, Any]
+
+
+def _canonical_retrieval_metadata_key(label: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
+    aliases = {
+        "type": "type",
+        "hearing_date": "hearing_date",
+        "report_name": "report_name",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _parse_retrieval_chunk(paragraph: str) -> tuple[dict[str, Any], str]:
+    stripped = paragraph.strip()
+    if not stripped:
+        return {}, ""
+
+    legacy_body, legacy_date = _strip_hearing_date_prefix(stripped)
+    if legacy_date:
+        return {
+            "type": "hearing",
+            "hearing_date": _format_long_us_date(legacy_date) or _normalize_hearing_date(legacy_date),
+        }, legacy_body
+    if re.match(r"^Reporting:\s*", stripped, re.IGNORECASE):
+        return {"type": "report"}, re.sub(r"^Reporting:\s*", "", stripped, flags=re.IGNORECASE)
+
+    metadata: dict[str, Any] = {}
+    content_lines: list[str] = []
+    content_started = False
+    for line in stripped.splitlines():
+        raw_line = line.strip()
+        if not raw_line:
+            continue
+        if content_started:
+            content_lines.append(raw_line)
+            continue
+        if raw_line.lower().startswith("content:"):
+            content_started = True
+            remainder = raw_line.split(":", 1)[1].strip()
+            if remainder:
+                content_lines.append(remainder)
+            continue
+        if ":" in raw_line:
+            label, value = raw_line.split(":", 1)
+            metadata[_canonical_retrieval_metadata_key(label)] = value.strip()
+            continue
+        content_lines.append(raw_line)
+        content_started = True
+
+    section_type = str(metadata.get("type", "")).strip().lower()
+    if section_type:
+        metadata["type"] = section_type
+    hearing_date = str(metadata.get("hearing_date", "")).strip()
+    if hearing_date:
+        metadata["hearing_date"] = _format_long_us_date(hearing_date) or _normalize_hearing_date(
+            hearing_date
+        )
+    return metadata, "\n".join(content_lines).strip()
+
+
+def _clean_retrieval_chunk_content(metadata: dict[str, Any], content: str) -> str:
+    cleaned = content.strip()
+    chunk_type = str(metadata.get("type", "")).strip().lower()
+    if chunk_type == "hearing":
+        cleaned = re.sub(
+            r"^\s*Hearing date:\s*[^.\n]{1,100}\.?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+    elif chunk_type == "report":
+        cleaned = re.sub(r"^\s*Reporting:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
+
+
+def _render_retrieval_chunk(metadata: dict[str, Any], content: str) -> str:
+    chunk_type = str(metadata.get("type", "")).strip().lower()
+    header_lines: list[str] = []
+    if chunk_type == "hearing":
+        header_lines.append("Type: Hearing")
+        hearing_date = str(metadata.get("hearing_date", "")).strip()
+        if hearing_date:
+            header_lines.append(f"Hearing date: {hearing_date}")
+    elif chunk_type == "report":
+        header_lines.append("Type: Report")
+        report_name = str(metadata.get("report_name", "")).strip()
+        if report_name:
+            header_lines.append(f"Report name: {report_name}")
+    else:
+        header_lines.append(f"Type: {chunk_type.title() or 'Record'}")
+
+    header_lines.append(f"Content: {_clean_retrieval_chunk_content(metadata, content)}")
+    return "\n".join(header_lines).strip()
+
+
+def _response_paragraphs_to_chunks(
+    metadata: dict[str, Any],
+    response_text: str,
+) -> list[str]:
+    paragraphs = _split_paragraphs(_normalize_optimized_text(response_text))
+    if not paragraphs:
+        return []
+    chunk_total = len(paragraphs)
+    rendered: list[str] = []
+    for chunk_index, paragraph in enumerate(paragraphs, start=1):
+        paragraph_metadata = dict(metadata)
+        paragraph_metadata["chunk_index"] = chunk_index
+        paragraph_metadata["chunk_total"] = chunk_total
+        rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
+    return rendered
+
+
+def _read_boundary_entry_text(entry: dict[str, Any], text_dir: Path) -> str:
+    start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
+    end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
+    start_page = _page_number_from_label(start_label)
+    end_page = _page_number_from_label(end_label)
+    if start_page is None or end_page is None:
+        raise ValueError("Boundary entry missing start/end page.")
+    if end_page < start_page:
+        raise ValueError("Boundary entry has end page before start page.")
+
+    page_texts: list[str] = []
+    for page in range(start_page, end_page + 1):
+        page_path = text_dir / f"{page:04d}.txt"
+        if not page_path.exists():
+            raise FileNotFoundError(f"Missing text file {page_path.name}.")
+        page_texts.append(page_path.read_text(encoding="utf-8", errors="ignore").rstrip("\n"))
+    return "\n".join(page_texts).strip()
+
+
+def _build_hearing_sections(
+    hearing_entries: list[dict[str, Any]],
+    text_dir: Path,
+    minute_entries: list[dict[str, Any]] | None = None,
+) -> list[RetrievalSection]:
+    minute_page_by_date: dict[str, str] = {}
+    if minute_entries:
+        for entry in minute_entries:
+            date_value = _extract_entry_value(entry, "date").strip()
+            if not date_value:
+                continue
+            date_key = _hearing_date_key(date_value)
+            page_str = _extract_start_page_for_date_links(entry)
+            if date_key and page_str:
+                minute_page_by_date.setdefault(date_key, page_str)
+
+    sections: list[RetrievalSection] = []
+    for entry in hearing_entries:
+        date_value = _extract_entry_value(entry, "date").strip()
+        content = _read_boundary_entry_text(entry, text_dir)
+        if not content:
+            continue
+        normalized_date = _format_long_us_date(date_value) or _normalize_hearing_date(date_value)
+        metadata: dict[str, Any] = {
+            "type": "hearing",
+            "source": "hearing_transcript",
+            "hearing_date": normalized_date,
+        }
+        date_key = _hearing_date_key(date_value)
+        linked_minute_page = minute_page_by_date.get(date_key, "")
+        metadata["has_matching_minute_order"] = bool(linked_minute_page)
+        sections.append(RetrievalSection(section_type="hearing", content=content, metadata=metadata))
+    return sections
+
+
+def _build_report_sections(
+    report_entries: list[dict[str, Any]],
+    text_dir: Path,
+) -> list[RetrievalSection]:
+    sections: list[RetrievalSection] = []
+    for entry in report_entries:
+        report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
+        content = _read_boundary_entry_text(entry, text_dir)
+        if not content:
+            continue
+        metadata: dict[str, Any] = {
+            "type": "report",
+            "source": "report",
+            "report_name": report_name or "Unknown",
+        }
+        sections.append(RetrievalSection(section_type="report", content=content, metadata=metadata))
+    return sections
 
 
 def _split_tagged_sections(text: str) -> list[tuple[str, str]]:
@@ -4586,7 +4774,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         hearing_groups: list[tuple[str, list[str]]] = []
         current_date: str | None = None
         for paragraph in hearing_paragraphs:
-            cleaned, date_value = _strip_hearing_date_prefix(paragraph)
+            metadata, cleaned = _parse_retrieval_chunk(paragraph)
+            date_value = str(metadata.get("hearing_date", "")).strip()
             if date_value:
                 date_value = _normalize_hearing_date(date_value)
                 if current_date != date_value:
@@ -4644,9 +4833,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
 
         report_paragraphs = _split_paragraphs(raw_text)
-        report_paragraphs = [
-            re.sub(r"^Reporting:\s*", "", paragraph) for paragraph in report_paragraphs
-        ]
+        cleaned_reports: list[str] = []
+        for paragraph in report_paragraphs:
+            _metadata, cleaned = _parse_retrieval_chunk(paragraph)
+            if cleaned:
+                cleaned_reports.append(cleaned)
+        report_paragraphs = cleaned_reports
         output_lines: list[str] = []
         for chunk in _chunk_paragraphs(report_paragraphs, chunk_size):
             self._raise_if_stop_requested()
@@ -4700,9 +4892,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Attorney info: {attorney_info}\n"
                         f"Transcript:\n{transcript}"
                     )
-                    output = self._request_plain_text(settings, payload)
+                    hearing_metadata = {
+                        "type": "hearing",
+                        "hearing_date": _format_long_us_date(date_value)
+                        or _normalize_hearing_date(date_value),
+                    }
+                    output = "\n\n".join(
+                        _response_paragraphs_to_chunks(
+                            hearing_metadata,
+                            self._request_plain_text(settings, payload),
+                        )
+                    )
                 elif mode_id == "optimize_reports":
-                    output = self._request_plain_text(settings, raw_text)
+                    report_metadata = {
+                        "type": "report",
+                        "report_name": "TEST REPORT",
+                    }
+                    output = "\n\n".join(
+                        _response_paragraphs_to_chunks(
+                            report_metadata,
+                            self._request_plain_text(settings, raw_text),
+                        )
+                    )
                 elif mode_id == "summarize_hearings":
                     summarize_settings = load_summarize_settings()
                     summarize_settings.update(overrides)
@@ -7428,7 +7639,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self,
         settings: dict[str, Any],
         reports_prompt: str,
-        label: str,
+        metadata: dict[str, Any],
         chunk: str,
         chunk_index: int,
         chunk_total: int,
@@ -7442,8 +7653,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
             "prompt": reports_prompt,
         }
+        report_name = str(metadata.get("report_name", "")).strip() or "Unknown"
         payload = (
-            f"Report name: {label}\n"
+            f"Report name: {report_name}\n"
             f"Chunk: {chunk_index} of {chunk_total}\n"
             "Preserve chronology exactly as it appears in this chunk.\n"
             "Report text:\n"
@@ -7462,10 +7674,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             artifacts_dir = root_dir / "artifacts"
-            raw_hearings_path = artifacts_dir / "raw_hearings.txt"
-            raw_reports_path = artifacts_dir / "raw_reports.txt"
-            if not raw_hearings_path.exists() or not raw_reports_path.exists():
-                raise FileNotFoundError("Run Create raw to generate raw hearing/report files first.")
+            text_dir = root_dir / "text_pages"
+            hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
+            report_boundaries_path = artifacts_dir / "report_boundaries.json"
+            minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"
+            if not text_dir.exists():
+                raise FileNotFoundError("Run Create files to generate text files first.")
+            if not hearing_boundaries_path.exists() or not report_boundaries_path.exists():
+                raise FileNotFoundError(
+                    "Run Find boundaries to generate hearing/report boundary files first."
+                )
             settings = load_optimize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
@@ -7473,8 +7691,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearings_prompt = settings["hearings_prompt"]
             reports_prompt = settings["reports_prompt"]
 
-            hearing_sections = _split_tagged_sections(raw_hearings_path.read_text(encoding="utf-8"))
-            report_sections = _split_tagged_sections(raw_reports_path.read_text(encoding="utf-8"))
+            hearing_entries = _load_json_entries(hearing_boundaries_path)
+            report_entries = _load_json_entries(report_boundaries_path)
+            minute_entries = (
+                _load_json_entries(minutes_boundaries_path)
+                if minutes_boundaries_path.exists()
+                else []
+            )
+            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
+            report_sections = _build_report_sections(report_entries, text_dir)
             if not hearing_sections and not report_sections:
                 (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
                 (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
@@ -7488,15 +7713,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
                 GLib.idle_add(
                     self.show_toast,
-                    "No hearing/report raw sections found. Created empty optimized files and continued.",
+                    "No hearing/report boundary content found. Created empty optimized files and continued.",
                     "WARN",
                 )
                 success = "Skipped"
                 return True
 
             optimized_hearings: list[str] = []
-            for label, content in hearing_sections:
+            for section in hearing_sections:
                 self._raise_if_stop_requested()
+                content = section.content
                 if not content:
                     continue
                 sentences = _split_into_sentences(content)
@@ -7518,9 +7744,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     },
                     attorney_excerpt,
                 )
+                section_paragraphs: list[str] = []
                 for chunk in chunks:
                     self._raise_if_stop_requested()
-                    payload = f"Hearing date: {label}\nAttorney info: {attorney_info}\nTranscript:\n{chunk}"
+                    payload = (
+                        f"Hearing date: {section.metadata.get('hearing_date', '')}\n"
+                        f"Attorney info: {attorney_info}\n"
+                        "Transcript:\n"
+                        f"{chunk}"
+                    )
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -7533,13 +7765,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         },
                         payload,
                     )
-                    cleaned_response = _normalize_optimized_text(response) if response else ""
-                    if cleaned_response:
-                        optimized_hearings.append(cleaned_response)
+                    if response:
+                        section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
+                if section_paragraphs:
+                    total_chunks = len(section_paragraphs)
+                    for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
+                        paragraph_metadata = dict(section.metadata)
+                        paragraph_metadata["chunk_index"] = chunk_index
+                        paragraph_metadata["chunk_total"] = total_chunks
+                        optimized_hearings.append(
+                            _render_retrieval_chunk(paragraph_metadata, paragraph)
+                        )
 
             optimized_reports: list[str] = []
-            for label, content in report_sections:
+            for section in report_sections:
                 self._raise_if_stop_requested()
+                content = section.content
                 if not content:
                     continue
                 sentences = _split_into_sentences(content)
@@ -7548,18 +7789,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 chunks = _chunk_sentences(sentences, 3500)
                 if not chunks:
                     continue
+                section_paragraphs: list[str] = []
                 for chunk_index, chunk in enumerate(chunks, start=1):
                     self._raise_if_stop_requested()
-                    cleaned_response = self._optimize_report_chunk(
+                    response = self._optimize_report_chunk(
                         settings,
                         reports_prompt,
-                        label,
+                        section.metadata,
                         chunk,
                         chunk_index,
                         len(chunks),
                     )
-                    if cleaned_response:
-                        optimized_reports.append(cleaned_response)
+                    if response:
+                        section_paragraphs.extend(_split_paragraphs(response))
+                if section_paragraphs:
+                    total_chunks = len(section_paragraphs)
+                    for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
+                        paragraph_metadata = dict(section.metadata)
+                        paragraph_metadata["chunk_index"] = chunk_index
+                        paragraph_metadata["chunk_total"] = total_chunks
+                        optimized_reports.append(
+                            _render_retrieval_chunk(paragraph_metadata, paragraph)
+                        )
 
             (artifacts_dir / "optimized_hearings.txt").write_text(
                 _collapse_blank_lines("\n\n".join(optimized_hearings)),
@@ -7642,7 +7893,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             current_date: str | None = None
             for paragraph in hearing_paragraphs:
                 self._raise_if_stop_requested()
-                cleaned, date_value = _strip_hearing_date_prefix(paragraph)
+                metadata, cleaned = _parse_retrieval_chunk(paragraph)
+                date_value = str(metadata.get("hearing_date", "")).strip()
                 if date_value:
                     date_value = _normalize_hearing_date(date_value)
                     if current_date != date_value:
@@ -7697,12 +7949,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 summary_reports.extend(["Reports Summary", ""])
 
-            report_paragraphs = _split_paragraphs(
+            report_paragraphs = []
+            for paragraph in _split_paragraphs(
                 optimized_reports_path.read_text(encoding="utf-8")
-            )
-            report_paragraphs = [
-                re.sub(r"^Reporting:\s*", "", paragraph) for paragraph in report_paragraphs
-            ]
+            ):
+                metadata, cleaned = _parse_retrieval_chunk(paragraph)
+                if str(metadata.get("type", "")).strip().lower() not in {"", "report"}:
+                    continue
+                if cleaned:
+                    report_paragraphs.append(cleaned)
             report_responses: list[str] = []
             for chunk in _chunk_paragraphs(report_paragraphs, chunk_size):
                 self._raise_if_stop_requested()
@@ -8197,18 +8452,24 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             documents: list[Document] = []
             for paragraph in _split_paragraphs(hearing_text):
                 self._raise_if_stop_requested()
+                metadata, _body = _parse_retrieval_chunk(paragraph)
+                document_metadata = {"source": optimized_hearings_path.name}
+                document_metadata.update(metadata)
                 documents.append(
                     Document(
                         page_content=paragraph,
-                        metadata={"source": optimized_hearings_path.name},
+                        metadata=document_metadata,
                     )
                 )
             for paragraph in _split_paragraphs(report_text):
                 self._raise_if_stop_requested()
+                metadata, _body = _parse_retrieval_chunk(paragraph)
+                document_metadata = {"source": optimized_reports_path.name}
+                document_metadata.update(metadata)
                 documents.append(
                     Document(
                         page_content=paragraph,
-                        metadata={"source": optimized_reports_path.name},
+                        metadata=document_metadata,
                     )
                 )
             if not documents:

@@ -7768,7 +7768,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
             optimized_hearings: list[str] = []
             optimized_hearing_entries: list[dict[str, Any]] = []
-            for section in hearing_sections:
+            total_hearing_sections = len(hearing_sections)
+            for section_index, section in enumerate(hearing_sections, start=1):
                 self._raise_if_stop_requested()
                 content = section.content
                 if not content:
@@ -7776,9 +7777,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 sentences = _split_into_sentences(content)
                 if not sentences:
                     continue
-                chunks = _chunk_sentences(sentences, 3500)
+                chunks = _chunk_sentences(sentences, 5000)
                 if not chunks:
                     continue
+                hearing_date = str(section.metadata.get("hearing_date", "")).strip() or "Unknown date"
+                GLib.idle_add(
+                    self._append_log_message,
+                    (
+                        f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
+                        f"({hearing_date}), requesting attorney info."
+                    ),
+                    "INFO",
+                )
                 attorney_excerpt = _chunk_sentences(sentences, 2000)[0]
                 attorney_info = self._request_plain_text(
                     {
@@ -7793,8 +7803,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     attorney_excerpt,
                 )
                 section_paragraphs: list[str] = []
-                for chunk in chunks:
+                total_chunks = len(chunks)
+                for chunk_index, chunk in enumerate(chunks, start=1):
                     self._raise_if_stop_requested()
+                    GLib.idle_add(
+                        self._append_log_message,
+                        (
+                            f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
+                            f"({hearing_date}), chunk {chunk_index}/{total_chunks}."
+                        ),
+                        "INFO",
+                    )
                     payload = (
                         f"Hearing date: {section.metadata.get('hearing_date', '')}\n"
                         f"Attorney info: {attorney_info}\n"
@@ -7816,18 +7835,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if response:
                         section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
                 if section_paragraphs:
-                    total_chunks = len(section_paragraphs)
+                    total_paragraphs = len(section_paragraphs)
+                    GLib.idle_add(
+                        self._append_log_message,
+                        (
+                            f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
+                            f"({hearing_date}) complete with {total_paragraphs} output chunk(s)."
+                        ),
+                        "INFO",
+                    )
                     for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
                         paragraph_metadata = dict(section.metadata)
                         paragraph_metadata["chunk_index"] = chunk_index
-                        paragraph_metadata["chunk_total"] = total_chunks
+                        paragraph_metadata["chunk_total"] = total_paragraphs
                         chunk_entry = _make_retrieval_chunk_entry(paragraph_metadata, paragraph)
                         optimized_hearings.append(str(chunk_entry.get("content", "")))
                         optimized_hearing_entries.append(chunk_entry)
 
             optimized_reports: list[str] = []
             optimized_report_entries: list[dict[str, Any]] = []
-            for section in report_sections:
+            total_report_sections = len(report_sections)
+            for section_index, section in enumerate(report_sections, start=1):
                 self._raise_if_stop_requested()
                 content = section.content
                 if not content:
@@ -7835,12 +7863,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 sentences = _split_into_sentences(content)
                 if not sentences:
                     continue
-                chunks = _chunk_sentences(sentences, 3500)
+                chunks = _chunk_sentences(sentences, 5000)
                 if not chunks:
                     continue
+                report_name = str(section.metadata.get("report_name", "")).strip() or "Unknown report"
                 section_paragraphs: list[str] = []
+                total_chunks = len(chunks)
                 for chunk_index, chunk in enumerate(chunks, start=1):
                     self._raise_if_stop_requested()
+                    GLib.idle_add(
+                        self._append_log_message,
+                        (
+                            f"Create optimized: report section {section_index}/{total_report_sections} "
+                            f"({report_name}), chunk {chunk_index}/{total_chunks}."
+                        ),
+                        "INFO",
+                    )
                     response = self._optimize_report_chunk(
                         settings,
                         reports_prompt,
@@ -7852,11 +7890,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if response:
                         section_paragraphs.extend(_split_paragraphs(response))
                 if section_paragraphs:
-                    total_chunks = len(section_paragraphs)
+                    total_paragraphs = len(section_paragraphs)
+                    GLib.idle_add(
+                        self._append_log_message,
+                        (
+                            f"Create optimized: report section {section_index}/{total_report_sections} "
+                            f"({report_name}) complete with {total_paragraphs} output chunk(s)."
+                        ),
+                        "INFO",
+                    )
                     for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
                         paragraph_metadata = dict(section.metadata)
                         paragraph_metadata["chunk_index"] = chunk_index
-                        paragraph_metadata["chunk_total"] = total_chunks
+                        paragraph_metadata["chunk_total"] = total_paragraphs
                         chunk_entry = _make_retrieval_chunk_entry(paragraph_metadata, paragraph)
                         optimized_reports.append(str(chunk_entry.get("content", "")))
                         optimized_report_entries.append(chunk_entry)
@@ -8817,7 +8863,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._raise_if_stop_requested()
         headers = {
             "Content-Type": "application/json",
-            "Accept": "text/event-stream",
+            "Accept": "application/json, text/event-stream",
             "Authorization": f"Bearer {settings['api_key']}",
             "User-Agent": "RecordPrep/0.1",
         }
@@ -8827,7 +8873,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         body = {
             "model": model_id,
-            "stream": True,
+            "stream": False,
             "messages": [
                 {"role": "system", "content": settings["prompt"]},
                 {"role": "user", "content": content},
@@ -8846,7 +8892,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             data = json.dumps(body).encode("utf-8")
             req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
             try:
-                return self._stream_text_with_retries(req, timeout=300, error_label=error_label).strip()
+                if body.get("stream"):
+                    return self._stream_text_with_retries(
+                        req,
+                        timeout=300,
+                        error_label=error_label,
+                    ).strip()
+                payload = _post_json_with_retries(req, timeout=300, error_label=error_label)
+                response_text = self._extract_response_text(payload).strip()
+                if response_text:
+                    return response_text
+                # Some OpenAI-compatible providers behave better with SSE than JSON mode.
+                body["stream"] = True
+                continue
             except RuntimeError as exc:
                 message = str(exc).lower()
                 if (

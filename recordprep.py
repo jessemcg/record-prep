@@ -10,6 +10,7 @@ import importlib
 import json
 import random
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -955,6 +956,16 @@ class RetrievalSection:
     metadata: dict[str, Any]
 
 
+@dataclass
+class ChunkedSectionFiles:
+    section_type: str
+    label: str
+    directory: Path
+    chunk_paths: list[Path]
+    metadata: dict[str, Any]
+    attorney_excerpt_path: Path | None = None
+
+
 def _canonical_retrieval_metadata_key(label: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
     aliases = {
@@ -1032,69 +1043,6 @@ def _render_retrieval_chunk(metadata: dict[str, Any], content: str) -> str:
     return _clean_retrieval_chunk_content(metadata, content)
 
 
-def _make_retrieval_chunk_entry(metadata: dict[str, Any], content: str) -> dict[str, Any]:
-    return {
-        "metadata": dict(metadata),
-        "content": _render_retrieval_chunk(metadata, content),
-    }
-
-
-def _load_retrieval_chunk_entries(
-    text_path: Path,
-    jsonl_path: Path | None = None,
-) -> list[dict[str, Any]]:
-    if jsonl_path is not None and jsonl_path.exists():
-        entries = _load_jsonl_entries(jsonl_path)
-        normalized_entries: list[dict[str, Any]] = []
-        for entry in entries:
-            metadata = entry.get("metadata")
-            content = entry.get("content")
-            metadata_dict = metadata if isinstance(metadata, dict) else {}
-            content_text = str(content or "").strip()
-            if not content_text:
-                continue
-            normalized_entries.append(
-                {
-                    "metadata": dict(metadata_dict),
-                    "content": content_text,
-                }
-            )
-        if normalized_entries:
-            return normalized_entries
-
-    normalized_entries = []
-    if not text_path.exists():
-        return normalized_entries
-    for paragraph in _split_paragraphs(text_path.read_text(encoding="utf-8", errors="ignore")):
-        metadata, cleaned = _parse_retrieval_chunk(paragraph)
-        if not cleaned:
-            continue
-        normalized_entries.append(
-            {
-                "metadata": metadata,
-                "content": cleaned,
-            }
-        )
-    return normalized_entries
-
-
-def _response_paragraphs_to_chunks(
-    metadata: dict[str, Any],
-    response_text: str,
-) -> list[str]:
-    paragraphs = _split_paragraphs(_normalize_optimized_text(response_text))
-    if not paragraphs:
-        return []
-    chunk_total = len(paragraphs)
-    rendered: list[str] = []
-    for chunk_index, paragraph in enumerate(paragraphs, start=1):
-        paragraph_metadata = dict(metadata)
-        paragraph_metadata["chunk_index"] = chunk_index
-        paragraph_metadata["chunk_total"] = chunk_total
-        rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
-    return rendered
-
-
 def _read_boundary_entry_text(entry: dict[str, Any], text_dir: Path) -> str:
     start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
     end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
@@ -1165,43 +1113,6 @@ def _build_report_sections(
             "report_name": report_name or "Unknown",
         }
         sections.append(RetrievalSection(section_type="report", content=content, metadata=metadata))
-    return sections
-
-
-def _raw_sections_to_jsonl_entries(sections: list[RetrievalSection]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for section in sections:
-        content = str(section.content or "").strip()
-        if not content:
-            continue
-        entries.append(
-            {
-                "section_type": section.section_type,
-                "metadata": dict(section.metadata),
-                "content": content,
-            }
-        )
-    return entries
-
-
-def _load_raw_sections_jsonl(path: Path) -> list[RetrievalSection]:
-    sections: list[RetrievalSection] = []
-    for entry in _load_jsonl_entries(path):
-        content = str(entry.get("content") or "").strip()
-        if not content:
-            continue
-        metadata = entry.get("metadata")
-        metadata_dict = dict(metadata) if isinstance(metadata, dict) else {}
-        section_type = str(entry.get("section_type") or metadata_dict.get("type") or "").strip()
-        if not section_type:
-            section_type = "unknown"
-        sections.append(
-            RetrievalSection(
-                section_type=section_type,
-                content=content,
-                metadata=metadata_dict,
-            )
-        )
     return sections
 
 
@@ -1474,6 +1385,249 @@ def _compile_raw_sections_text(sections: list[RetrievalSection]) -> str:
     return "\n".join(rendered_sections).rstrip() + "\n"
 
 
+def _artifact_label_component(value: str, fallback: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", value.strip()).strip("_")
+    normalized = re.sub(r"_+", "_", normalized)
+    return normalized or fallback
+
+
+def _strip_ascii_and_html_tables(text: str) -> str:
+    if not text:
+        return ""
+
+    cleaned = text
+    if "<table" in cleaned.lower():
+        cleaned = _convert_html_tables(cleaned)
+
+    border_chars = set("│┃║╎╏┆┇┊┋─━═┄┅┈┉┌┐└┘├┤┬┴┼╭╮╰╯+")
+    cleaned_lines: list[str] = []
+    for line in cleaned.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            cleaned_lines.append("")
+            continue
+        non_space = [ch for ch in stripped if not ch.isspace()]
+        if non_space and all(ch in border_chars for ch in non_space):
+            continue
+
+        # Remove leading box-drawn table columns such as "│  21 │ text".
+        stripped = re.sub(r"^\s*[│┃║]\s*\d+\s*[│┃║]\s*", "", stripped)
+        stripped = re.sub(r"^\s*\d+\s*[│┃║]\s*", "", stripped)
+
+        # Remove pleading-paper style left margin numbers such as "21  text".
+        stripped = re.sub(r"^\s*\d{1,3}\s{2,}", "", stripped)
+        stripped = re.sub(r"^\s*\d{1,2}\s+(?=[A-Za-z(\"'])", "", stripped)
+
+        # Trim stray vertical border characters left at the start/end of the line.
+        stripped = re.sub(r"^\s*[│┃║]\s*", "", stripped)
+        stripped = re.sub(r"\s*[│┃║]\s*$", "", stripped)
+        stripped = re.sub(r"\s*[│┃║]\s*", "    ", stripped)
+        stripped = re.sub(r" {5,}", "    ", stripped).strip()
+
+        if not stripped:
+            cleaned_lines.append("")
+            continue
+        cleaned_lines.append(stripped)
+    return "\n".join(cleaned_lines)
+
+
+def _chunk_text_for_artifacts(text: str, max_chars: int) -> list[str]:
+    if max_chars <= 0:
+        return []
+    if not text:
+        return []
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+    chunks: list[str] = []
+    start = 0
+    boundary_pattern = re.compile(r"\.[ \t]*\n(?:\s*\n)?")
+
+    while start < len(normalized):
+        target = start + max_chars
+        if target >= len(normalized):
+            final_chunk = normalized[start:].strip()
+            if final_chunk:
+                chunks.append(final_chunk)
+            break
+
+        match = boundary_pattern.search(normalized, pos=target)
+        if match:
+            end = match.end()
+        else:
+            newline_index = normalized.find("\n", target)
+            end = newline_index + 1 if newline_index != -1 else len(normalized)
+
+        if end <= start:
+            end = min(start + max_chars, len(normalized))
+
+        chunk = normalized[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        start = end
+        while start < len(normalized) and normalized[start].isspace():
+            start += 1
+
+    return chunks
+
+
+def _prepare_directory(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _write_chunked_section_files(
+    base_dir: Path,
+    sections: list[RetrievalSection],
+    label_key: str,
+    chunk_size: int,
+    include_attorney_excerpt: bool = False,
+) -> list[ChunkedSectionFiles]:
+    written_sections: list[ChunkedSectionFiles] = []
+    for section_index, section in enumerate(sections, start=1):
+        content = _strip_ascii_and_html_tables(str(section.content or ""))
+        if not content.strip():
+            continue
+        label = str(section.metadata.get(label_key, "")).strip() or f"{section.section_type.title()} {section_index}"
+        section_dir = base_dir / (
+            f"{section_index:04d}_{_artifact_label_component(label, section.section_type)}"
+        )
+        section_dir.mkdir(parents=True, exist_ok=True)
+        (section_dir / "label.txt").write_text(label + "\n", encoding="utf-8")
+
+        attorney_excerpt_path: Path | None = None
+        if include_attorney_excerpt:
+            attorney_chunks = _chunk_text_for_artifacts(content, 3000)
+            attorney_excerpt = attorney_chunks[0] if attorney_chunks else content
+            attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
+            attorney_excerpt_path.write_text(attorney_excerpt, encoding="utf-8")
+
+        chunk_paths: list[Path] = []
+        for chunk_index, chunk in enumerate(_chunk_text_for_artifacts(content, chunk_size), start=1):
+            chunk_path = section_dir / f"{chunk_index:04d}.txt"
+            chunk_path.write_text(chunk, encoding="utf-8")
+            chunk_paths.append(chunk_path)
+
+        written_sections.append(
+            ChunkedSectionFiles(
+                section_type=section.section_type,
+                label=label,
+                directory=section_dir,
+                chunk_paths=chunk_paths,
+                metadata=dict(section.metadata),
+                attorney_excerpt_path=attorney_excerpt_path,
+            )
+        )
+    return written_sections
+
+
+def _create_preoptimized_chunks(
+    root_dir: Path,
+    hearing_sections: list[RetrievalSection],
+    report_sections: list[RetrievalSection],
+    chunk_size: int,
+) -> tuple[list[ChunkedSectionFiles], list[ChunkedSectionFiles]]:
+    artifacts_dir = root_dir / "artifacts"
+    preoptimized_dir = artifacts_dir / "preoptimized"
+    hearings_dir = preoptimized_dir / "hearings"
+    reports_dir = preoptimized_dir / "reports"
+    _prepare_directory(preoptimized_dir)
+    hearings_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    hearing_files = _write_chunked_section_files(
+        hearings_dir,
+        hearing_sections,
+        "hearing_date",
+        chunk_size,
+        include_attorney_excerpt=True,
+    )
+    report_files = _write_chunked_section_files(
+        reports_dir,
+        report_sections,
+        "report_name",
+        chunk_size,
+    )
+    return hearing_files, report_files
+
+
+def _create_optimized_output_dirs(root_dir: Path) -> tuple[Path, Path]:
+    artifacts_dir = root_dir / "artifacts"
+    optimized_dir = artifacts_dir / "optimized"
+    hearings_dir = optimized_dir / "hearings"
+    reports_dir = optimized_dir / "reports"
+    _prepare_directory(optimized_dir)
+    hearings_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    return hearings_dir, reports_dir
+
+
+def _load_chunked_section_files(
+    base_dir: Path,
+    section_type: str,
+    label_key: str,
+    include_attorney_excerpt: bool = False,
+) -> list[ChunkedSectionFiles]:
+    loaded_sections: list[ChunkedSectionFiles] = []
+    if not base_dir.exists():
+        return loaded_sections
+    for section_dir in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=_natural_sort_key):
+        label_path = section_dir / "label.txt"
+        if label_path.exists():
+            label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
+        else:
+            label = section_dir.name
+        chunk_paths = sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key)
+        attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
+        loaded_sections.append(
+            ChunkedSectionFiles(
+                section_type=section_type,
+                label=label,
+                directory=section_dir,
+                chunk_paths=chunk_paths,
+                metadata={"type": section_type, label_key: label},
+                attorney_excerpt_path=(
+                    attorney_excerpt_path
+                    if include_attorney_excerpt and attorney_excerpt_path.exists()
+                    else None
+                ),
+            )
+        )
+    return loaded_sections
+
+
+def _load_labeled_chunk_directories(
+    base_dir: Path,
+    section_type: str,
+    label_key: str,
+) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    if not base_dir.exists():
+        return sections
+    for section_dir in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=_natural_sort_key):
+        label_path = section_dir / "label.txt"
+        if label_path.exists():
+            label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
+        else:
+            label = section_dir.name
+        chunks: list[str] = []
+        for chunk_path in sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key):
+            content = chunk_path.read_text(encoding="utf-8", errors="ignore").strip()
+            if content:
+                chunks.append(content)
+        metadata: dict[str, Any] = {"type": section_type}
+        metadata[label_key] = label
+        sections.append(
+            {
+                "label": label,
+                "metadata": metadata,
+                "chunks": chunks,
+            }
+        )
+    return sections
+
+
 def _load_classify_basic_entries(classify_path: Path) -> list[tuple[str, str, int]]:
     entries: list[tuple[str, str, int]] = []
     if not classify_path.exists():
@@ -1724,6 +1878,8 @@ def _write_manifest(
             "image_pages": _relpath(image_pages_dir),
             "classification": _relpath(classification_dir),
             "artifacts": _relpath(artifacts_dir),
+            "preoptimized": _relpath(artifacts_dir / "preoptimized"),
+            "optimized_dir": _relpath(artifacts_dir / "optimized"),
             "summaries": _relpath(summaries_dir),
             "rag": _relpath(rag_dir),
             "temp": _relpath(temp_dir),
@@ -1736,12 +1892,8 @@ def _write_manifest(
             "minutes_boundaries": _relpath(artifacts_dir / "minutes_boundaries.json"),
             "raw_hearings": _relpath(artifacts_dir / "raw_hearings.txt"),
             "raw_reports": _relpath(artifacts_dir / "raw_reports.txt"),
-            "raw_hearings_sections": _relpath(artifacts_dir / "raw_hearings.jsonl"),
-            "raw_reports_sections": _relpath(artifacts_dir / "raw_reports.jsonl"),
             "optimized_hearings": _relpath(artifacts_dir / "optimized_hearings.txt"),
             "optimized_reports": _relpath(artifacts_dir / "optimized_reports.txt"),
-            "optimized_hearings_chunks": _relpath(artifacts_dir / "optimized_hearings_chunks.jsonl"),
-            "optimized_reports_chunks": _relpath(artifacts_dir / "optimized_reports_chunks.jsonl"),
             "summarized_hearings": _relpath(summarized_hearings_path),
             "summarized_reports": _relpath(summarized_reports_path),
             "summarized_minutes": _relpath(summarized_minutes_path),
@@ -4552,7 +4704,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_eight_row = Adw.ActionRow(
             title="Create raw",
-            subtitle="Create raw hearing and report text plus structured section files for optimization.",
+            subtitle="Create raw hearing and report text files.",
         )
         self.step_eight_row.set_activatable(False)
         self._attach_step_controls(
@@ -4563,9 +4715,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._attach_step_status(self.step_eight_row)
         self.step_list.append(self.step_eight_row)
 
+        self.step_preoptimized_row = Adw.ActionRow(
+            title="Create pre-optimized",
+            subtitle="Create exact pre-optimization chunk files for hearings and reports.",
+        )
+        self.step_preoptimized_row.set_activatable(False)
+        self._attach_step_controls(
+            "create_preoptimized",
+            self.step_preoptimized_row,
+            lambda _btn: self.on_step_preoptimized_clicked(self.step_preoptimized_row),
+        )
+        self._attach_step_status(self.step_preoptimized_row)
+        self.step_list.append(self.step_preoptimized_row)
+
         self.step_nine_row = Adw.ActionRow(
             title="Create optimized",
-            subtitle="Prepare optimized hearing and report text for retrieval.",
+            subtitle="Run optimization using the saved pre-optimization chunk files.",
         )
         self.step_nine_row.set_activatable(False)
         self._attach_step_controls(
@@ -5047,38 +5212,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         date_value: str,
         transcript: str,
     ) -> str:
+        transcript = transcript.strip()
+        if not transcript:
+            return ""
         optimize_settings = load_optimize_settings()
-        chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-        chunk_size_raw = optimize_settings.get("chunk_size", "")
-        if chunk_size_raw:
-            try:
-                chunk_size = max(1, int(chunk_size_raw))
-            except ValueError:
-                chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-        chunks = _chunk_text_preserving_structure(transcript, chunk_size)
-        if not chunks:
-            return ""
-        chunk_count = len(chunks)
-        attorney_chunks = _chunk_text_preserving_structure(transcript, 2000)
-        if not attorney_chunks:
-            return ""
         attorney_settings = dict(settings)
         attorney_settings["prompt"] = optimize_settings["attorneys_prompt"]
-        attorney_info = self._request_plain_text(attorney_settings, attorney_chunks[0])
+        attorney_info = self._request_plain_text(attorney_settings, transcript)
         hearing_metadata = {
             "type": "hearing",
             "hearing_date": _format_long_us_date(date_value)
             or _normalize_hearing_date(date_value),
         }
         section_paragraphs: list[str] = []
-        for chunk in chunks:
-            self._raise_if_stop_requested()
-            payload = f"Attorney info: {attorney_info}\nTranscript:\n{chunk}"
-            response = self._request_plain_text(settings, payload)
-            if response:
-                section_paragraphs.extend(
-                    _split_paragraphs(_normalize_optimized_text(response))
-                )
+        self._raise_if_stop_requested()
+        payload = f"Attorney info: {attorney_info}\nTranscript:\n{transcript}"
+        response = self._request_plain_text(settings, payload)
+        if response:
+            section_paragraphs.extend(
+                _split_paragraphs(_normalize_optimized_text(response))
+            )
         if not section_paragraphs:
             return ""
         rendered: list[str] = []
@@ -5088,39 +5241,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             paragraph_metadata["chunk_index"] = chunk_index
             paragraph_metadata["chunk_total"] = total_paragraphs
             rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
-        return f"Chunks sent to model: {chunk_count}\n\n" + "\n\n".join(rendered)
+        return "\n\n".join(rendered)
 
     def _optimize_report_test_text(
         self,
         settings: dict[str, Any],
         raw_text: str,
     ) -> str:
-        optimize_settings = load_optimize_settings()
-        chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-        chunk_size_raw = optimize_settings.get("chunk_size", "")
-        if chunk_size_raw:
-            try:
-                chunk_size = max(1, int(chunk_size_raw))
-            except ValueError:
-                chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-        chunks = _chunk_text_preserving_structure(raw_text, chunk_size)
-        if not chunks:
+        raw_text = raw_text.strip()
+        if not raw_text:
             return ""
-        chunk_count = len(chunks)
         report_metadata = {
             "type": "report",
             "report_name": "TEST REPORT",
         }
         section_paragraphs: list[str] = []
-        for chunk in chunks:
-            self._raise_if_stop_requested()
-            response = self._optimize_report_chunk(
-                settings,
-                settings["prompt"],
-                chunk,
-            )
-            if response:
-                section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
+        self._raise_if_stop_requested()
+        response = self._optimize_report_chunk(
+            settings,
+            settings["prompt"],
+            raw_text,
+        )
+        if response:
+            section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
         if not section_paragraphs:
             return ""
         rendered: list[str] = []
@@ -5130,7 +5273,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             paragraph_metadata["chunk_index"] = chunk_index
             paragraph_metadata["chunk_total"] = total_paragraphs
             rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
-        return f"Chunks sent to model: {chunk_count}\n\n" + "\n\n".join(rendered)
+        return "\n\n".join(rendered)
 
     def run_test_optimize_summarize(
         self,
@@ -5424,9 +5567,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         _set_done(
             self.step_eight_row,
             (artifacts_dir / "raw_hearings.txt").exists()
-            and (artifacts_dir / "raw_reports.txt").exists()
-            and (artifacts_dir / "raw_hearings.jsonl").exists()
-            and (artifacts_dir / "raw_reports.jsonl").exists(),
+            and (artifacts_dir / "raw_reports.txt").exists(),
+        )
+        _set_done(
+            self.step_preoptimized_row,
+            (artifacts_dir / "preoptimized" / "hearings").exists()
+            and (artifacts_dir / "preoptimized" / "reports").exists(),
         )
         _set_done(
             self.step_nine_row,
@@ -5896,6 +6042,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._run_step_correct_boundaries,
             ),
             ("create_raw", self.step_eight_row, self._run_step_eight),
+            ("create_preoptimized", self.step_preoptimized_row, self._run_step_preoptimized),
             ("create_optimized", self.step_nine_row, self._run_step_nine),
             ("create_summaries", self.step_ten_row, self._run_step_ten),
             (
@@ -6319,6 +6466,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
         self._launch_single_step(self.step_eight_row, self._run_step_eight)
+
+    def on_step_preoptimized_clicked(self, _row: Adw.ActionRow) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(self.step_preoptimized_row, self._run_step_preoptimized)
 
     def on_step_nine_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -7860,14 +8017,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             raw_reports = _compile_raw_sections_text(report_sections)
             (artifacts_dir / "raw_hearings.txt").write_text(raw_hearings, encoding="utf-8")
             (artifacts_dir / "raw_reports.txt").write_text(raw_reports, encoding="utf-8")
-            _write_jsonl_entries(
-                artifacts_dir / "raw_hearings.jsonl",
-                _raw_sections_to_jsonl_entries(hearing_sections),
-            )
-            _write_jsonl_entries(
-                artifacts_dir / "raw_reports.jsonl",
-                _raw_sections_to_jsonl_entries(report_sections),
-            )
         except StopRequested:
             success = None
         except Exception as exc:
@@ -7893,6 +8042,71 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         finally:
             GLib.idle_add(self.step_eight_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_eight_row, success)
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
+
+    def _run_step_preoptimized(self) -> bool:
+        success: bool | str | None = False
+        try:
+            self._raise_if_stop_requested()
+            root_dir = self._resolve_case_root()
+            if root_dir is None:
+                if self.selected_pdfs:
+                    raise ValueError("Selected PDFs must be in the same folder.")
+                raise ValueError("Choose PDF files or select a saved case first.")
+            artifacts_dir = root_dir / "artifacts"
+            text_dir = root_dir / "text_pages"
+            hearing_path = artifacts_dir / "hearing_boundaries.json"
+            report_path = artifacts_dir / "report_boundaries.json"
+            if not text_dir.exists():
+                raise FileNotFoundError("Run Create files to generate text files first.")
+            if not hearing_path.exists() or not report_path.exists():
+                raise FileNotFoundError(
+                    "Run Find boundaries to generate hearing/report boundaries first."
+                )
+            optimize_settings = load_optimize_settings()
+            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+            chunk_size_raw = optimize_settings.get("chunk_size", "")
+            if chunk_size_raw:
+                try:
+                    chunk_size = max(1, int(chunk_size_raw))
+                except ValueError:
+                    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+            hearing_entries = _load_json_entries(hearing_path)
+            report_entries = _load_json_entries(report_path)
+            minutes_path = artifacts_dir / "minutes_boundaries.json"
+            minute_entries = (
+                _load_json_entries(minutes_path)
+                if minutes_path.exists()
+                else []
+            )
+            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
+            report_sections = _build_report_sections(report_entries, text_dir)
+            _create_preoptimized_chunks(
+                root_dir,
+                hearing_sections,
+                report_sections,
+                chunk_size,
+            )
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(self.show_toast, f"Create pre-optimized failed: {exc}")
+        else:
+            success = True
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "create_preoptimized",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            GLib.idle_add(self.show_toast, "Create pre-optimized complete.")
+        finally:
+            GLib.idle_add(self.step_preoptimized_row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, self.step_preoptimized_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
@@ -7925,32 +8139,34 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             artifacts_dir = root_dir / "artifacts"
-            raw_hearings_sections_path = artifacts_dir / "raw_hearings.jsonl"
-            raw_reports_sections_path = artifacts_dir / "raw_reports.jsonl"
-            if not raw_hearings_sections_path.exists() or not raw_reports_sections_path.exists():
+            preoptimized_dir = artifacts_dir / "preoptimized"
+            preoptimized_hearings_dir = preoptimized_dir / "hearings"
+            preoptimized_reports_dir = preoptimized_dir / "reports"
+            if not preoptimized_hearings_dir.exists() or not preoptimized_reports_dir.exists():
                 raise FileNotFoundError(
-                    "Run Create raw to generate structured raw hearing/report files first."
+                    "Run Create pre-optimized to generate hearing/report chunk files first."
                 )
             settings = load_optimize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
-            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-            chunk_size_raw = settings.get("chunk_size", "")
-            if chunk_size_raw:
-                try:
-                    chunk_size = max(1, int(chunk_size_raw))
-                except ValueError:
-                    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
             attorneys_prompt = settings["attorneys_prompt"]
             hearings_prompt = settings["hearings_prompt"]
             reports_prompt = settings["reports_prompt"]
-            hearing_sections = _load_raw_sections_jsonl(raw_hearings_sections_path)
-            report_sections = _load_raw_sections_jsonl(raw_reports_sections_path)
-            if not hearing_sections and not report_sections:
+            hearing_files = _load_chunked_section_files(
+                preoptimized_hearings_dir,
+                "hearing",
+                "hearing_date",
+                include_attorney_excerpt=True,
+            )
+            report_files = _load_chunked_section_files(
+                preoptimized_reports_dir,
+                "report",
+                "report_name",
+            )
+            if not hearing_files and not report_files:
                 (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
                 (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
-                (artifacts_dir / "optimized_hearings_chunks.jsonl").write_text("", encoding="utf-8")
-                (artifacts_dir / "optimized_reports_chunks.jsonl").write_text("", encoding="utf-8")
+                _create_optimized_output_dirs(root_dir)
                 self._safe_update_manifest(
                     root_dir,
                     {
@@ -7967,18 +8183,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 success = "Skipped"
                 return True
 
+            optimized_hearings_dir, optimized_reports_dir = _create_optimized_output_dirs(root_dir)
             optimized_hearings: list[str] = []
-            optimized_hearing_entries: list[dict[str, Any]] = []
-            total_hearing_sections = len(hearing_sections)
-            for section_index, section in enumerate(hearing_sections, start=1):
+            total_hearing_sections = len(hearing_files)
+            for section_index, section in enumerate(hearing_files, start=1):
                 self._raise_if_stop_requested()
-                content = section.content
-                if not content:
+                if not section.chunk_paths:
                     continue
-                chunks = _chunk_text_preserving_structure(content, chunk_size)
-                if not chunks:
-                    continue
-                hearing_date = str(section.metadata.get("hearing_date", "")).strip() or "Unknown date"
+                hearing_date = str(section.metadata.get("hearing_date", "")).strip() or section.label or "Unknown date"
                 GLib.idle_add(
                     self._append_log_message,
                     (
@@ -7987,10 +8199,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     ),
                     "INFO",
                 )
-                attorney_chunks = _chunk_text_preserving_structure(content, 2000)
-                if not attorney_chunks:
+                attorney_excerpt = ""
+                if section.attorney_excerpt_path and section.attorney_excerpt_path.exists():
+                    attorney_excerpt = section.attorney_excerpt_path.read_text(
+                        encoding="utf-8",
+                        errors="ignore",
+                    )
+                if not attorney_excerpt.strip():
                     continue
-                attorney_excerpt = attorney_chunks[0]
                 attorney_info = self._request_plain_text(
                     {
                         "api_url": settings["api_url"],
@@ -8004,9 +8220,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     attorney_excerpt,
                 )
                 section_paragraphs: list[str] = []
-                total_chunks = len(chunks)
-                for chunk_index, chunk in enumerate(chunks, start=1):
+                output_section_dir = optimized_hearings_dir / section.directory.name
+                output_section_dir.mkdir(parents=True, exist_ok=True)
+                (output_section_dir / "label.txt").write_text(hearing_date + "\n", encoding="utf-8")
+                total_chunks = len(section.chunk_paths)
+                for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
                     self._raise_if_stop_requested()
+                    chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
                     GLib.idle_add(
                         self._append_log_message,
                         (
@@ -8029,7 +8249,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         payload,
                     )
                     if response:
-                        section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
+                        normalized_response = _normalize_optimized_text(response)
+                        if normalized_response:
+                            (output_section_dir / f"{chunk_index:04d}.txt").write_text(
+                                normalized_response,
+                                encoding="utf-8",
+                            )
+                            section_paragraphs.extend(_split_paragraphs(normalized_response))
                 if section_paragraphs:
                     total_paragraphs = len(section_paragraphs)
                     GLib.idle_add(
@@ -8040,30 +8266,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ),
                         "INFO",
                     )
-                    for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
-                        paragraph_metadata = dict(section.metadata)
-                        paragraph_metadata["chunk_index"] = chunk_index
-                        paragraph_metadata["chunk_total"] = total_paragraphs
-                        chunk_entry = _make_retrieval_chunk_entry(paragraph_metadata, paragraph)
-                        optimized_hearings.append(str(chunk_entry.get("content", "")))
-                        optimized_hearing_entries.append(chunk_entry)
+                    optimized_hearings.extend(section_paragraphs)
 
             optimized_reports: list[str] = []
-            optimized_report_entries: list[dict[str, Any]] = []
-            total_report_sections = len(report_sections)
-            for section_index, section in enumerate(report_sections, start=1):
+            total_report_sections = len(report_files)
+            for section_index, section in enumerate(report_files, start=1):
                 self._raise_if_stop_requested()
-                content = section.content
-                if not content:
+                if not section.chunk_paths:
                     continue
-                chunks = _chunk_text_preserving_structure(content, chunk_size)
-                if not chunks:
-                    continue
-                report_name = str(section.metadata.get("report_name", "")).strip() or "Unknown report"
+                report_name = str(section.metadata.get("report_name", "")).strip() or section.label or "Unknown report"
                 section_paragraphs: list[str] = []
-                total_chunks = len(chunks)
-                for chunk_index, chunk in enumerate(chunks, start=1):
+                output_section_dir = optimized_reports_dir / section.directory.name
+                output_section_dir.mkdir(parents=True, exist_ok=True)
+                (output_section_dir / "label.txt").write_text(report_name + "\n", encoding="utf-8")
+                total_chunks = len(section.chunk_paths)
+                for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
                     self._raise_if_stop_requested()
+                    chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
                     GLib.idle_add(
                         self._append_log_message,
                         (
@@ -8078,7 +8297,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         chunk,
                     )
                     if response:
-                        section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
+                        normalized_response = _normalize_optimized_text(response)
+                        if normalized_response:
+                            (output_section_dir / f"{chunk_index:04d}.txt").write_text(
+                                normalized_response,
+                                encoding="utf-8",
+                            )
+                            section_paragraphs.extend(_split_paragraphs(normalized_response))
                 if section_paragraphs:
                     total_paragraphs = len(section_paragraphs)
                     GLib.idle_add(
@@ -8089,29 +8314,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ),
                         "INFO",
                     )
-                    for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
-                        paragraph_metadata = dict(section.metadata)
-                        paragraph_metadata["chunk_index"] = chunk_index
-                        paragraph_metadata["chunk_total"] = total_paragraphs
-                        chunk_entry = _make_retrieval_chunk_entry(paragraph_metadata, paragraph)
-                        optimized_reports.append(str(chunk_entry.get("content", "")))
-                        optimized_report_entries.append(chunk_entry)
+                    optimized_reports.extend(section_paragraphs)
 
             (artifacts_dir / "optimized_hearings.txt").write_text(
-                _collapse_blank_lines("\n\n".join(optimized_hearings)),
+                _collapse_blank_lines("\n\n".join(optimized_hearings)) if optimized_hearings else "",
                 encoding="utf-8",
             )
             (artifacts_dir / "optimized_reports.txt").write_text(
-                _collapse_blank_lines("\n\n".join(optimized_reports)),
+                _collapse_blank_lines("\n\n".join(optimized_reports)) if optimized_reports else "",
                 encoding="utf-8",
-            )
-            _write_jsonl_entries(
-                artifacts_dir / "optimized_hearings_chunks.jsonl",
-                optimized_hearing_entries,
-            )
-            _write_jsonl_entries(
-                artifacts_dir / "optimized_reports_chunks.jsonl",
-                optimized_report_entries,
             )
         except StopRequested:
             success = None
@@ -8183,27 +8394,25 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 summary_hearings.append("Hearings Summary")
 
             hearing_groups: list[tuple[str, list[str]]] = []
-            current_date: str | None = None
-            hearing_chunk_entries = _load_retrieval_chunk_entries(
-                optimized_hearings_path,
-                artifacts_dir / "optimized_hearings_chunks.jsonl",
+            hearing_sections = _load_labeled_chunk_directories(
+                artifacts_dir / "optimized" / "hearings",
+                "hearing",
+                "hearing_date",
             )
-            for entry in hearing_chunk_entries:
+            for section in hearing_sections:
                 self._raise_if_stop_requested()
-                metadata = entry.get("metadata")
+                metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                cleaned = str(entry.get("content") or "").strip()
-                date_value = str(metadata.get("hearing_date", "")).strip()
-                if date_value:
-                    date_value = _normalize_hearing_date(date_value)
-                    if current_date != date_value:
-                        hearing_groups.append((date_value, []))
-                        current_date = date_value
-                if not hearing_groups:
-                    hearing_groups.append(("HEARING", []))
-                hearing_groups[-1][1].append(
-                    _remove_standalone_date_lines(_remove_hearing_date_mentions(cleaned))
+                date_value = _normalize_hearing_date(
+                    str(metadata.get("hearing_date", "")).strip() or "HEARING"
                 )
+                paragraphs = [
+                    _remove_standalone_date_lines(_remove_hearing_date_mentions(chunk))
+                    for chunk in section.get("chunks", [])
+                    if str(chunk).strip()
+                ]
+                if paragraphs:
+                    hearing_groups.append((date_value, paragraphs))
 
             hearing_responses: list[str] = []
             for date_value, paragraphs in hearing_groups:
@@ -8260,24 +8469,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 report_page_by_name.setdefault(report_name, page_str)
 
             report_groups: list[tuple[str, list[str]]] = []
-            current_report_name: str | None = None
-            report_chunk_entries = _load_retrieval_chunk_entries(
-                optimized_reports_path,
-                artifacts_dir / "optimized_reports_chunks.jsonl",
+            report_sections = _load_labeled_chunk_directories(
+                artifacts_dir / "optimized" / "reports",
+                "report",
+                "report_name",
             )
-            for entry in report_chunk_entries:
-                metadata = entry.get("metadata")
+            for section in report_sections:
+                metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                cleaned = str(entry.get("content") or "").strip()
-                if str(metadata.get("type", "")).strip().lower() not in {"", "report"}:
-                    continue
-                if not cleaned:
-                    continue
                 report_name = str(metadata.get("report_name", "")).strip() or "Report"
-                if current_report_name != report_name:
-                    report_groups.append((report_name, []))
-                    current_report_name = report_name
-                report_groups[-1][1].append(cleaned)
+                paragraphs = [
+                    str(chunk).strip()
+                    for chunk in section.get("chunks", [])
+                    if str(chunk).strip()
+                ]
+                if paragraphs:
+                    report_groups.append((report_name, paragraphs))
             report_responses: list[str] = []
             report_group_chunk_counts: list[int] = []
             for _report_name, paragraphs in report_groups:
@@ -8724,8 +8931,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             artifacts_dir = root_dir / "artifacts"
             optimized_hearings_path = artifacts_dir / "optimized_hearings.txt"
             optimized_reports_path = artifacts_dir / "optimized_reports.txt"
-            optimized_hearings_chunks_path = artifacts_dir / "optimized_hearings_chunks.jsonl"
-            optimized_reports_chunks_path = artifacts_dir / "optimized_reports_chunks.jsonl"
             if not optimized_hearings_path.exists() or not optimized_reports_path.exists():
                 raise FileNotFoundError(
                     "Run Create optimized to generate optimized files first."
@@ -8784,15 +8989,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 embedding_function=rag_embedder,
             )
 
-            hearing_chunk_entries = _load_retrieval_chunk_entries(
-                optimized_hearings_path,
-                optimized_hearings_chunks_path,
+            hearing_sections = _load_labeled_chunk_directories(
+                artifacts_dir / "optimized" / "hearings",
+                "hearing",
+                "hearing_date",
             )
-            report_chunk_entries = _load_retrieval_chunk_entries(
-                optimized_reports_path,
-                optimized_reports_chunks_path,
+            report_sections = _load_labeled_chunk_directories(
+                artifacts_dir / "optimized" / "reports",
+                "report",
+                "report_name",
             )
-            if not hearing_chunk_entries and not report_chunk_entries:
+            if not hearing_sections and not report_sections:
                 GLib.idle_add(
                     self.show_toast,
                     "No optimized content available for RAG index. Skipping.",
@@ -8802,36 +9009,38 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 return True
 
             documents: list[Document] = []
-            for entry in hearing_chunk_entries:
+            for section in hearing_sections:
                 self._raise_if_stop_requested()
-                metadata = entry.get("metadata")
+                metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                content = str(entry.get("content") or "").strip()
-                if not content:
-                    continue
-                document_metadata = {"source": optimized_hearings_path.name}
-                document_metadata.update(metadata)
-                documents.append(
-                    Document(
-                        page_content=content,
-                        metadata=document_metadata,
+                for content in section.get("chunks", []):
+                    cleaned = str(content or "").strip()
+                    if not cleaned:
+                        continue
+                    document_metadata = {"source": optimized_hearings_path.name}
+                    document_metadata.update(metadata)
+                    documents.append(
+                        Document(
+                            page_content=cleaned,
+                            metadata=document_metadata,
+                        )
                     )
-                )
-            for entry in report_chunk_entries:
+            for section in report_sections:
                 self._raise_if_stop_requested()
-                metadata = entry.get("metadata")
+                metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                content = str(entry.get("content") or "").strip()
-                if not content:
-                    continue
-                document_metadata = {"source": optimized_reports_path.name}
-                document_metadata.update(metadata)
-                documents.append(
-                    Document(
-                        page_content=content,
-                        metadata=document_metadata,
+                for content in section.get("chunks", []):
+                    cleaned = str(content or "").strip()
+                    if not cleaned:
+                        continue
+                    document_metadata = {"source": optimized_reports_path.name}
+                    document_metadata.update(metadata)
+                    documents.append(
+                        Document(
+                            page_content=cleaned,
+                            metadata=document_metadata,
+                        )
                     )
-                )
             if not documents:
                 raise ValueError("No paragraphs found to embed.")
             vectorstore.add_documents(documents)

@@ -121,6 +121,7 @@ CONFIG_KEY_OPTIMIZE_API_URL = "optimize_api_url"
 CONFIG_KEY_OPTIMIZE_MODEL_ID = "optimize_model_id"
 CONFIG_KEY_OPTIMIZE_API_KEY = "optimize_api_key"
 CONFIG_KEY_OPTIMIZE_DISABLE_REASONING = "optimize_disable_reasoning"
+CONFIG_KEY_OPTIMIZE_CHUNK_SIZE = "optimize_chunk_size"
 CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
 CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
 CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT = "optimize_reports_prompt"
@@ -262,6 +263,7 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "• Each paragraph must appear on a single line.\n"
     "• Separate paragraphs with one blank line."
 )
+DEFAULT_OPTIMIZE_CHUNK_SIZE = 10000
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "Summarize the following court hearing in one very concise paragraph using plain "
     "and simple English. Include short direct quotes (3-6 words) from the hearing to "
@@ -1162,6 +1164,43 @@ def _build_report_sections(
     return sections
 
 
+def _raw_sections_to_jsonl_entries(sections: list[RetrievalSection]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for section in sections:
+        content = str(section.content or "").strip()
+        if not content:
+            continue
+        entries.append(
+            {
+                "section_type": section.section_type,
+                "metadata": dict(section.metadata),
+                "content": content,
+            }
+        )
+    return entries
+
+
+def _load_raw_sections_jsonl(path: Path) -> list[RetrievalSection]:
+    sections: list[RetrievalSection] = []
+    for entry in _load_jsonl_entries(path):
+        content = str(entry.get("content") or "").strip()
+        if not content:
+            continue
+        metadata = entry.get("metadata")
+        metadata_dict = dict(metadata) if isinstance(metadata, dict) else {}
+        section_type = str(entry.get("section_type") or metadata_dict.get("type") or "").strip()
+        if not section_type:
+            section_type = "unknown"
+        sections.append(
+            RetrievalSection(
+                section_type=section_type,
+                content=content,
+                metadata=metadata_dict,
+            )
+        )
+    return sections
+
+
 def _split_tagged_sections(text: str) -> list[tuple[str, str]]:
     sections: list[tuple[str, str]] = []
     current_label: str | None = None
@@ -1201,6 +1240,75 @@ def _chunk_sentences(sentences: list[str], max_chars: int) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def _chunk_lines_preserving_structure(lines: list[str], max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    current_lines: list[str] = []
+    current_length = 0
+    for line in lines:
+        line_length = len(line)
+        separator_length = 1 if current_lines else 0
+        candidate_length = current_length + separator_length + line_length
+        if current_lines and candidate_length > max_chars:
+            chunks.append("\n".join(current_lines).strip())
+            current_lines = [line]
+            current_length = line_length
+        else:
+            current_lines.append(line)
+            current_length = candidate_length
+    if current_lines:
+        chunks.append("\n".join(current_lines).strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def _chunk_text_preserving_structure(text: str, max_chars: int) -> list[str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", normalized) if block.strip()]
+    chunks: list[str] = []
+    current_blocks: list[str] = []
+    current_length = 0
+
+    def _flush_current() -> None:
+        nonlocal current_blocks, current_length
+        if current_blocks:
+            chunks.append("\n\n".join(current_blocks).strip())
+            current_blocks = []
+            current_length = 0
+
+    def _append_block(block: str) -> None:
+        nonlocal current_length
+        separator_length = 2 if current_blocks else 0
+        current_blocks.append(block)
+        current_length += separator_length + len(block)
+
+    for block in blocks:
+        block_length = len(block)
+        candidate_length = current_length + (2 if current_blocks else 0) + block_length
+        if block_length <= max_chars:
+            if current_blocks and candidate_length > max_chars:
+                _flush_current()
+            _append_block(block)
+            continue
+
+        _flush_current()
+        lines = [line.rstrip() for line in block.split("\n")]
+        line_chunks = _chunk_lines_preserving_structure(lines, max_chars)
+        for line_chunk in line_chunks:
+            if len(line_chunk) <= max_chars:
+                chunks.append(line_chunk)
+                continue
+            sentences = _split_into_sentences(line_chunk)
+            if sentences:
+                chunks.extend(_chunk_sentences(sentences, max_chars))
+            else:
+                chunks.append(line_chunk[:max_chars].strip())
+
+    _flush_current()
+    return [chunk for chunk in chunks if chunk.strip()]
 
 
 def _collapse_blank_lines(text: str) -> str:
@@ -1332,31 +1440,22 @@ def _infer_case_name_from_text(text: str) -> str:
     return ""
 
 
-def _compile_raw_sections(
-    entries: list[dict[str, Any]],
-    label_keys: tuple[str, ...],
-    text_dir: Path,
-) -> str:
-    sections: list[str] = []
-    for entry in entries:
-        label = _extract_entry_value(entry, *label_keys).strip() or "Unknown"
-        start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-        end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
-        start_page = _page_number_from_label(start_label)
-        end_page = _page_number_from_label(end_label)
-        if start_page is None or end_page is None:
-            raise ValueError("Boundary entry missing start/end page.")
-        if end_page < start_page:
-            raise ValueError("Boundary entry has end page before start page.")
-        sections.append(f"<<<{label}>>>")
-        for page in range(start_page, end_page + 1):
-            page_path = text_dir / f"{page:04d}.txt"
-            if not page_path.exists():
-                raise FileNotFoundError(f"Missing text file {page_path.name}.")
-            content = page_path.read_text(encoding="utf-8", errors="ignore")
-            sections.append(content.rstrip("\n"))
-        sections.append("")
-    return "\n".join(sections).rstrip() + "\n"
+def _compile_raw_sections_text(sections: list[RetrievalSection]) -> str:
+    rendered_sections: list[str] = []
+    for section in sections:
+        content = str(section.content or "").strip()
+        if not content:
+            continue
+        if section.section_type == "hearing":
+            label = str(section.metadata.get("hearing_date", "")).strip() or "Unknown"
+        elif section.section_type == "report":
+            label = str(section.metadata.get("report_name", "")).strip() or "Unknown"
+        else:
+            label = str(section.metadata.get("type", "")).strip() or "Unknown"
+        rendered_sections.append(f"<<<{label}>>>")
+        rendered_sections.append(content.rstrip("\n"))
+        rendered_sections.append("")
+    return "\n".join(rendered_sections).rstrip() + "\n"
 
 
 def _load_classify_basic_entries(classify_path: Path) -> list[tuple[str, str, int]]:
@@ -1621,6 +1720,8 @@ def _write_manifest(
             "minutes_boundaries": _relpath(artifacts_dir / "minutes_boundaries.json"),
             "raw_hearings": _relpath(artifacts_dir / "raw_hearings.txt"),
             "raw_reports": _relpath(artifacts_dir / "raw_reports.txt"),
+            "raw_hearings_sections": _relpath(artifacts_dir / "raw_hearings.jsonl"),
+            "raw_reports_sections": _relpath(artifacts_dir / "raw_reports.jsonl"),
             "optimized_hearings": _relpath(artifacts_dir / "optimized_hearings.txt"),
             "optimized_reports": _relpath(artifacts_dir / "optimized_reports.txt"),
             "optimized_hearings_chunks": _relpath(artifacts_dir / "optimized_hearings_chunks.jsonl"),
@@ -2244,6 +2345,7 @@ class OptimizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
+    chunk_size_row: Adw.EntryRow
     attorneys_prompt_buffer: Gtk.TextBuffer
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -2290,6 +2392,13 @@ def load_optimize_settings() -> dict[str, Any]:
         CONFIG_KEY_OPTIMIZE_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
+    chunk_size_raw = str(config.get(CONFIG_KEY_OPTIMIZE_CHUNK_SIZE, "") or "").strip()
+    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+    if chunk_size_raw:
+        try:
+            chunk_size = max(1, int(chunk_size_raw))
+        except ValueError:
+            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
     attorneys_prompt = str(
         config.get(CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT, DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT) or ""
     ).strip()
@@ -2304,6 +2413,7 @@ def load_optimize_settings() -> dict[str, Any]:
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
+        "chunk_size": str(chunk_size),
         "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
         "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT,
@@ -2315,6 +2425,7 @@ def save_optimize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
+    chunk_size: str,
     attorneys_prompt: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -2324,6 +2435,7 @@ def save_optimize_settings(
     config[CONFIG_KEY_OPTIMIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_OPTIMIZE_API_KEY] = api_key
     config[CONFIG_KEY_OPTIMIZE_DISABLE_REASONING] = bool(disable_reasoning)
+    config[CONFIG_KEY_OPTIMIZE_CHUNK_SIZE] = chunk_size
     config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT] = reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT
@@ -3245,6 +3357,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         credentials_group.add(disable_reasoning_row)
 
+        chunk_size_row = Adw.EntryRow(title="Chunk Size (characters)")
+        chunk_size_row.set_text(
+            settings.get("chunk_size", str(DEFAULT_OPTIMIZE_CHUNK_SIZE))
+        )
+        credentials_group.add(chunk_size_row)
+
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
@@ -3286,6 +3404,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
+            chunk_size_row=chunk_size_row,
             attorneys_prompt_buffer=attorneys_buffer,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
@@ -3614,6 +3733,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 optimize_widgets.model_row.get_text().strip(),
                 optimize_widgets.api_key_row.get_text().strip(),
                 bool(optimize_widgets.disable_reasoning_row.get_active()),
+                optimize_widgets.chunk_size_row.get_text().strip(),
                 self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
@@ -4416,7 +4536,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_eight_row = Adw.ActionRow(
             title="Create raw",
-            subtitle="Create raw hearing and report text files for summarization.",
+            subtitle="Create raw hearing and report text plus structured section files for optimization.",
         )
         self.step_eight_row.set_activatable(False)
         self._attach_step_controls(
@@ -4905,6 +5025,97 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 output_lines.append("")
         return _collapse_blank_lines("\n".join(output_lines)).strip()
 
+    def _optimize_hearing_test_text(
+        self,
+        settings: dict[str, Any],
+        date_value: str,
+        transcript: str,
+    ) -> str:
+        optimize_settings = load_optimize_settings()
+        chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+        chunk_size_raw = optimize_settings.get("chunk_size", "")
+        if chunk_size_raw:
+            try:
+                chunk_size = max(1, int(chunk_size_raw))
+            except ValueError:
+                chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+        chunks = _chunk_text_preserving_structure(transcript, chunk_size)
+        if not chunks:
+            return ""
+        chunk_count = len(chunks)
+        attorney_chunks = _chunk_text_preserving_structure(transcript, 2000)
+        if not attorney_chunks:
+            return ""
+        attorney_settings = dict(settings)
+        attorney_settings["prompt"] = optimize_settings["attorneys_prompt"]
+        attorney_info = self._request_plain_text(attorney_settings, attorney_chunks[0])
+        hearing_metadata = {
+            "type": "hearing",
+            "hearing_date": _format_long_us_date(date_value)
+            or _normalize_hearing_date(date_value),
+        }
+        section_paragraphs: list[str] = []
+        for chunk in chunks:
+            self._raise_if_stop_requested()
+            payload = f"Attorney info: {attorney_info}\nTranscript:\n{chunk}"
+            response = self._request_plain_text(settings, payload)
+            if response:
+                section_paragraphs.extend(
+                    _split_paragraphs(_normalize_optimized_text(response))
+                )
+        if not section_paragraphs:
+            return ""
+        rendered: list[str] = []
+        total_paragraphs = len(section_paragraphs)
+        for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
+            paragraph_metadata = dict(hearing_metadata)
+            paragraph_metadata["chunk_index"] = chunk_index
+            paragraph_metadata["chunk_total"] = total_paragraphs
+            rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
+        return f"Chunks sent to model: {chunk_count}\n\n" + "\n\n".join(rendered)
+
+    def _optimize_report_test_text(
+        self,
+        settings: dict[str, Any],
+        raw_text: str,
+    ) -> str:
+        optimize_settings = load_optimize_settings()
+        chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+        chunk_size_raw = optimize_settings.get("chunk_size", "")
+        if chunk_size_raw:
+            try:
+                chunk_size = max(1, int(chunk_size_raw))
+            except ValueError:
+                chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+        chunks = _chunk_text_preserving_structure(raw_text, chunk_size)
+        if not chunks:
+            return ""
+        chunk_count = len(chunks)
+        report_metadata = {
+            "type": "report",
+            "report_name": "TEST REPORT",
+        }
+        section_paragraphs: list[str] = []
+        for chunk in chunks:
+            self._raise_if_stop_requested()
+            response = self._optimize_report_chunk(
+                settings,
+                settings["prompt"],
+                chunk,
+            )
+            if response:
+                section_paragraphs.extend(_split_paragraphs(response))
+        if not section_paragraphs:
+            return ""
+        rendered: list[str] = []
+        total_paragraphs = len(section_paragraphs)
+        for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
+            paragraph_metadata = dict(report_metadata)
+            paragraph_metadata["chunk_index"] = chunk_index
+            paragraph_metadata["chunk_total"] = total_paragraphs
+            rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
+        return f"Chunks sent to model: {chunk_count}\n\n" + "\n\n".join(rendered)
+
     def run_test_optimize_summarize(
         self,
         mode_id: str,
@@ -4925,40 +5136,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if mode_id == "optimize_attorneys":
                     output = self._request_plain_text(settings, raw_text)
                 elif mode_id == "optimize_hearings":
-                    optimize_settings = load_optimize_settings()
                     date_value, transcript = self._parse_optimize_hearing_test_input(raw_text)
                     if not transcript:
                         raise ValueError("Enter transcript text for optimize hearing testing.")
-                    attorney_settings = dict(settings)
-                    attorney_settings["prompt"] = optimize_settings["attorneys_prompt"]
-                    attorney_info = self._request_plain_text(attorney_settings, transcript)
-                    payload = (
-                        f"Hearing date: {date_value}\n"
-                        f"Attorney info: {attorney_info}\n"
-                        f"Transcript:\n{transcript}"
-                    )
-                    hearing_metadata = {
-                        "type": "hearing",
-                        "hearing_date": _format_long_us_date(date_value)
-                        or _normalize_hearing_date(date_value),
-                    }
-                    output = "\n\n".join(
-                        _response_paragraphs_to_chunks(
-                            hearing_metadata,
-                            self._request_plain_text(settings, payload),
-                        )
+                    output = self._optimize_hearing_test_text(
+                        settings,
+                        date_value,
+                        transcript,
                     )
                 elif mode_id == "optimize_reports":
-                    report_metadata = {
-                        "type": "report",
-                        "report_name": "TEST REPORT",
-                    }
-                    output = "\n\n".join(
-                        _response_paragraphs_to_chunks(
-                            report_metadata,
-                            self._request_plain_text(settings, raw_text),
-                        )
-                    )
+                    output = self._optimize_report_test_text(settings, raw_text)
                 elif mode_id == "summarize_hearings":
                     summarize_settings = load_summarize_settings()
                     summarize_settings.update(overrides)
@@ -5221,7 +5408,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         _set_done(
             self.step_eight_row,
             (artifacts_dir / "raw_hearings.txt").exists()
-            and (artifacts_dir / "raw_reports.txt").exists(),
+            and (artifacts_dir / "raw_reports.txt").exists()
+            and (artifacts_dir / "raw_hearings.jsonl").exists()
+            and (artifacts_dir / "raw_reports.jsonl").exists(),
         )
         _set_done(
             self.step_nine_row,
@@ -7643,14 +7832,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             hearing_entries = _load_json_entries(hearing_path)
             report_entries = _load_json_entries(report_path)
-            raw_hearings = _compile_raw_sections(hearing_entries, ("date",), text_dir)
-            raw_reports = _compile_raw_sections(
-                report_entries,
-                ("report_name", "report", "name"),
-                text_dir,
+            minutes_path = derived_dir / "minutes_boundaries.json"
+            minute_entries = (
+                _load_json_entries(minutes_path)
+                if minutes_path.exists()
+                else []
             )
+            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
+            report_sections = _build_report_sections(report_entries, text_dir)
+            raw_hearings = _compile_raw_sections_text(hearing_sections)
+            raw_reports = _compile_raw_sections_text(report_sections)
             (artifacts_dir / "raw_hearings.txt").write_text(raw_hearings, encoding="utf-8")
             (artifacts_dir / "raw_reports.txt").write_text(raw_reports, encoding="utf-8")
+            _write_jsonl_entries(
+                artifacts_dir / "raw_hearings.jsonl",
+                _raw_sections_to_jsonl_entries(hearing_sections),
+            )
+            _write_jsonl_entries(
+                artifacts_dir / "raw_reports.jsonl",
+                _raw_sections_to_jsonl_entries(report_sections),
+            )
         except StopRequested:
             success = None
         except Exception as exc:
@@ -7684,10 +7885,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self,
         settings: dict[str, Any],
         reports_prompt: str,
-        metadata: dict[str, Any],
         chunk: str,
-        chunk_index: int,
-        chunk_total: int,
     ) -> str:
         request_settings = {
             "api_url": settings["api_url"],
@@ -7698,15 +7896,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
             "prompt": reports_prompt,
         }
-        report_name = str(metadata.get("report_name", "")).strip() or "Unknown"
-        payload = (
-            f"Report name: {report_name}\n"
-            f"Chunk: {chunk_index} of {chunk_total}\n"
-            "Preserve chronology exactly as it appears in this chunk.\n"
-            "Report text:\n"
-            f"{chunk}"
-        )
-        response = self._request_plain_text(request_settings, payload)
+        response = self._request_plain_text(request_settings, chunk)
         return _normalize_optimized_text(response) if response else ""
 
     def _run_step_nine(self) -> bool:
@@ -7719,32 +7909,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             artifacts_dir = root_dir / "artifacts"
-            text_dir = root_dir / "text_pages"
-            hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
-            report_boundaries_path = artifacts_dir / "report_boundaries.json"
-            minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"
-            if not text_dir.exists():
-                raise FileNotFoundError("Run Create files to generate text files first.")
-            if not hearing_boundaries_path.exists() or not report_boundaries_path.exists():
+            raw_hearings_sections_path = artifacts_dir / "raw_hearings.jsonl"
+            raw_reports_sections_path = artifacts_dir / "raw_reports.jsonl"
+            if not raw_hearings_sections_path.exists() or not raw_reports_sections_path.exists():
                 raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing/report boundary files first."
+                    "Run Create raw to generate structured raw hearing/report files first."
                 )
             settings = load_optimize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
+            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+            chunk_size_raw = settings.get("chunk_size", "")
+            if chunk_size_raw:
+                try:
+                    chunk_size = max(1, int(chunk_size_raw))
+                except ValueError:
+                    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
             attorneys_prompt = settings["attorneys_prompt"]
             hearings_prompt = settings["hearings_prompt"]
             reports_prompt = settings["reports_prompt"]
-
-            hearing_entries = _load_json_entries(hearing_boundaries_path)
-            report_entries = _load_json_entries(report_boundaries_path)
-            minute_entries = (
-                _load_json_entries(minutes_boundaries_path)
-                if minutes_boundaries_path.exists()
-                else []
-            )
-            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
-            report_sections = _build_report_sections(report_entries, text_dir)
+            hearing_sections = _load_raw_sections_jsonl(raw_hearings_sections_path)
+            report_sections = _load_raw_sections_jsonl(raw_reports_sections_path)
             if not hearing_sections and not report_sections:
                 (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
                 (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
@@ -7774,10 +7959,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 content = section.content
                 if not content:
                     continue
-                sentences = _split_into_sentences(content)
-                if not sentences:
-                    continue
-                chunks = _chunk_sentences(sentences, 5000)
+                chunks = _chunk_text_preserving_structure(content, chunk_size)
                 if not chunks:
                     continue
                 hearing_date = str(section.metadata.get("hearing_date", "")).strip() or "Unknown date"
@@ -7789,7 +7971,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     ),
                     "INFO",
                 )
-                attorney_excerpt = _chunk_sentences(sentences, 2000)[0]
+                attorney_chunks = _chunk_text_preserving_structure(content, 2000)
+                if not attorney_chunks:
+                    continue
+                attorney_excerpt = attorney_chunks[0]
                 attorney_info = self._request_plain_text(
                     {
                         "api_url": settings["api_url"],
@@ -7814,12 +7999,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ),
                         "INFO",
                     )
-                    payload = (
-                        f"Hearing date: {section.metadata.get('hearing_date', '')}\n"
-                        f"Attorney info: {attorney_info}\n"
-                        "Transcript:\n"
-                        f"{chunk}"
-                    )
+                    payload = f"Attorney info: {attorney_info}\nTranscript:\n{chunk}"
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -7860,10 +8040,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 content = section.content
                 if not content:
                     continue
-                sentences = _split_into_sentences(content)
-                if not sentences:
-                    continue
-                chunks = _chunk_sentences(sentences, 5000)
+                chunks = _chunk_text_preserving_structure(content, chunk_size)
                 if not chunks:
                     continue
                 report_name = str(section.metadata.get("report_name", "")).strip() or "Unknown report"
@@ -7882,10 +8059,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     response = self._optimize_report_chunk(
                         settings,
                         reports_prompt,
-                        section.metadata,
                         chunk,
-                        chunk_index,
-                        len(chunks),
                     )
                     if response:
                         section_paragraphs.extend(_split_paragraphs(response))

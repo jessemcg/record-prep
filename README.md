@@ -73,7 +73,7 @@ case_bundle/
 - Correct TOC: remove duplicate minute order dates.
 - Find boundaries: write hearing/report/minute boundaries JSON.
 - Create raw: compile raw hearing and report text files.
-- Create pre-optimized: write exact pre-optimization chunk files under `artifacts/preoptimized/`.
+- Create pre-optimized: write exact pre-optimization chunk files under `artifacts/preoptimized/` and save attorney extraction JSON artifacts for hearings.
 - Create optimized: LLM-reformat the saved pre-optimization chunks and save the optimized text.
 - Create summaries: generate hearing/report/minute summaries (case-named when available).
 - Case overview: create parties, factual history, and procedural history for RAG context.

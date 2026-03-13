@@ -122,6 +122,10 @@ CONFIG_KEY_OPTIMIZE_API_URL = "optimize_api_url"
 CONFIG_KEY_OPTIMIZE_MODEL_ID = "optimize_model_id"
 CONFIG_KEY_OPTIMIZE_API_KEY = "optimize_api_key"
 CONFIG_KEY_OPTIMIZE_DISABLE_REASONING = "optimize_disable_reasoning"
+CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL = "optimize_attorney_api_url"
+CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID = "optimize_attorney_model_id"
+CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY = "optimize_attorney_api_key"
+CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING = "optimize_attorney_disable_reasoning"
 CONFIG_KEY_OPTIMIZE_CHUNK_SIZE = "optimize_chunk_size"
 CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
 CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
@@ -226,19 +230,26 @@ DEFAULT_CASE_NAME_PROMPT = (
 )
 DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT = (
     "You are reviewing an excerpt from a hearing transcript. "
-    "Identify the attorneys who appear and who they represent. "
-    "Respond with 1-3 narrative sentences. "
-    "Do not use lists or markdown. "
-    "If representation is unclear, say so briefly."
+    "Return only valid JSON. Do not include markdown fences or any explanatory text. "
+    "Return an object with keys: attorneys, unknown_speakers, notes. "
+    "attorneys must be an array of objects with keys: speaker_label, name, represents, confidence. "
+    "Use the exact speaker label from the transcript when available. "
+    "confidence must be one of: high, medium, low. "
+    "unknown_speakers must be an array of speaker labels or names that appear but whose role is unclear. "
+    "notes must be a short string and may be empty. "
+    "If no attorney can be identified, return {\"attorneys\":[],\"unknown_speakers\":[],\"notes\":\"\"}."
 )
 DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "TASK\n"
     "Reformat the hearing transcript into chunks for retrieval with speaker labels.\n\n"
     "CORE RULES\n"
     "1. Preserve every statement exactly as written.\n"
-    "2. However, add speaker labels before each statement. For example, 'Carlos speaking: I object to the request for a continuance. Mr. Smith speaking: The continuance request should be granted because the report was filed late.'\n"
-    "3. Keep the original order of events.\n"
-    "4. Do not summarize, omit, generalize, or add commentary.\n\n"
+    "2. However, add speaker labels before each statement.\n"
+    "3. If the transcript already contains speaker labels such as 'THE COURT:' or 'MS. MAHONEY:', preserve those labels exactly as written, including capitalization, punctuation, and honorifics. Do not rewrite them into forms like 'Mahoney speaking:' or 'The Court speaking:'.\n"
+    "4. If a statement lacks a speaker label, add the shortest accurate label you can from the transcript.\n"
+    "5. Treat any attorney-info reference section as context only. Never quote it, summarize it, or use it to rewrite the transcript wording.\n"
+    "6. Keep the original order of events.\n"
+    "7. Do not summarize, omit, generalize, or add commentary.\n\n"
     "CLEANUP RULES\n"
     "• Remove repeated headers and footers.\n"
     "• Normalize spacing and sentence case.\n"
@@ -964,6 +975,7 @@ class ChunkedSectionFiles:
     chunk_paths: list[Path]
     metadata: dict[str, Any]
     attorney_excerpt_path: Path | None = None
+    attorney_info_path: Path | None = None
 
 
 def _canonical_retrieval_metadata_key(label: str) -> str:
@@ -1254,6 +1266,16 @@ def _chunk_paragraphs(paragraphs: list[str], max_count: int) -> list[str]:
     return grouped
 
 
+def _expand_section_chunk_paragraphs(chunks: list[Any]) -> list[str]:
+    paragraphs: list[str] = []
+    for chunk in chunks:
+        raw_chunk = str(chunk or "").strip()
+        if not raw_chunk:
+            continue
+        paragraphs.extend(_split_paragraphs(raw_chunk))
+    return [paragraph.strip() for paragraph in paragraphs if paragraph.strip()]
+
+
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
     match = re.match(r"^\s*Hearing date:\s*([^.\n]+)\.\s*(.*)$", text, re.DOTALL)
     if match:
@@ -1478,12 +1500,106 @@ def _prepare_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def _build_attorney_excerpt(content: str, max_chars: int = 3000) -> str:
+    attorney_chunks = _chunk_text_for_artifacts(content, max_chars)
+    return attorney_chunks[0] if attorney_chunks else content
+
+
+def _build_optimize_hearing_payload(attorney_info: str, transcript: str) -> str:
+    cleaned_attorney_info = attorney_info.strip() or '{"attorneys":[],"unknown_speakers":[],"notes":"Unknown."}'
+    cleaned_transcript = transcript.strip()
+    return (
+        "REFERENCE ATTORNEY INFO JSON\n"
+        "Use this only to understand who counsel represents. Do not quote or rewrite the transcript from this section.\n"
+        f"{cleaned_attorney_info}\n\n"
+        "TRANSCRIPT\n"
+        "Only this section may appear in the output. Preserve existing speaker labels exactly as written when they already appear.\n"
+        f"{cleaned_transcript}"
+    )
+
+
+def _build_attorney_request_settings(
+    optimize_settings: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "api_url": str(
+            optimize_settings.get("attorney_api_url")
+            or optimize_settings.get("api_url")
+            or ""
+        ).strip(),
+        "model_id": str(
+            optimize_settings.get("attorney_model_id")
+            or optimize_settings.get("model_id")
+            or ""
+        ).strip(),
+        "api_key": str(
+            optimize_settings.get("attorney_api_key")
+            or optimize_settings.get("api_key")
+            or ""
+        ).strip(),
+        "disable_reasoning": bool(
+            optimize_settings.get(
+                "attorney_disable_reasoning",
+                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
+            )
+        ),
+        "prompt": str(
+            optimize_settings.get("attorneys_prompt")
+            or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
+        ).strip(),
+    }
+
+
+def _normalize_attorney_json_payload(payload: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "attorneys": [],
+        "unknown_speakers": [],
+        "notes": "",
+    }
+    if not isinstance(payload, dict):
+        raise ValueError("Attorney extraction must return a JSON object.")
+
+    attorneys_value = payload.get("attorneys", [])
+    if isinstance(attorneys_value, list):
+        normalized_attorneys: list[dict[str, str]] = []
+        for item in attorneys_value:
+            if not isinstance(item, dict):
+                continue
+            confidence = str(item.get("confidence", "") or "").strip().lower()
+            if confidence not in {"high", "medium", "low"}:
+                confidence = "low"
+            normalized_attorneys.append(
+                {
+                    "speaker_label": str(item.get("speaker_label", "") or "").strip(),
+                    "name": str(item.get("name", "") or "").strip(),
+                    "represents": str(item.get("represents", "") or "").strip(),
+                    "confidence": confidence,
+                }
+            )
+        result["attorneys"] = normalized_attorneys
+
+    unknown_value = payload.get("unknown_speakers", [])
+    if isinstance(unknown_value, list):
+        result["unknown_speakers"] = [
+            str(item).strip() for item in unknown_value if str(item).strip()
+        ]
+
+    result["notes"] = str(payload.get("notes", "") or "").strip()
+    return result
+
+
+def _render_attorney_info_json(attorney_info: dict[str, Any]) -> str:
+    normalized = _normalize_attorney_json_payload(attorney_info)
+    return json.dumps(normalized, indent=2, ensure_ascii=True)
+
+
 def _write_chunked_section_files(
     base_dir: Path,
     sections: list[RetrievalSection],
     label_key: str,
     chunk_size: int,
     include_attorney_excerpt: bool = False,
+    attorney_info_by_label: dict[str, dict[str, Any]] | None = None,
 ) -> list[ChunkedSectionFiles]:
     written_sections: list[ChunkedSectionFiles] = []
     for section_index, section in enumerate(sections, start=1):
@@ -1498,11 +1614,25 @@ def _write_chunked_section_files(
         (section_dir / "label.txt").write_text(label + "\n", encoding="utf-8")
 
         attorney_excerpt_path: Path | None = None
+        attorney_info_path: Path | None = None
         if include_attorney_excerpt:
-            attorney_chunks = _chunk_text_for_artifacts(content, 3000)
-            attorney_excerpt = attorney_chunks[0] if attorney_chunks else content
+            attorney_excerpt = _build_attorney_excerpt(content)
             attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
             attorney_excerpt_path.write_text(attorney_excerpt, encoding="utf-8")
+            attorney_info: dict[str, Any] = {
+                "attorneys": [],
+                "unknown_speakers": [],
+                "notes": "",
+            }
+            if attorney_info_by_label:
+                loaded_info = attorney_info_by_label.get(label)
+                if isinstance(loaded_info, dict):
+                    attorney_info = _normalize_attorney_json_payload(loaded_info)
+            attorney_info_path = section_dir / "attorney_info.json"
+            attorney_info_path.write_text(
+                _render_attorney_info_json(attorney_info),
+                encoding="utf-8",
+            )
 
         chunk_paths: list[Path] = []
         for chunk_index, chunk in enumerate(_chunk_text_for_artifacts(content, chunk_size), start=1):
@@ -1518,6 +1648,7 @@ def _write_chunked_section_files(
                 chunk_paths=chunk_paths,
                 metadata=dict(section.metadata),
                 attorney_excerpt_path=attorney_excerpt_path,
+                attorney_info_path=attorney_info_path,
             )
         )
     return written_sections
@@ -1528,6 +1659,7 @@ def _create_preoptimized_chunks(
     hearing_sections: list[RetrievalSection],
     report_sections: list[RetrievalSection],
     chunk_size: int,
+    attorney_info_by_label: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[ChunkedSectionFiles], list[ChunkedSectionFiles]]:
     artifacts_dir = root_dir / "artifacts"
     preoptimized_dir = artifacts_dir / "preoptimized"
@@ -1542,6 +1674,7 @@ def _create_preoptimized_chunks(
         "hearing_date",
         chunk_size,
         include_attorney_excerpt=True,
+        attorney_info_by_label=attorney_info_by_label,
     )
     report_files = _write_chunked_section_files(
         reports_dir,
@@ -1580,6 +1713,8 @@ def _load_chunked_section_files(
             label = section_dir.name
         chunk_paths = sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key)
         attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
+        attorney_info_path = section_dir / "attorney_info.json"
+        legacy_attorney_info_path = section_dir / "attorney_info.txt"
         loaded_sections.append(
             ChunkedSectionFiles(
                 section_type=section_type,
@@ -1591,6 +1726,15 @@ def _load_chunked_section_files(
                     attorney_excerpt_path
                     if include_attorney_excerpt and attorney_excerpt_path.exists()
                     else None
+                ),
+                attorney_info_path=(
+                    attorney_info_path
+                    if include_attorney_excerpt and attorney_info_path.exists()
+                    else (
+                        legacy_attorney_info_path
+                        if include_attorney_excerpt and legacy_attorney_info_path.exists()
+                        else None
+                    )
                 ),
             )
         )
@@ -2513,6 +2657,10 @@ class OptimizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
+    attorney_api_url_row: Adw.EntryRow
+    attorney_model_row: Adw.EntryRow
+    attorney_api_key_row: Adw.EntryRow
+    attorney_disable_reasoning_row: Adw.SwitchRow
     chunk_size_row: Adw.EntryRow
     attorneys_prompt_buffer: Gtk.TextBuffer
     hearings_prompt_buffer: Gtk.TextBuffer
@@ -2560,6 +2708,20 @@ def load_optimize_settings() -> dict[str, Any]:
         CONFIG_KEY_OPTIMIZE_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
+    attorney_api_url = str(
+        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL, "") or ""
+    ).strip()
+    attorney_model_id = str(
+        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID, "") or ""
+    ).strip()
+    attorney_api_key = str(
+        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY, "") or ""
+    ).strip()
+    attorney_disable_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING,
+        disable_reasoning,
+    )
     chunk_size_raw = str(config.get(CONFIG_KEY_OPTIMIZE_CHUNK_SIZE, "") or "").strip()
     chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
     if chunk_size_raw:
@@ -2581,6 +2743,10 @@ def load_optimize_settings() -> dict[str, Any]:
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
+        "attorney_api_url": attorney_api_url,
+        "attorney_model_id": attorney_model_id,
+        "attorney_api_key": attorney_api_key,
+        "attorney_disable_reasoning": attorney_disable_reasoning,
         "chunk_size": str(chunk_size),
         "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
         "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
@@ -2593,6 +2759,10 @@ def save_optimize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
+    attorney_api_url: str,
+    attorney_model_id: str,
+    attorney_api_key: str,
+    attorney_disable_reasoning: bool,
     chunk_size: str,
     attorneys_prompt: str,
     hearings_prompt: str,
@@ -2603,6 +2773,12 @@ def save_optimize_settings(
     config[CONFIG_KEY_OPTIMIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_OPTIMIZE_API_KEY] = api_key
     config[CONFIG_KEY_OPTIMIZE_DISABLE_REASONING] = bool(disable_reasoning)
+    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL] = attorney_api_url
+    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID] = attorney_model_id
+    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY] = attorney_api_key
+    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING] = bool(
+        attorney_disable_reasoning
+    )
     config[CONFIG_KEY_OPTIMIZE_CHUNK_SIZE] = chunk_size
     config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
@@ -3525,6 +3701,40 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         credentials_group.add(disable_reasoning_row)
 
+        attorney_credentials_group = Adw.PreferencesGroup(
+            title="Attorney Extraction Credentials",
+            description="Leave blank to reuse the main Optimize credentials.",
+        )
+        attorney_credentials_group.add_css_class("list-stack")
+        attorney_credentials_group.set_hexpand(True)
+        page_box.append(attorney_credentials_group)
+
+        attorney_api_url_row = Adw.EntryRow(title="Attorney API URL")
+        attorney_api_url_row.set_text(settings.get("attorney_api_url", ""))
+        attorney_credentials_group.add(attorney_api_url_row)
+
+        attorney_model_row = Adw.EntryRow(title="Attorney Model ID")
+        attorney_model_row.set_text(settings.get("attorney_model_id", ""))
+        attorney_credentials_group.add(attorney_model_row)
+
+        attorney_api_key_row = self._build_password_row("Attorney API Key")
+        attorney_api_key_row.set_text(settings.get("attorney_api_key", ""))
+        attorney_credentials_group.add(attorney_api_key_row)
+
+        attorney_disable_reasoning_row = Adw.SwitchRow(
+            title="Disable attorney reasoning",
+            subtitle="Used only for attorney extraction requests.",
+        )
+        attorney_disable_reasoning_row.set_active(
+            bool(
+                settings.get(
+                    "attorney_disable_reasoning",
+                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
+                )
+            )
+        )
+        attorney_credentials_group.add(attorney_disable_reasoning_row)
+
         chunk_size_row = Adw.EntryRow(title="Chunk Size (characters)")
         chunk_size_row.set_text(
             settings.get("chunk_size", str(DEFAULT_OPTIMIZE_CHUNK_SIZE))
@@ -3572,6 +3782,10 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
+            attorney_api_url_row=attorney_api_url_row,
+            attorney_model_row=attorney_model_row,
+            attorney_api_key_row=attorney_api_key_row,
+            attorney_disable_reasoning_row=attorney_disable_reasoning_row,
             chunk_size_row=chunk_size_row,
             attorneys_prompt_buffer=attorneys_buffer,
             hearings_prompt_buffer=hearings_buffer,
@@ -3901,6 +4115,10 @@ class SettingsWindow(Adw.ApplicationWindow):
                 optimize_widgets.model_row.get_text().strip(),
                 optimize_widgets.api_key_row.get_text().strip(),
                 bool(optimize_widgets.disable_reasoning_row.get_active()),
+                optimize_widgets.attorney_api_url_row.get_text().strip(),
+                optimize_widgets.attorney_model_row.get_text().strip(),
+                optimize_widgets.attorney_api_key_row.get_text().strip(),
+                bool(optimize_widgets.attorney_disable_reasoning_row.get_active()),
                 optimize_widgets.chunk_size_row.get_text().strip(),
                 self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
@@ -4366,11 +4584,11 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
 
     def _mode_details(self, mode_id: str) -> str:
         if mode_id == "optimize_attorneys":
-            return "Uses the saved Optimize attorneys prompt. Paste hearing transcript text."
+            return "Uses the saved attorney extraction prompt and attorney credentials. Paste hearing transcript text."
         if mode_id == "optimize_hearings":
             return (
-                "Uses the saved Optimize hearings prompt. If the first line starts with "
-                "'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
+                "Uses the saved hearing optimize prompt plus the saved attorney extraction step. "
+                "If the first line starts with 'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
             )
         if mode_id == "optimize_reports":
             return "Uses the saved Optimize reports prompt. Paste raw report text."
@@ -5024,8 +5242,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if mode_id.startswith("optimize_"):
             settings = load_optimize_settings()
             prompt = settings["reports_prompt"]
+            api_url = settings["api_url"]
+            model_id = settings["model_id"]
+            api_key = settings["api_key"]
+            disable_reasoning = bool(
+                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+            )
             if mode_id == "optimize_attorneys":
                 prompt = settings["attorneys_prompt"]
+                attorney_settings = _build_attorney_request_settings(settings)
+                api_url = attorney_settings["api_url"]
+                model_id = attorney_settings["model_id"]
+                api_key = attorney_settings["api_key"]
+                disable_reasoning = bool(
+                    attorney_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                )
             elif mode_id == "optimize_hearings":
                 prompt = settings["hearings_prompt"]
             elif mode_id == "optimize_reports":
@@ -5033,12 +5264,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 raise ValueError(f"Unknown optimize test mode: {mode_id}")
             return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "disable_reasoning": bool(
-                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                ),
+                "api_url": api_url,
+                "model_id": model_id,
+                "api_key": api_key,
+                "disable_reasoning": disable_reasoning,
                 "prompt": prompt,
             }
         if mode_id.startswith("summarize_"):
@@ -5216,9 +5445,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not transcript:
             return ""
         optimize_settings = load_optimize_settings()
-        attorney_settings = dict(settings)
-        attorney_settings["prompt"] = optimize_settings["attorneys_prompt"]
-        attorney_info = self._request_plain_text(attorney_settings, transcript)
+        _attorney_excerpt, attorney_info = self._extract_attorney_info(
+            optimize_settings,
+            transcript,
+        )
         hearing_metadata = {
             "type": "hearing",
             "hearing_date": _format_long_us_date(date_value)
@@ -5226,7 +5456,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         }
         section_paragraphs: list[str] = []
         self._raise_if_stop_requested()
-        payload = f"Attorney info: {attorney_info}\nTranscript:\n{transcript}"
+        payload = _build_optimize_hearing_payload(
+            _render_attorney_info_json(attorney_info),
+            transcript,
+        )
         response = self._request_plain_text(settings, payload)
         if response:
             section_paragraphs.extend(
@@ -5293,7 +5526,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
                 output = ""
                 if mode_id == "optimize_attorneys":
-                    output = self._request_plain_text(settings, raw_text)
+                    optimize_settings = load_optimize_settings()
+                    _attorney_excerpt, attorney_info = self._extract_attorney_info(
+                        optimize_settings,
+                        raw_text,
+                    )
+                    output = _render_attorney_info_json(attorney_info)
                 elif mode_id == "optimize_hearings":
                     date_value, transcript = self._parse_optimize_hearing_test_input(raw_text)
                     if not transcript:
@@ -6276,6 +6514,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)
             if not text_files:
                 raise FileNotFoundError("No text files found to process.")
+            split_mode = _read_rt_ct_split_mode(root_dir)
+            split_page = _read_rt_ct_split_page(root_dir)
+            if split_page is None:
+                split_page = _read_rt_ct_split_page_config()
             for text_path in text_files:
                 self._raise_if_stop_requested()
                 content = text_path.read_text(encoding="utf-8", errors="ignore")
@@ -6283,6 +6525,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 converted = _convert_html_tables(cleaned)
                 plain_text = LatexNodes2Text().latex_to_text(converted)
                 processed = _strip_markdown(plain_text)
+                page_number = _extract_page_number(text_path.name)
+                is_rt_page = False
+                if split_mode == "rt_only":
+                    is_rt_page = True
+                elif split_mode == "split" and split_page is not None and page_number is not None:
+                    is_rt_page = page_number <= split_page
+                if is_rt_page:
+                    processed = _strip_ascii_and_html_tables(processed)
                 if processed != content:
                     text_path.write_text(processed, encoding="utf-8")
         except StopRequested:
@@ -8083,11 +8333,37 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
             report_sections = _build_report_sections(report_entries, text_dir)
+            attorney_info_by_label: dict[str, dict[str, Any]] = {}
+            total_hearing_sections = len(hearing_sections)
+            if hearing_sections:
+                for section_index, section in enumerate(hearing_sections, start=1):
+                    self._raise_if_stop_requested()
+                    content = _strip_ascii_and_html_tables(str(section.content or ""))
+                    if not content.strip():
+                        continue
+                    hearing_date = (
+                        str(section.metadata.get("hearing_date", "")).strip()
+                        or f"Hearing {section_index}"
+                    )
+                    GLib.idle_add(
+                        self._append_log_message,
+                        (
+                            f"Create pre-optimized: hearing section {section_index}/{total_hearing_sections} "
+                            f"({hearing_date}), extracting attorney info."
+                        ),
+                        "INFO",
+                    )
+                    _attorney_excerpt, attorney_info = self._extract_attorney_info(
+                        optimize_settings,
+                        content,
+                    )
+                    attorney_info_by_label[hearing_date] = attorney_info
             _create_preoptimized_chunks(
                 root_dir,
                 hearing_sections,
                 report_sections,
                 chunk_size,
+                attorney_info_by_label=attorney_info_by_label,
             )
         except StopRequested:
             success = None
@@ -8129,6 +8405,33 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         response = self._request_plain_text(request_settings, chunk)
         return _normalize_optimized_text(response) if response else ""
 
+    def _extract_attorney_info(
+        self,
+        optimize_settings: dict[str, Any],
+        transcript: str,
+    ) -> tuple[str, dict[str, Any]]:
+        cleaned_transcript = transcript.strip()
+        if not cleaned_transcript:
+            return "", {"attorneys": [], "unknown_speakers": [], "notes": ""}
+        attorney_excerpt = _build_attorney_excerpt(cleaned_transcript)
+        if not attorney_excerpt.strip():
+            return "", {"attorneys": [], "unknown_speakers": [], "notes": ""}
+        attorney_settings = _build_attorney_request_settings(optimize_settings)
+        if (
+            not attorney_settings["api_url"]
+            or not attorney_settings["model_id"]
+            or not attorney_settings["api_key"]
+        ):
+            raise ValueError(
+                "Configure attorney extraction API URL, model ID, and API key in Settings."
+            )
+        attorney_response = self._request_plain_text(attorney_settings, attorney_excerpt)
+        try:
+            attorney_payload = json.loads(self._extract_json_payload(attorney_response))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Attorney extraction returned invalid JSON: {exc}") from exc
+        return attorney_excerpt, _normalize_attorney_json_payload(attorney_payload)
+
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False
         try:
@@ -8149,7 +8452,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             settings = load_optimize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
-            attorneys_prompt = settings["attorneys_prompt"]
             hearings_prompt = settings["hearings_prompt"]
             reports_prompt = settings["reports_prompt"]
             hearing_files = _load_chunked_section_files(
@@ -8195,30 +8497,30 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     self._append_log_message,
                     (
                         f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
-                        f"({hearing_date}), requesting attorney info."
+                        f"({hearing_date}), loading attorney info."
                     ),
                     "INFO",
                 )
-                attorney_excerpt = ""
-                if section.attorney_excerpt_path and section.attorney_excerpt_path.exists():
-                    attorney_excerpt = section.attorney_excerpt_path.read_text(
+                attorney_info_payload: dict[str, Any] = {
+                    "attorneys": [],
+                    "unknown_speakers": [],
+                    "notes": "",
+                }
+                if section.attorney_info_path and section.attorney_info_path.exists():
+                    raw_attorney_info = section.attorney_info_path.read_text(
                         encoding="utf-8",
                         errors="ignore",
                     )
-                if not attorney_excerpt.strip():
-                    continue
-                attorney_info = self._request_plain_text(
-                    {
-                        "api_url": settings["api_url"],
-                        "model_id": settings["model_id"],
-                        "api_key": settings["api_key"],
-                        "disable_reasoning": bool(
-                            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                        ),
-                        "prompt": attorneys_prompt,
-                    },
-                    attorney_excerpt,
-                )
+                    try:
+                        attorney_info_payload = _normalize_attorney_json_payload(
+                            json.loads(raw_attorney_info)
+                        )
+                    except json.JSONDecodeError:
+                        attorney_info_payload = {
+                            "attorneys": [],
+                            "unknown_speakers": [],
+                            "notes": raw_attorney_info.strip(),
+                        }
                 section_paragraphs: list[str] = []
                 output_section_dir = optimized_hearings_dir / section.directory.name
                 output_section_dir.mkdir(parents=True, exist_ok=True)
@@ -8235,7 +8537,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ),
                         "INFO",
                     )
-                    payload = f"Attorney info: {attorney_info}\nTranscript:\n{chunk}"
+                    payload = _build_optimize_hearing_payload(
+                        _render_attorney_info_json(attorney_info_payload),
+                        chunk,
+                    )
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -8407,9 +8712,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     str(metadata.get("hearing_date", "")).strip() or "HEARING"
                 )
                 paragraphs = [
-                    _remove_standalone_date_lines(_remove_hearing_date_mentions(chunk))
-                    for chunk in section.get("chunks", [])
-                    if str(chunk).strip()
+                    _remove_standalone_date_lines(_remove_hearing_date_mentions(paragraph))
+                    for paragraph in _expand_section_chunk_paragraphs(
+                        list(section.get("chunks", []))
+                    )
+                    if str(paragraph).strip()
                 ]
                 if paragraphs:
                     hearing_groups.append((date_value, paragraphs))
@@ -8478,11 +8785,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
                 report_name = str(metadata.get("report_name", "")).strip() or "Report"
-                paragraphs = [
-                    str(chunk).strip()
-                    for chunk in section.get("chunks", [])
-                    if str(chunk).strip()
-                ]
+                paragraphs = _expand_section_chunk_paragraphs(
+                    list(section.get("chunks", []))
+                )
                 if paragraphs:
                     report_groups.append((report_name, paragraphs))
             report_responses: list[str] = []
@@ -8947,7 +9252,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
             rag_dir = root_dir / "rag"
             vector_dir = rag_dir / "vector_database"
-            vector_dir.mkdir(parents=True, exist_ok=True)
+            _prepare_directory(vector_dir)
 
             if provider == RAG_PROVIDER_VOYAGE:
                 if not settings["voyage_api_key"] or not settings["voyage_model"]:
@@ -9013,12 +9318,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._raise_if_stop_requested()
                 metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                for content in section.get("chunks", []):
+                section_paragraphs = _expand_section_chunk_paragraphs(
+                    list(section.get("chunks", []))
+                )
+                total_paragraphs = len(section_paragraphs)
+                for paragraph_index, content in enumerate(section_paragraphs, start=1):
                     cleaned = str(content or "").strip()
                     if not cleaned:
                         continue
                     document_metadata = {"source": optimized_hearings_path.name}
                     document_metadata.update(metadata)
+                    document_metadata["chunk_index"] = paragraph_index
+                    document_metadata["chunk_total"] = total_paragraphs
                     documents.append(
                         Document(
                             page_content=cleaned,
@@ -9029,12 +9340,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._raise_if_stop_requested()
                 metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
-                for content in section.get("chunks", []):
+                section_paragraphs = _expand_section_chunk_paragraphs(
+                    list(section.get("chunks", []))
+                )
+                total_paragraphs = len(section_paragraphs)
+                for paragraph_index, content in enumerate(section_paragraphs, start=1):
                     cleaned = str(content or "").strip()
                     if not cleaned:
                         continue
                     document_metadata = {"source": optimized_reports_path.name}
                     document_metadata.update(metadata)
+                    document_metadata["chunk_index"] = paragraph_index
+                    document_metadata["chunk_total"] = total_paragraphs
                     documents.append(
                         Document(
                             page_content=cleaned,

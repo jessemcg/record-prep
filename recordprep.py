@@ -244,7 +244,9 @@ DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "• Ignore all tables, including ASCII tables.\n\n"
     "OUTPUT FORMAT\n"
     "• Organize the statements with speaker labels into paragraphs of about five sentences each.\n"
-    "• Each paragraph must appear on a single line.\n"
+    "• Each paragraph must appear on exactly one physical line of output.\n"
+    "• Replace every line break inside a paragraph with a space.\n"
+    "• Use line breaks only to separate paragraphs.\n"
     "• Separate paragraphs with one blank line."
 )
 DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
@@ -260,7 +262,9 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "• Ignore all tables, including ASCII tables.\n\n"
     "OUTPUT FORMAT\n"
     "• Organize the statements into paragraphs of about five sentences each.\n"
-    "• Each paragraph must appear on a single line.\n"
+    "• Each paragraph must appear on exactly one physical line of output.\n"
+    "• Replace every line break inside a paragraph with a space.\n"
+    "• Use line breaks only to separate paragraphs.\n"
     "• Separate paragraphs with one blank line."
 )
 DEFAULT_OPTIMIZE_CHUNK_SIZE = 10000
@@ -1320,6 +1324,18 @@ def _split_paragraphs(text: str) -> list[str]:
     return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
+def _flatten_paragraph_lines(text: str) -> str:
+    paragraphs = _split_paragraphs(text)
+    flattened: list[str] = []
+    for paragraph in paragraphs:
+        # Preserve paragraph breaks, but collapse all internal line breaks and spacing.
+        single_line = re.sub(r"\s*\n\s*", " ", paragraph)
+        single_line = re.sub(r"[ \t]{2,}", " ", single_line).strip()
+        if single_line:
+            flattened.append(single_line)
+    return "\n\n".join(flattened)
+
+
 def _chunk_paragraphs(paragraphs: list[str], max_count: int) -> list[str]:
     grouped: list[str] = []
     for index in range(0, len(paragraphs), max_count):
@@ -2201,7 +2217,7 @@ def _normalize_optimized_text(content: str) -> str:
     normalized = content
     if "<table" in normalized.lower():
         normalized = _convert_html_tables(normalized)
-    return normalized.strip()
+    return _flatten_paragraph_lines(normalized).strip()
 
 
 def _strip_markdown(content: str) -> str:
@@ -5104,7 +5120,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 chunk,
             )
             if response:
-                section_paragraphs.extend(_split_paragraphs(response))
+                section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
         if not section_paragraphs:
             return ""
         rendered: list[str] = []
@@ -8062,7 +8078,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         chunk,
                     )
                     if response:
-                        section_paragraphs.extend(_split_paragraphs(response))
+                        section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
                 if section_paragraphs:
                     total_paragraphs = len(section_paragraphs)
                     GLib.idle_add(

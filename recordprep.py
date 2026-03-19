@@ -150,6 +150,7 @@ CONFIG_KEY_RAG_ISAACUS_API_KEY = "rag_isaacus_api_key"
 CONFIG_KEY_RAG_ISAACUS_MODEL = "rag_isaacus_model"
 CONFIG_KEY_SELECTED_PDFS = "selected_pdfs"
 CONFIG_KEY_RT_CT_SPLIT_PAGE = "rt_ct_split_page"
+CONFIG_KEY_RUN_UNTIL_STEP = "run_until_step"
 TEXT_SOURCE_EMBEDDED = "embedded"
 TEXT_SOURCE_LOCAL_OCR = "local_ocr"
 DEFAULT_TEXT_SOURCE = TEXT_SOURCE_EMBEDDED
@@ -2128,6 +2129,22 @@ def _read_config_bool(config: dict[str, Any], key: str, default: bool) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return default
+
+
+def load_run_until_step_setting() -> str | None:
+    config = _read_config()
+    value = config.get(CONFIG_KEY_RUN_UNTIL_STEP)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def save_run_until_step_setting(step_id: str | None) -> None:
+    config = _read_config()
+    normalized = str(step_id or "").strip()
+    config[CONFIG_KEY_RUN_UNTIL_STEP] = normalized or None
+    _write_config(config)
 
 
 def load_classifier_settings() -> dict[str, Any]:
@@ -4673,6 +4690,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
         self.run_indicator_spinner: Gtk.Spinner | None = None
+        self._run_until_dropdown: Gtk.DropDown | None = None
+        self._run_until_values: list[str | None] = [None]
+        self._run_completion_message: str | None = None
         self._local_vision_server_process: subprocess.Popen[str] | None = None
         self._local_vision_server_owned = False
 
@@ -4750,6 +4770,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(False)
         self.stop_button.connect("clicked", self.on_stop_clicked)
         action_box.append(self.stop_button)
+
+        run_until_label = Gtk.Label(label="Run until", xalign=0)
+        action_box.append(run_until_label)
+        self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
+        self._run_until_dropdown.set_tooltip_text(
+            "Stop automatically after the selected step when running all steps."
+        )
+        self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
+        action_box.append(self._run_until_dropdown)
+
         self.run_indicator_spinner = Gtk.Spinner()
         self.run_indicator_spinner.set_tooltip_text("Pipeline running")
         action_box.append(self.run_indicator_spinner)
@@ -5014,6 +5044,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.step_list.append(self.step_twelve_row)
 
         self._setup_menu(app)
+        self._populate_run_until_dropdown()
         self._load_selected_pdfs()
         self._load_case_context()
         self._load_rt_ct_split()
@@ -6292,6 +6323,53 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ("create_rag_index", self.step_twelve_row, self._run_step_twelve),
         ]
 
+    def _pipeline_step_options(self) -> list[tuple[str, str]]:
+        options: list[tuple[str, str]] = []
+        for step_id, row, _handler in self._pipeline_steps():
+            label = (row.get_title() or step_id).strip() or step_id
+            options.append((step_id, label))
+        return options
+
+    def _populate_run_until_dropdown(self) -> None:
+        dropdown = self._run_until_dropdown
+        if dropdown is None:
+            return
+        options = self._pipeline_step_options()
+        labels = ["End of pipeline", *[label for _step_id, label in options]]
+        dropdown.set_model(Gtk.StringList.new(labels))
+        self._run_until_values = [None, *[step_id for step_id, _label in options]]
+        saved_value = load_run_until_step_setting()
+        selected_index = 0
+        if saved_value in self._run_until_values:
+            selected_index = self._run_until_values.index(saved_value)
+        dropdown.set_selected(selected_index)
+
+    def _selected_run_until_step(self) -> str | None:
+        dropdown = self._run_until_dropdown
+        if dropdown is None:
+            return None
+        selected = dropdown.get_selected()
+        if 0 <= selected < len(self._run_until_values):
+            return self._run_until_values[selected]
+        return None
+
+    def _run_until_label(self, step_id: str | None) -> str:
+        if not step_id:
+            return "End of pipeline"
+        for candidate_id, label in self._pipeline_step_options():
+            if candidate_id == step_id:
+                return label
+        return step_id
+
+    def _on_run_until_changed(
+        self, dropdown: Gtk.DropDown, _pspec: GObject.ParamSpec
+    ) -> None:
+        selected = dropdown.get_selected()
+        step_id: str | None = None
+        if 0 <= selected < len(self._run_until_values):
+            step_id = self._run_until_values[selected]
+        save_run_until_step_setting(step_id)
+
     def _resolve_case_root(self) -> Path | None:
         if self.selected_pdfs:
             parents = {path.parent for path in self.selected_pdfs}
@@ -6320,11 +6398,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
             return
+        end_step_id = self._selected_run_until_step()
         self._stop_event.clear()
+        self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
-        threading.Thread(target=self._run_all_steps, daemon=True).start()
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(False)
+        threading.Thread(
+            target=self._run_all_steps,
+            args=(end_step_id,),
+            daemon=True,
+        ).start()
 
     def on_run_from_step_clicked(self, step_id: str) -> None:
         if self._pipeline_running:
@@ -6350,9 +6436,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         start_index = step_ids.index(step_id)
         root_dir = self._resolve_case_root()
         self._stop_event.clear()
+        self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(False)
         threading.Thread(
             target=self._run_steps_from_index,
             args=(start_index, root_dir),
@@ -6369,9 +6458,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.show_toast("Pipeline already running.")
             return
         self._stop_event.clear()
+        self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(False)
         row.set_sensitive(False)
         self._start_step(row)
         threading.Thread(
@@ -6405,6 +6497,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(True)
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
@@ -6780,13 +6874,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         self._launch_single_step(self.step_twelve_row, self._run_step_twelve)
 
-    def _run_all_steps(self) -> None:
+    def _run_all_steps(self, end_step_id: str | None = None) -> None:
         root_dir = self._resolve_case_root()
-        self._run_steps_from_index(0, root_dir)
+        self._run_steps_from_index(0, root_dir, end_step_id=end_step_id)
 
-    def _run_steps_from_index(self, start_index: int, root_dir: Path | None) -> None:
+    def _run_steps_from_index(
+        self,
+        start_index: int,
+        root_dir: Path | None,
+        end_step_id: str | None = None,
+    ) -> None:
         steps = self._pipeline_steps()
-        steps_to_run = steps[start_index:]
+        if start_index < 0 or start_index >= len(steps):
+            raise ValueError("Unknown start step.")
+        end_index = len(steps) - 1
+        if end_step_id:
+            step_ids = [step_id for step_id, _row, _handler in steps]
+            if end_step_id not in step_ids:
+                raise ValueError("Unknown end step.")
+            end_index = step_ids.index(end_step_id)
+            if end_index < start_index:
+                raise ValueError("End step must not come before the start step.")
+        steps_to_run = steps[start_index : end_index + 1]
         classification_offsets = [
             offset
             for offset, (step_id, _row, _handler) in enumerate(steps_to_run)
@@ -6812,10 +6921,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if manage_local_vision and local_server_started and offset == last_classify_offset:
                     self._stop_local_vision_server()
                     local_server_started = False
+            if success and end_step_id and end_index < len(steps) - 1:
+                label = self._run_until_label(end_step_id)
+                self._run_completion_message = f"Pipeline complete through {label}."
+            else:
+                self._run_completion_message = None
         except StopRequested:
             success = False
         except Exception as exc:
             success = False
+            self._run_completion_message = None
             GLib.idle_add(self.show_toast, f"Pipeline failed: {exc}")
         finally:
             if local_server_started:
@@ -6828,11 +6943,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(True)
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
+        completion_message = self._run_completion_message
+        self._run_completion_message = None
         if stop_requested:
             self.show_toast("Pipeline stopped.")
+        elif completion_message:
+            self.show_toast(completion_message)
         elif success:
             self.show_toast("Pipeline complete.")
         else:

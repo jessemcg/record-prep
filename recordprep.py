@@ -131,6 +131,7 @@ CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID = "optimize_attorney_model_id"
 CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY = "optimize_attorney_api_key"
 CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING = "optimize_attorney_disable_reasoning"
 CONFIG_KEY_OPTIMIZE_CHUNK_SIZE = "optimize_chunk_size"
+CONFIG_KEY_OPTIMIZE_MAX_TOKENS = "optimize_max_tokens"
 CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
 CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
 CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT = "optimize_reports_prompt"
@@ -295,6 +296,7 @@ DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
     "• Separate paragraphs with one blank line."
 )
 DEFAULT_OPTIMIZE_CHUNK_SIZE = 10000
+DEFAULT_OPTIMIZE_MAX_TOKENS = 8192
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "Summarize the following court hearing in one very concise paragraph using plain "
     "and simple English. Include short direct quotes (3-6 words) from the hearing to "
@@ -1713,6 +1715,9 @@ def _build_attorney_request_settings(
             or optimize_settings.get("prompt")
             or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
         ).strip(),
+        "max_tokens": str(
+            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
+        ).strip(),
     }
 
 
@@ -1746,6 +1751,9 @@ def _build_optimize_hearing_request_settings(
             or optimize_settings.get("prompt")
             or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
         ).strip(),
+        "max_tokens": str(
+            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
+        ).strip(),
     }
 
 
@@ -1778,6 +1786,9 @@ def _build_optimize_report_request_settings(
             optimize_settings.get("reports_prompt")
             or optimize_settings.get("prompt")
             or DEFAULT_OPTIMIZE_REPORTS_PROMPT
+        ).strip(),
+        "max_tokens": str(
+            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
         ).strip(),
     }
 
@@ -3056,6 +3067,7 @@ class OptimizeSettingsWidgets:
     attorney_api_key_row: Adw.EntryRow
     attorney_disable_reasoning_row: Adw.SwitchRow
     chunk_size_row: Adw.EntryRow
+    max_tokens_row: Adw.EntryRow
     attorneys_prompt_buffer: Gtk.TextBuffer
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
@@ -3143,6 +3155,13 @@ def load_optimize_settings() -> dict[str, Any]:
             chunk_size = max(1, int(chunk_size_raw))
         except ValueError:
             chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
+    max_tokens_raw = str(config.get(CONFIG_KEY_OPTIMIZE_MAX_TOKENS, "") or "").strip()
+    max_tokens = DEFAULT_OPTIMIZE_MAX_TOKENS
+    if max_tokens_raw:
+        try:
+            max_tokens = max(1, int(max_tokens_raw))
+        except ValueError:
+            max_tokens = DEFAULT_OPTIMIZE_MAX_TOKENS
     attorneys_prompt = str(
         config.get(CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT, DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT) or ""
     ).strip()
@@ -3166,6 +3185,7 @@ def load_optimize_settings() -> dict[str, Any]:
         "attorney_api_key": attorney_api_key,
         "attorney_disable_reasoning": attorney_disable_reasoning,
         "chunk_size": str(chunk_size),
+        "max_tokens": str(max_tokens),
         "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
         "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT,
@@ -3186,6 +3206,7 @@ def save_optimize_settings(
     attorney_api_key: str,
     attorney_disable_reasoning: bool,
     chunk_size: str,
+    max_tokens: str,
     attorneys_prompt: str,
     hearings_prompt: str,
     reports_prompt: str,
@@ -3210,6 +3231,7 @@ def save_optimize_settings(
         attorney_disable_reasoning
     )
     config[CONFIG_KEY_OPTIMIZE_CHUNK_SIZE] = chunk_size
+    config[CONFIG_KEY_OPTIMIZE_MAX_TOKENS] = max_tokens
     config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
     config[CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT] = reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT
@@ -4223,6 +4245,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         hearing_credentials_group.add(chunk_size_row)
 
+        max_tokens_row = Adw.EntryRow(title="Max Output Tokens")
+        max_tokens_row.set_text(
+            settings.get("max_tokens", str(DEFAULT_OPTIMIZE_MAX_TOKENS))
+        )
+        hearing_credentials_group.add(max_tokens_row)
+
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
@@ -4276,6 +4304,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             attorney_api_key_row=attorney_api_key_row,
             attorney_disable_reasoning_row=attorney_disable_reasoning_row,
             chunk_size_row=chunk_size_row,
+            max_tokens_row=max_tokens_row,
             attorneys_prompt_buffer=attorneys_buffer,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
@@ -4617,6 +4646,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 optimize_widgets.attorney_api_key_row.get_text().strip(),
                 bool(optimize_widgets.attorney_disable_reasoning_row.get_active()),
                 optimize_widgets.chunk_size_row.get_text().strip(),
+                optimize_widgets.max_tokens_row.get_text().strip(),
                 self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
@@ -10206,12 +10236,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         api_url = str(settings.get("api_url", "") or "").strip()
         model_id = str(settings.get("model_id", "") or "").strip()
         api_key = str(settings.get("api_key", "") or "").strip()
+        max_tokens_raw = str(settings.get("max_tokens", "") or "").strip()
         if not api_url:
             raise ValueError("API URL is empty.")
         if not model_id:
             raise ValueError("Model ID is empty.")
         if not api_key:
             raise ValueError("API key is empty.")
+        max_tokens: int | None = None
+        if max_tokens_raw:
+            try:
+                max_tokens = max(1, int(max_tokens_raw))
+            except ValueError:
+                max_tokens = None
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -10229,6 +10266,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 {"role": "user", "content": content},
             ],
         }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         if disable_reasoning:
             if _model_looks_deepseek(model_id) or _model_looks_kimi(model_id):
                 body["thinking"] = {"type": "disabled"}

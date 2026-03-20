@@ -118,10 +118,14 @@ CONFIG_KEY_CLASSIFY_FORMS_API_URL = "classify_form_names_api_url"
 CONFIG_KEY_CLASSIFY_FORMS_MODEL_ID = "classify_form_names_model_id"
 CONFIG_KEY_CLASSIFY_FORMS_API_KEY = "classify_form_names_api_key"
 CONFIG_KEY_CLASSIFY_FORMS_PROMPT = "classify_form_names_prompt"
-CONFIG_KEY_OPTIMIZE_API_URL = "optimize_api_url"
-CONFIG_KEY_OPTIMIZE_MODEL_ID = "optimize_model_id"
-CONFIG_KEY_OPTIMIZE_API_KEY = "optimize_api_key"
-CONFIG_KEY_OPTIMIZE_DISABLE_REASONING = "optimize_disable_reasoning"
+CONFIG_KEY_OPTIMIZE_HEARING_API_URL = "optimize_hearing_api_url"
+CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID = "optimize_hearing_model_id"
+CONFIG_KEY_OPTIMIZE_HEARING_API_KEY = "optimize_hearing_api_key"
+CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING = "optimize_hearing_disable_reasoning"
+CONFIG_KEY_OPTIMIZE_REPORT_API_URL = "optimize_report_api_url"
+CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID = "optimize_report_model_id"
+CONFIG_KEY_OPTIMIZE_REPORT_API_KEY = "optimize_report_api_key"
+CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING = "optimize_report_disable_reasoning"
 CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL = "optimize_attorney_api_url"
 CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID = "optimize_attorney_model_id"
 CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY = "optimize_attorney_api_key"
@@ -412,7 +416,7 @@ COUNSEL_ROLE_ALIASES = {
     "tribes counsel": "TRIBE'S COUNSEL",
     "other counsel": "OTHER COUNSEL",
 }
-COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE = 12000
+COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE = 10000
 DEFAULT_DISABLE_REASONING = False
 ISAACUS_MAX_EMBED_BATCH = 128
 
@@ -1573,6 +1577,10 @@ def _normalize_counsel_role(value: str) -> str:
     return COUNSEL_ROLE_ALIASES.get(_counsel_role_key(stripped), "")
 
 
+def _speaker_label_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
 def _extract_attorney_like_speaker_labels(text: str) -> list[str]:
     cleaned = _strip_ascii_and_html_tables(text)
     labels: list[str] = []
@@ -1702,7 +1710,74 @@ def _build_attorney_request_settings(
         ),
         "prompt": str(
             optimize_settings.get("attorneys_prompt")
+            or optimize_settings.get("prompt")
             or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
+        ).strip(),
+    }
+
+
+def _build_optimize_hearing_request_settings(
+    optimize_settings: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "api_url": str(
+            optimize_settings.get("hearing_api_url")
+            or optimize_settings.get("api_url")
+            or ""
+        ).strip(),
+        "model_id": str(
+            optimize_settings.get("hearing_model_id")
+            or optimize_settings.get("model_id")
+            or ""
+        ).strip(),
+        "api_key": str(
+            optimize_settings.get("hearing_api_key")
+            or optimize_settings.get("api_key")
+            or ""
+        ).strip(),
+        "disable_reasoning": bool(
+            optimize_settings.get(
+                "hearing_disable_reasoning",
+                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
+            )
+        ),
+        "prompt": str(
+            optimize_settings.get("hearings_prompt")
+            or optimize_settings.get("prompt")
+            or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
+        ).strip(),
+    }
+
+
+def _build_optimize_report_request_settings(
+    optimize_settings: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "api_url": str(
+            optimize_settings.get("report_api_url")
+            or optimize_settings.get("api_url")
+            or ""
+        ).strip(),
+        "model_id": str(
+            optimize_settings.get("report_model_id")
+            or optimize_settings.get("model_id")
+            or ""
+        ).strip(),
+        "api_key": str(
+            optimize_settings.get("report_api_key")
+            or optimize_settings.get("api_key")
+            or ""
+        ).strip(),
+        "disable_reasoning": bool(
+            optimize_settings.get(
+                "report_disable_reasoning",
+                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
+            )
+        ),
+        "prompt": str(
+            optimize_settings.get("reports_prompt")
+            or optimize_settings.get("prompt")
+            or DEFAULT_OPTIMIZE_REPORTS_PROMPT
         ).strip(),
     }
 
@@ -1873,6 +1948,59 @@ def _merge_counsel_role_payloads(payloads: list[dict[str, Any]]) -> dict[str, An
 def _render_counsel_role_json(counsel_roles: dict[str, Any]) -> str:
     normalized = _normalize_counsel_role_json_payload(counsel_roles)
     return json.dumps(normalized, indent=2, ensure_ascii=True)
+
+
+def _build_counsel_role_speaker_label_map(
+    counsel_roles: dict[str, Any],
+) -> dict[str, str]:
+    normalized = _normalize_counsel_role_json_payload(counsel_roles)
+    labels_by_key: dict[str, set[str]] = {}
+
+    for role_item in normalized["roles"]:
+        role = str(role_item.get("role", "")).strip()
+        if not role:
+            continue
+        label_values = [role]
+        label_values.extend(_coerce_string_list(role_item.get("speaker_aliases")))
+        label_values.extend(_coerce_string_list(role_item.get("attorney_names")))
+        for label in label_values:
+            cleaned_label = str(label or "").strip().rstrip(":")
+            if not cleaned_label:
+                continue
+            key = _speaker_label_key(cleaned_label)
+            if not key:
+                continue
+            labels_by_key.setdefault(key, set()).add(role)
+
+    return {
+        key: next(iter(roles))
+        for key, roles in labels_by_key.items()
+        if len(roles) == 1
+    }
+
+
+def _normalize_hearing_speaker_labels(
+    content: str,
+    counsel_roles: dict[str, Any],
+) -> str:
+    label_map = _build_counsel_role_speaker_label_map(counsel_roles)
+    if not label_map:
+        return content
+
+    pattern = re.compile(
+        r"(^|\s)([A-Za-z][A-Za-z0-9 .,'()/&-]{1,80}?):(?=\s|$)",
+        re.MULTILINE,
+    )
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        label = re.sub(r"\s+", " ", match.group(2)).strip()
+        normalized_role = label_map.get(_speaker_label_key(label))
+        if not normalized_role:
+            return match.group(0)
+        return f"{prefix}{normalized_role}:"
+
+    return pattern.sub(_replace, content)
 
 
 def _write_chunked_section_files(
@@ -2915,10 +3043,14 @@ class AdvancedClassificationSettingsWidgets:
 
 @dataclass
 class OptimizeSettingsWidgets:
-    api_url_row: Adw.EntryRow
-    model_row: Adw.EntryRow
-    api_key_row: Adw.EntryRow
-    disable_reasoning_row: Adw.SwitchRow
+    hearing_api_url_row: Adw.EntryRow
+    hearing_model_row: Adw.EntryRow
+    hearing_api_key_row: Adw.EntryRow
+    hearing_disable_reasoning_row: Adw.SwitchRow
+    report_api_url_row: Adw.EntryRow
+    report_model_row: Adw.EntryRow
+    report_api_key_row: Adw.EntryRow
+    report_disable_reasoning_row: Adw.SwitchRow
     attorney_api_url_row: Adw.EntryRow
     attorney_model_row: Adw.EntryRow
     attorney_api_key_row: Adw.EntryRow
@@ -2962,12 +3094,32 @@ class RagSettingsWidgets:
 
 def load_optimize_settings() -> dict[str, Any]:
     config = _read_config()
-    api_url = str(config.get(CONFIG_KEY_OPTIMIZE_API_URL, "") or "").strip()
-    model_id = str(config.get(CONFIG_KEY_OPTIMIZE_MODEL_ID, "") or "").strip()
-    api_key = str(config.get(CONFIG_KEY_OPTIMIZE_API_KEY, "") or "").strip()
-    disable_reasoning = _read_config_bool(
+    hearing_api_url = str(
+        config.get(CONFIG_KEY_OPTIMIZE_HEARING_API_URL, "") or ""
+    ).strip()
+    hearing_model_id = str(
+        config.get(CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID, "") or ""
+    ).strip()
+    hearing_api_key = str(
+        config.get(CONFIG_KEY_OPTIMIZE_HEARING_API_KEY, "") or ""
+    ).strip()
+    hearing_disable_reasoning = _read_config_bool(
         config,
-        CONFIG_KEY_OPTIMIZE_DISABLE_REASONING,
+        CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING,
+        DEFAULT_DISABLE_REASONING,
+    )
+    report_api_url = str(
+        config.get(CONFIG_KEY_OPTIMIZE_REPORT_API_URL, "") or ""
+    ).strip()
+    report_model_id = str(
+        config.get(CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID, "") or ""
+    ).strip()
+    report_api_key = str(
+        config.get(CONFIG_KEY_OPTIMIZE_REPORT_API_KEY, "") or ""
+    ).strip()
+    report_disable_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
     attorney_api_url = str(
@@ -2982,7 +3134,7 @@ def load_optimize_settings() -> dict[str, Any]:
     attorney_disable_reasoning = _read_config_bool(
         config,
         CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING,
-        disable_reasoning,
+        DEFAULT_DISABLE_REASONING,
     )
     chunk_size_raw = str(config.get(CONFIG_KEY_OPTIMIZE_CHUNK_SIZE, "") or "").strip()
     chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
@@ -3001,10 +3153,14 @@ def load_optimize_settings() -> dict[str, Any]:
         config.get(CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT, DEFAULT_OPTIMIZE_REPORTS_PROMPT) or ""
     ).strip()
     return {
-        "api_url": api_url,
-        "model_id": model_id,
-        "api_key": api_key,
-        "disable_reasoning": disable_reasoning,
+        "hearing_api_url": hearing_api_url,
+        "hearing_model_id": hearing_model_id,
+        "hearing_api_key": hearing_api_key,
+        "hearing_disable_reasoning": hearing_disable_reasoning,
+        "report_api_url": report_api_url,
+        "report_model_id": report_model_id,
+        "report_api_key": report_api_key,
+        "report_disable_reasoning": report_disable_reasoning,
         "attorney_api_url": attorney_api_url,
         "attorney_model_id": attorney_model_id,
         "attorney_api_key": attorney_api_key,
@@ -3017,10 +3173,14 @@ def load_optimize_settings() -> dict[str, Any]:
 
 
 def save_optimize_settings(
-    api_url: str,
-    model_id: str,
-    api_key: str,
-    disable_reasoning: bool,
+    hearing_api_url: str,
+    hearing_model_id: str,
+    hearing_api_key: str,
+    hearing_disable_reasoning: bool,
+    report_api_url: str,
+    report_model_id: str,
+    report_api_key: str,
+    report_disable_reasoning: bool,
     attorney_api_url: str,
     attorney_model_id: str,
     attorney_api_key: str,
@@ -3031,10 +3191,18 @@ def save_optimize_settings(
     reports_prompt: str,
 ) -> None:
     config = _read_config()
-    config[CONFIG_KEY_OPTIMIZE_API_URL] = api_url
-    config[CONFIG_KEY_OPTIMIZE_MODEL_ID] = model_id
-    config[CONFIG_KEY_OPTIMIZE_API_KEY] = api_key
-    config[CONFIG_KEY_OPTIMIZE_DISABLE_REASONING] = bool(disable_reasoning)
+    config[CONFIG_KEY_OPTIMIZE_HEARING_API_URL] = hearing_api_url
+    config[CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID] = hearing_model_id
+    config[CONFIG_KEY_OPTIMIZE_HEARING_API_KEY] = hearing_api_key
+    config[CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING] = bool(
+        hearing_disable_reasoning
+    )
+    config[CONFIG_KEY_OPTIMIZE_REPORT_API_URL] = report_api_url
+    config[CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID] = report_model_id
+    config[CONFIG_KEY_OPTIMIZE_REPORT_API_KEY] = report_api_key
+    config[CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING] = bool(
+        report_disable_reasoning
+    )
     config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL] = attorney_api_url
     config[CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID] = attorney_model_id
     config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY] = attorney_api_key
@@ -3521,7 +3689,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
+        scroller.set_vexpand(False)
         scroller.set_has_frame(False)
 
         buffer = Gtk.TextBuffer()
@@ -3529,7 +3697,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_view = Gtk.TextView.new_with_buffer(buffer)
         prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         prompt_view.set_monospace(True)
-        prompt_view.set_vexpand(True)
+        prompt_view.set_vexpand(False)
         prompt_view.set_hexpand(True)
         prompt_view.set_top_margin(12)
         prompt_view.set_bottom_margin(12)
@@ -3537,6 +3705,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_view.set_right_margin(12)
         scroller.set_child(prompt_view)
         return scroller, buffer
+
+    def _set_prompt_editor_height(
+        self,
+        scroller: Gtk.ScrolledWindow,
+        min_height: int = 220,
+    ) -> None:
+        scroller.set_min_content_height(min_height)
+        scroller.set_size_request(-1, min_height)
 
     def _build_local_ocr_page(self, settings: dict[str, str]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -3580,6 +3756,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         command_scroller, command_buffer = self._build_prompt_editor(
             settings.get("start_command", START_SERVER_COMMAND)
         )
+        self._set_prompt_editor_height(command_scroller, 180)
         command_section.append(command_scroller)
         page_box.append(command_section)
 
@@ -3691,8 +3868,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             command_scroller, local_start_command_buffer = self._build_prompt_editor(
                 settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
             )
-            command_scroller.set_vexpand(True)
-            command_scroller.set_size_request(-1, 140)
+            self._set_prompt_editor_height(command_scroller, 160)
             command_section.append(command_scroller)
             page_box.append(command_section)
 
@@ -3708,8 +3884,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             prompt_scroller, buffer = self._build_prompt_editor(
                 settings.get("rt_prompt") or default_prompt
             )
-            prompt_scroller.set_vexpand(True)
-            prompt_scroller.set_size_request(-1, 260)
+            self._set_prompt_editor_height(prompt_scroller, 280)
             prompt_section.append(prompt_scroller)
 
             ct_label = Gtk.Label(label="Clerk transcript prompt", xalign=0)
@@ -3718,8 +3893,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             ct_scroller, ct_buffer = self._build_prompt_editor(
                 settings.get("ct_prompt") or default_prompt
             )
-            ct_scroller.set_vexpand(True)
-            ct_scroller.set_size_request(-1, 260)
+            self._set_prompt_editor_height(ct_scroller, 280)
             prompt_section.append(ct_scroller)
         else:
             prompt_label = Gtk.Label(label="Prompt", xalign=0)
@@ -3728,7 +3902,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             prompt_scroller, buffer = self._build_prompt_editor(
                 settings.get("prompt") or default_prompt
             )
-            prompt_scroller.set_vexpand(True)
+            self._set_prompt_editor_height(prompt_scroller, 320)
             prompt_section.append(prompt_scroller)
         page_box.append(prompt_section)
 
@@ -3782,6 +3956,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         hearing_scroller, hearing_buffer = self._build_prompt_editor(
             settings.get("hearing_prompt") or DEFAULT_ADVANCED_HEARING_PROMPT
         )
+        self._set_prompt_editor_height(hearing_scroller, 240)
         prompt_section.append(hearing_scroller)
 
         minute_label = Gtk.Label(label="Minute Order First Page Prompt", xalign=0)
@@ -3790,6 +3965,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         minute_scroller, minute_buffer = self._build_prompt_editor(
             settings.get("minute_prompt") or DEFAULT_ADVANCED_MINUTE_PROMPT
         )
+        self._set_prompt_editor_height(minute_scroller, 240)
         prompt_section.append(minute_scroller)
 
         forms_label = Gtk.Label(label="Form First Page Prompt", xalign=0)
@@ -3798,6 +3974,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         forms_scroller, forms_buffer = self._build_prompt_editor(
             settings.get("form_prompt") or DEFAULT_ADVANCED_FORM_PROMPT
         )
+        self._set_prompt_editor_height(forms_scroller, 240)
         prompt_section.append(forms_scroller)
 
         page_box.append(prompt_section)
@@ -3846,6 +4023,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         hearing_scroller, hearing_buffer = self._build_prompt_editor(
             settings.get("hearing_prompt") or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT
         )
+        self._set_prompt_editor_height(hearing_scroller, 240)
         prompt_section.append(hearing_scroller)
 
         minute_label = Gtk.Label(label="Minute Order Date Prompt", xalign=0)
@@ -3854,6 +4032,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         minute_scroller, minute_buffer = self._build_prompt_editor(
             settings.get("minute_prompt") or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT
         )
+        self._set_prompt_editor_height(minute_scroller, 240)
         prompt_section.append(minute_scroller)
 
         page_box.append(prompt_section)
@@ -3901,6 +4080,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("report_prompt") or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT
         )
+        self._set_prompt_editor_height(reports_scroller, 240)
         prompt_section.append(reports_scroller)
 
         forms_label = Gtk.Label(label="Form Name Prompt", xalign=0)
@@ -3909,6 +4089,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         forms_scroller, forms_buffer = self._build_prompt_editor(
             settings.get("form_prompt") or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT
         )
+        self._set_prompt_editor_height(forms_scroller, 240)
         prompt_section.append(forms_scroller)
 
         page_box.append(prompt_section)
@@ -3937,35 +4118,74 @@ class SettingsWindow(Adw.ApplicationWindow):
         title_label.add_css_class("title-3")
         page_box.append(title_label)
 
-        credentials_group = Adw.PreferencesGroup(title="Credentials")
-        credentials_group.add_css_class("list-stack")
-        credentials_group.set_hexpand(True)
-        page_box.append(credentials_group)
-
-        api_url_row = Adw.EntryRow(title="API URL")
-        api_url_row.set_text(settings.get("api_url", ""))
-        credentials_group.add(api_url_row)
-
-        model_row = Adw.EntryRow(title="Model ID")
-        model_row.set_text(settings.get("model_id", ""))
-        credentials_group.add(model_row)
-
-        api_key_row = self._build_password_row("API Key")
-        api_key_row.set_text(settings.get("api_key", ""))
-        credentials_group.add(api_key_row)
-
-        disable_reasoning_row = Adw.SwitchRow(
-            title="Disable reasoning",
-            subtitle="Leave off to use the model's default behavior.",
+        hearing_credentials_group = Adw.PreferencesGroup(
+            title="Hearing Optimization Credentials",
         )
-        disable_reasoning_row.set_active(
-            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
+        hearing_credentials_group.add_css_class("list-stack")
+        hearing_credentials_group.set_hexpand(True)
+        page_box.append(hearing_credentials_group)
+
+        hearing_api_url_row = Adw.EntryRow(title="Hearing API URL")
+        hearing_api_url_row.set_text(settings.get("hearing_api_url", ""))
+        hearing_credentials_group.add(hearing_api_url_row)
+
+        hearing_model_row = Adw.EntryRow(title="Hearing Model ID")
+        hearing_model_row.set_text(settings.get("hearing_model_id", ""))
+        hearing_credentials_group.add(hearing_model_row)
+
+        hearing_api_key_row = self._build_password_row("Hearing API Key")
+        hearing_api_key_row.set_text(settings.get("hearing_api_key", ""))
+        hearing_credentials_group.add(hearing_api_key_row)
+
+        hearing_disable_reasoning_row = Adw.SwitchRow(
+            title="Disable hearing reasoning",
+            subtitle="Used only for hearing optimization requests.",
         )
-        credentials_group.add(disable_reasoning_row)
+        hearing_disable_reasoning_row.set_active(
+            bool(
+                settings.get(
+                    "hearing_disable_reasoning",
+                    DEFAULT_DISABLE_REASONING,
+                )
+            )
+        )
+        hearing_credentials_group.add(hearing_disable_reasoning_row)
+
+        report_credentials_group = Adw.PreferencesGroup(
+            title="Report Optimization Credentials",
+        )
+        report_credentials_group.add_css_class("list-stack")
+        report_credentials_group.set_hexpand(True)
+        page_box.append(report_credentials_group)
+
+        report_api_url_row = Adw.EntryRow(title="Report API URL")
+        report_api_url_row.set_text(settings.get("report_api_url", ""))
+        report_credentials_group.add(report_api_url_row)
+
+        report_model_row = Adw.EntryRow(title="Report Model ID")
+        report_model_row.set_text(settings.get("report_model_id", ""))
+        report_credentials_group.add(report_model_row)
+
+        report_api_key_row = self._build_password_row("Report API Key")
+        report_api_key_row.set_text(settings.get("report_api_key", ""))
+        report_credentials_group.add(report_api_key_row)
+
+        report_disable_reasoning_row = Adw.SwitchRow(
+            title="Disable report reasoning",
+            subtitle="Used only for report optimization requests.",
+        )
+        report_disable_reasoning_row.set_active(
+            bool(
+                settings.get(
+                    "report_disable_reasoning",
+                    DEFAULT_DISABLE_REASONING,
+                )
+            )
+        )
+        report_credentials_group.add(report_disable_reasoning_row)
 
         attorney_credentials_group = Adw.PreferencesGroup(
             title="Counsel Role Extraction Credentials",
-            description="Leave blank to reuse the main Optimize credentials.",
         )
         attorney_credentials_group.add_css_class("list-stack")
         attorney_credentials_group.set_hexpand(True)
@@ -3991,7 +4211,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             bool(
                 settings.get(
                     "attorney_disable_reasoning",
-                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
+                    DEFAULT_DISABLE_REASONING,
                 )
             )
         )
@@ -4001,7 +4221,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         chunk_size_row.set_text(
             settings.get("chunk_size", str(DEFAULT_OPTIMIZE_CHUNK_SIZE))
         )
-        credentials_group.add(chunk_size_row)
+        hearing_credentials_group.add(chunk_size_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -4013,6 +4233,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         attorneys_scroller, attorneys_buffer = self._build_prompt_editor(
             settings.get("attorneys_prompt") or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
         )
+        self._set_prompt_editor_height(attorneys_scroller, 220)
         prompt_section.append(attorneys_scroller)
 
         hearings_label = Gtk.Label(label="Optimize Hearings Prompt", xalign=0)
@@ -4021,6 +4242,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
             settings.get("hearings_prompt") or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
         )
+        self._set_prompt_editor_height(hearings_scroller, 260)
         prompt_section.append(hearings_scroller)
 
         reports_label = Gtk.Label(label="Optimize Reports Prompt", xalign=0)
@@ -4029,6 +4251,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("reports_prompt") or DEFAULT_OPTIMIZE_REPORTS_PROMPT
         )
+        self._set_prompt_editor_height(reports_scroller, 260)
         prompt_section.append(reports_scroller)
 
         page_box.append(prompt_section)
@@ -4040,10 +4263,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         page.set_child(page_box)
 
         self._optimize_widgets = OptimizeSettingsWidgets(
-            api_url_row=api_url_row,
-            model_row=model_row,
-            api_key_row=api_key_row,
-            disable_reasoning_row=disable_reasoning_row,
+            hearing_api_url_row=hearing_api_url_row,
+            hearing_model_row=hearing_model_row,
+            hearing_api_key_row=hearing_api_key_row,
+            hearing_disable_reasoning_row=hearing_disable_reasoning_row,
+            report_api_url_row=report_api_url_row,
+            report_model_row=report_model_row,
+            report_api_key_row=report_api_key_row,
+            report_disable_reasoning_row=report_disable_reasoning_row,
             attorney_api_url_row=attorney_api_url_row,
             attorney_model_row=attorney_model_row,
             attorney_api_key_row=attorney_api_key_row,
@@ -4107,6 +4334,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
             settings.get("hearings_prompt") or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
         )
+        self._set_prompt_editor_height(hearings_scroller, 240)
         prompt_section.append(hearings_scroller)
 
         reports_label = Gtk.Label(label="Summarize Reports Prompt", xalign=0)
@@ -4115,6 +4343,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("reports_prompt") or DEFAULT_SUMMARIZE_REPORTS_PROMPT
         )
+        self._set_prompt_editor_height(reports_scroller, 240)
         prompt_section.append(reports_scroller)
 
         minutes_label = Gtk.Label(label="Summarize Minute Orders Prompt", xalign=0)
@@ -4123,6 +4352,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         minutes_scroller, minutes_buffer = self._build_prompt_editor(
             settings.get("minutes_prompt") or DEFAULT_SUMMARIZE_MINUTES_PROMPT
         )
+        self._set_prompt_editor_height(minutes_scroller, 240)
         prompt_section.append(minutes_scroller)
 
         page_box.append(prompt_section)
@@ -4192,6 +4422,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_scroller, buffer = self._build_prompt_editor(
             settings.get("prompt") or DEFAULT_OVERVIEW_PROMPT
         )
+        self._set_prompt_editor_height(prompt_scroller, 320)
         prompt_section.append(prompt_scroller)
         page_box.append(prompt_section)
 
@@ -4373,10 +4604,14 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
         if optimize_widgets:
             save_optimize_settings(
-                optimize_widgets.api_url_row.get_text().strip(),
-                optimize_widgets.model_row.get_text().strip(),
-                optimize_widgets.api_key_row.get_text().strip(),
-                bool(optimize_widgets.disable_reasoning_row.get_active()),
+                optimize_widgets.hearing_api_url_row.get_text().strip(),
+                optimize_widgets.hearing_model_row.get_text().strip(),
+                optimize_widgets.hearing_api_key_row.get_text().strip(),
+                bool(optimize_widgets.hearing_disable_reasoning_row.get_active()),
+                optimize_widgets.report_api_url_row.get_text().strip(),
+                optimize_widgets.report_model_row.get_text().strip(),
+                optimize_widgets.report_api_key_row.get_text().strip(),
+                bool(optimize_widgets.report_disable_reasoning_row.get_active()),
                 optimize_widgets.attorney_api_url_row.get_text().strip(),
                 optimize_widgets.attorney_model_row.get_text().strip(),
                 optimize_widgets.attorney_api_key_row.get_text().strip(),
@@ -4721,29 +4956,6 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
         settings_group.add(details_row)
         self._details_row = details_row
 
-        credentials_group = Adw.PreferencesGroup(title="LLM credentials")
-        credentials_group.add_css_class("list-stack")
-        content.append(credentials_group)
-
-        api_url_row = Adw.EntryRow(title="API URL")
-        credentials_group.add(api_url_row)
-        self._api_url_row = api_url_row
-
-        model_row = Adw.EntryRow(title="Model ID")
-        credentials_group.add(model_row)
-        self._model_row = model_row
-
-        api_key_row = Adw.EntryRow(title="API key")
-        credentials_group.add(api_key_row)
-        self._api_key_row = api_key_row
-
-        disable_reasoning_row = Adw.SwitchRow(
-            title="Disable reasoning",
-            subtitle="Leave off to use the model's default behavior.",
-        )
-        credentials_group.add(disable_reasoning_row)
-        self._disable_reasoning_row = disable_reasoning_row
-
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         paned.set_hexpand(True)
         paned.set_vexpand(True)
@@ -4849,8 +5061,9 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             return "Uses the saved counsel role extraction prompt and counsel role credentials. Paste hearing transcript text."
         if mode_id == "optimize_hearings":
             return (
-                "Uses the saved hearing optimize prompt plus the saved counsel role map built from the pasted transcript. "
-                "If the first line starts with 'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
+                "Uses the saved hearing optimize prompt and the selected case's "
+                "`artifacts/preoptimized/counsel_roles.json`. If the first line starts with "
+                "'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
             )
         if mode_id == "optimize_reports":
             return "Uses the saved Optimize reports prompt. Paste raw report text."
@@ -4863,13 +5076,6 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
         return "Uses the saved prompt for the selected mode."
 
     def _apply_mode_settings(self, mode_id: str) -> None:
-        settings = self._parent._build_test_optimize_summarize_settings(mode_id)
-        self._api_url_row.set_text(str(settings.get("api_url", "") or ""))
-        self._model_row.set_text(str(settings.get("model_id", "") or ""))
-        self._api_key_row.set_text(str(settings.get("api_key", "") or ""))
-        self._disable_reasoning_row.set_active(
-            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
-        )
         self._details_row.set_subtitle(self._mode_details(mode_id))
 
     def _on_mode_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
@@ -4889,12 +5095,6 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             self._set_status("Enter raw text first.", False)
             return
         mode_id = self._mode_values[selected]
-        overrides = {
-            "api_url": self._api_url_row.get_text().strip(),
-            "model_id": self._model_row.get_text().strip(),
-            "api_key": self._api_key_row.get_text().strip(),
-            "disable_reasoning": bool(self._disable_reasoning_row.get_active()),
-        }
         self._running = True
         self._run_button.set_sensitive(False)
         self._set_status("Running...", True)
@@ -4909,7 +5109,7 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             self._run_button.set_sensitive(True)
             self._running = False
 
-        self._parent.run_test_optimize_summarize(mode_id, raw_text, overrides, _on_done)
+        self._parent.run_test_optimize_summarize(mode_id, raw_text, {}, _on_done)
 
 
 class RecordPrepWindow(Adw.ApplicationWindow):
@@ -5517,35 +5717,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _build_test_optimize_summarize_settings(self, mode_id: str) -> dict[str, Any]:
         if mode_id.startswith("optimize_"):
             settings = load_optimize_settings()
-            prompt = settings["reports_prompt"]
-            api_url = settings["api_url"]
-            model_id = settings["model_id"]
-            api_key = settings["api_key"]
-            disable_reasoning = bool(
-                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-            )
+            request_settings = _build_optimize_report_request_settings(settings)
             if mode_id == "optimize_attorneys":
-                prompt = settings["attorneys_prompt"]
-                attorney_settings = _build_attorney_request_settings(settings)
-                api_url = attorney_settings["api_url"]
-                model_id = attorney_settings["model_id"]
-                api_key = attorney_settings["api_key"]
-                disable_reasoning = bool(
-                    attorney_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                )
+                request_settings = _build_attorney_request_settings(settings)
             elif mode_id == "optimize_hearings":
-                prompt = settings["hearings_prompt"]
+                request_settings = _build_optimize_hearing_request_settings(settings)
             elif mode_id == "optimize_reports":
-                prompt = settings["reports_prompt"]
+                request_settings = _build_optimize_report_request_settings(settings)
             else:
                 raise ValueError(f"Unknown optimize test mode: {mode_id}")
-            return {
-                "api_url": api_url,
-                "model_id": model_id,
-                "api_key": api_key,
-                "disable_reasoning": disable_reasoning,
-                "prompt": prompt,
-            }
+            return request_settings
         if mode_id.startswith("summarize_"):
             settings = load_summarize_settings()
             prompt = settings["reports_prompt"]
@@ -5720,11 +5901,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         transcript = transcript.strip()
         if not transcript:
             return ""
-        optimize_settings = load_optimize_settings()
-        counsel_roles = self._extract_counsel_roles(
-            optimize_settings,
-            _build_transcript_counsel_role_evidence(transcript),
-        )
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            raise ValueError(
+                "Choose a saved case or select PDFs first so the hearing test can load "
+                "`artifacts/preoptimized/counsel_roles.json`."
+            )
+        counsel_roles_path = root_dir / "artifacts" / "preoptimized" / "counsel_roles.json"
+        if not counsel_roles_path.exists():
+            raise FileNotFoundError(
+                "Run Create pre-optimized first so the hearing test can use "
+                "`artifacts/preoptimized/counsel_roles.json`."
+            )
+        try:
+            counsel_roles = _normalize_counsel_role_json_payload(
+                json.loads(
+                    counsel_roles_path.read_text(
+                        encoding="utf-8",
+                        errors="ignore",
+                    )
+                )
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid counsel_roles.json: {exc}") from exc
         hearing_metadata = {
             "type": "hearing",
             "hearing_date": _format_long_us_date(date_value)
@@ -5738,9 +5937,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         response = self._request_plain_text(settings, payload)
         if response:
-            section_paragraphs.extend(
-                _split_paragraphs(_normalize_optimized_text(response))
+            normalized_response = _normalize_hearing_speaker_labels(
+                _normalize_optimized_text(response),
+                counsel_roles,
             )
+            section_paragraphs.extend(_split_paragraphs(normalized_response))
         if not section_paragraphs:
             return ""
         rendered: list[str] = []
@@ -5768,7 +5969,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._raise_if_stop_requested()
         response = self._optimize_report_chunk(
             settings,
-            settings["prompt"],
             raw_text,
         )
         if response:
@@ -5794,7 +5994,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         def _worker() -> None:
             try:
                 settings = self._build_test_optimize_summarize_settings(mode_id)
-                settings.update(overrides)
+                for key in ("api_url", "model_id", "api_key", "prompt"):
+                    override_value = overrides.get(key)
+                    if isinstance(override_value, str) and override_value.strip():
+                        settings[key] = override_value.strip()
+                if "disable_reasoning" in overrides:
+                    settings["disable_reasoning"] = bool(overrides["disable_reasoning"])
                 if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                     raise ValueError("Enter API URL, model ID, and API key.")
                 if not settings.get("prompt"):
@@ -8711,6 +8916,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 hearing_entries,
                 text_dir,
             )
+            counsel_role_chunks = _chunk_text_for_artifacts(
+                counsel_role_evidence,
+                COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE,
+            )
+            GLib.idle_add(
+                self._append_log_message,
+                (
+                    "Create pre-optimized: counsel role evidence built from "
+                    f"{len(hearing_entries)} hearing(s), "
+                    f"{len(counsel_role_evidence):,} characters, "
+                    f"{len(counsel_role_chunks)} extraction chunk(s)."
+                ),
+                "INFO",
+            )
             counsel_roles = self._extract_counsel_roles(
                 optimize_settings,
                 counsel_role_evidence,
@@ -8748,18 +8967,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _optimize_report_chunk(
         self,
         settings: dict[str, Any],
-        reports_prompt: str,
         chunk: str,
     ) -> str:
-        request_settings = {
-            "api_url": settings["api_url"],
-            "model_id": settings["model_id"],
-            "api_key": settings["api_key"],
-            "disable_reasoning": bool(
-                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-            ),
-            "prompt": reports_prompt,
-        }
+        request_settings = _build_optimize_report_request_settings(settings)
         response = self._request_plain_text(request_settings, chunk)
         return _normalize_optimized_text(response) if response else ""
 
@@ -8771,6 +8981,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         cleaned_evidence = evidence_text.strip()
         empty_roles = {"roles": [], "unknown_speaker_labels": [], "notes": ""}
         if not cleaned_evidence:
+            GLib.idle_add(
+                self._append_log_message,
+                "Counsel role extraction skipped: no evidence text was available.",
+                "WARN",
+            )
             return empty_roles
         attorney_settings = _build_attorney_request_settings(optimize_settings)
         if (
@@ -8781,11 +8996,31 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             raise ValueError(
                 "Configure counsel role extraction API URL, model ID, and API key in Settings."
             )
-        payloads: list[dict[str, Any]] = []
-        for chunk in _chunk_text_for_artifacts(
+        evidence_chunks = _chunk_text_for_artifacts(
             cleaned_evidence,
             COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE,
-        ):
+        )
+        total_chunks = len(evidence_chunks)
+        GLib.idle_add(
+            self._append_log_message,
+            (
+                "Counsel role extraction: "
+                f"{len(cleaned_evidence):,} characters of evidence across "
+                f"{total_chunks} request chunk(s)."
+            ),
+            "INFO",
+        )
+        payloads: list[dict[str, Any]] = []
+        for chunk_index, chunk in enumerate(evidence_chunks, start=1):
+            GLib.idle_add(
+                self._append_log_message,
+                (
+                    "Counsel role extraction: "
+                    f"starting chunk {chunk_index}/{total_chunks} "
+                    f"({len(chunk):,} characters)."
+                ),
+                "INFO",
+            )
             attorney_response = self._request_plain_text(attorney_settings, chunk)
             try:
                 attorney_payload = json.loads(self._extract_json_payload(attorney_response))
@@ -8793,8 +9028,30 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError(
                     f"Counsel role extraction returned invalid JSON: {exc}"
                 ) from exc
-            payloads.append(attorney_payload)
-        return _merge_counsel_role_payloads(payloads) if payloads else empty_roles
+            normalized_payload = _normalize_counsel_role_json_payload(attorney_payload)
+            GLib.idle_add(
+                self._append_log_message,
+                (
+                    "Counsel role extraction: "
+                    f"finished chunk {chunk_index}/{total_chunks} with "
+                    f"{len(normalized_payload['roles'])} role(s) and "
+                    f"{len(normalized_payload['unknown_speaker_labels'])} "
+                    "unresolved label(s)."
+                ),
+                "INFO",
+            )
+            payloads.append(normalized_payload)
+        merged_payload = _merge_counsel_role_payloads(payloads) if payloads else empty_roles
+        GLib.idle_add(
+            self._append_log_message,
+            (
+                "Counsel role extraction complete: "
+                f"{len(merged_payload['roles'])} final role(s) and "
+                f"{len(merged_payload['unknown_speaker_labels'])} unresolved label(s)."
+            ),
+            "INFO",
+        )
+        return merged_payload
 
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False
@@ -8814,10 +9071,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "Run Create pre-optimized to generate hearing/report chunk files first."
                 )
             settings = load_optimize_settings()
-            if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
-            hearings_prompt = settings["hearings_prompt"]
-            reports_prompt = settings["reports_prompt"]
+            hearing_request_settings = _build_optimize_hearing_request_settings(settings)
+            report_request_settings = _build_optimize_report_request_settings(settings)
             counsel_roles_path = preoptimized_dir / "counsel_roles.json"
             if not counsel_roles_path.exists():
                 raise FileNotFoundError(
@@ -8845,6 +9100,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "report",
                 "report_name",
             )
+            if hearing_files and (
+                not hearing_request_settings["api_url"]
+                or not hearing_request_settings["model_id"]
+                or not hearing_request_settings["api_key"]
+            ):
+                raise ValueError(
+                    "Configure hearing optimize API URL, model ID, and API key in Settings."
+                )
+            if report_files and (
+                not report_request_settings["api_url"]
+                or not report_request_settings["model_id"]
+                or not report_request_settings["api_key"]
+            ):
+                raise ValueError(
+                    "Configure report optimize API URL, model ID, and API key in Settings."
+                )
             if not hearing_files and not report_files:
                 (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
                 (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
@@ -8902,20 +9173,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         chunk,
                     )
                     response = self._request_plain_text(
-                        {
-                            "api_url": settings["api_url"],
-                            "model_id": settings["model_id"],
-                            "api_key": settings["api_key"],
-                            "disable_reasoning": bool(
-                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                            ),
-                            "prompt": hearings_prompt,
-                        },
+                        hearing_request_settings,
                         payload,
                     )
                     if response:
                         normalized_response = _normalize_optimized_text(response)
                         if normalized_response:
+                            normalized_response = _normalize_hearing_speaker_labels(
+                                normalized_response,
+                                counsel_roles_payload,
+                            )
                             (output_section_dir / f"{chunk_index:04d}.txt").write_text(
                                 normalized_response,
                                 encoding="utf-8",
@@ -8958,7 +9225,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                     response = self._optimize_report_chunk(
                         settings,
-                        reports_prompt,
                         chunk,
                     )
                     if response:
@@ -9937,13 +10203,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _request_plain_text(self, settings: dict[str, Any], content: str) -> str:
         self._raise_if_stop_requested()
+        api_url = str(settings.get("api_url", "") or "").strip()
+        model_id = str(settings.get("model_id", "") or "").strip()
+        api_key = str(settings.get("api_key", "") or "").strip()
+        if not api_url:
+            raise ValueError("API URL is empty.")
+        if not model_id:
+            raise ValueError("Model ID is empty.")
+        if not api_key:
+            raise ValueError("API key is empty.")
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
-            "Authorization": f"Bearer {settings['api_key']}",
+            "Authorization": f"Bearer {api_key}",
             "User-Agent": "RecordPrep/0.1",
         }
-        model_id = settings["model_id"]
         disable_reasoning = bool(
             settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
         )
@@ -9966,7 +10240,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         while True:
             data = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
+            req = urllib.request.Request(api_url, data=data, headers=headers, method="POST")
             try:
                 if body.get("stream"):
                     return self._stream_text_with_retries(

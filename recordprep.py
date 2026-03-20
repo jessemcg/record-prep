@@ -230,15 +230,21 @@ DEFAULT_CASE_NAME_PROMPT = (
     "If unknown, use an empty string."
 )
 DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT = (
-    "You are reviewing an excerpt from a hearing transcript. "
+    "You are building a case-level counsel role map for a juvenile court case. "
     "Return only valid JSON. Do not include markdown fences or any explanatory text. "
-    "Return an object with keys: attorneys, unknown_speakers, notes. "
-    "attorneys must be an array of objects with keys: speaker_label, name, represents, confidence. "
-    "Use the exact speaker label from the transcript when available. "
+    "Return an object with keys: roles, unknown_speaker_labels, notes. "
+    "roles must be an array of objects with keys: role, attorney_names, speaker_aliases, confidence. "
+    "role must be one of: MOTHER'S COUNSEL, FATHER'S COUNSEL, ALLEGED FATHER'S COUNSEL, "
+    "PRESUMED FATHER'S COUNSEL, PARENT'S COUNSEL, MINOR'S COUNSEL, COUNTY COUNSEL, "
+    "TRIBE'S COUNSEL, OTHER COUNSEL. "
+    "Normalize department or agency counsel to COUNTY COUNSEL. "
+    "Normalize child or children's counsel to MINOR'S COUNSEL. "
+    "attorney_names must be an array of full attorney names when known. "
+    "speaker_aliases must be an array of exact speaker labels or close label variants from the record. "
     "confidence must be one of: high, medium, low. "
-    "unknown_speakers must be an array of speaker labels or names that appear but whose role is unclear. "
+    "unknown_speaker_labels must be an array of speaker labels or names that appear but whose role is unclear. "
     "notes must be a short string and may be empty. "
-    "If no attorney can be identified, return {\"attorneys\":[],\"unknown_speakers\":[],\"notes\":\"\"}."
+    "If no role can be identified, return {\"roles\":[],\"unknown_speaker_labels\":[],\"notes\":\"\"}."
 )
 DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "TASK\n"
@@ -246,11 +252,15 @@ DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
     "CORE RULES\n"
     "1. Preserve every statement exactly as written.\n"
     "2. However, add speaker labels before each statement.\n"
-    "3. If the transcript already contains speaker labels such as 'THE COURT:' or 'MS. MAHONEY:', preserve those labels exactly as written, including capitalization, punctuation, and honorifics. Do not rewrite them into forms like 'Mahoney speaking:' or 'The Court speaking:'.\n"
-    "4. If a statement lacks a speaker label, add the shortest accurate label you can from the transcript.\n"
-    "5. Treat any attorney-info reference section as context only. Never quote it, summarize it, or use it to rewrite the transcript wording.\n"
-    "6. Keep the original order of events.\n"
-    "7. Do not summarize, omit, generalize, or add commentary.\n\n"
+    "3. For any attorney or counsel speaker, insert a counsel-role label instead of an attorney-name label whenever the role is clear from the reference counsel-role JSON.\n"
+    "4. Use role labels such as 'MOTHER'S COUNSEL:', 'FATHER'S COUNSEL:', 'MINOR'S COUNSEL:', or 'COUNTY COUNSEL:' rather than labels such as 'MS. SMITH:' or 'MR. JONES:' when the speaker is counsel.\n"
+    "5. If the transcript already uses an attorney-name label for counsel and the role is clear, replace that attorney-name label with the correct counsel-role label while preserving the spoken words exactly.\n"
+    "6. Preserve non-counsel speaker labels such as 'THE COURT:' exactly as written.\n"
+    "7. If a counsel speaker's role is unclear, preserve the original speaker label rather than guessing.\n"
+    "8. If a statement lacks a speaker label, add the shortest accurate label you can from the transcript and reference JSON.\n"
+    "9. Treat any counsel-role reference section as context only. Never quote it, summarize it, or use it to rewrite the transcript wording.\n"
+    "10. Keep the original order of events.\n"
+    "11. Do not summarize, omit, generalize, or add commentary.\n\n"
     "CLEANUP RULES\n"
     "• Remove repeated headers and footers.\n"
     "• Normalize spacing and sentence case.\n"
@@ -366,6 +376,43 @@ LEGACY_DEFAULT_OVERVIEW_PROMPT = (
 )
 DEFAULT_RAG_VOYAGE_MODEL = "voyage-law-2"
 DEFAULT_RAG_ISAACUS_MODEL = "kanon-2-embedder"
+COUNSEL_ROLE_ORDER = (
+    "MOTHER'S COUNSEL",
+    "FATHER'S COUNSEL",
+    "ALLEGED FATHER'S COUNSEL",
+    "PRESUMED FATHER'S COUNSEL",
+    "PARENT'S COUNSEL",
+    "MINOR'S COUNSEL",
+    "COUNTY COUNSEL",
+    "TRIBE'S COUNSEL",
+    "OTHER COUNSEL",
+)
+COUNSEL_ROLE_ALIASES = {
+    "mothers counsel": "MOTHER'S COUNSEL",
+    "mother counsel": "MOTHER'S COUNSEL",
+    "mothers attorney": "MOTHER'S COUNSEL",
+    "father counsel": "FATHER'S COUNSEL",
+    "fathers counsel": "FATHER'S COUNSEL",
+    "father attorney": "FATHER'S COUNSEL",
+    "alleged father counsel": "ALLEGED FATHER'S COUNSEL",
+    "alleged fathers counsel": "ALLEGED FATHER'S COUNSEL",
+    "presumed father counsel": "PRESUMED FATHER'S COUNSEL",
+    "presumed fathers counsel": "PRESUMED FATHER'S COUNSEL",
+    "parents counsel": "PARENT'S COUNSEL",
+    "parent counsel": "PARENT'S COUNSEL",
+    "minor counsel": "MINOR'S COUNSEL",
+    "minors counsel": "MINOR'S COUNSEL",
+    "child counsel": "MINOR'S COUNSEL",
+    "childrens counsel": "MINOR'S COUNSEL",
+    "children counsel": "MINOR'S COUNSEL",
+    "county counsel": "COUNTY COUNSEL",
+    "department counsel": "COUNTY COUNSEL",
+    "agency counsel": "COUNTY COUNSEL",
+    "tribe counsel": "TRIBE'S COUNSEL",
+    "tribes counsel": "TRIBE'S COUNSEL",
+    "other counsel": "OTHER COUNSEL",
+}
+COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE = 12000
 DEFAULT_DISABLE_REASONING = False
 ISAACUS_MAX_EMBED_BATCH = 128
 
@@ -975,8 +1022,6 @@ class ChunkedSectionFiles:
     directory: Path
     chunk_paths: list[Path]
     metadata: dict[str, Any]
-    attorney_excerpt_path: Path | None = None
-    attorney_info_path: Path | None = None
 
 
 def _canonical_retrieval_metadata_key(label: str) -> str:
@@ -1501,20 +1546,131 @@ def _prepare_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def _build_attorney_excerpt(content: str, max_chars: int = 3000) -> str:
-    attorney_chunks = _chunk_text_for_artifacts(content, max_chars)
-    return attorney_chunks[0] if attorney_chunks else content
+def _normalize_confidence(value: Any) -> str:
+    confidence = str(value or "").strip().lower()
+    return confidence if confidence in {"high", "medium", "low"} else "low"
 
 
-def _build_optimize_hearing_payload(attorney_info: str, transcript: str) -> str:
-    cleaned_attorney_info = attorney_info.strip() or '{"attorneys":[],"unknown_speakers":[],"notes":"Unknown."}'
+def _coerce_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _counsel_role_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _normalize_counsel_role(value: str) -> str:
+    stripped = str(value or "").strip()
+    if not stripped:
+        return ""
+    for canonical in COUNSEL_ROLE_ORDER:
+        if stripped.upper() == canonical:
+            return canonical
+    return COUNSEL_ROLE_ALIASES.get(_counsel_role_key(stripped), "")
+
+
+def _extract_attorney_like_speaker_labels(text: str) -> list[str]:
+    cleaned = _strip_ascii_and_html_tables(text)
+    labels: list[str] = []
+    seen: set[str] = set()
+    for line in cleaned.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = re.match(r"^([A-Za-z][A-Za-z0-9 .,'()/&-]{1,80}):(?:\s|$)", stripped)
+        if not match:
+            continue
+        label = re.sub(r"\s+", " ", match.group(1)).strip()
+        upper_label = label.upper()
+        if not (
+            re.search(r"\b(MR|MS|MRS|MISS|COUNSEL|ATTORNEY|ESQ)\b", upper_label)
+            or _normalize_counsel_role(label)
+        ):
+            continue
+        if upper_label in seen:
+            continue
+        seen.add(upper_label)
+        labels.append(label)
+    return labels
+
+
+def _build_transcript_counsel_role_evidence(transcript: str) -> str:
+    cleaned = _strip_ascii_and_html_tables(transcript).strip()
+    if not cleaned:
+        return ""
+    lines = ["HEARING TRANSCRIPT", cleaned]
+    speaker_labels = _extract_attorney_like_speaker_labels(cleaned)
+    if speaker_labels:
+        lines.extend(["", "ATTORNEY-LIKE SPEAKER LABELS", *speaker_labels])
+    return "\n".join(lines).strip()
+
+
+def _read_boundary_entry_excerpt_text(
+    entry: dict[str, Any],
+    text_dir: Path,
+    max_pages: int,
+) -> str:
+    start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
+    end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
+    start_page = _page_number_from_label(start_label)
+    end_page = _page_number_from_label(end_label)
+    if start_page is None or end_page is None:
+        raise ValueError("Boundary entry missing start/end page.")
+    if end_page < start_page:
+        raise ValueError("Boundary entry has end page before start page.")
+    excerpt_end_page = min(end_page, start_page + max(0, max_pages - 1))
+    page_texts: list[str] = []
+    for page in range(start_page, excerpt_end_page + 1):
+        page_path = text_dir / f"{page:04d}.txt"
+        if not page_path.exists():
+            raise FileNotFoundError(f"Missing text file {page_path.name}.")
+        page_texts.append(page_path.read_text(encoding="utf-8", errors="ignore").rstrip("\n"))
+    return "\n".join(page_texts).strip()
+
+
+def _build_case_counsel_role_evidence(
+    hearing_entries: list[dict[str, Any]],
+    text_dir: Path,
+) -> str:
+    if not hearing_entries:
+        return ""
+    lines: list[str] = ["CASE COUNSEL ROLE EVIDENCE", "", "FIRST TWO PAGES OF EACH HEARING"]
+    all_speaker_labels: list[str] = []
+    seen_speaker_labels: set[str] = set()
+    included_excerpt = False
+    for index, entry in enumerate(hearing_entries, start=1):
+        date_value = _extract_entry_value(entry, "date").strip() or f"Hearing {index}"
+        excerpt = _read_boundary_entry_excerpt_text(entry, text_dir, 2)
+        if excerpt:
+            lines.extend(["", f"HEARING: {date_value}", excerpt])
+            included_excerpt = True
+        for label in _extract_attorney_like_speaker_labels(excerpt):
+            label_key = label.upper()
+            if label_key in seen_speaker_labels:
+                continue
+            seen_speaker_labels.add(label_key)
+            all_speaker_labels.append(label)
+
+    if all_speaker_labels:
+        lines.extend(["", "UNIQUE ATTORNEY-LIKE SPEAKER LABELS", *all_speaker_labels])
+
+    return "\n".join(lines).strip() if included_excerpt or all_speaker_labels else ""
+
+
+def _build_optimize_hearing_payload(counsel_roles: str, transcript: str) -> str:
+    cleaned_counsel_roles = counsel_roles.strip() or '{"roles":[],"unknown_speaker_labels":[],"notes":"Unknown."}'
     cleaned_transcript = transcript.strip()
     return (
-        "REFERENCE ATTORNEY INFO JSON\n"
-        "Use this only to understand who counsel represents. Do not quote or rewrite the transcript from this section.\n"
-        f"{cleaned_attorney_info}\n\n"
+        "REFERENCE COUNSEL ROLE JSON\n"
+        "Use this only to determine whether counsel is speaking for mother, father, minor, county, tribe, or another party. "
+        "Do not quote or rewrite the transcript from this section.\n"
+        f"{cleaned_counsel_roles}\n\n"
         "TRANSCRIPT\n"
-        "Only this section may appear in the output. Preserve existing speaker labels exactly as written when they already appear.\n"
+        "Only this section may appear in the output. Preserve spoken text exactly as written.\n"
         f"{cleaned_transcript}"
     )
 
@@ -1551,37 +1707,70 @@ def _build_attorney_request_settings(
     }
 
 
-def _normalize_attorney_json_payload(payload: Any) -> dict[str, Any]:
+def _normalize_counsel_role_json_payload(payload: Any) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "attorneys": [],
-        "unknown_speakers": [],
+        "roles": [],
+        "unknown_speaker_labels": [],
         "notes": "",
     }
     if not isinstance(payload, dict):
-        raise ValueError("Attorney extraction must return a JSON object.")
+        raise ValueError("Counsel role extraction must return a JSON object.")
 
-    attorneys_value = payload.get("attorneys", [])
-    if isinstance(attorneys_value, list):
-        normalized_attorneys: list[dict[str, str]] = []
-        for item in attorneys_value:
+    role_items = payload.get("roles")
+    if role_items is None and isinstance(payload.get("attorneys"), list):
+        role_items = payload.get("attorneys")
+    if isinstance(role_items, list):
+        merged_roles: dict[str, dict[str, Any]] = {}
+        confidence_rank = {"low": 0, "medium": 1, "high": 2}
+        for item in role_items:
             if not isinstance(item, dict):
                 continue
-            confidence = str(item.get("confidence", "") or "").strip().lower()
-            if confidence not in {"high", "medium", "low"}:
-                confidence = "low"
-            normalized_attorneys.append(
+            role = _normalize_counsel_role(item.get("role", "") or item.get("represents", ""))
+            if not role:
+                continue
+            merged_entry = merged_roles.setdefault(
+                role,
                 {
-                    "speaker_label": str(item.get("speaker_label", "") or "").strip(),
-                    "name": str(item.get("name", "") or "").strip(),
-                    "represents": str(item.get("represents", "") or "").strip(),
-                    "confidence": confidence,
-                }
+                    "role": role,
+                    "attorney_names": [],
+                    "speaker_aliases": [],
+                    "confidence": "low",
+                },
             )
-        result["attorneys"] = normalized_attorneys
+            attorney_names = _coerce_string_list(item.get("attorney_names"))
+            if not attorney_names:
+                legacy_name = str(item.get("name", "") or "").strip()
+                if legacy_name:
+                    attorney_names = [legacy_name]
+            speaker_aliases = _coerce_string_list(item.get("speaker_aliases"))
+            if not speaker_aliases:
+                legacy_alias = str(item.get("speaker_label", "") or "").strip()
+                if legacy_alias:
+                    speaker_aliases = [legacy_alias]
+            for name in attorney_names:
+                if name not in merged_entry["attorney_names"]:
+                    merged_entry["attorney_names"].append(name)
+            for alias in speaker_aliases:
+                if alias not in merged_entry["speaker_aliases"]:
+                    merged_entry["speaker_aliases"].append(alias)
+            confidence = _normalize_confidence(item.get("confidence"))
+            if confidence_rank[confidence] > confidence_rank[merged_entry["confidence"]]:
+                merged_entry["confidence"] = confidence
+        result["roles"] = [
+            merged_roles[role]
+            for role in COUNSEL_ROLE_ORDER
+            if role in merged_roles
+            and (
+                merged_roles[role]["attorney_names"]
+                or merged_roles[role]["speaker_aliases"]
+            )
+        ]
 
-    unknown_value = payload.get("unknown_speakers", [])
+    unknown_value = payload.get("unknown_speaker_labels")
+    if unknown_value is None:
+        unknown_value = payload.get("unknown_speakers", [])
     if isinstance(unknown_value, list):
-        result["unknown_speakers"] = [
+        result["unknown_speaker_labels"] = [
             str(item).strip() for item in unknown_value if str(item).strip()
         ]
 
@@ -1589,8 +1778,100 @@ def _normalize_attorney_json_payload(payload: Any) -> dict[str, Any]:
     return result
 
 
-def _render_attorney_info_json(attorney_info: dict[str, Any]) -> str:
-    normalized = _normalize_attorney_json_payload(attorney_info)
+def _merge_counsel_role_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    merged_roles: dict[str, dict[str, Any]] = {}
+    name_roles: dict[str, set[str]] = {}
+    alias_roles: dict[str, set[str]] = {}
+    name_forms: dict[str, set[str]] = {}
+    alias_forms: dict[str, set[str]] = {}
+    unknown_labels: set[str] = set()
+    notes: list[str] = []
+    confidence_rank = {"low": 0, "medium": 1, "high": 2}
+
+    for payload in payloads:
+        normalized = _normalize_counsel_role_json_payload(payload)
+        for label in normalized["unknown_speaker_labels"]:
+            unknown_labels.add(label)
+        note = str(normalized.get("notes", "") or "").strip()
+        if note and note not in notes:
+            notes.append(note)
+        for role_item in normalized["roles"]:
+            role = str(role_item.get("role", "")).strip()
+            if not role:
+                continue
+            merged_entry = merged_roles.setdefault(
+                role,
+                {
+                    "role": role,
+                    "attorney_names": [],
+                    "speaker_aliases": [],
+                    "confidence": "low",
+                },
+            )
+            for name in role_item.get("attorney_names", []):
+                cleaned_name = str(name).strip()
+                if not cleaned_name:
+                    continue
+                name_key = cleaned_name.casefold()
+                name_roles.setdefault(name_key, set()).add(role)
+                name_forms.setdefault(name_key, set()).add(cleaned_name)
+                if cleaned_name not in merged_entry["attorney_names"]:
+                    merged_entry["attorney_names"].append(cleaned_name)
+            for alias in role_item.get("speaker_aliases", []):
+                cleaned_alias = str(alias).strip()
+                if not cleaned_alias:
+                    continue
+                alias_key = cleaned_alias.casefold()
+                alias_roles.setdefault(alias_key, set()).add(role)
+                alias_forms.setdefault(alias_key, set()).add(cleaned_alias)
+                if cleaned_alias not in merged_entry["speaker_aliases"]:
+                    merged_entry["speaker_aliases"].append(cleaned_alias)
+            confidence = _normalize_confidence(role_item.get("confidence"))
+            if confidence_rank[confidence] > confidence_rank[merged_entry["confidence"]]:
+                merged_entry["confidence"] = confidence
+
+    for name_key, roles in name_roles.items():
+        if len(roles) <= 1:
+            continue
+        for role in roles:
+            merged_entry = merged_roles.get(role)
+            if merged_entry:
+                merged_entry["attorney_names"] = [
+                    item for item in merged_entry["attorney_names"] if item.casefold() != name_key
+                ]
+        unknown_labels.update(name_forms.get(name_key, set()))
+
+    for alias_key, roles in alias_roles.items():
+        if len(roles) <= 1:
+            continue
+        for role in roles:
+            merged_entry = merged_roles.get(role)
+            if merged_entry:
+                merged_entry["speaker_aliases"] = [
+                    item
+                    for item in merged_entry["speaker_aliases"]
+                    if item.casefold() != alias_key
+                ]
+        unknown_labels.update(alias_forms.get(alias_key, set()))
+
+    result = {
+        "roles": [
+            merged_roles[role]
+            for role in COUNSEL_ROLE_ORDER
+            if role in merged_roles
+            and (
+                merged_roles[role]["attorney_names"]
+                or merged_roles[role]["speaker_aliases"]
+            )
+        ],
+        "unknown_speaker_labels": sorted(unknown_labels, key=str.casefold),
+        "notes": " ".join(notes).strip(),
+    }
+    return _normalize_counsel_role_json_payload(result)
+
+
+def _render_counsel_role_json(counsel_roles: dict[str, Any]) -> str:
+    normalized = _normalize_counsel_role_json_payload(counsel_roles)
     return json.dumps(normalized, indent=2, ensure_ascii=True)
 
 
@@ -1599,8 +1880,6 @@ def _write_chunked_section_files(
     sections: list[RetrievalSection],
     label_key: str,
     chunk_size: int,
-    include_attorney_excerpt: bool = False,
-    attorney_info_by_label: dict[str, dict[str, Any]] | None = None,
 ) -> list[ChunkedSectionFiles]:
     written_sections: list[ChunkedSectionFiles] = []
     for section_index, section in enumerate(sections, start=1):
@@ -1613,27 +1892,6 @@ def _write_chunked_section_files(
         )
         section_dir.mkdir(parents=True, exist_ok=True)
         (section_dir / "label.txt").write_text(label + "\n", encoding="utf-8")
-
-        attorney_excerpt_path: Path | None = None
-        attorney_info_path: Path | None = None
-        if include_attorney_excerpt:
-            attorney_excerpt = _build_attorney_excerpt(content)
-            attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
-            attorney_excerpt_path.write_text(attorney_excerpt, encoding="utf-8")
-            attorney_info: dict[str, Any] = {
-                "attorneys": [],
-                "unknown_speakers": [],
-                "notes": "",
-            }
-            if attorney_info_by_label:
-                loaded_info = attorney_info_by_label.get(label)
-                if isinstance(loaded_info, dict):
-                    attorney_info = _normalize_attorney_json_payload(loaded_info)
-            attorney_info_path = section_dir / "attorney_info.json"
-            attorney_info_path.write_text(
-                _render_attorney_info_json(attorney_info),
-                encoding="utf-8",
-            )
 
         chunk_paths: list[Path] = []
         for chunk_index, chunk in enumerate(_chunk_text_for_artifacts(content, chunk_size), start=1):
@@ -1648,8 +1906,6 @@ def _write_chunked_section_files(
                 directory=section_dir,
                 chunk_paths=chunk_paths,
                 metadata=dict(section.metadata),
-                attorney_excerpt_path=attorney_excerpt_path,
-                attorney_info_path=attorney_info_path,
             )
         )
     return written_sections
@@ -1660,13 +1916,22 @@ def _create_preoptimized_chunks(
     hearing_sections: list[RetrievalSection],
     report_sections: list[RetrievalSection],
     chunk_size: int,
-    attorney_info_by_label: dict[str, dict[str, Any]] | None = None,
+    counsel_role_evidence: str,
+    counsel_roles: dict[str, Any],
 ) -> tuple[list[ChunkedSectionFiles], list[ChunkedSectionFiles]]:
     artifacts_dir = root_dir / "artifacts"
     preoptimized_dir = artifacts_dir / "preoptimized"
     hearings_dir = preoptimized_dir / "hearings"
     reports_dir = preoptimized_dir / "reports"
     _prepare_directory(preoptimized_dir)
+    (preoptimized_dir / "counsel_role_evidence.txt").write_text(
+        counsel_role_evidence.strip(),
+        encoding="utf-8",
+    )
+    (preoptimized_dir / "counsel_roles.json").write_text(
+        _render_counsel_role_json(counsel_roles),
+        encoding="utf-8",
+    )
     hearings_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
     hearing_files = _write_chunked_section_files(
@@ -1674,8 +1939,6 @@ def _create_preoptimized_chunks(
         hearing_sections,
         "hearing_date",
         chunk_size,
-        include_attorney_excerpt=True,
-        attorney_info_by_label=attorney_info_by_label,
     )
     report_files = _write_chunked_section_files(
         reports_dir,
@@ -1701,7 +1964,6 @@ def _load_chunked_section_files(
     base_dir: Path,
     section_type: str,
     label_key: str,
-    include_attorney_excerpt: bool = False,
 ) -> list[ChunkedSectionFiles]:
     loaded_sections: list[ChunkedSectionFiles] = []
     if not base_dir.exists():
@@ -1713,9 +1975,6 @@ def _load_chunked_section_files(
         else:
             label = section_dir.name
         chunk_paths = sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key)
-        attorney_excerpt_path = section_dir / "attorney_excerpt.txt"
-        attorney_info_path = section_dir / "attorney_info.json"
-        legacy_attorney_info_path = section_dir / "attorney_info.txt"
         loaded_sections.append(
             ChunkedSectionFiles(
                 section_type=section_type,
@@ -1723,20 +1982,6 @@ def _load_chunked_section_files(
                 directory=section_dir,
                 chunk_paths=chunk_paths,
                 metadata={"type": section_type, label_key: label},
-                attorney_excerpt_path=(
-                    attorney_excerpt_path
-                    if include_attorney_excerpt and attorney_excerpt_path.exists()
-                    else None
-                ),
-                attorney_info_path=(
-                    attorney_info_path
-                    if include_attorney_excerpt and attorney_info_path.exists()
-                    else (
-                        legacy_attorney_info_path
-                        if include_attorney_excerpt and legacy_attorney_info_path.exists()
-                        else None
-                    )
-                ),
             )
         )
     return loaded_sections
@@ -3719,28 +3964,28 @@ class SettingsWindow(Adw.ApplicationWindow):
         credentials_group.add(disable_reasoning_row)
 
         attorney_credentials_group = Adw.PreferencesGroup(
-            title="Attorney Extraction Credentials",
+            title="Counsel Role Extraction Credentials",
             description="Leave blank to reuse the main Optimize credentials.",
         )
         attorney_credentials_group.add_css_class("list-stack")
         attorney_credentials_group.set_hexpand(True)
         page_box.append(attorney_credentials_group)
 
-        attorney_api_url_row = Adw.EntryRow(title="Attorney API URL")
+        attorney_api_url_row = Adw.EntryRow(title="Counsel Role API URL")
         attorney_api_url_row.set_text(settings.get("attorney_api_url", ""))
         attorney_credentials_group.add(attorney_api_url_row)
 
-        attorney_model_row = Adw.EntryRow(title="Attorney Model ID")
+        attorney_model_row = Adw.EntryRow(title="Counsel Role Model ID")
         attorney_model_row.set_text(settings.get("attorney_model_id", ""))
         attorney_credentials_group.add(attorney_model_row)
 
-        attorney_api_key_row = self._build_password_row("Attorney API Key")
+        attorney_api_key_row = self._build_password_row("Counsel Role API Key")
         attorney_api_key_row.set_text(settings.get("attorney_api_key", ""))
         attorney_credentials_group.add(attorney_api_key_row)
 
         attorney_disable_reasoning_row = Adw.SwitchRow(
-            title="Disable attorney reasoning",
-            subtitle="Used only for attorney extraction requests.",
+            title="Disable counsel role reasoning",
+            subtitle="Used only for counsel role extraction requests.",
         )
         attorney_disable_reasoning_row.set_active(
             bool(
@@ -3762,7 +4007,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        attorneys_label = Gtk.Label(label="Attorney Extraction Prompt", xalign=0)
+        attorneys_label = Gtk.Label(label="Counsel Role Extraction Prompt", xalign=0)
         attorneys_label.add_css_class("dim-label")
         prompt_section.append(attorneys_label)
         attorneys_scroller, attorneys_buffer = self._build_prompt_editor(
@@ -4455,7 +4700,7 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
         content.append(settings_group)
 
         options = [
-            ("Optimize (Attorneys prompt)", "optimize_attorneys"),
+            ("Optimize (Counsel roles prompt)", "optimize_attorneys"),
             ("Optimize (Hearings prompt)", "optimize_hearings"),
             ("Optimize (Reports prompt)", "optimize_reports"),
             ("Summarize (Hearings prompt)", "summarize_hearings"),
@@ -4601,10 +4846,10 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
 
     def _mode_details(self, mode_id: str) -> str:
         if mode_id == "optimize_attorneys":
-            return "Uses the saved attorney extraction prompt and attorney credentials. Paste hearing transcript text."
+            return "Uses the saved counsel role extraction prompt and counsel role credentials. Paste hearing transcript text."
         if mode_id == "optimize_hearings":
             return (
-                "Uses the saved hearing optimize prompt plus the saved attorney extraction step. "
+                "Uses the saved hearing optimize prompt plus the saved counsel role map built from the pasted transcript. "
                 "If the first line starts with 'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
             )
         if mode_id == "optimize_reports":
@@ -5476,9 +5721,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not transcript:
             return ""
         optimize_settings = load_optimize_settings()
-        _attorney_excerpt, attorney_info = self._extract_attorney_info(
+        counsel_roles = self._extract_counsel_roles(
             optimize_settings,
-            transcript,
+            _build_transcript_counsel_role_evidence(transcript),
         )
         hearing_metadata = {
             "type": "hearing",
@@ -5488,7 +5733,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         section_paragraphs: list[str] = []
         self._raise_if_stop_requested()
         payload = _build_optimize_hearing_payload(
-            _render_attorney_info_json(attorney_info),
+            _render_counsel_role_json(counsel_roles),
             transcript,
         )
         response = self._request_plain_text(settings, payload)
@@ -5558,11 +5803,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 output = ""
                 if mode_id == "optimize_attorneys":
                     optimize_settings = load_optimize_settings()
-                    _attorney_excerpt, attorney_info = self._extract_attorney_info(
+                    counsel_roles = self._extract_counsel_roles(
                         optimize_settings,
-                        raw_text,
+                        _build_transcript_counsel_role_evidence(raw_text),
                     )
-                    output = _render_attorney_info_json(attorney_info)
+                    output = _render_counsel_role_json(counsel_roles)
                 elif mode_id == "optimize_hearings":
                     date_value, transcript = self._parse_optimize_hearing_test_input(raw_text)
                     if not transcript:
@@ -8454,37 +8699,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
             report_sections = _build_report_sections(report_entries, text_dir)
-            attorney_info_by_label: dict[str, dict[str, Any]] = {}
-            total_hearing_sections = len(hearing_sections)
-            if hearing_sections:
-                for section_index, section in enumerate(hearing_sections, start=1):
-                    self._raise_if_stop_requested()
-                    content = _strip_ascii_and_html_tables(str(section.content or ""))
-                    if not content.strip():
-                        continue
-                    hearing_date = (
-                        str(section.metadata.get("hearing_date", "")).strip()
-                        or f"Hearing {section_index}"
-                    )
-                    GLib.idle_add(
-                        self._append_log_message,
-                        (
-                            f"Create pre-optimized: hearing section {section_index}/{total_hearing_sections} "
-                            f"({hearing_date}), extracting attorney info."
-                        ),
-                        "INFO",
-                    )
-                    _attorney_excerpt, attorney_info = self._extract_attorney_info(
-                        optimize_settings,
-                        content,
-                    )
-                    attorney_info_by_label[hearing_date] = attorney_info
+            GLib.idle_add(
+                self._append_log_message,
+                (
+                    "Create pre-optimized: extracting counsel roles from the first two "
+                    "pages of each hearing."
+                ),
+                "INFO",
+            )
+            counsel_role_evidence = _build_case_counsel_role_evidence(
+                hearing_entries,
+                text_dir,
+            )
+            counsel_roles = self._extract_counsel_roles(
+                optimize_settings,
+                counsel_role_evidence,
+            )
             _create_preoptimized_chunks(
                 root_dir,
                 hearing_sections,
                 report_sections,
                 chunk_size,
-                attorney_info_by_label=attorney_info_by_label,
+                counsel_role_evidence=counsel_role_evidence,
+                counsel_roles=counsel_roles,
             )
         except StopRequested:
             success = None
@@ -8526,17 +8763,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         response = self._request_plain_text(request_settings, chunk)
         return _normalize_optimized_text(response) if response else ""
 
-    def _extract_attorney_info(
+    def _extract_counsel_roles(
         self,
         optimize_settings: dict[str, Any],
-        transcript: str,
-    ) -> tuple[str, dict[str, Any]]:
-        cleaned_transcript = transcript.strip()
-        if not cleaned_transcript:
-            return "", {"attorneys": [], "unknown_speakers": [], "notes": ""}
-        attorney_excerpt = _build_attorney_excerpt(cleaned_transcript)
-        if not attorney_excerpt.strip():
-            return "", {"attorneys": [], "unknown_speakers": [], "notes": ""}
+        evidence_text: str,
+    ) -> dict[str, Any]:
+        cleaned_evidence = evidence_text.strip()
+        empty_roles = {"roles": [], "unknown_speaker_labels": [], "notes": ""}
+        if not cleaned_evidence:
+            return empty_roles
         attorney_settings = _build_attorney_request_settings(optimize_settings)
         if (
             not attorney_settings["api_url"]
@@ -8544,14 +8779,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             or not attorney_settings["api_key"]
         ):
             raise ValueError(
-                "Configure attorney extraction API URL, model ID, and API key in Settings."
+                "Configure counsel role extraction API URL, model ID, and API key in Settings."
             )
-        attorney_response = self._request_plain_text(attorney_settings, attorney_excerpt)
-        try:
-            attorney_payload = json.loads(self._extract_json_payload(attorney_response))
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Attorney extraction returned invalid JSON: {exc}") from exc
-        return attorney_excerpt, _normalize_attorney_json_payload(attorney_payload)
+        payloads: list[dict[str, Any]] = []
+        for chunk in _chunk_text_for_artifacts(
+            cleaned_evidence,
+            COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE,
+        ):
+            attorney_response = self._request_plain_text(attorney_settings, chunk)
+            try:
+                attorney_payload = json.loads(self._extract_json_payload(attorney_response))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Counsel role extraction returned invalid JSON: {exc}"
+                ) from exc
+            payloads.append(attorney_payload)
+        return _merge_counsel_role_payloads(payloads) if payloads else empty_roles
 
     def _run_step_nine(self) -> bool:
         success: bool | str | None = False
@@ -8575,11 +8818,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Configure optimize API URL, model ID, and API key in Settings.")
             hearings_prompt = settings["hearings_prompt"]
             reports_prompt = settings["reports_prompt"]
+            counsel_roles_path = preoptimized_dir / "counsel_roles.json"
+            if not counsel_roles_path.exists():
+                raise FileNotFoundError(
+                    "Run Create pre-optimized to generate counsel_roles.json first."
+                )
+            raw_counsel_roles = counsel_roles_path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            )
+            try:
+                counsel_roles_payload = _normalize_counsel_role_json_payload(
+                    json.loads(raw_counsel_roles)
+                )
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid counsel_roles.json: {exc}"
+                ) from exc
             hearing_files = _load_chunked_section_files(
                 preoptimized_hearings_dir,
                 "hearing",
                 "hearing_date",
-                include_attorney_excerpt=True,
             )
             report_files = _load_chunked_section_files(
                 preoptimized_reports_dir,
@@ -8618,30 +8877,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     self._append_log_message,
                     (
                         f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
-                        f"({hearing_date}), loading attorney info."
+                        f"({hearing_date}), loading counsel roles."
                     ),
                     "INFO",
                 )
-                attorney_info_payload: dict[str, Any] = {
-                    "attorneys": [],
-                    "unknown_speakers": [],
-                    "notes": "",
-                }
-                if section.attorney_info_path and section.attorney_info_path.exists():
-                    raw_attorney_info = section.attorney_info_path.read_text(
-                        encoding="utf-8",
-                        errors="ignore",
-                    )
-                    try:
-                        attorney_info_payload = _normalize_attorney_json_payload(
-                            json.loads(raw_attorney_info)
-                        )
-                    except json.JSONDecodeError:
-                        attorney_info_payload = {
-                            "attorneys": [],
-                            "unknown_speakers": [],
-                            "notes": raw_attorney_info.strip(),
-                        }
                 section_paragraphs: list[str] = []
                 output_section_dir = optimized_hearings_dir / section.directory.name
                 output_section_dir.mkdir(parents=True, exist_ok=True)
@@ -8659,7 +8898,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "INFO",
                     )
                     payload = _build_optimize_hearing_payload(
-                        _render_attorney_info_json(attorney_info_payload),
+                        _render_counsel_role_json(counsel_roles_payload),
                         chunk,
                     )
                     response = self._request_plain_text(

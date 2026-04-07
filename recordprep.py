@@ -5240,6 +5240,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.run_all_button.connect("clicked", self.on_run_all_clicked)
         action_box.append(self.run_all_button)
 
+        self.resume_button = Gtk.Button(label="Resume")
+        self.resume_button.set_halign(Gtk.Align.START)
+        self.resume_button.connect("clicked", self.on_resume_clicked)
+        action_box.append(self.resume_button)
+
         self.stop_button = Gtk.Button(label="Stop")
         self.stop_button.set_halign(Gtk.Align.START)
         self.stop_button.set_sensitive(False)
@@ -6227,124 +6232,187 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if root_dir is None:
             return
 
+        def _set_done(row: Adw.ActionRow, done: bool) -> None:
+            self._set_step_status(row, "Done" if done else "Pending")
+
+        for step_id, row, _handler in self._pipeline_steps():
+            _set_done(row, self._step_artifact_complete(step_id, root_dir))
+
+    def _expected_classification_file_names(
+        self,
+        root_dir: Path,
+    ) -> tuple[set[str], set[str], bool, bool]:
+        text_dir = root_dir / "text_pages"
+        text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)
+        if not text_files:
+            return set(), set(), False, False
+        try:
+            split_page, _total_pages, need_rt, need_ct, split_mode = _resolve_rt_ct_split(
+                root_dir,
+                text_dir,
+            )
+        except Exception:
+            return set(), set(), False, False
+        rt_expected: set[str] = set()
+        ct_expected: set[str] = set()
+        for index, text_path in enumerate(text_files, start=1):
+            if split_mode == "rt_only":
+                is_rt = True
+            elif split_mode == "ct_only":
+                is_rt = False
+            else:
+                is_rt = index <= split_page
+            if is_rt and need_rt:
+                rt_expected.add(text_path.name)
+            elif not is_rt and need_ct:
+                ct_expected.add(text_path.name)
+        return rt_expected, ct_expected, need_rt, need_ct
+
+    def _jsonl_complete_for_expected(
+        self,
+        path: Path,
+        expected_names: set[str],
+        needed: bool,
+    ) -> bool:
+        if not needed:
+            return True
+        if not expected_names or not path.exists():
+            return False
+        return expected_names <= _load_jsonl_file_names(path)
+
+    def _classification_output_complete(
+        self,
+        root_dir: Path,
+        rt_path: Path,
+        ct_path: Path,
+        rt_expected: set[str] | None = None,
+        ct_expected: set[str] | None = None,
+    ) -> bool:
+        _rt_base, _ct_base, need_rt, need_ct = self._expected_classification_file_names(
+            root_dir
+        )
+        if not need_rt and not need_ct:
+            return False
+        if rt_expected is None:
+            rt_expected = _rt_base
+        if ct_expected is None:
+            ct_expected = _ct_base
+        return self._jsonl_complete_for_expected(
+            rt_path,
+            rt_expected,
+            need_rt,
+        ) and self._jsonl_complete_for_expected(ct_path, ct_expected, need_ct)
+
+    def _step_artifact_complete(self, step_id: str, root_dir: Path) -> bool:
         def _dir_has_files(path: Path, pattern: str) -> bool:
             try:
                 return path.exists() and any(path.glob(pattern))
             except OSError:
                 return False
 
-        def _set_done(row: Adw.ActionRow, done: bool) -> None:
-            self._set_step_status(row, "Done" if done else "Pending")
-
         text_dir = root_dir / "text_pages"
         image_dir = root_dir / "image_pages"
         classification_dir = root_dir / "classification"
         artifacts_dir = root_dir / "artifacts"
         rag_dir = root_dir / "rag"
-
-        _set_done(
-            self.step_one_row,
-            _dir_has_files(text_dir, "*.txt") and _dir_has_files(image_dir, "*.png"),
-        )
-        _set_done(self.step_strip_nonstandard_row, _dir_has_files(text_dir, "*.txt"))
-        _set_done(self.step_infer_case_row, (root_dir / "case_name.txt").exists())
-        split_page = _read_rt_ct_split_page(root_dir)
-        split_mode = _read_rt_ct_split_mode(root_dir)
-        total_pages = _count_text_pages(text_dir)
-        if split_mode == "rt_only":
-            need_rt = True
-            need_ct = False
-        elif split_mode == "ct_only":
-            need_rt = False
-            need_ct = True
-        else:
-            need_rt = bool(split_page)
-            need_ct = bool(split_page and total_pages and split_page < total_pages)
-
-        def _rt_ct_ready(rt_path: Path, ct_path: Path) -> bool:
-            if need_rt and not rt_path.exists():
-                return False
-            if need_ct and not ct_path.exists():
-                return False
-            return need_rt or need_ct
-
-        _set_done(
-            self.step_two_row,
-            _rt_ct_ready(classification_dir / "RT_basic.jsonl", classification_dir / "CT_basic.jsonl"),
-        )
-        _set_done(
-            self.step_advanced_row,
-            _rt_ct_ready(
-                classification_dir / "RT_basic_advanced.jsonl",
-                classification_dir / "CT_basic_advanced.jsonl",
-            ),
-        )
-        _set_done(
-            self.step_correct_advanced_row,
-            _rt_ct_ready(
-                classification_dir / "RT_basic_advanced_corrected.jsonl",
-                classification_dir / "CT_basic_advanced_corrected.jsonl",
-            ),
-        )
-        _set_done(
-            self.step_dates_row,
-            _rt_ct_ready(
-                classification_dir / "RT_basic_advanced_corrected_dates.jsonl",
-                classification_dir / "CT_basic_advanced_corrected_dates.jsonl",
-            ),
-        )
-        _set_done(
-            self.step_names_row,
-            _rt_ct_ready(
-                classification_dir / "RT_basic_advanced_corrected_dates_names.jsonl",
-                classification_dir / "CT_basic_advanced_corrected_dates_names.jsonl",
-            ),
-        )
-        _set_done(self.step_six_row, (artifacts_dir / "toc.txt").exists())
-        _set_done(self.step_correct_toc_row, (artifacts_dir / "toc.txt").exists())
-        _set_done(
-            self.step_seven_row,
-            (artifacts_dir / "hearing_boundaries.json").exists()
-            and (artifacts_dir / "report_boundaries.json").exists()
-            and (artifacts_dir / "minutes_boundaries.json").exists(),
-        )
-        _set_done(
-            self.step_correct_boundaries_row,
-            (artifacts_dir / "hearing_boundaries.json").exists()
-            and (artifacts_dir / "report_boundaries.json").exists(),
-        )
-        _set_done(
-            self.step_eight_row,
-            (artifacts_dir / "raw_hearings.txt").exists()
-            and (artifacts_dir / "raw_reports.txt").exists(),
-        )
-        _set_done(
-            self.step_preoptimized_row,
-            (artifacts_dir / "preoptimized" / "hearings").exists()
-            and (artifacts_dir / "preoptimized" / "reports").exists(),
-        )
-        _set_done(
-            self.step_nine_row,
-            (artifacts_dir / "optimized_hearings.txt").exists()
-            and (artifacts_dir / "optimized_reports.txt").exists(),
-        )
         summaries_path, reports_path = _summary_output_paths(root_dir)
         minutes_path = _minutes_summary_output_path(root_dir)
-        _set_done(
-            self.step_ten_row,
-            summaries_path.exists() and reports_path.exists() and minutes_path.exists(),
-        )
-        _set_done(
-            self.step_add_hearing_date_links_row,
-            _has_page_markdown_links(summaries_path),
-        )
-        _set_done(self.step_eleven_row, (rag_dir / "case_overview.txt").exists())
-        _set_done(
-            self.step_twelve_row,
-            rag_dir.exists()
-            and (rag_dir / "vector_database").exists()
-            and _dir_has_files(rag_dir / "vector_database", "*"),
-        )
+
+        if step_id == "create_files":
+            return _dir_has_files(text_dir, "*.txt") and _dir_has_files(image_dir, "*.png")
+        if step_id == "strip_characters":
+            return _dir_has_files(text_dir, "*.txt")
+        if step_id == "infer_case":
+            return (root_dir / "case_name.txt").exists()
+        if step_id == "classify_basic":
+            return self._classification_output_complete(
+                root_dir,
+                classification_dir / "RT_basic.jsonl",
+                classification_dir / "CT_basic.jsonl",
+            )
+        if step_id == "classify_advanced":
+            return self._classification_output_complete(
+                root_dir,
+                classification_dir / "RT_basic_advanced.jsonl",
+                classification_dir / "CT_basic_advanced.jsonl",
+                _load_jsonl_file_names(classification_dir / "RT_basic.jsonl"),
+                _load_jsonl_file_names(classification_dir / "CT_basic.jsonl"),
+            )
+        if step_id == "correct_classify_advanced":
+            return self._classification_output_complete(
+                root_dir,
+                classification_dir / "RT_basic_advanced_corrected.jsonl",
+                classification_dir / "CT_basic_advanced_corrected.jsonl",
+                _load_jsonl_file_names(classification_dir / "RT_basic_advanced.jsonl"),
+                _load_jsonl_file_names(classification_dir / "CT_basic_advanced.jsonl"),
+            )
+        if step_id == "classify_dates":
+            return self._classification_output_complete(
+                root_dir,
+                classification_dir / "RT_basic_advanced_corrected_dates.jsonl",
+                classification_dir / "CT_basic_advanced_corrected_dates.jsonl",
+                _load_jsonl_file_names(
+                    classification_dir / "RT_basic_advanced_corrected.jsonl"
+                ),
+                _load_jsonl_file_names(
+                    classification_dir / "CT_basic_advanced_corrected.jsonl"
+                ),
+            )
+        if step_id == "classify_names":
+            return self._classification_output_complete(
+                root_dir,
+                classification_dir / "RT_basic_advanced_corrected_dates_names.jsonl",
+                classification_dir / "CT_basic_advanced_corrected_dates_names.jsonl",
+                _load_jsonl_file_names(
+                    classification_dir / "RT_basic_advanced_corrected_dates.jsonl"
+                ),
+                _load_jsonl_file_names(
+                    classification_dir / "CT_basic_advanced_corrected_dates.jsonl"
+                ),
+            )
+        if step_id == "build_toc":
+            return (artifacts_dir / "toc.txt").exists()
+        if step_id == "correct_toc":
+            return (artifacts_dir / "toc.txt").exists()
+        if step_id == "find_boundaries":
+            return (
+                (artifacts_dir / "hearing_boundaries.json").exists()
+                and (artifacts_dir / "report_boundaries.json").exists()
+                and (artifacts_dir / "minutes_boundaries.json").exists()
+            )
+        if step_id == "correct_boundaries":
+            return (
+                (artifacts_dir / "hearing_boundaries.json").exists()
+                and (artifacts_dir / "report_boundaries.json").exists()
+            )
+        if step_id == "create_raw":
+            return (
+                (artifacts_dir / "raw_hearings.txt").exists()
+                and (artifacts_dir / "raw_reports.txt").exists()
+            )
+        if step_id == "create_preoptimized":
+            return (
+                (artifacts_dir / "preoptimized" / "hearings").exists()
+                and (artifacts_dir / "preoptimized" / "reports").exists()
+            )
+        if step_id == "create_optimized":
+            return (
+                (artifacts_dir / "optimized_hearings.txt").exists()
+                and (artifacts_dir / "optimized_reports.txt").exists()
+            )
+        if step_id == "create_summaries":
+            return summaries_path.exists() and reports_path.exists() and minutes_path.exists()
+        if step_id == "add_hearing_date_links":
+            return _has_page_markdown_links(summaries_path)
+        if step_id == "case_overview":
+            return (rag_dir / "case_overview.txt").exists()
+        if step_id == "create_rag_index":
+            return (
+                rag_dir.exists()
+                and (rag_dir / "vector_database").exists()
+                and _dir_has_files(rag_dir / "vector_database", "*")
+            )
+        return False
 
     def _finish_step(self, row: Adw.ActionRow, success: bool | str | None) -> None:
         if isinstance(success, str):
@@ -6871,6 +6939,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         _case_name, base_dir = load_case_context()
         return base_dir
 
+    def _resume_start_index(self, root_dir: Path, end_step_id: str | None) -> int | None:
+        steps = self._pipeline_steps()
+        end_index = len(steps) - 1
+        if end_step_id:
+            step_ids = [step_id for step_id, _row, _handler in steps]
+            if end_step_id not in step_ids:
+                raise ValueError("Unknown end step.")
+            end_index = step_ids.index(end_step_id)
+        for index, (step_id, _row, _handler) in enumerate(steps[: end_index + 1]):
+            if not self._step_artifact_complete(step_id, root_dir):
+                return index
+        return None
+
     def on_run_all_clicked(self, _button: Gtk.Button) -> None:
         if not self.selected_pdfs:
             self.show_toast("Choose PDF files first.")
@@ -6883,12 +6964,55 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
+        self.resume_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
         threading.Thread(
             target=self._run_all_steps,
             args=(end_step_id,),
+            daemon=True,
+        ).start()
+
+    def on_resume_clicked(self, _button: Gtk.Button) -> None:
+        if self._pipeline_running:
+            self.show_toast("Pipeline already running.")
+            return
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        end_step_id = self._selected_run_until_step()
+        try:
+            start_index = self._resume_start_index(root_dir, end_step_id)
+        except ValueError as exc:
+            self.show_toast(str(exc))
+            return
+        if start_index is None:
+            label = self._run_until_label(end_step_id)
+            self.show_toast(f"Already complete through {label}.")
+            return
+        steps = self._pipeline_steps()
+        start_step_id, start_row, _handler = steps[start_index]
+        if start_step_id == "create_files" and not self.selected_pdfs:
+            self.show_toast("Choose PDF files first to resume Create files.")
+            return
+        label = start_row.get_title() or start_step_id
+        self.show_toast(f"Resuming at {label}.", "INFO")
+        self._stop_event.clear()
+        self._run_completion_message = None
+        self._pipeline_running = True
+        self.run_all_button.set_sensitive(False)
+        self.resume_button.set_sensitive(False)
+        self.stop_button.set_sensitive(True)
+        if self._run_until_dropdown:
+            self._run_until_dropdown.set_sensitive(False)
+        threading.Thread(
+            target=self._run_steps_from_index,
+            args=(start_index, root_dir, end_step_id),
             daemon=True,
         ).start()
 
@@ -6919,6 +7043,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
+        self.resume_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
@@ -6941,6 +7066,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_completion_message = None
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
+        self.resume_button.set_sensitive(False)
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
@@ -6976,6 +7102,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _finish_single_step(self) -> None:
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
+        self.resume_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(True)
@@ -7422,6 +7549,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._stop_event.clear()
         self._pipeline_running = False
         self.run_all_button.set_sensitive(True)
+        self.resume_button.set_sensitive(True)
         self.stop_button.set_sensitive(False)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(True)

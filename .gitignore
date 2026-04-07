@@ -9,6 +9,7 @@ config.json
 prompts/
 
 # Local assets and reference scripts
+.codex
 CreateMinOutlineFromTOC.sh
 example_python_GTK4_app/
 example_rag_scripts/

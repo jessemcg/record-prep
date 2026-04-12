@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import sys
 import datetime
 import os
@@ -16,6 +17,7 @@ import threading
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +49,8 @@ LLM_RETRY_BASE_SECONDS = 1.0
 LLM_RETRY_MAX_SECONDS = 30.0
 LLM_RETRYABLE_HTTP_CODES = {408, 409, 429, 500, 502, 503, 504}
 LOCAL_OCR_SERVER_STARTUP_SECONDS = 1.0
+DEFAULT_LOCAL_OCR_WORKERS = 4
+DEFAULT_LOCAL_OCR_SLOTS = 4
 LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
 LOCAL_SERVER_READY_TIMEOUT_SECONDS = 120.0
 LOCAL_SERVER_READY_POLL_SECONDS = 1.0
@@ -63,6 +67,7 @@ cd $HOME/llama.cpp/build/bin
 ./llama-server \
 -m $HOME/llama.cpp/models/LightOnOCR-2-1B-Q8_0.gguf \
 --mmproj $HOME/llama.cpp/models/mmproj-LightOnOCR-2-1B-Q8_0.gguf \
+--parallel {slots} --kv-unified \
 -ngl 999 --port 8000 --flash-attn on
 """
 
@@ -105,6 +110,8 @@ CONFIG_KEY_TEXT_SOURCE = "text_source"
 CONFIG_KEY_LOCAL_OCR_SERVER_URL = "local_ocr_server_url"
 CONFIG_KEY_LOCAL_OCR_MODEL_ID = "local_ocr_model_id"
 CONFIG_KEY_LOCAL_OCR_START_COMMAND = "local_ocr_start_command"
+CONFIG_KEY_LOCAL_OCR_WORKERS = "local_ocr_workers"
+CONFIG_KEY_LOCAL_OCR_SLOTS = "local_ocr_slots"
 CONFIG_KEY_ADVANCED_CLASSIFY_API_URL = "advanced_classify_api_url"
 CONFIG_KEY_ADVANCED_CLASSIFY_MODEL_ID = "advanced_classify_model_id"
 CONFIG_KEY_ADVANCED_CLASSIFY_API_KEY = "advanced_classify_api_key"
@@ -2515,6 +2522,21 @@ def _read_config_bool(config: dict[str, Any], key: str, default: bool) -> bool:
     return default
 
 
+def _read_config_int(
+    config: dict[str, Any],
+    key: str,
+    default: int,
+    *,
+    minimum: int = 1,
+) -> int:
+    value = config.get(key, default)
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, parsed)
+
+
 def load_run_until_step_setting() -> str | None:
     config = _read_config()
     value = config.get(CONFIG_KEY_RUN_UNTIL_STEP)
@@ -2821,7 +2843,7 @@ def save_text_source_setting(value: str) -> None:
     config[CONFIG_KEY_TEXT_SOURCE] = value
     _write_config(config)
 
-def load_local_ocr_settings() -> dict[str, str]:
+def load_local_ocr_settings() -> dict[str, Any]:
     config = _read_config()
     server_url = str(
         config.get(CONFIG_KEY_LOCAL_OCR_SERVER_URL, DEFAULT_SERVER_URL) or ""
@@ -2830,18 +2852,46 @@ def load_local_ocr_settings() -> dict[str, str]:
     start_command = str(
         config.get(CONFIG_KEY_LOCAL_OCR_START_COMMAND, START_SERVER_COMMAND) or ""
     ).strip()
+    workers = _read_config_int(
+        config,
+        CONFIG_KEY_LOCAL_OCR_WORKERS,
+        DEFAULT_LOCAL_OCR_WORKERS,
+    )
+    slots = _read_config_int(
+        config,
+        CONFIG_KEY_LOCAL_OCR_SLOTS,
+        DEFAULT_LOCAL_OCR_SLOTS,
+    )
     return {
         "server_url": server_url or DEFAULT_SERVER_URL,
         "model_id": model_id or MODEL_ID,
         "start_command": start_command or START_SERVER_COMMAND,
+        "workers": workers,
+        "slots": slots,
     }
 
 
-def save_local_ocr_settings(server_url: str, model_id: str, start_command: str) -> None:
+def save_local_ocr_settings(
+    server_url: str,
+    model_id: str,
+    start_command: str,
+    workers: str | int,
+    slots: str | int,
+) -> None:
     config = _read_config()
     config[CONFIG_KEY_LOCAL_OCR_SERVER_URL] = server_url or DEFAULT_SERVER_URL
     config[CONFIG_KEY_LOCAL_OCR_MODEL_ID] = model_id or MODEL_ID
     config[CONFIG_KEY_LOCAL_OCR_START_COMMAND] = start_command or START_SERVER_COMMAND
+    config[CONFIG_KEY_LOCAL_OCR_WORKERS] = _read_config_int(
+        {CONFIG_KEY_LOCAL_OCR_WORKERS: workers},
+        CONFIG_KEY_LOCAL_OCR_WORKERS,
+        DEFAULT_LOCAL_OCR_WORKERS,
+    )
+    config[CONFIG_KEY_LOCAL_OCR_SLOTS] = _read_config_int(
+        {CONFIG_KEY_LOCAL_OCR_SLOTS: slots},
+        CONFIG_KEY_LOCAL_OCR_SLOTS,
+        DEFAULT_LOCAL_OCR_SLOTS,
+    )
     _write_config(config)
 
 def _generate_text_files(pdf_path: Path, text_dir: Path) -> None:
@@ -2922,6 +2972,98 @@ def _strip_markdown(content: str) -> str:
     return content
 
 
+def _format_elapsed(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    minutes, remaining_seconds = divmod(seconds, 60)
+    hours, remaining_minutes = divmod(int(minutes), 60)
+    if hours:
+        return f"{hours}h {remaining_minutes}m {remaining_seconds:.1f}s"
+    if remaining_minutes:
+        return f"{remaining_minutes}m {remaining_seconds:.1f}s"
+    return f"{remaining_seconds:.1f}s"
+
+
+def _resolve_local_ocr_start_command(start_command: str, slots: int) -> str:
+    slots = max(1, int(slots))
+    command = (start_command or START_SERVER_COMMAND).strip()
+    if "{slots}" in command:
+        return command.replace("{slots}", str(slots))
+
+    parallel_pattern = re.compile(r"(?P<prefix>--parallel(?:=|\s+))\d+")
+    if parallel_pattern.search(command):
+        return parallel_pattern.sub(rf"\g<prefix>{slots}", command, count=1)
+
+    np_pattern = re.compile(r"(?P<prefix>-np(?:=|\s+))\d+")
+    if np_pattern.search(command):
+        return np_pattern.sub(rf"\g<prefix>{slots}", command, count=1)
+
+    if "llama-server" not in command:
+        return command
+
+    parallel_args = f"--parallel {slots}"
+    if "--kv-unified" not in command:
+        parallel_args = f"{parallel_args} --kv-unified"
+
+    lines = command.splitlines()
+    for index, line in enumerate(lines):
+        if "llama-server" not in line:
+            continue
+        indent = re.match(r"\s*", line).group(0)
+        if line.rstrip().endswith("\\"):
+            lines.insert(index + 1, f"{indent}{parallel_args} \\")
+        else:
+            lines[index] = f"{line} {parallel_args}"
+        return "\n".join(lines)
+    return command
+
+
+def _server_slots_url(server_url: str) -> str:
+    parsed = urllib.parse.urlsplit(server_url)
+    path = parsed.path
+    for suffix in ("/v1/chat/completions", "/chat/completions"):
+        if path.endswith(suffix):
+            path = f"{path[:-len(suffix)]}/slots"
+            break
+    else:
+        path = "/slots"
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _get_server_slot_count(server_url: str) -> int | None:
+    response = requests.get(_server_slots_url(server_url), timeout=5)
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, list):
+        return len(data)
+    if isinstance(data, dict):
+        if isinstance(data.get("total_slots"), int):
+            return data["total_slots"]
+        slots = data.get("slots")
+        if isinstance(slots, list):
+            return len(slots)
+    return None
+
+
+def _print_server_slot_report(server_url: str, expected_slots: int) -> None:
+    try:
+        slot_count = _get_server_slot_count(server_url)
+    except requests.RequestException as exc:
+        print(f"Could not read llama.cpp /slots endpoint: {exc}", file=sys.stderr)
+        return
+
+    if slot_count is None:
+        print("Could not determine llama.cpp slot count from /slots.", file=sys.stderr)
+        return
+
+    print(f"llama.cpp server reports {slot_count} slot(s).")
+    if slot_count < expected_slots:
+        print(
+            f"Warning: local OCR slots is {expected_slots}, but server has only "
+            f"{slot_count} slot(s).",
+            file=sys.stderr,
+        )
+
+
 def _start_server(command: str) -> subprocess.Popen[str]:
     command = command.strip()
     if not command:
@@ -2974,6 +3116,30 @@ def _ocr_image(image_path: Path, server_url: str, model_id: str) -> str:
     return response.json()["choices"][0]["message"]["content"]
 
 
+def _ocr_images(
+    image_paths: list[Path],
+    *,
+    server_url: str,
+    model_id: str,
+    text_dir: Path,
+    workers: int,
+    stop_check: Callable[[], None] | None = None,
+) -> None:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        future_to_image_path = {
+            executor.submit(_ocr_image, image_path, server_url, model_id): image_path
+            for image_path in image_paths
+        }
+        for future in concurrent.futures.as_completed(future_to_image_path):
+            if stop_check:
+                stop_check()
+            image_path = future_to_image_path[future]
+            text = future.result()
+            target = text_dir / f"{image_path.stem}.txt"
+            target.write_text(text, encoding="utf-8")
+            print(f"OCR {image_path.name} -> {target.name}")
+
+
 def _generate_text_files_with_local_ocr(
     pdf_path: Path,
     text_dir: Path,
@@ -2982,11 +3148,24 @@ def _generate_text_files_with_local_ocr(
     server_url: str = DEFAULT_SERVER_URL,
     start_command: str = START_SERVER_COMMAND,
     model_id: str = MODEL_ID,
+    workers: int = DEFAULT_LOCAL_OCR_WORKERS,
+    slots: int = DEFAULT_LOCAL_OCR_SLOTS,
     sleep_seconds: float = LOCAL_OCR_SERVER_STARTUP_SECONDS,
 ) -> None:
+    workers = max(1, int(workers))
+    slots = max(1, int(slots))
+    if workers > slots:
+        print(
+            f"Warning: local OCR workers is {workers}, but slots is {slots}. "
+            "Extra workers will wait for a llama.cpp slot.",
+            file=sys.stderr,
+        )
+
+    job_started_at = time.monotonic()
     server_process: subprocess.Popen[str] | None = None
     try:
-        server_process = _start_server(start_command)
+        resolved_start_command = _resolve_local_ocr_start_command(start_command, slots)
+        server_process = _start_server(resolved_start_command)
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
         _wait_for_endpoint_ready(
@@ -2994,6 +3173,7 @@ def _generate_text_files_with_local_ocr(
             process=server_process,
             stop_check=stop_check,
         )
+        _print_server_slot_report(server_url, slots)
 
         if stop_check:
             stop_check()
@@ -3002,12 +3182,23 @@ def _generate_text_files_with_local_ocr(
         if not image_paths:
             raise RuntimeError("No images generated for OCR.")
 
-        for image_path in image_paths:
-            if stop_check:
-                stop_check()
-            text = _ocr_image(image_path, server_url, model_id)
-            target = text_dir / f"{image_path.stem}.txt"
-            target.write_text(text, encoding="utf-8")
+        ocr_started_at = time.monotonic()
+        _ocr_images(
+            image_paths,
+            server_url=server_url,
+            model_id=model_id,
+            text_dir=text_dir,
+            workers=workers,
+            stop_check=stop_check,
+        )
+        ocr_elapsed = time.monotonic() - ocr_started_at
+        print(f"OCR request phase completed in {_format_elapsed(ocr_elapsed)}.")
+        job_elapsed = time.monotonic() - job_started_at
+        print(
+            "OCR job completed in "
+            f"{_format_elapsed(job_elapsed)} "
+            f"({len(image_paths)} page(s), {workers} worker(s), {slots} slot(s))."
+        )
 
     finally:
         if server_process is not None:
@@ -3042,6 +3233,8 @@ class ClassifyNamesSettingsWidgets:
 class LocalOcrSettingsWidgets:
     server_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
+    workers_row: Adw.EntryRow
+    slots_row: Adw.EntryRow
     start_command_buffer: Gtk.TextBuffer
 
 
@@ -3749,7 +3942,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.append(title_label)
 
         info_label = Gtk.Label(
-            label="Configure the local OCR server and model used for Create files.",
+            label=(
+                "Configure the local OCR server and model used for Create files. "
+                "Use {slots} in the start command to insert the llama.cpp slot count."
+            ),
             xalign=0,
         )
         info_label.add_css_class("dim-label")
@@ -3767,6 +3963,18 @@ class SettingsWindow(Adw.ApplicationWindow):
         model_row = Adw.EntryRow(title="Model ID")
         model_row.set_text(settings.get("model_id", MODEL_ID))
         server_group.add(model_row)
+
+        workers_row = Adw.EntryRow(title="OCR Workers")
+        workers_row.set_text(str(settings.get("workers", DEFAULT_LOCAL_OCR_WORKERS)))
+        if hasattr(workers_row, "set_input_purpose"):
+            workers_row.set_input_purpose(Gtk.InputPurpose.NUMBER)
+        server_group.add(workers_row)
+
+        slots_row = Adw.EntryRow(title="llama.cpp Slots")
+        slots_row.set_text(str(settings.get("slots", DEFAULT_LOCAL_OCR_SLOTS)))
+        if hasattr(slots_row, "set_input_purpose"):
+            slots_row.set_input_purpose(Gtk.InputPurpose.NUMBER)
+        server_group.add(slots_row)
 
         command_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         command_section.set_hexpand(True)
@@ -3791,6 +3999,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._local_ocr_widgets = LocalOcrSettingsWidgets(
             server_url_row=server_url_row,
             model_row=model_row,
+            workers_row=workers_row,
+            slots_row=slots_row,
             start_command_buffer=command_buffer,
         )
         return page
@@ -4630,6 +4840,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 local_ocr_widgets.server_url_row.get_text().strip(),
                 local_ocr_widgets.model_row.get_text().strip(),
                 self._prompt_text(local_ocr_widgets.start_command_buffer).strip(),
+                local_ocr_widgets.workers_row.get_text().strip(),
+                local_ocr_widgets.slots_row.get_text().strip(),
             )
         if optimize_widgets:
             save_optimize_settings(
@@ -7164,6 +7376,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     server_url=ocr_settings["server_url"],
                     start_command=ocr_settings["start_command"],
                     model_id=ocr_settings["model_id"],
+                    workers=ocr_settings["workers"],
+                    slots=ocr_settings["slots"],
                 )
             else:
                 _generate_text_files(pdf_path, text_dir)

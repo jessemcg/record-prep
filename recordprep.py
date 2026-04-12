@@ -51,6 +51,7 @@ LLM_RETRYABLE_HTTP_CODES = {408, 409, 429, 500, 502, 503, 504}
 LOCAL_OCR_SERVER_STARTUP_SECONDS = 1.0
 DEFAULT_LOCAL_OCR_WORKERS = 4
 DEFAULT_LOCAL_OCR_SLOTS = 4
+DEFAULT_CLASSIFIER_WORKERS = 1
 LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
 LOCAL_SERVER_READY_TIMEOUT_SECONDS = 120.0
 LOCAL_SERVER_READY_POLL_SECONDS = 1.0
@@ -93,6 +94,7 @@ CONFIG_KEY_CLASSIFIER_RT_PROMPT = "classifier_rt_prompt"
 CONFIG_KEY_CLASSIFIER_CT_PROMPT = "classifier_ct_prompt"
 CONFIG_KEY_CLASSIFIER_THINKING_ENABLED = "classifier_thinking_enabled"
 CONFIG_KEY_CLASSIFIER_DISABLE_REASONING = "classifier_disable_reasoning"
+CONFIG_KEY_CLASSIFIER_WORKERS = "classifier_workers"
 CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED = "classifier_local_vision_enabled"
 CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND = "classifier_local_vision_start_command"
 CONFIG_KEY_CLASSIFY_DATES_HEARING_PROMPT = "classify_dates_hearing_prompt"
@@ -2570,6 +2572,11 @@ def load_classifier_settings() -> dict[str, Any]:
             CONFIG_KEY_CLASSIFIER_THINKING_ENABLED,
             True,
         )
+    workers = _read_config_int(
+        config,
+        CONFIG_KEY_CLASSIFIER_WORKERS,
+        DEFAULT_CLASSIFIER_WORKERS,
+    )
     local_vision_enabled = _read_config_bool(config, CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED, False)
     local_vision_start_command = str(
         config.get(
@@ -2593,6 +2600,7 @@ def load_classifier_settings() -> dict[str, Any]:
         "rt_prompt": rt_prompt or DEFAULT_CLASSIFIER_PROMPT,
         "ct_prompt": ct_prompt or DEFAULT_CLASSIFIER_PROMPT,
         "disable_reasoning": disable_reasoning,
+        "workers": workers,
         "local_vision_enabled": local_vision_enabled,
         "local_vision_start_command": local_vision_start_command,
     }
@@ -2605,6 +2613,7 @@ def save_classifier_settings(
     rt_prompt: str,
     ct_prompt: str,
     disable_reasoning: bool,
+    workers: str | int,
     local_vision_enabled: bool,
     local_vision_start_command: str,
 ) -> None:
@@ -2618,6 +2627,11 @@ def save_classifier_settings(
     config[CONFIG_KEY_CLASSIFIER_RT_PROMPT] = normalized_rt
     config[CONFIG_KEY_CLASSIFIER_CT_PROMPT] = normalized_ct
     config[CONFIG_KEY_CLASSIFIER_DISABLE_REASONING] = bool(disable_reasoning)
+    config[CONFIG_KEY_CLASSIFIER_WORKERS] = _read_config_int(
+        {CONFIG_KEY_CLASSIFIER_WORKERS: workers},
+        CONFIG_KEY_CLASSIFIER_WORKERS,
+        DEFAULT_CLASSIFIER_WORKERS,
+    )
     config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED] = bool(local_vision_enabled)
     config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND] = local_vision_start_command.strip()
     _write_config(config)
@@ -2650,6 +2664,7 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         "minute_prompt": minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT,
         "form_prompt": form_prompt or DEFAULT_ADVANCED_FORM_PROMPT,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
         "local_vision_start_command": str(
             shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
@@ -2695,6 +2710,7 @@ def load_classify_dates_settings() -> dict[str, Any]:
         "hearing_prompt": hearing_prompt or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
         "local_vision_start_command": str(
             shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
@@ -2736,6 +2752,7 @@ def load_classify_names_settings() -> dict[str, Any]:
         "report_prompt": report_prompt or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT,
         "form_prompt": form_prompt or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
         "local_vision_start_command": str(
             shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
@@ -3212,6 +3229,7 @@ class ClassifySettingsWidgets:
     prompt_buffer: Gtk.TextBuffer
     ct_prompt_buffer: Gtk.TextBuffer | None = None
     disable_reasoning_switch: Gtk.Switch | None = None
+    workers_row: Adw.EntryRow | None = None
     local_server_switch: Gtk.Switch | None = None
     local_start_command_buffer: Gtk.TextBuffer | None = None
     disable_reasoning_row: Adw.SwitchRow | None = None
@@ -4052,10 +4070,17 @@ class SettingsWindow(Adw.ApplicationWindow):
         api_key_row.set_text(settings.get("api_key", ""))
         credentials_group.add(api_key_row)
         disable_reasoning_switch: Gtk.Switch | None = None
+        workers_row: Adw.EntryRow | None = None
         local_server_switch: Gtk.Switch | None = None
         local_start_command_buffer: Gtk.TextBuffer | None = None
         disable_reasoning_row: Adw.SwitchRow | None = None
         if is_classify_basic:
+            workers_row = Adw.EntryRow(title="Classification Workers")
+            workers_row.set_text(str(settings.get("workers", DEFAULT_CLASSIFIER_WORKERS)))
+            if hasattr(workers_row, "set_input_purpose"):
+                workers_row.set_input_purpose(Gtk.InputPurpose.NUMBER)
+            credentials_group.add(workers_row)
+
             disable_reasoning_row = Adw.ActionRow(
                 title="Disable reasoning",
                 subtitle="Leave off to use the model's default behavior.",
@@ -4151,6 +4176,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             prompt_buffer=buffer,
             ct_prompt_buffer=ct_buffer,
             disable_reasoning_switch=disable_reasoning_switch,
+            workers_row=workers_row,
             local_server_switch=local_server_switch,
             local_start_command_buffer=local_start_command_buffer,
             disable_reasoning_row=disable_reasoning_row,
@@ -4807,6 +4833,11 @@ class SettingsWindow(Adw.ApplicationWindow):
                     bool(classify_basic_widgets.disable_reasoning_switch.get_active())
                     if classify_basic_widgets.disable_reasoning_switch
                     else DEFAULT_DISABLE_REASONING
+                ),
+                (
+                    classify_basic_widgets.workers_row.get_text().strip()
+                    if classify_basic_widgets.workers_row
+                    else DEFAULT_CLASSIFIER_WORKERS
                 ),
                 (
                     bool(classify_basic_widgets.local_server_switch.get_active())
@@ -6853,6 +6884,57 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "Configure local vision start command in Classification basic settings."
                 )
 
+    def _classifier_worker_count(self, settings: dict[str, Any]) -> int:
+        try:
+            return max(1, int(settings.get("workers", DEFAULT_CLASSIFIER_WORKERS)))
+        except (TypeError, ValueError):
+            return DEFAULT_CLASSIFIER_WORKERS
+
+    def _classify_image_with_page_type(
+        self,
+        settings: dict[str, Any],
+        filename: str,
+        image_path: Path,
+        max_attempts: int = 3,
+    ) -> dict[str, str]:
+        entry: dict[str, str] = {}
+        for attempt in range(1, max_attempts + 1):
+            self._raise_if_stop_requested()
+            entry = self._classify_image(settings, filename, image_path)
+            page_type = _extract_entry_value(entry, "page_type", "pagetype").strip()
+            if page_type:
+                return entry
+        raise RuntimeError(
+            f"Classification basic returned blank page_type for {filename} "
+            f"after {max_attempts} attempts."
+        )
+
+    def _run_classifier_jobs(
+        self,
+        jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]],
+        workers: int,
+    ) -> list[dict[str, str]]:
+        if not jobs:
+            return []
+        results: list[dict[str, str] | None] = [None] * len(jobs)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers))
+        future_to_index = {
+            executor.submit(callback, *args): index
+            for index, (callback, args) in enumerate(jobs)
+        }
+        try:
+            for future in concurrent.futures.as_completed(future_to_index):
+                self._raise_if_stop_requested()
+                index = future_to_index[future]
+                results[index] = future.result()
+        except BaseException:
+            for future in future_to_index:
+                future.cancel()
+            executor.shutdown(wait=True, cancel_futures=True)
+            raise
+        executor.shutdown(wait=True)
+        return [result or {} for result in results]
+
     def _ensure_local_vision_server_running(self) -> bool:
         settings = load_classifier_settings()
         if not bool(settings.get("local_vision_enabled", False)):
@@ -7858,6 +7940,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
             }
+            workers = self._classifier_worker_count(shared_settings)
+            pending_pages: list[tuple[bool, str]] = []
+            jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
             for index, text_path in enumerate(text_files, start=1):
                 self._raise_if_stop_requested()
                 if split_mode == "rt_only":
@@ -7873,32 +7958,32 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if not need_ct or text_path.name in done_ct:
                         continue
                 image_path = _image_path_for_filename(text_path.name, image_dir)
-                entry: dict[str, str] = {}
-                page_type = ""
-                max_attempts = 3
-                for attempt in range(1, max_attempts + 1):
-                    self._raise_if_stop_requested()
-                    entry = self._classify_image(
-                        basic_rt_settings if is_rt else basic_ct_settings,
-                        text_path.name,
-                        image_path,
+                pending_pages.append((is_rt, text_path.name))
+                jobs.append(
+                    (
+                        self._classify_image_with_page_type,
+                        (
+                            basic_rt_settings if is_rt else basic_ct_settings,
+                            text_path.name,
+                            image_path,
+                            3,
+                        ),
                     )
-                    page_type = _extract_entry_value(entry, "page_type", "pagetype").strip()
-                    if page_type:
-                        break
-                if not page_type:
-                    raise RuntimeError(
-                        f"Classification basic returned blank page_type for {text_path.name} "
-                        f"after {max_attempts} attempts."
-                    )
+                )
+            for (is_rt, file_name), entry in zip(
+                pending_pages,
+                self._run_classifier_jobs(jobs, workers),
+                strict=True,
+            ):
+                self._raise_if_stop_requested()
                 target_path = rt_basic_path if is_rt else ct_basic_path
                 with target_path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(entry))
                     handle.write("\n")
                 if is_rt:
-                    done_rt.add(text_path.name)
+                    done_rt.add(file_name)
                 else:
-                    done_ct.add(text_path.name)
+                    done_ct.add(file_name)
             if need_ct and ct_basic_path.exists():
                 self._raise_if_stop_requested()
                 ct_entries = _load_jsonl_entries(ct_basic_path)
@@ -7988,20 +8073,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError(
                     "Run Classification basic to generate CT_basic.jsonl first."
                 )
+            workers = self._classifier_worker_count(settings)
 
-            def _maybe_update_page_type(
+            def _queue_page_type_update(
+                jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]],
+                metadata: list[tuple[dict[str, Any], str, tuple[str, ...]]],
                 entry: dict[str, Any],
                 target_types: tuple[str, ...],
                 updated_type: str,
                 prompt: str,
                 truthy_keys: tuple[str, ...],
-            ) -> bool:
+            ) -> None:
                 page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
                 if page_type not in target_types:
-                    return False
+                    return
                 file_name = _extract_entry_value(entry, "file_name", "filename")
                 if not file_name:
-                    return False
+                    return
                 image_path = _image_path_for_filename(file_name, image_dir)
                 payload = {
                     "api_url": settings["api_url"],
@@ -8012,11 +8100,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                     ),
                 }
-                response = self._classify_image(payload, file_name, image_path)
-                if _is_truthy(_extract_entry_value(response, *truthy_keys)):
-                    entry["page_type"] = updated_type
-                    return True
-                return False
+                jobs.append((self._classify_image, (payload, file_name, image_path)))
+                metadata.append((entry, updated_type, truthy_keys))
 
             updates = 0
             if need_rt:
@@ -8037,28 +8122,44 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Classification advanced RT resume: continuing after {rt_last_done}.",
                     )
                 rt_mode = "a" if rt_done else "w"
+                rt_pending_entries: list[dict[str, Any]] = []
+                rt_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+                rt_metadata: list[tuple[dict[str, Any], str, tuple[str, ...]]] = []
+                for entry in rt_entries:
+                    self._raise_if_stop_requested()
+                    file_name = _extract_entry_value(entry, "file_name", "filename")
+                    if file_name and rt_resume_key is not None:
+                        if _natural_sort_key(file_name) <= rt_resume_key:
+                            continue
+                    if file_name and file_name in rt_done:
+                        continue
+                    rt_pending_entries.append(entry)
+                    _queue_page_type_update(
+                        rt_jobs,
+                        rt_metadata,
+                        entry,
+                        ("rt_body", "hearing_page", "hearing"),
+                        "RT_body_first_page",
+                        settings["hearing_prompt"],
+                        (
+                            "first_page",
+                            "first",
+                            "is_first_page",
+                            "is_first",
+                        ),
+                    )
+                for (entry, updated_type, truthy_keys), response in zip(
+                    rt_metadata,
+                    self._run_classifier_jobs(rt_jobs, workers),
+                    strict=True,
+                ):
+                    if _is_truthy(_extract_entry_value(response, *truthy_keys)):
+                        entry["page_type"] = updated_type
+                        updates += 1
                 with rt_advanced_path.open(rt_mode, encoding="utf-8") as handle:
-                    for entry in rt_entries:
+                    for entry in rt_pending_entries:
                         self._raise_if_stop_requested()
                         file_name = _extract_entry_value(entry, "file_name", "filename")
-                        if file_name and rt_resume_key is not None:
-                            if _natural_sort_key(file_name) <= rt_resume_key:
-                                continue
-                        if file_name and file_name in rt_done:
-                            continue
-                        if _maybe_update_page_type(
-                            entry,
-                            ("rt_body", "hearing_page", "hearing"),
-                            "RT_body_first_page",
-                            settings["hearing_prompt"],
-                            (
-                                "first_page",
-                                "first",
-                                "is_first_page",
-                                "is_first",
-                            ),
-                        ):
-                            updates += 1
                         handle.write(json.dumps(entry))
                         handle.write("\n")
                         if file_name:
@@ -8082,36 +8183,48 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Classification advanced CT resume: continuing after {ct_last_done}.",
                     )
                 ct_mode = "a" if ct_done else "w"
+                ct_pending_entries: list[dict[str, Any]] = []
+                ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+                ct_metadata: list[tuple[dict[str, Any], str, tuple[str, ...]]] = []
+                for entry in ct_entries:
+                    self._raise_if_stop_requested()
+                    file_name = _extract_entry_value(entry, "file_name", "filename")
+                    if file_name and ct_resume_key is not None:
+                        if _natural_sort_key(file_name) <= ct_resume_key:
+                            continue
+                    if file_name and file_name in ct_done:
+                        continue
+                    ct_pending_entries.append(entry)
+                    _queue_page_type_update(
+                        ct_jobs,
+                        ct_metadata,
+                        entry,
+                        ("ct_minute_order",),
+                        "CT_minute_order_first_page",
+                        settings["minute_prompt"],
+                        ("first_page", "first", "is_first_page", "is_first"),
+                    )
+                    _queue_page_type_update(
+                        ct_jobs,
+                        ct_metadata,
+                        entry,
+                        ("ct_form",),
+                        "CT_form_first_page",
+                        settings["form_prompt"],
+                        ("first_page", "first", "is_first_page", "is_first"),
+                    )
+                for (entry, updated_type, truthy_keys), response in zip(
+                    ct_metadata,
+                    self._run_classifier_jobs(ct_jobs, workers),
+                    strict=True,
+                ):
+                    if _is_truthy(_extract_entry_value(response, *truthy_keys)):
+                        entry["page_type"] = updated_type
+                        updates += 1
                 with ct_advanced_path.open(ct_mode, encoding="utf-8") as handle:
-                    for entry in ct_entries:
+                    for entry in ct_pending_entries:
                         self._raise_if_stop_requested()
                         file_name = _extract_entry_value(entry, "file_name", "filename")
-                        if file_name and ct_resume_key is not None:
-                            if _natural_sort_key(file_name) <= ct_resume_key:
-                                continue
-                        if file_name and file_name in ct_done:
-                            continue
-                        if _maybe_update_page_type(
-                            entry,
-                            ("ct_minute_order",),
-                            "CT_minute_order_first_page",
-                            settings["minute_prompt"],
-                            ("first_page", "first", "is_first_page", "is_first"),
-                        ):
-                            updates += 1
-                            handle.write(json.dumps(entry))
-                            handle.write("\n")
-                            if file_name:
-                                ct_done.add(file_name)
-                            continue
-                        if _maybe_update_page_type(
-                            entry,
-                            ("ct_form",),
-                            "CT_form_first_page",
-                            settings["form_prompt"],
-                            ("first_page", "first", "is_first_page", "is_first"),
-                        ):
-                            updates += 1
                         handle.write(json.dumps(entry))
                         handle.write("\n")
                         if file_name:
@@ -8271,6 +8384,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             settings = load_classify_dates_settings()
             shared_settings = load_classifier_settings()
             self._validate_vision_settings(shared_settings)
+            workers = self._classifier_worker_count(shared_settings)
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -8315,38 +8429,56 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Classification dates RT resume: continuing after {rt_last_done}.",
                     )
                 rt_mode = "a" if rt_done else "w"
-                with rt_dated_path.open(rt_mode, encoding="utf-8") as handle:
-                    for entry in rt_entries:
-                        self._raise_if_stop_requested()
-                        page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
-                        file_name = _extract_entry_value(entry, "file_name", "filename")
-                        if file_name and rt_resume_key is not None:
-                            if _natural_sort_key(file_name) <= rt_resume_key:
-                                continue
-                        if file_name and file_name in rt_done:
+                rt_pending_entries: list[dict[str, Any]] = []
+                rt_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+                rt_metadata: list[dict[str, Any]] = []
+                for entry in rt_entries:
+                    self._raise_if_stop_requested()
+                    page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
+                    file_name = _extract_entry_value(entry, "file_name", "filename")
+                    if file_name and rt_resume_key is not None:
+                        if _natural_sort_key(file_name) <= rt_resume_key:
                             continue
-                        if page_type in hearing_first_types and not _extract_entry_value(entry, "date") and file_name:
-                            image_path = _image_path_for_filename(file_name, image_dir)
-                            response = self._classify_image(
-                                {
-                                    "api_url": shared_settings["api_url"],
-                                    "model_id": shared_settings["model_id"],
-                                    "api_key": shared_settings["api_key"],
-                                    "prompt": settings["hearing_prompt"],
-                                    "disable_reasoning": bool(
-                                        shared_settings.get(
-                                            "disable_reasoning",
-                                            DEFAULT_DISABLE_REASONING,
-                                        )
-                                    ),
-                                },
-                                file_name,
-                                image_path,
+                    if file_name and file_name in rt_done:
+                        continue
+                    rt_pending_entries.append(entry)
+                    if page_type in hearing_first_types and not _extract_entry_value(entry, "date") and file_name:
+                        image_path = _image_path_for_filename(file_name, image_dir)
+                        rt_jobs.append(
+                            (
+                                self._classify_image,
+                                (
+                                    {
+                                        "api_url": shared_settings["api_url"],
+                                        "model_id": shared_settings["model_id"],
+                                        "api_key": shared_settings["api_key"],
+                                        "prompt": settings["hearing_prompt"],
+                                        "disable_reasoning": bool(
+                                            shared_settings.get(
+                                                "disable_reasoning",
+                                                DEFAULT_DISABLE_REASONING,
+                                            )
+                                        ),
+                                    },
+                                    file_name,
+                                    image_path,
+                                ),
                             )
-                            date_value = _extract_entry_value(response, "date")
-                            if date_value:
-                                entry["date"] = date_value
-                                updates += 1
+                        )
+                        rt_metadata.append(entry)
+                for entry, response in zip(
+                    rt_metadata,
+                    self._run_classifier_jobs(rt_jobs, workers),
+                    strict=True,
+                ):
+                    date_value = _extract_entry_value(response, "date")
+                    if date_value:
+                        entry["date"] = date_value
+                        updates += 1
+                with rt_dated_path.open(rt_mode, encoding="utf-8") as handle:
+                    for entry in rt_pending_entries:
+                        self._raise_if_stop_requested()
+                        file_name = _extract_entry_value(entry, "file_name", "filename")
                         handle.write(json.dumps(entry))
                         handle.write("\n")
                         if file_name:
@@ -8372,38 +8504,56 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Classification dates CT resume: continuing after {ct_last_done}.",
                     )
                 ct_mode = "a" if ct_done else "w"
-                with ct_dated_path.open(ct_mode, encoding="utf-8") as handle:
-                    for entry in ct_entries:
-                        self._raise_if_stop_requested()
-                        page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
-                        file_name = _extract_entry_value(entry, "file_name", "filename")
-                        if file_name and ct_resume_key is not None:
-                            if _natural_sort_key(file_name) <= ct_resume_key:
-                                continue
-                        if file_name and file_name in ct_done:
+                ct_pending_entries: list[dict[str, Any]] = []
+                ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+                ct_metadata: list[dict[str, Any]] = []
+                for entry in ct_entries:
+                    self._raise_if_stop_requested()
+                    page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
+                    file_name = _extract_entry_value(entry, "file_name", "filename")
+                    if file_name and ct_resume_key is not None:
+                        if _natural_sort_key(file_name) <= ct_resume_key:
                             continue
-                        if page_type in minute_first_types and not _extract_entry_value(entry, "date") and file_name:
-                            image_path = _image_path_for_filename(file_name, image_dir)
-                            response = self._classify_image(
-                                {
-                                    "api_url": shared_settings["api_url"],
-                                    "model_id": shared_settings["model_id"],
-                                    "api_key": shared_settings["api_key"],
-                                    "prompt": settings["minute_prompt"],
-                                    "disable_reasoning": bool(
-                                        shared_settings.get(
-                                            "disable_reasoning",
-                                            DEFAULT_DISABLE_REASONING,
-                                        )
-                                    ),
-                                },
-                                file_name,
-                                image_path,
+                    if file_name and file_name in ct_done:
+                        continue
+                    ct_pending_entries.append(entry)
+                    if page_type in minute_first_types and not _extract_entry_value(entry, "date") and file_name:
+                        image_path = _image_path_for_filename(file_name, image_dir)
+                        ct_jobs.append(
+                            (
+                                self._classify_image,
+                                (
+                                    {
+                                        "api_url": shared_settings["api_url"],
+                                        "model_id": shared_settings["model_id"],
+                                        "api_key": shared_settings["api_key"],
+                                        "prompt": settings["minute_prompt"],
+                                        "disable_reasoning": bool(
+                                            shared_settings.get(
+                                                "disable_reasoning",
+                                                DEFAULT_DISABLE_REASONING,
+                                            )
+                                        ),
+                                    },
+                                    file_name,
+                                    image_path,
+                                ),
                             )
-                            date_value = _extract_entry_value(response, "date")
-                            if date_value:
-                                entry["date"] = date_value
-                                updates += 1
+                        )
+                        ct_metadata.append(entry)
+                for entry, response in zip(
+                    ct_metadata,
+                    self._run_classifier_jobs(ct_jobs, workers),
+                    strict=True,
+                ):
+                    date_value = _extract_entry_value(response, "date")
+                    if date_value:
+                        entry["date"] = date_value
+                        updates += 1
+                with ct_dated_path.open(ct_mode, encoding="utf-8") as handle:
+                    for entry in ct_pending_entries:
+                        self._raise_if_stop_requested()
+                        file_name = _extract_entry_value(entry, "file_name", "filename")
                         handle.write(json.dumps(entry))
                         handle.write("\n")
                         if file_name:
@@ -8449,6 +8599,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             settings = load_classify_names_settings()
             shared_settings = load_classifier_settings()
             self._validate_vision_settings(shared_settings)
+            workers = self._classifier_worker_count(shared_settings)
             split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -8523,62 +8674,82 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                 ct_mode = "a" if ct_done else "w"
                 previous_report = False
-                with ct_named_path.open(ct_mode, encoding="utf-8") as handle:
-                    for entry in ct_entries:
-                        self._raise_if_stop_requested()
-                        page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
-                        is_report_start = page_type in report_types and not previous_report
-                        previous_report = page_type in report_types
-                        file_name = _extract_entry_value(entry, "file_name", "filename")
-                        if file_name and ct_resume_key is not None:
-                            if _natural_sort_key(file_name) <= ct_resume_key:
-                                continue
-                        if file_name and file_name in ct_done:
+                ct_pending_entries: list[dict[str, Any]] = []
+                ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+                ct_metadata: list[tuple[dict[str, Any], tuple[str, ...]]] = []
+                for entry in ct_entries:
+                    self._raise_if_stop_requested()
+                    page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
+                    is_report_start = page_type in report_types and not previous_report
+                    previous_report = page_type in report_types
+                    file_name = _extract_entry_value(entry, "file_name", "filename")
+                    if file_name and ct_resume_key is not None:
+                        if _natural_sort_key(file_name) <= ct_resume_key:
                             continue
-                        if is_report_start and not _extract_entry_value(entry, "name") and file_name:
-                            image_path = _image_path_for_filename(file_name, image_dir)
-                            response = self._classify_image(
-                                {
-                                    "api_url": shared_settings["api_url"],
-                                    "model_id": shared_settings["model_id"],
-                                    "api_key": shared_settings["api_key"],
-                                    "prompt": settings["report_prompt"],
-                                    "disable_reasoning": bool(
-                                        shared_settings.get(
-                                            "disable_reasoning",
-                                            DEFAULT_DISABLE_REASONING,
-                                        )
-                                    ),
-                                },
-                                file_name,
-                                image_path,
+                    if file_name and file_name in ct_done:
+                        continue
+                    ct_pending_entries.append(entry)
+                    if is_report_start and not _extract_entry_value(entry, "name") and file_name:
+                        image_path = _image_path_for_filename(file_name, image_dir)
+                        ct_jobs.append(
+                            (
+                                self._classify_image,
+                                (
+                                    {
+                                        "api_url": shared_settings["api_url"],
+                                        "model_id": shared_settings["model_id"],
+                                        "api_key": shared_settings["api_key"],
+                                        "prompt": settings["report_prompt"],
+                                        "disable_reasoning": bool(
+                                            shared_settings.get(
+                                                "disable_reasoning",
+                                                DEFAULT_DISABLE_REASONING,
+                                            )
+                                        ),
+                                    },
+                                    file_name,
+                                    image_path,
+                                ),
                             )
-                            name_value = _extract_entry_value(response, "name", "report_name")
-                            if name_value:
-                                entry["name"] = name_value
-                                updates += 1
-                        elif page_type in form_first_types and not _extract_entry_value(entry, "name") and file_name:
-                            image_path = _image_path_for_filename(file_name, image_dir)
-                            response = self._classify_image(
-                                {
-                                    "api_url": shared_settings["api_url"],
-                                    "model_id": shared_settings["model_id"],
-                                    "api_key": shared_settings["api_key"],
-                                    "prompt": settings["form_prompt"],
-                                    "disable_reasoning": bool(
-                                        shared_settings.get(
-                                            "disable_reasoning",
-                                            DEFAULT_DISABLE_REASONING,
-                                        )
-                                    ),
-                                },
-                                file_name,
-                                image_path,
+                        )
+                        ct_metadata.append((entry, ("name", "report_name")))
+                    elif page_type in form_first_types and not _extract_entry_value(entry, "name") and file_name:
+                        image_path = _image_path_for_filename(file_name, image_dir)
+                        ct_jobs.append(
+                            (
+                                self._classify_image,
+                                (
+                                    {
+                                        "api_url": shared_settings["api_url"],
+                                        "model_id": shared_settings["model_id"],
+                                        "api_key": shared_settings["api_key"],
+                                        "prompt": settings["form_prompt"],
+                                        "disable_reasoning": bool(
+                                            shared_settings.get(
+                                                "disable_reasoning",
+                                                DEFAULT_DISABLE_REASONING,
+                                            )
+                                        ),
+                                    },
+                                    file_name,
+                                    image_path,
+                                ),
                             )
-                            name_value = _extract_entry_value(response, "name", "form_name")
-                            if name_value:
-                                entry["name"] = name_value
-                                updates += 1
+                        )
+                        ct_metadata.append((entry, ("name", "form_name")))
+                for (entry, name_keys), response in zip(
+                    ct_metadata,
+                    self._run_classifier_jobs(ct_jobs, workers),
+                    strict=True,
+                ):
+                    name_value = _extract_entry_value(response, *name_keys)
+                    if name_value:
+                        entry["name"] = name_value
+                        updates += 1
+                with ct_named_path.open(ct_mode, encoding="utf-8") as handle:
+                    for entry in ct_pending_entries:
+                        self._raise_if_stop_requested()
+                        file_name = _extract_entry_value(entry, "file_name", "filename")
                         handle.write(json.dumps(entry))
                         handle.write("\n")
                         if file_name:

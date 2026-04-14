@@ -151,6 +151,8 @@ CONFIG_KEY_SUMMARIZE_DISABLE_REASONING = "summarize_disable_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT = "summarize_consolidate_hearings_prompt"
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT = "summarize_consolidate_reports_prompt"
 CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_OVERVIEW_API_URL = "overview_api_url"
 CONFIG_KEY_OVERVIEW_MODEL_ID = "overview_model_id"
@@ -336,6 +338,27 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "Hearing. Reported. Only mother appeared. The juvenile court received the social "
     "worker reports into evidence and heard testimony from mother. The juvenile court "
     "terminated parental rights.\n\nOkay, here is the minute order:"
+)
+DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT = (
+    "I will provide the generated summary text for one court hearing. Rewrite it into "
+    "a tighter, non-repetitive summary based only on the provided text. Start with "
+    "one line in this exact format: Quick point: [one plain-English sentence]. Then "
+    "add a blank line and one concise paragraph summarizing the hearing. Preserve "
+    "every quoted phrase exactly as written. Do not add new quotes. Do not add facts "
+    "that are not in the provided summary. Keep distinct legal events, testimony, "
+    "rulings, findings, services, and orders even if they are related. Do not include "
+    "the hearing date. Do not use markdown. Here is the hearing summary:"
+)
+DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT = (
+    "I will provide the generated summary text for one report. Rewrite it into a "
+    "tighter, non-repetitive summary based only on the provided text. Start with one "
+    "line in this exact format: Quick point: [one plain-English sentence]. Then add "
+    "a blank line and one concise paragraph summarizing the report. Preserve every "
+    "quoted phrase exactly as written. Do not add new quotes. Do not add facts that "
+    "are not in the provided summary. Keep distinct legal facts, recommendations, "
+    "services, visits, placements, parent conduct, child welfare facts, and agency "
+    "positions even if they are related. Do not use markdown. Here is the report "
+    "summary:"
 )
 DEFAULT_SUMMARIZE_CHUNK_SIZE = 15
 DEFAULT_OVERVIEW_PROMPT = (
@@ -1002,6 +1025,23 @@ def _summary_output_paths(root_dir: Path) -> tuple[Path, Path]:
     )
 
 
+def _consolidated_summary_output_paths(root_dir: Path) -> tuple[Path, Path]:
+    summaries_dir = root_dir / "summaries"
+    case_name = _load_case_name_from_file(root_dir)
+    if not case_name:
+        case_name, _ = load_case_context()
+        case_name = _sanitize_case_name_value(case_name)
+    if case_name:
+        return (
+            summaries_dir / f"hearings_sum_consolidated_{case_name}.txt",
+            summaries_dir / f"reports_sum_consolidated_{case_name}.txt",
+        )
+    return (
+        summaries_dir / "summarized_hearings_consolidated.txt",
+        summaries_dir / "summarized_reports_consolidated.txt",
+    )
+
+
 def _minutes_summary_output_path(root_dir: Path) -> Path:
     summaries_dir = root_dir / "summaries"
     case_name = _load_case_name_from_file(root_dir)
@@ -1404,6 +1444,86 @@ def _has_page_markdown_links(path: Path) -> bool:
     except OSError:
         return False
     return bool(re.search(r"\]\(page:\d{4}\)", text))
+
+
+def _has_quick_point_sections(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return bool(re.search(r"(?im)^\s*Quick point:\s+\S", text))
+
+
+def _strip_page_markdown_links(text: str) -> str:
+    return re.sub(r"\s*\[[^\]]+\]\(page:\d{4}\)", "", text).strip()
+
+
+def _split_summary_sections(
+    lines: list[str],
+    heading_key_for_line: Callable[[str], str | None],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    preamble_lines: list[str] = []
+    sections: list[dict[str, Any]] = []
+    current_section: dict[str, Any] | None = None
+
+    for line in lines:
+        key = heading_key_for_line(line)
+        if key:
+            current_section = {
+                "key": key,
+                "heading": _strip_page_markdown_links(line.strip()) or line.strip(),
+                "body_lines": [],
+            }
+            sections.append(current_section)
+            continue
+        if current_section is None:
+            preamble_lines.append(line)
+        else:
+            current_section["body_lines"].append(line)
+
+    return preamble_lines, sections
+
+
+def _summary_section_body_text(body_lines: list[str]) -> str:
+    return _collapse_blank_lines("\n".join(body_lines)).strip()
+
+
+def _normalize_consolidated_summary_response(response: str) -> str:
+    cleaned = _collapse_blank_lines(response.strip()).strip()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(
+        r"(?i)^\s*\*\*quick point:\*\*\s*",
+        "Quick point: ",
+        cleaned,
+    ).strip()
+    if re.match(r"(?i)^quick point\s*:", cleaned):
+        return re.sub(r"(?i)^quick point\s*:", "Quick point:", cleaned, count=1)
+    sentences = _split_into_sentences(cleaned)
+    quick_point = sentences[0] if sentences else cleaned.splitlines()[0].strip()
+    return f"Quick point: {quick_point}\n\n{cleaned}"
+
+
+def _render_summary_sections(
+    preamble_lines: list[str],
+    sections: list[dict[str, Any]],
+) -> str:
+    rendered: list[str] = list(preamble_lines)
+    for section in sections:
+        heading = str(section.get("heading", "")).strip()
+        if not heading:
+            continue
+        if rendered and rendered[-1].strip():
+            rendered.append("")
+        rendered.append(heading)
+        body_lines = list(section.get("body_lines", []))
+        if body_lines:
+            if body_lines[0].strip():
+                rendered.append("")
+            rendered.extend(body_lines)
+    return _collapse_blank_lines("\n".join(rendered))
 
 
 def _remove_standalone_date_lines(text: str) -> str:
@@ -2367,6 +2487,9 @@ def _write_manifest(
     rag_dir = root_dir / "rag"
     temp_dir = root_dir / "temp"
     summarized_hearings_path, summarized_reports_path = _summary_output_paths(root_dir)
+    consolidated_hearings_path, consolidated_reports_path = (
+        _consolidated_summary_output_paths(root_dir)
+    )
     summarized_minutes_path = _minutes_summary_output_path(root_dir)
 
     def _root_path(value: Path) -> str:
@@ -2434,6 +2557,8 @@ def _write_manifest(
             "optimized_reports": _relpath(artifacts_dir / "optimized_reports.txt"),
             "summarized_hearings": _relpath(summarized_hearings_path),
             "summarized_reports": _relpath(summarized_reports_path),
+            "consolidated_hearings": _relpath(consolidated_hearings_path),
+            "consolidated_reports": _relpath(consolidated_reports_path),
             "summarized_minutes": _relpath(summarized_minutes_path),
             "case_overview": _relpath(rag_dir / "case_overview.txt"),
         },
@@ -3294,6 +3419,8 @@ class SummarizeSettingsWidgets:
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
     minutes_prompt_buffer: Gtk.TextBuffer
+    consolidate_hearings_prompt_buffer: Gtk.TextBuffer
+    consolidate_reports_prompt_buffer: Gtk.TextBuffer
 
 
 @dataclass
@@ -3475,6 +3602,20 @@ def load_summarize_settings() -> dict[str, Any]:
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
     ).strip()
+    consolidate_hearings_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
+            DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
+        )
+        or ""
+    ).strip()
+    consolidate_reports_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
+            DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
+        )
+        or ""
+    ).strip()
     return {
         "api_url": api_url,
         "model_id": model_id,
@@ -3484,6 +3625,12 @@ def load_summarize_settings() -> dict[str, Any]:
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         "minutes_prompt": minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT,
+        "consolidate_hearings_prompt": (
+            consolidate_hearings_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
+        ),
+        "consolidate_reports_prompt": (
+            consolidate_reports_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
+        ),
     }
 
 
@@ -3496,6 +3643,8 @@ def save_summarize_settings(
     hearings_prompt: str,
     reports_prompt: str,
     minutes_prompt: str,
+    consolidate_hearings_prompt: str,
+    consolidate_reports_prompt: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_SUMMARIZE_API_URL] = api_url
@@ -3511,6 +3660,12 @@ def save_summarize_settings(
     )
     config[CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT] = (
         minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT
+    )
+    config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT] = (
+        consolidate_hearings_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
+    )
+    config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT] = (
+        consolidate_reports_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
     )
     _write_config(config)
 
@@ -4620,6 +4775,34 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._set_prompt_editor_height(minutes_scroller, 240)
         prompt_section.append(minutes_scroller)
 
+        consolidate_hearings_label = Gtk.Label(
+            label="Consolidate Hearings Prompt",
+            xalign=0,
+        )
+        consolidate_hearings_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_hearings_label)
+        consolidate_hearings_scroller, consolidate_hearings_buffer = (
+            self._build_prompt_editor(
+                settings.get("consolidate_hearings_prompt")
+                or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
+            )
+        )
+        self._set_prompt_editor_height(consolidate_hearings_scroller, 240)
+        prompt_section.append(consolidate_hearings_scroller)
+
+        consolidate_reports_label = Gtk.Label(
+            label="Consolidate Reports Prompt",
+            xalign=0,
+        )
+        consolidate_reports_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_reports_label)
+        consolidate_reports_scroller, consolidate_reports_buffer = self._build_prompt_editor(
+            settings.get("consolidate_reports_prompt")
+            or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
+        )
+        self._set_prompt_editor_height(consolidate_reports_scroller, 240)
+        prompt_section.append(consolidate_reports_scroller)
+
         page_box.append(prompt_section)
 
         page = Gtk.ScrolledWindow()
@@ -4637,6 +4820,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
             minutes_prompt_buffer=minutes_buffer,
+            consolidate_hearings_prompt_buffer=consolidate_hearings_buffer,
+            consolidate_reports_prompt_buffer=consolidate_reports_buffer,
         )
         return page
 
@@ -4904,6 +5089,12 @@ class SettingsWindow(Adw.ApplicationWindow):
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
+                self._prompt_text(
+                    summarize_widgets.consolidate_hearings_prompt_buffer
+                ).strip(),
+                self._prompt_text(
+                    summarize_widgets.consolidate_reports_prompt_buffer
+                ).strip(),
             )
         if overview_widgets:
             save_overview_settings(
@@ -5214,6 +5405,8 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             ("Summarize (Hearings prompt)", "summarize_hearings"),
             ("Summarize (Reports prompt)", "summarize_reports"),
             ("Summarize (Minutes prompt)", "summarize_minutes"),
+            ("Consolidate (Hearings prompt)", "consolidate_hearings"),
+            ("Consolidate (Reports prompt)", "consolidate_reports"),
         ]
         labels = [label for label, _value in options]
         self._mode_values = [value for _label, value in options]
@@ -5346,6 +5539,10 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             return "Uses the saved Summarize reports prompt. Paste optimized report text."
         if mode_id == "summarize_minutes":
             return "Uses the saved Summarize minutes prompt. Paste minute order text."
+        if mode_id == "consolidate_hearings":
+            return "Uses the saved Consolidate hearings prompt. Paste one generated hearing summary section body."
+        if mode_id == "consolidate_reports":
+            return "Uses the saved Consolidate reports prompt. Paste one generated report summary section body."
         return "Uses the saved prompt for the selected mode."
 
     def _apply_mode_settings(self, mode_id: str) -> None:
@@ -5725,9 +5922,24 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._attach_step_status(self.step_ten_row)
         self.step_list.append(self.step_ten_row)
 
+        self.step_consolidate_summaries_row = Adw.ActionRow(
+            title="Consolidate summaries",
+            subtitle="Deduplicate hearing/report summaries and add quick-point lines.",
+        )
+        self.step_consolidate_summaries_row.set_activatable(False)
+        self._attach_step_controls(
+            "consolidate_summaries",
+            self.step_consolidate_summaries_row,
+            lambda _btn: self.on_step_consolidate_summaries_clicked(
+                self.step_consolidate_summaries_row
+            ),
+        )
+        self._attach_step_status(self.step_consolidate_summaries_row)
+        self.step_list.append(self.step_consolidate_summaries_row)
+
         self.step_add_hearing_date_links_row = Adw.ActionRow(
-            title="Add date links to hearing sum",
-            subtitle="Add Markdown page links for RT and minute-order first pages.",
+            title="Add links to summaries",
+            subtitle="Add Markdown page links for hearing, minute-order, and report first pages.",
         )
         self.step_add_hearing_date_links_row.set_activatable(False)
         self._attach_step_controls(
@@ -6005,7 +6217,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 raise ValueError(f"Unknown optimize test mode: {mode_id}")
             return request_settings
-        if mode_id.startswith("summarize_"):
+        if mode_id.startswith("summarize_") or mode_id.startswith("consolidate_"):
             settings = load_summarize_settings()
             prompt = settings["reports_prompt"]
             if mode_id == "summarize_hearings":
@@ -6014,6 +6226,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 prompt = settings["reports_prompt"]
             elif mode_id == "summarize_minutes":
                 prompt = settings["minutes_prompt"]
+            elif mode_id == "consolidate_hearings":
+                prompt = settings["consolidate_hearings_prompt"]
+            elif mode_id == "consolidate_reports":
+                prompt = settings["consolidate_reports_prompt"]
             else:
                 raise ValueError(f"Unknown summarize test mode: {mode_id}")
             return {
@@ -6318,6 +6534,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                 elif mode_id == "summarize_minutes":
                     output = self._request_plain_text(settings, raw_text)
+                elif mode_id == "consolidate_hearings":
+                    output = _normalize_consolidated_summary_response(
+                        self._request_plain_text(settings, raw_text)
+                    )
+                elif mode_id == "consolidate_reports":
+                    output = _normalize_consolidated_summary_response(
+                        self._request_plain_text(settings, raw_text)
+                    )
                 else:
                     raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
                 GLib.idle_add(on_done, output.strip(), None)
@@ -6559,6 +6783,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         artifacts_dir = root_dir / "artifacts"
         rag_dir = root_dir / "rag"
         summaries_path, reports_path = _summary_output_paths(root_dir)
+        consolidated_summaries_path, consolidated_reports_path = (
+            _consolidated_summary_output_paths(root_dir)
+        )
         minutes_path = _minutes_summary_output_path(root_dir)
 
         if step_id == "create_files":
@@ -6645,8 +6872,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
         if step_id == "create_summaries":
             return summaries_path.exists() and reports_path.exists() and minutes_path.exists()
+        if step_id == "consolidate_summaries":
+            if not _has_quick_point_sections(consolidated_summaries_path):
+                return False
+            report_entries = _load_json_entries(artifacts_dir / "report_boundaries.json")
+            has_reports = any(
+                _extract_entry_value(entry, "report_name", "report", "name").strip()
+                for entry in report_entries
+            )
+            return not has_reports or _has_quick_point_sections(consolidated_reports_path)
         if step_id == "add_hearing_date_links":
-            return _has_page_markdown_links(summaries_path)
+            if not _has_page_markdown_links(consolidated_summaries_path):
+                return False
+            report_entries = _load_json_entries(artifacts_dir / "report_boundaries.json")
+            has_linkable_reports = any(
+                _extract_entry_value(entry, "report_name", "report", "name").strip()
+                and _extract_start_page_for_date_links(entry)
+                for entry in report_entries
+            )
+            return not has_linkable_reports or _has_page_markdown_links(
+                consolidated_reports_path
+            )
         if step_id == "case_overview":
             return (rag_dir / "case_overview.txt").exists()
         if step_id == "create_rag_index":
@@ -7156,6 +7402,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ("create_preoptimized", self.step_preoptimized_row, self._run_step_preoptimized),
             ("create_optimized", self.step_nine_row, self._run_step_nine),
             ("create_summaries", self.step_ten_row, self._run_step_ten),
+            (
+                "consolidate_summaries",
+                self.step_consolidate_summaries_row,
+                self._run_step_consolidate_summaries,
+            ),
             (
                 "add_hearing_date_links",
                 self.step_add_hearing_date_links_row,
@@ -7743,6 +7994,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
         self._launch_single_step(self.step_ten_row, self._run_step_ten)
+
+    def on_step_consolidate_summaries_clicked(self, _row: Adw.ActionRow) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(
+            self.step_consolidate_summaries_row,
+            self._run_step_consolidate_summaries,
+        )
 
     def on_step_add_hearing_date_links_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -9933,17 +10197,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 summary_reports.extend(["Reports Summary", ""])
 
-            report_entries = _load_json_entries(report_boundaries_path)
-            report_page_by_name: dict[str, str] = {}
-            for entry in report_entries:
-                report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
-                if not report_name:
-                    continue
-                page_str = _extract_start_page_for_date_links(entry)
-                if not page_str:
-                    continue
-                report_page_by_name.setdefault(report_name, page_str)
-
             report_groups: list[tuple[str, list[str]]] = []
             report_sections = _load_labeled_chunk_directories(
                 artifacts_dir / "optimized" / "reports",
@@ -9986,9 +10239,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             for group_index, (report_name, paragraphs) in enumerate(report_groups):
                 self._raise_if_stop_requested()
                 heading = report_name or "Report"
-                first_page = report_page_by_name.get(report_name, "")
-                if first_page:
-                    heading = f"{heading} [Report](page:{first_page})"
                 if summary_reports and summary_reports[-1].strip():
                     summary_reports.append("")
                 summary_reports.append(heading)
@@ -10100,6 +10350,170 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
 
+    def _run_step_consolidate_summaries(self) -> bool:
+        success: bool | str | None = False
+        try:
+            self._raise_if_stop_requested()
+            root_dir = self._resolve_case_root()
+            if root_dir is None:
+                if self.selected_pdfs:
+                    raise ValueError("Selected PDFs must be in the same folder.")
+                raise ValueError("Choose PDF files or select a saved case first.")
+            artifacts_dir = root_dir / "artifacts"
+            summaries_path, reports_path = _summary_output_paths(root_dir)
+            consolidated_summaries_path, consolidated_reports_path = (
+                _consolidated_summary_output_paths(root_dir)
+            )
+            if not summaries_path.exists() or not reports_path.exists():
+                raise FileNotFoundError(
+                    "Run Create summaries to generate hearing and report summaries first."
+                )
+            hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
+            report_boundaries_path = artifacts_dir / "report_boundaries.json"
+            if not hearing_boundaries_path.exists() or not report_boundaries_path.exists():
+                raise FileNotFoundError(
+                    "Run Find boundaries to generate hearing and report boundaries first."
+                )
+
+            settings = load_summarize_settings()
+            if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
+                raise ValueError("Configure summarize API URL, model ID, and API key in Settings.")
+
+            hearing_entries = _load_json_entries(hearing_boundaries_path)
+            hearing_keys: set[str] = set()
+            for entry in hearing_entries:
+                date_value = _extract_entry_value(entry, "date").strip()
+                date_key = _hearing_date_key(date_value)
+                if date_key:
+                    hearing_keys.add(date_key)
+
+            def _hearing_heading_key(line: str) -> str | None:
+                stripped = _strip_page_markdown_links(line.strip())
+                if not stripped:
+                    return None
+                date_key = _hearing_date_key(stripped)
+                if date_key and date_key in hearing_keys:
+                    return date_key
+                return None
+
+            hearing_lines = summaries_path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            ).splitlines()
+            hearing_preamble, hearing_sections = _split_summary_sections(
+                hearing_lines,
+                _hearing_heading_key,
+            )
+            if not hearing_sections:
+                raise ValueError("No hearing summary sections matched hearing boundary dates.")
+
+            hearing_request_settings = {
+                "api_url": settings["api_url"],
+                "model_id": settings["model_id"],
+                "api_key": settings["api_key"],
+                "disable_reasoning": bool(
+                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
+                "prompt": settings["consolidate_hearings_prompt"],
+            }
+            for section in hearing_sections:
+                self._raise_if_stop_requested()
+                body_text = _summary_section_body_text(list(section.get("body_lines", [])))
+                if not body_text:
+                    continue
+                response = self._request_plain_text(hearing_request_settings, body_text)
+                cleaned_response = _normalize_consolidated_summary_response(response or "")
+                if cleaned_response:
+                    cleaned_response = _remove_hearing_date_mentions(cleaned_response)
+                    cleaned_response = _remove_standalone_date_lines(cleaned_response)
+                    section["body_lines"] = cleaned_response.splitlines()
+
+            consolidated_summaries_path.write_text(
+                _render_summary_sections(hearing_preamble, hearing_sections),
+                encoding="utf-8",
+            )
+
+            report_entries = _load_json_entries(report_boundaries_path)
+            report_name_by_key: dict[str, str] = {}
+            for entry in report_entries:
+                report_name = _extract_entry_value(
+                    entry,
+                    "report_name",
+                    "report",
+                    "name",
+                ).strip()
+                if report_name:
+                    report_name_by_key.setdefault(
+                        re.sub(r"\s+", " ", report_name).strip().lower(),
+                        report_name,
+                    )
+
+            def _report_heading_key(line: str) -> str | None:
+                stripped = _strip_page_markdown_links(line.strip())
+                normalized = re.sub(r"\s+", " ", stripped).strip().lower()
+                if normalized and normalized in report_name_by_key:
+                    return normalized
+                return None
+
+            report_lines = reports_path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            ).splitlines()
+            report_preamble, report_sections = _split_summary_sections(
+                report_lines,
+                _report_heading_key,
+            )
+            if report_name_by_key and not report_sections:
+                raise ValueError("No report summary sections matched report boundary names.")
+            report_request_settings = {
+                "api_url": settings["api_url"],
+                "model_id": settings["model_id"],
+                "api_key": settings["api_key"],
+                "disable_reasoning": bool(
+                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+                ),
+                "prompt": settings["consolidate_reports_prompt"],
+            }
+            for section in report_sections:
+                self._raise_if_stop_requested()
+                body_text = _summary_section_body_text(list(section.get("body_lines", [])))
+                if not body_text:
+                    continue
+                response = self._request_plain_text(report_request_settings, body_text)
+                cleaned_response = _normalize_consolidated_summary_response(response or "")
+                if cleaned_response:
+                    section["body_lines"] = cleaned_response.splitlines()
+
+            consolidated_reports_path.write_text(
+                _render_summary_sections(report_preamble, report_sections),
+                encoding="utf-8",
+            )
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(self.show_toast, f"Consolidate summaries failed: {exc}")
+        else:
+            success = True
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "consolidate_summaries",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            GLib.idle_add(self.show_toast, "Consolidate summaries complete.")
+        finally:
+            GLib.idle_add(self.step_consolidate_summaries_row.set_sensitive, True)
+            GLib.idle_add(
+                self._finish_step,
+                self.step_consolidate_summaries_row,
+                success,
+            )
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
+
     def _run_step_add_hearing_date_links(self) -> bool:
         success: bool | str | None = False
         try:
@@ -10110,22 +10524,32 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             artifacts_dir = root_dir / "artifacts"
-            summaries_path, _reports_path = _summary_output_paths(root_dir)
-            if not summaries_path.exists():
-                raise FileNotFoundError("Run Create summaries to generate hearing summaries first.")
+            consolidated_summaries_path, consolidated_reports_path = (
+                _consolidated_summary_output_paths(root_dir)
+            )
+            if not consolidated_summaries_path.exists() or not consolidated_reports_path.exists():
+                raise FileNotFoundError(
+                    "Run Consolidate summaries to generate consolidated hearing and report summaries first."
+                )
             hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
             minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"
-            if not hearing_boundaries_path.exists() or not minutes_boundaries_path.exists():
+            report_boundaries_path = artifacts_dir / "report_boundaries.json"
+            if (
+                not hearing_boundaries_path.exists()
+                or not minutes_boundaries_path.exists()
+                or not report_boundaries_path.exists()
+            ):
                 raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing/minute boundaries first."
+                    "Run Find boundaries to generate hearing, minute, and report boundaries first."
                 )
 
             hearing_entries = _load_json_entries(hearing_boundaries_path)
             minute_entries = _load_json_entries(minutes_boundaries_path)
-            if not hearing_entries and not minute_entries:
+            report_entries = _load_json_entries(report_boundaries_path)
+            if not hearing_entries and not minute_entries and not report_entries:
                 GLib.idle_add(
                     self.show_toast,
-                    "No hearing or minute boundaries found. Skipping Add date links to hearing Sum.",
+                    "No hearing, minute, or report boundaries found. Skipping Add links to summaries.",
                     "WARN",
                 )
                 success = "Skipped"
@@ -10161,7 +10585,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 minute_page_by_date.setdefault(date_key, page_str)
                 display_date_by_key.setdefault(date_key, _format_long_us_date(date_value))
 
-            hearing_summary_lines = summaries_path.read_text(
+            hearing_summary_lines = consolidated_summaries_path.read_text(
                 encoding="utf-8",
                 errors="ignore",
             ).splitlines()
@@ -10170,7 +10594,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 stripped = line.strip()
                 if not stripped:
                     return None
-                without_links = re.sub(r"\[[^\]]+\]\(page:\d{4}\)", "", stripped)
+                without_links = _strip_page_markdown_links(stripped)
                 without_links = re.sub(r"\s+", " ", without_links).strip()
                 date_key = _hearing_date_key(without_links)
                 if not date_key or date_key not in display_date_by_key:
@@ -10257,14 +10681,65 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if modified == 0 and inserted == 0:
                 raise ValueError("No hearing/minute date headings matched boundary dates.")
 
-            summaries_path.write_text(
+            consolidated_summaries_path.write_text(
                 _collapse_blank_lines("\n".join(linked_lines)),
                 encoding="utf-8",
             )
+
+            report_page_by_key: dict[str, str] = {}
+            report_display_by_key: dict[str, str] = {}
+            for entry in report_entries:
+                report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
+                if not report_name:
+                    continue
+                page_str = _extract_start_page_for_date_links(entry)
+                if not page_str:
+                    continue
+                report_key = re.sub(r"\s+", " ", report_name).strip().lower()
+                if not report_key:
+                    continue
+                report_page_by_key.setdefault(report_key, page_str)
+                report_display_by_key.setdefault(report_key, report_name)
+
+            if report_page_by_key:
+                report_summary_lines = consolidated_reports_path.read_text(
+                    encoding="utf-8",
+                    errors="ignore",
+                ).splitlines()
+
+                def _report_heading_key(line: str) -> str | None:
+                    stripped = _strip_page_markdown_links(line.strip())
+                    normalized = re.sub(r"\s+", " ", stripped).strip().lower()
+                    if normalized and normalized in report_page_by_key:
+                        return normalized
+                    return None
+
+                report_preamble, report_sections = _split_summary_sections(
+                    report_summary_lines,
+                    _report_heading_key,
+                )
+                if not report_sections:
+                    raise ValueError("No report headings matched report boundary names.")
+                for section in report_sections:
+                    self._raise_if_stop_requested()
+                    report_key = str(section["key"])
+                    page_str = report_page_by_key.get(report_key, "")
+                    heading = report_display_by_key.get(report_key, "")
+                    if not heading:
+                        heading = _strip_page_markdown_links(
+                            str(section.get("heading", "")).strip()
+                        )
+                    if page_str:
+                        heading = f"{heading} [Report](page:{page_str})"
+                    section["heading"] = heading
+                consolidated_reports_path.write_text(
+                    _render_summary_sections(report_preamble, report_sections),
+                    encoding="utf-8",
+                )
         except StopRequested:
             success = None
         except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Add date links to hearing Sum failed: {exc}")
+            GLib.idle_add(self.show_toast, f"Add links to summaries failed: {exc}")
         else:
             success = True
             self._safe_update_manifest(
@@ -10275,7 +10750,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "last_failed_at": None,
                 },
             )
-            GLib.idle_add(self.show_toast, "Add date links to hearing Sum complete.")
+            GLib.idle_add(self.show_toast, "Add links to summaries complete.")
         finally:
             GLib.idle_add(self.step_add_hearing_date_links_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_add_hearing_date_links_row, success)
@@ -10292,7 +10767,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if self.selected_pdfs:
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
-            summaries_path, reports_path = _summary_output_paths(root_dir)
+            summaries_path, reports_path = _consolidated_summary_output_paths(root_dir)
             minutes_path = _minutes_summary_output_path(root_dir)
             if (
                 not summaries_path.exists()
@@ -10300,7 +10775,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 or not minutes_path.exists()
             ):
                 raise FileNotFoundError(
-                    "Run Create summaries to generate hearing, report, and minute summaries first."
+                    "Run Consolidate summaries to generate hearing and report summaries first."
                 )
             settings = load_overview_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:

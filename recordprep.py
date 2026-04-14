@@ -1466,14 +1466,14 @@ def _prefix_minute_order_body_links(body_lines: list[str], minute_page: str | No
 
     linked_lines: list[str] = []
     for line in body_lines:
-        cleaned = re.sub(r"^\s*\[MO\]\(page:\d{4}\)\s*", "", line).strip()
+        cleaned = re.sub(r"^\s*\[(?:MO|M>)\]\(page:\d{4}\)\s*", "", line).strip()
         if not cleaned:
             linked_lines.append(line)
             continue
         if re.match(r"(?i)^quick point\s*:", cleaned):
             linked_lines.append(cleaned)
             continue
-        linked_lines.append(f"[MO](page:{minute_page}) {cleaned}")
+        linked_lines.append(f"[M>](page:{minute_page}) {cleaned}")
     return linked_lines
 
 

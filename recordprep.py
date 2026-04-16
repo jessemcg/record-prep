@@ -209,8 +209,12 @@ DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT = (
 DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT = (
     "You are reviewing the text of the first page of a report in a legal transcript. "
     "Only return a report name if it matches the approved list provided. "
-    "Return JSON with keys: name. "
-    "name must be the matching report title from the list; otherwise use an empty string."
+    "Also extract the report date from the first page if present. "
+    "For detention, jurisdiction, disposition, review, and other child-welfare reports, "
+    "the report date may appear as a hearing date near the report title. "
+    "Return JSON with keys: name, date. "
+    "name must be the matching report title from the list; otherwise use an empty string. "
+    "date should be a long-form U.S. date if present; otherwise use an empty string."
 )
 DEFAULT_ADVANCED_HEARING_PROMPT = (
     "You are reviewing a page labeled RT_body in a legal transcript. "
@@ -1085,6 +1089,9 @@ def _canonical_retrieval_metadata_key(label: str) -> str:
         "type": "type",
         "hearing_date": "hearing_date",
         "report_name": "report_name",
+        "report_date": "report_date",
+        "report_label": "report_label",
+        "report_id": "report_id",
     }
     return aliases.get(normalized, normalized)
 
@@ -1133,6 +1140,11 @@ def _parse_retrieval_chunk(paragraph: str) -> tuple[dict[str, Any], str]:
     if hearing_date:
         metadata["hearing_date"] = _format_long_us_date(hearing_date) or _normalize_hearing_date(
             hearing_date
+        )
+    report_date = str(metadata.get("report_date", "")).strip()
+    if report_date:
+        metadata["report_date"] = _format_long_us_date(report_date) or _normalize_hearing_date(
+            report_date
         )
     return metadata, "\n".join(content_lines).strip()
 
@@ -1217,6 +1229,16 @@ def _build_report_sections(
     sections: list[RetrievalSection] = []
     for entry in report_entries:
         report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
+        report_date = _extract_entry_value(entry, "report_date", "date").strip()
+        normalized_report_date = (
+            _format_long_us_date(report_date) or _normalize_hearing_date(report_date)
+        )
+        start_page = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
+        end_page = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
+        report_label = _format_report_label(report_name, normalized_report_date)
+        report_id = _extract_entry_value(entry, "report_id", "id").strip()
+        if not report_id:
+            report_id = _report_id_from_start_page(start_page)
         content = _read_boundary_entry_text(entry, text_dir)
         if not content:
             continue
@@ -1224,6 +1246,11 @@ def _build_report_sections(
             "type": "report",
             "source": "report",
             "report_name": report_name or "Unknown",
+            "report_date": normalized_report_date,
+            "report_label": report_label,
+            "report_id": report_id,
+            "start_page": start_page,
+            "end_page": end_page,
         }
         sections.append(RetrievalSection(section_type="report", content=content, metadata=metadata))
     return sections
@@ -1426,6 +1453,22 @@ def _hearing_date_key(value: str) -> str:
     return _format_long_us_date(value).lower()
 
 
+def _format_report_label(report_name: str, report_date: str) -> str:
+    normalized_name = re.sub(r"\s+", " ", report_name.strip())
+    normalized_date = _format_long_us_date(report_date) or _normalize_hearing_date(report_date)
+    if normalized_date and normalized_name:
+        return f"{normalized_date} - {normalized_name}"
+    return normalized_name or normalized_date or "Report"
+
+
+def _report_id_from_start_page(start_page: str) -> str:
+    page_number = _page_number_from_label(start_page)
+    if page_number is not None:
+        return f"report:{page_number:04d}"
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", start_page.strip()).strip("_")
+    return f"report:{normalized}" if normalized else ""
+
+
 def _extract_start_page_for_date_links(entry: dict[str, Any]) -> str | None:
     start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
     if not start_label:
@@ -1596,7 +1639,11 @@ def _compile_raw_sections_text(sections: list[RetrievalSection]) -> str:
         if section.section_type == "hearing":
             label = str(section.metadata.get("hearing_date", "")).strip() or "Unknown"
         elif section.section_type == "report":
-            label = str(section.metadata.get("report_name", "")).strip() or "Unknown"
+            label = (
+                str(section.metadata.get("report_label", "")).strip()
+                or str(section.metadata.get("report_name", "")).strip()
+                or "Unknown"
+            )
         else:
             label = str(section.metadata.get("type", "")).strip() or "Unknown"
         rendered_sections.append(f"<<<{label}>>>")
@@ -2177,6 +2224,10 @@ def _write_chunked_section_files(
         )
         section_dir.mkdir(parents=True, exist_ok=True)
         (section_dir / "label.txt").write_text(label + "\n", encoding="utf-8")
+        (section_dir / "metadata.json").write_text(
+            json.dumps(section.metadata, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
         chunk_paths: list[Path] = []
         for chunk_index, chunk in enumerate(_chunk_text_for_artifacts(content, chunk_size), start=1):
@@ -2259,6 +2310,21 @@ def _load_chunked_section_files(
             label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
         else:
             label = section_dir.name
+        metadata_path = section_dir / "metadata.json"
+        metadata: dict[str, Any] = {"type": section_type, label_key: label}
+        if metadata_path.exists():
+            try:
+                loaded_metadata = json.loads(
+                    metadata_path.read_text(encoding="utf-8", errors="ignore")
+                )
+            except json.JSONDecodeError:
+                loaded_metadata = None
+            if isinstance(loaded_metadata, dict):
+                metadata.update(loaded_metadata)
+        if label_key not in metadata or not str(metadata.get(label_key) or "").strip():
+            metadata[label_key] = label
+        if "type" not in metadata or not str(metadata.get("type") or "").strip():
+            metadata["type"] = section_type
         chunk_paths = sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key)
         loaded_sections.append(
             ChunkedSectionFiles(
@@ -2266,7 +2332,7 @@ def _load_chunked_section_files(
                 label=label,
                 directory=section_dir,
                 chunk_paths=chunk_paths,
-                metadata={"type": section_type, label_key: label},
+                metadata=metadata,
             )
         )
     return loaded_sections
@@ -2286,13 +2352,26 @@ def _load_labeled_chunk_directories(
             label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
         else:
             label = section_dir.name
+        metadata_path = section_dir / "metadata.json"
+        metadata: dict[str, Any] = {"type": section_type, label_key: label}
+        if metadata_path.exists():
+            try:
+                loaded_metadata = json.loads(
+                    metadata_path.read_text(encoding="utf-8", errors="ignore")
+                )
+            except json.JSONDecodeError:
+                loaded_metadata = None
+            if isinstance(loaded_metadata, dict):
+                metadata.update(loaded_metadata)
+        if label_key not in metadata or not str(metadata.get(label_key) or "").strip():
+            metadata[label_key] = label
+        if "type" not in metadata or not str(metadata.get("type") or "").strip():
+            metadata["type"] = section_type
         chunks: list[str] = []
         for chunk_path in sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key):
             content = chunk_path.read_text(encoding="utf-8", errors="ignore").strip()
             if content:
                 chunks.append(content)
-        metadata: dict[str, Any] = {"type": section_type}
-        metadata[label_key] = label
         sections.append(
             {
                 "label": label,
@@ -4504,7 +4583,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        reports_label = Gtk.Label(label="Report Name Prompt", xalign=0)
+        reports_label = Gtk.Label(label="Report Name/Date Prompt", xalign=0)
         reports_label.add_css_class("dim-label")
         prompt_section.append(reports_label)
         reports_scroller, reports_buffer = self._build_prompt_editor(
@@ -8957,7 +9036,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 previous_report = False
                 ct_pending_entries: list[dict[str, Any]] = []
                 ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
-                ct_metadata: list[tuple[dict[str, Any], tuple[str, ...]]] = []
+                ct_metadata: list[tuple[dict[str, Any], tuple[str, ...], bool]] = []
                 for entry in ct_entries:
                     self._raise_if_stop_requested()
                     page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
@@ -8970,7 +9049,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if file_name and file_name in ct_done:
                         continue
                     ct_pending_entries.append(entry)
-                    if is_report_start and not _extract_entry_value(entry, "name") and file_name:
+                    if (
+                        is_report_start
+                        and (
+                            not _extract_entry_value(entry, "name", "report_name")
+                            or not _extract_entry_value(entry, "date", "report_date")
+                        )
+                        and file_name
+                    ):
                         image_path = _image_path_for_filename(file_name, image_dir)
                         ct_jobs.append(
                             (
@@ -8993,7 +9079,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                 ),
                             )
                         )
-                        ct_metadata.append((entry, ("name", "report_name")))
+                        ct_metadata.append((entry, ("name", "report_name"), True))
                     elif page_type in form_first_types and not _extract_entry_value(entry, "name") and file_name:
                         image_path = _image_path_for_filename(file_name, image_dir)
                         ct_jobs.append(
@@ -9017,8 +9103,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                 ),
                             )
                         )
-                        ct_metadata.append((entry, ("name", "form_name")))
-                for (entry, name_keys), response in zip(
+                        ct_metadata.append((entry, ("name", "form_name"), False))
+                for (entry, name_keys, capture_report_date), response in zip(
                     ct_metadata,
                     self._run_classifier_jobs(ct_jobs, workers),
                     strict=True,
@@ -9027,6 +9113,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if name_value:
                         entry["name"] = name_value
                         updates += 1
+                    if capture_report_date:
+                        report_date = _extract_entry_value(response, "date", "report_date")
+                        if report_date and not _extract_entry_value(entry, "date"):
+                            entry["date"] = report_date
+                            updates += 1
                 with ct_named_path.open(ct_mode, encoding="utf-8") as handle:
                     for entry in ct_pending_entries:
                         self._raise_if_stop_requested()
@@ -9124,7 +9215,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if page_type in form_first_types:
                     form_lines.append(_format_toc_line(name_value, page))
                 elif page_type in report_types:
-                    report_lines.append(_format_toc_line(name_value, page))
+                    report_date = _extract_entry_value(entry, "date", "report_date").strip()
+                    report_lines.append(
+                        _format_toc_line(_format_report_label(name_value, report_date), page)
+                    )
             minute_order_lines: list[str] = []
             hearing_lines: list[str] = []
             minute_first_types = {
@@ -9980,6 +10074,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 output_section_dir = optimized_hearings_dir / section.directory.name
                 output_section_dir.mkdir(parents=True, exist_ok=True)
                 (output_section_dir / "label.txt").write_text(hearing_date + "\n", encoding="utf-8")
+                (output_section_dir / "metadata.json").write_text(
+                    json.dumps(section.metadata, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
                 total_chunks = len(section.chunk_paths)
                 for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
                     self._raise_if_stop_requested()
@@ -10031,10 +10129,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if not section.chunk_paths:
                     continue
                 report_name = str(section.metadata.get("report_name", "")).strip() or section.label or "Unknown report"
+                report_label = (
+                    str(section.metadata.get("report_label", "")).strip()
+                    or _format_report_label(
+                        report_name,
+                        str(section.metadata.get("report_date", "")).strip(),
+                    )
+                )
                 section_paragraphs: list[str] = []
                 output_section_dir = optimized_reports_dir / section.directory.name
                 output_section_dir.mkdir(parents=True, exist_ok=True)
-                (output_section_dir / "label.txt").write_text(report_name + "\n", encoding="utf-8")
+                (output_section_dir / "label.txt").write_text(report_label + "\n", encoding="utf-8")
+                optimized_metadata = dict(section.metadata)
+                optimized_metadata["report_label"] = report_label
+                (output_section_dir / "metadata.json").write_text(
+                    json.dumps(optimized_metadata, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
                 total_chunks = len(section.chunk_paths)
                 for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
                     self._raise_if_stop_requested()
@@ -10224,11 +10335,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 metadata = section.get("metadata")
                 metadata = metadata if isinstance(metadata, dict) else {}
                 report_name = str(metadata.get("report_name", "")).strip() or "Report"
+                report_label = (
+                    str(metadata.get("report_label", "")).strip()
+                    or _format_report_label(
+                        report_name,
+                        str(metadata.get("report_date", "")).strip(),
+                    )
+                )
                 paragraphs = _expand_section_chunk_paragraphs(
                     list(section.get("chunks", []))
                 )
                 if paragraphs:
-                    report_groups.append((report_name, paragraphs))
+                    report_groups.append((report_label, paragraphs))
             report_responses: list[str] = []
             report_group_chunk_counts: list[int] = []
             for _report_name, paragraphs in report_groups:
@@ -10455,6 +10573,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             for entry in report_entries:
                 report_name = _extract_entry_value(
                     entry,
+                    "report_label",
                     "report_name",
                     "report",
                     "name",
@@ -10711,7 +10830,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             report_page_by_key: dict[str, str] = {}
             report_display_by_key: dict[str, str] = {}
             for entry in report_entries:
-                report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
+                report_name = _extract_entry_value(
+                    entry,
+                    "report_label",
+                    "report_name",
+                    "report",
+                    "name",
+                ).strip()
                 if not report_name:
                     continue
                 page_str = _extract_start_page_for_date_links(entry)
@@ -11084,9 +11209,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             report_name = report_name_by_file.get(start_file, "").strip()
             if not report_name:
                 return
+            report_date = date_by_file.get(start_file, "").strip()
             report_boundaries.append(
                 {
                     "report_name": report_name,
+                    "report_date": report_date,
+                    "report_label": _format_report_label(report_name, report_date),
+                    "report_id": _report_id_from_start_page(start_page),
                     "start_page": start_page,
                     "end_page": end_page,
                 }

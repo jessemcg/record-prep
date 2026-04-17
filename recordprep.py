@@ -19,6 +19,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -2520,6 +2521,7 @@ def _wait_for_endpoint_ready(
     timeout_seconds: float = LOCAL_SERVER_READY_TIMEOUT_SECONDS,
     poll_seconds: float = LOCAL_SERVER_READY_POLL_SECONDS,
     process: subprocess.Popen[str] | None = None,
+    recent_output: Callable[[], str] | None = None,
     stop_check: Callable[[], None] | None = None,
 ) -> None:
     deadline = time.monotonic() + max(0.1, timeout_seconds)
@@ -2531,7 +2533,9 @@ def _wait_for_endpoint_ready(
         if process is not None and process.poll() is not None:
             detail = "process exited before startup completed."
             output = ""
-            if process.stdout is not None:
+            if recent_output is not None:
+                output = recent_output()
+            elif process.stdout is not None:
                 try:
                     output = process.stdout.read()
                 except Exception:
@@ -5706,6 +5710,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_completion_message: str | None = None
         self._local_vision_server_process: subprocess.Popen[str] | None = None
         self._local_vision_server_owned = False
+        self._local_vision_server_log_thread: threading.Thread | None = None
+        self._local_vision_server_recent_output: deque[str] = deque(maxlen=40)
+        self._local_vision_server_log_lock = threading.Lock()
 
         header_bar = Adw.HeaderBar()
 
@@ -5745,7 +5752,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         log_frame.set_margin_top(6)
         log_scroller = Gtk.ScrolledWindow()
         log_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        log_scroller.set_min_content_height(140)
+        log_scroller.set_min_content_height(280)
         log_scroller.set_vexpand(False)
         log_view = Gtk.TextView()
         log_view.set_editable(False)
@@ -6725,6 +6732,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
         return False
 
+    def _append_raw_log_message(self, message: str, level: str = "INFO") -> bool:
+        if self._log_buffer is None:
+            return False
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        text = str(message).rstrip("\r\n")
+        level_normalized = str(level or "INFO").upper()
+        end_iter = self._log_buffer.get_end_iter()
+        self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
+        if self._log_view is not None:
+            end_iter = self._log_buffer.get_end_iter()
+            self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
+        return False
+
     def show_toast(self, message: str, level: str | None = None) -> None:
         resolved_level = level or self._infer_log_level(str(message))
         GLib.idle_add(self._append_log_message, str(message), resolved_level)
@@ -7298,12 +7318,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         process = _start_server(start_command)
         self._local_vision_server_process = process
         self._local_vision_server_owned = True
+        self._start_local_vision_server_log_reader(process)
         if LOCAL_VISION_SERVER_STARTUP_SECONDS > 0:
             time.sleep(LOCAL_VISION_SERVER_STARTUP_SECONDS)
         try:
             _wait_for_endpoint_ready(
                 api_url,
                 process=process,
+                recent_output=self._local_vision_server_recent_output_text,
                 stop_check=self._raise_if_stop_requested,
             )
         except Exception:
@@ -7311,6 +7333,39 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._local_vision_server_owned = False
             raise
         return True
+
+    def _start_local_vision_server_log_reader(self, process: subprocess.Popen[str]) -> None:
+        with self._local_vision_server_log_lock:
+            self._local_vision_server_recent_output.clear()
+        if process.stdout is None:
+            return
+
+        def read_server_output() -> None:
+            try:
+                assert process.stdout is not None
+                for line in process.stdout:
+                    text = line.rstrip("\r\n")
+                    with self._local_vision_server_log_lock:
+                        self._local_vision_server_recent_output.append(text)
+                    GLib.idle_add(self._append_raw_log_message, text, "SERVER")
+            except Exception as exc:
+                GLib.idle_add(
+                    self._append_log_message,
+                    f"Stopped reading llama.cpp server output: {exc}",
+                    "WARN",
+                )
+
+        thread = threading.Thread(
+            target=read_server_output,
+            name="recordprep-llama-server-log-reader",
+            daemon=True,
+        )
+        self._local_vision_server_log_thread = thread
+        thread.start()
+
+    def _local_vision_server_recent_output_text(self) -> str:
+        with self._local_vision_server_log_lock:
+            return "\n".join(self._local_vision_server_recent_output)
 
     def _stop_local_vision_server(self) -> None:
         process = self._local_vision_server_process
@@ -8300,9 +8355,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
             }
+            local_vision_enabled = bool(shared_settings.get("local_vision_enabled", False))
             workers = self._classifier_worker_count(shared_settings)
             pending_pages: list[tuple[bool, str]] = []
             jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
+
+            def append_basic_entry(is_rt: bool, file_name: str, entry: dict[str, str]) -> None:
+                target_path = rt_basic_path if is_rt else ct_basic_path
+                with target_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(entry))
+                    handle.write("\n")
+                if is_rt:
+                    done_rt.add(file_name)
+                else:
+                    done_ct.add(file_name)
+
             for index, text_path in enumerate(text_files, start=1):
                 self._raise_if_stop_requested()
                 if split_mode == "rt_only":
@@ -8318,6 +8385,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if not need_ct or text_path.name in done_ct:
                         continue
                 image_path = _image_path_for_filename(text_path.name, image_dir)
+                if not local_vision_enabled:
+                    entry = self._classify_image_with_page_type(
+                        basic_rt_settings if is_rt else basic_ct_settings,
+                        text_path.name,
+                        image_path,
+                        3,
+                    )
+                    append_basic_entry(is_rt, text_path.name, entry)
+                    continue
                 pending_pages.append((is_rt, text_path.name))
                 jobs.append(
                     (
@@ -8336,14 +8412,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 strict=True,
             ):
                 self._raise_if_stop_requested()
-                target_path = rt_basic_path if is_rt else ct_basic_path
-                with target_path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(entry))
-                    handle.write("\n")
-                if is_rt:
-                    done_rt.add(file_name)
-                else:
-                    done_ct.add(file_name)
+                append_basic_entry(is_rt, file_name, entry)
             if need_ct and ct_basic_path.exists():
                 self._raise_if_stop_requested()
                 ct_entries = _load_jsonl_entries(ct_basic_path)

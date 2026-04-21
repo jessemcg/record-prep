@@ -22,7 +22,7 @@ import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import gi
 
@@ -2720,6 +2720,20 @@ def _write_manifest(
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _manifest_input_pdf_paths(root_dir: Path) -> list[Path]:
+    manifest = _read_manifest(root_dir)
+    raw_paths = manifest.get("input_pdfs")
+    if not isinstance(raw_paths, list):
+        return []
+    result: list[Path] = []
+    for value in raw_paths:
+        if not isinstance(value, str):
+            continue
+        resolved = (root_dir / value).resolve(strict=False)
+        result.append(resolved)
+    return result
+
+
 def _read_config() -> dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {}
@@ -3152,7 +3166,35 @@ def _generate_text_files(pdf_path: Path, text_dir: Path) -> None:
         pdf = pdftotext.PDF(handle, physical=True)
     for index, page_text in enumerate(pdf, start=1):
         target = text_dir / f"{index:04d}.txt"
+        if target.exists():
+            continue
         target.write_text(page_text, encoding="utf-8")
+
+
+def _count_pdf_pages(pdf_path: Path) -> int:
+    doc = fitz.open(str(pdf_path))
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
+def _expected_page_numbers_from_pdfs(pdf_paths: Sequence[Path]) -> set[str]:
+    total_pages = 0
+    for pdf_path in pdf_paths:
+        total_pages += _count_pdf_pages(pdf_path)
+    return {f"{index:04d}" for index in range(1, total_pages + 1)}
+
+
+def _existing_numbered_stems(path: Path, pattern: str) -> set[str]:
+    try:
+        return {
+            item.stem
+            for item in path.glob(pattern)
+            if item.is_file() and item.stem.isdigit()
+        }
+    except OSError:
+        return set()
 
 
 def _generate_image_page_files(pdf_path: Path, image_pages_dir: Path) -> None:
@@ -3169,8 +3211,11 @@ def _generate_image_page_files(pdf_path: Path, image_pages_dir: Path) -> None:
             max_dim = max(width_px, height_px)
             scale = min(1.0, max_dimension_px / max_dim) if max_dim else 1.0
             matrix = fitz.Matrix(base_zoom * scale, base_zoom * scale)
+            target = image_pages_dir / f"{index + 1:04d}.png"
+            if target.exists():
+                continue
             pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY)
-            pix.save(str(image_pages_dir / f"{index + 1:04d}.png"))
+            pix.save(str(target))
     finally:
         doc.close()
 
@@ -3378,6 +3423,8 @@ def _ocr_images(
     workers: int,
     stop_check: Callable[[], None] | None = None,
 ) -> None:
+    if not image_paths:
+        return
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
         future_to_image_path = {
             executor.submit(_ocr_image, image_path, server_url, model_id): image_path
@@ -3434,10 +3481,18 @@ def _generate_text_files_with_local_ocr(
         image_paths = sorted(image_pages_dir.glob("*.png"))
         if not image_paths:
             raise RuntimeError("No images generated for OCR.")
+        image_paths_to_ocr = [
+            image_path
+            for image_path in image_paths
+            if not (text_dir / f"{image_path.stem}.txt").exists()
+        ]
+        if not image_paths_to_ocr:
+            print("All OCR text pages already exist; skipping OCR.")
+            return
 
         ocr_started_at = time.monotonic()
         _ocr_images(
-            image_paths,
+            image_paths_to_ocr,
             server_url=server_url,
             model_id=model_id,
             text_dir=text_dir,
@@ -3450,7 +3505,7 @@ def _generate_text_files_with_local_ocr(
         print(
             "OCR job completed in "
             f"{_format_elapsed(job_elapsed)} "
-            f"({len(image_paths)} page(s), {workers} worker(s), {slots} slot(s))."
+            f"({len(image_paths_to_ocr)} page(s), {workers} worker(s), {slots} slot(s))."
         )
 
     finally:
@@ -6830,7 +6885,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._set_step_status(row, "Done" if done else "Pending")
 
         for step_id, row, _handler in self._pipeline_steps():
-            _set_done(row, self._step_artifact_complete(step_id, root_dir))
+            _set_done(row, self._step_artifact_complete(step_id, root_dir, self.selected_pdfs))
 
     def _expected_classification_file_names(
         self,
@@ -6897,7 +6952,31 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             need_rt,
         ) and self._jsonl_complete_for_expected(ct_path, ct_expected, need_ct)
 
-    def _step_artifact_complete(self, step_id: str, root_dir: Path) -> bool:
+    def _expected_create_files_page_numbers(
+        self,
+        root_dir: Path,
+        selected_pdfs: Sequence[Path] | None = None,
+    ) -> set[str]:
+        pdf_paths = [path for path in (selected_pdfs or []) if path.exists()]
+        if not pdf_paths:
+            merged_pdf = root_dir / "temp" / "merged.pdf"
+            if merged_pdf.exists():
+                pdf_paths = [merged_pdf]
+        if not pdf_paths:
+            pdf_paths = [path for path in _manifest_input_pdf_paths(root_dir) if path.exists()]
+        if not pdf_paths:
+            return set()
+        try:
+            return _expected_page_numbers_from_pdfs(pdf_paths)
+        except Exception:
+            return set()
+
+    def _step_artifact_complete(
+        self,
+        step_id: str,
+        root_dir: Path,
+        selected_pdfs: Sequence[Path] | None = None,
+    ) -> bool:
         def _dir_has_files(path: Path, pattern: str) -> bool:
             try:
                 return path.exists() and any(path.glob(pattern))
@@ -6916,7 +6995,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         minutes_path = _minutes_summary_output_path(root_dir)
 
         if step_id == "create_files":
-            return _dir_has_files(text_dir, "*.txt") and _dir_has_files(image_dir, "*.png")
+            expected_pages = self._expected_create_files_page_numbers(root_dir, selected_pdfs)
+            text_pages = _existing_numbered_stems(text_dir, "*.txt")
+            image_pages = _existing_numbered_stems(image_dir, "*.png")
+            if expected_pages:
+                return text_pages >= expected_pages and image_pages >= expected_pages
+            return bool(text_pages) and bool(image_pages)
         if step_id == "strip_characters":
             return _dir_has_files(text_dir, "*.txt")
         if step_id == "infer_case":
@@ -7655,7 +7739,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Unknown end step.")
             end_index = step_ids.index(end_step_id)
         for index, (step_id, _row, _handler) in enumerate(steps[: end_index + 1]):
-            if not self._step_artifact_complete(step_id, root_dir):
+            if not self._step_artifact_complete(step_id, root_dir, self.selected_pdfs):
                 return index
         return None
 

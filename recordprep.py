@@ -33,6 +33,7 @@ from gi.repository import Adw, Gio, GLib, Gtk, GObject  # type: ignore
 import fitz
 import pdftotext
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import DependencyError
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString
@@ -2436,6 +2437,16 @@ def _merge_pdfs(paths: list[Path], output_path: Path) -> Path:
     with output_path.open("wb") as handle:
         writer.write(handle)
     return output_path
+
+
+def _format_create_files_error(exc: Exception) -> str:
+    if isinstance(exc, DependencyError) and "AES algorithm" in str(exc):
+        return (
+            "Create files failed: an input PDF uses AES encryption, "
+            "and the current Python environment is missing the "
+            "`cryptography` package required by pypdf."
+        )
+    return f"Create files failed: {exc}"
 
 
 def _ensure_case_bundle_dirs(base_dir: Path) -> tuple[Path, Path, Path]:
@@ -7870,7 +7881,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         except StopRequested:
             success = None
         except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create files failed: {exc}")
+            GLib.idle_add(self.show_toast, _format_create_files_error(exc))
         else:
             success = True
             pending_split = self._rt_ct_split_pending

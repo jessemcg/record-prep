@@ -153,8 +153,34 @@ CONFIG_KEY_SUMMARIZE_DISABLE_REASONING = "summarize_disable_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
-CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT = "summarize_consolidate_hearings_prompt"
-CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT = "summarize_consolidate_reports_prompt"
+CONFIG_KEY_CONSOLIDATE_API_URL = "consolidate_api_url"
+CONFIG_KEY_CONSOLIDATE_MODEL_ID = "consolidate_model_id"
+CONFIG_KEY_CONSOLIDATE_API_KEY = "consolidate_api_key"
+CONFIG_KEY_CONSOLIDATE_DISABLE_REASONING = "consolidate_disable_reasoning"
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT = (
+    "summarize_consolidate_hearings_prompt"
+)
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT = (
+    "summarize_consolidate_hearings_quick_point_prompt"
+)
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT = (
+    "summarize_consolidate_reports_prompt"
+)
+CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT = (
+    "summarize_consolidate_reports_quick_point_prompt"
+)
+LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_HEADINGS_PROMPT = (
+    "summarize_consolidate_hearings_headings_prompt"
+)
+LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_ORGANIZE_PROMPT = (
+    "summarize_consolidate_hearings_organize_prompt"
+)
+LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_HEADINGS_PROMPT = (
+    "summarize_consolidate_reports_headings_prompt"
+)
+LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_ORGANIZE_PROMPT = (
+    "summarize_consolidate_reports_organize_prompt"
+)
 CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_OVERVIEW_API_URL = "overview_api_url"
 CONFIG_KEY_OVERVIEW_MODEL_ID = "overview_model_id"
@@ -347,24 +373,42 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
 )
 DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT = (
     "I will provide the generated summary text for one court hearing. Rewrite it into "
-    "a tighter, non-repetitive summary based only on the provided text. Start with "
-    "one line in this exact format: Quick point: [one plain-English sentence]. Then "
-    "add a blank line and one concise paragraph summarizing the hearing. Preserve "
-    "every quoted phrase exactly as written. Do not add new quotes. Do not add facts "
-    "that are not in the provided summary. Keep distinct legal events, testimony, "
-    "rulings, findings, services, and orders even if they are related. Do not include "
-    "the hearing date. Do not use markdown. Here is the hearing summary:"
+    "a readable organized summary by inventing a small set of useful subheadings and "
+    "placing the relevant content under them. Preserve all facts from the provided "
+    "summary. Preserve every quoted phrase exactly as written. Do not add new quotes. "
+    "Do not add facts that are not in the provided summary. Keep distinct legal "
+    "events, testimony, rulings, findings, services, and orders even if they are "
+    "related. Do not include a Quick point line. Do not include the hearing date. Do "
+    "not use markdown. Output plain text only. Each subheading must appear on its own "
+    "line, followed by a blank line, then one paragraph of relevant content. Here is "
+    "the hearing summary:"
+)
+DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT = (
+    "I will provide an organized hearing summary. Write exactly one line in this "
+    "format: Quick point: [one plain-English sentence]. Base it only on the provided "
+    "text. Do not add any facts that are not present. Do not add quotation marks "
+    "unless the quoted words already appear in the provided text. Do not include the "
+    "hearing date. Return only that single line. Here is the organized hearing "
+    "summary:"
 )
 DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT = (
     "I will provide the generated summary text for one report. Rewrite it into a "
-    "tighter, non-repetitive summary based only on the provided text. Start with one "
-    "line in this exact format: Quick point: [one plain-English sentence]. Then add "
-    "a blank line and one concise paragraph summarizing the report. Preserve every "
-    "quoted phrase exactly as written. Do not add new quotes. Do not add facts that "
-    "are not in the provided summary. Keep distinct legal facts, recommendations, "
-    "services, visits, placements, parent conduct, child welfare facts, and agency "
-    "positions even if they are related. Do not use markdown. Here is the report "
-    "summary:"
+    "readable organized summary by inventing a small set of useful subheadings and "
+    "placing the relevant content under them. Preserve all facts from the provided "
+    "summary. Preserve every quoted phrase exactly as written. Do not add new quotes. "
+    "Do not add facts that are not in the provided summary. Keep distinct legal "
+    "facts, recommendations, services, visits, placements, parent conduct, child "
+    "welfare facts, and agency positions even if they are related. Do not include a "
+    "Quick point line. Do not use markdown. Output plain text only. Each subheading "
+    "must appear on its own line, followed by a blank line, then one paragraph of "
+    "relevant content. Here is the report summary:"
+)
+DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT = (
+    "I will provide an organized report summary. Write exactly one line in this "
+    "format: Quick point: [one plain-English sentence]. Base it only on the provided "
+    "text. Do not add any facts that are not present. Do not add quotation marks "
+    "unless the quoted words already appear in the provided text. Return only that "
+    "single line. Here is the organized report summary:"
 )
 DEFAULT_SUMMARIZE_CHUNK_SIZE = 15
 DEFAULT_OVERVIEW_PROMPT = (
@@ -1030,7 +1074,6 @@ def _summary_output_paths(root_dir: Path) -> tuple[Path, Path]:
         summaries_dir / "summarized_reports.txt",
     )
 
-
 def _consolidated_summary_output_paths(root_dir: Path) -> tuple[Path, Path]:
     summaries_dir = root_dir / "summaries"
     case_name = _load_case_name_from_file(root_dir)
@@ -1505,20 +1548,25 @@ def _strip_page_markdown_links(text: str) -> str:
     return re.sub(r"\s*\[[^\]]+\]\(page:\d{4}\)", "", text).strip()
 
 
-def _prefix_minute_order_body_links(body_lines: list[str], minute_page: str | None) -> list[str]:
+def _suffix_minute_order_body_links(body_lines: list[str], minute_page: str | None) -> list[str]:
     if not minute_page:
         return body_lines
 
     linked_lines: list[str] = []
     for line in body_lines:
         cleaned = re.sub(r"^\s*\[(?:MO|M>)\]\(page:\d{4}\)\s*", "", line).strip()
+        cleaned = re.sub(r"\s*\[:M\]\(page:\d{4}\)\s*$", "", cleaned).strip()
         if not cleaned:
             linked_lines.append(line)
             continue
         if re.match(r"(?i)^quick point\s*:", cleaned):
             linked_lines.append(cleaned)
             continue
-        linked_lines.append(f"[M>](page:{minute_page}) {cleaned}")
+        sentence_count = len(_split_into_sentences(_strip_page_markdown_links(cleaned)))
+        if sentence_count >= 2:
+            linked_lines.append(f"{cleaned} [:M](page:{minute_page})")
+        else:
+            linked_lines.append(cleaned)
     return linked_lines
 
 
@@ -1552,20 +1600,163 @@ def _summary_section_body_text(body_lines: list[str]) -> str:
     return _collapse_blank_lines("\n".join(body_lines)).strip()
 
 
-def _normalize_consolidated_summary_response(response: str) -> str:
-    cleaned = _collapse_blank_lines(response.strip()).strip()
+def _normalize_subheading_line(line: str) -> str:
+    cleaned = re.sub(r"^\s*#+\s*", "", line.strip())
+    cleaned = re.sub(r"^\s*(?:[-*•]+|\d+[.)])\s*", "", cleaned)
+    cleaned = re.sub(r"\s*:\s*$", "", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _parse_consolidation_headings_response(response: str) -> list[str]:
+    headings: list[str] = []
+    seen: set[str] = set()
+    for line in response.splitlines():
+        cleaned = _normalize_subheading_line(line)
+        if not cleaned:
+            continue
+        normalized_key = cleaned.lower()
+        if normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        headings.append(cleaned)
+    return headings
+
+
+def _remove_quick_point_lines(text: str) -> str:
+    if not text:
+        return ""
+    lines = text.splitlines()
+    cleaned_lines = [
+        line
+        for line in lines
+        if not re.match(r"(?i)^\s*\**\s*quick point\s*:\s*", line.strip())
+    ]
+    return _collapse_blank_lines("\n".join(cleaned_lines)).strip()
+
+
+def _looks_like_consolidation_heading(line: str, next_is_blank: bool) -> bool:
+    stripped = line.strip()
+    if not stripped or not next_is_blank:
+        return False
+    if re.search(r"[.!?][\"')\\]]*$", stripped):
+        return False
+    if stripped.endswith(":"):
+        return True
+    if len(stripped) > 90:
+        return False
+    if len(stripped.split()) > 12:
+        return False
+    sentence_count = len(_split_into_sentences(stripped))
+    if sentence_count > 1:
+        return False
+    return True
+
+
+def _normalize_combined_consolidation_response(
+    response: str,
+    fallback_heading: str,
+) -> tuple[list[str], str]:
+    cleaned = _remove_quick_point_lines(response or "")
+    if not cleaned:
+        return [], ""
+
+    lines = cleaned.splitlines()
+    sections: list[tuple[str, list[str]]] = []
+    preamble_lines: list[str] = []
+    current_heading: str | None = None
+    current_body: list[str] = []
+
+    def _flush_section() -> None:
+        nonlocal current_heading, current_body
+        if current_heading is None:
+            return
+        body_text = _collapse_blank_lines("\n".join(current_body)).strip()
+        if body_text:
+            sections.append((current_heading, body_text.splitlines()))
+        current_heading = None
+        current_body = []
+
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            if current_heading and current_body and current_body[-1] != "":
+                current_body.append("")
+            elif current_heading is None and preamble_lines and preamble_lines[-1] != "":
+                preamble_lines.append("")
+            index += 1
+            continue
+        next_is_blank = index + 1 < len(lines) and not lines[index + 1].strip()
+        if _looks_like_consolidation_heading(stripped, next_is_blank):
+            _flush_section()
+            current_heading = _normalize_subheading_line(stripped) or fallback_heading
+            index += 2
+            continue
+        if current_heading is None:
+            preamble_lines.append(stripped)
+        else:
+            current_body.append(stripped)
+        index += 1
+
+    _flush_section()
+
+    if not sections:
+        body_text = cleaned.strip()
+        if not body_text:
+            return [], ""
+        rendered = f"{fallback_heading}\n\n{body_text}"
+        return [fallback_heading], rendered
+
+    rendered: list[str] = []
+    if preamble_lines:
+        first_heading, first_body_lines = sections[0]
+        joined_preamble = _collapse_blank_lines("\n".join(preamble_lines)).strip()
+        if joined_preamble:
+            prefix_lines = joined_preamble.splitlines()
+            if first_body_lines:
+                prefix_lines.append("")
+            sections[0] = (first_heading, prefix_lines + first_body_lines)
+    headings: list[str] = []
+    for heading, body_lines in sections:
+        body_text = _collapse_blank_lines("\n".join(body_lines)).strip()
+        if not body_text:
+            continue
+        headings.append(heading)
+        if rendered:
+            rendered.append("")
+        rendered.append(heading.strip())
+        rendered.append("")
+        rendered.extend(body_text.splitlines())
+    normalized = _collapse_blank_lines("\n".join(rendered)).strip()
+    if not normalized:
+        fallback_text = _collapse_blank_lines("\n".join(preamble_lines)).strip()
+        if not fallback_text:
+            return [], ""
+        return [fallback_heading], f"{fallback_heading}\n\n{fallback_text}"
+    return headings, normalized
+
+
+def _normalize_quick_point_response(response: str) -> str:
+    cleaned = _collapse_blank_lines((response or "").strip()).strip()
     if not cleaned:
         return ""
-    cleaned = re.sub(
-        r"(?i)^\s*\*\*quick point:\*\*\s*",
-        "Quick point: ",
-        cleaned,
-    ).strip()
-    if re.match(r"(?i)^quick point\s*:", cleaned):
-        return re.sub(r"(?i)^quick point\s*:", "Quick point:", cleaned, count=1)
-    sentences = _split_into_sentences(cleaned)
-    quick_point = sentences[0] if sentences else cleaned.splitlines()[0].strip()
-    return f"Quick point: {quick_point}\n\n{cleaned}"
+    cleaned = re.sub(r"(?i)^\s*\*\*quick point:\*\*\s*", "", cleaned).strip()
+    cleaned = re.sub(r"(?i)^\s*quick point\s*:\s*", "", cleaned).strip()
+    first_line = cleaned.splitlines()[0].strip() if cleaned else ""
+    if not first_line:
+        return ""
+    first_line = re.sub(r"\s+", " ", first_line)
+    return f"Quick point: {first_line}"
+
+
+def _build_consolidated_section_body(quick_point: str, organized_text: str) -> str:
+    quick_point_line = _normalize_quick_point_response(quick_point)
+    organized_body = _remove_quick_point_lines(organized_text)
+    if quick_point_line and organized_body:
+        return f"{quick_point_line}\n\n{organized_body}"
+    if quick_point_line:
+        return quick_point_line
+    return organized_body
 
 
 def _render_summary_sections(
@@ -3585,8 +3776,18 @@ class SummarizeSettingsWidgets:
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
     minutes_prompt_buffer: Gtk.TextBuffer
+
+
+@dataclass
+class ConsolidateSettingsWidgets:
+    api_url_row: Adw.EntryRow
+    model_row: Adw.EntryRow
+    api_key_row: Adw.EntryRow
+    disable_reasoning_row: Adw.SwitchRow
     consolidate_hearings_prompt_buffer: Gtk.TextBuffer
+    consolidate_hearings_quick_point_prompt_buffer: Gtk.TextBuffer
     consolidate_reports_prompt_buffer: Gtk.TextBuffer
+    consolidate_reports_quick_point_prompt_buffer: Gtk.TextBuffer
 
 
 @dataclass
@@ -3768,20 +3969,6 @@ def load_summarize_settings() -> dict[str, Any]:
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
     ).strip()
-    consolidate_hearings_prompt = str(
-        config.get(
-            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
-            DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
-        )
-        or ""
-    ).strip()
-    consolidate_reports_prompt = str(
-        config.get(
-            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
-            DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
-        )
-        or ""
-    ).strip()
     return {
         "api_url": api_url,
         "model_id": model_id,
@@ -3791,12 +3978,6 @@ def load_summarize_settings() -> dict[str, Any]:
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         "minutes_prompt": minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT,
-        "consolidate_hearings_prompt": (
-            consolidate_hearings_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
-        ),
-        "consolidate_reports_prompt": (
-            consolidate_reports_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
-        ),
     }
 
 
@@ -3809,8 +3990,6 @@ def save_summarize_settings(
     hearings_prompt: str,
     reports_prompt: str,
     minutes_prompt: str,
-    consolidate_hearings_prompt: str,
-    consolidate_reports_prompt: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_SUMMARIZE_API_URL] = api_url
@@ -3827,11 +4006,116 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT] = (
         minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT
     )
+    _write_config(config)
+
+
+def load_consolidate_settings() -> dict[str, Any]:
+    config = _read_config()
+    summarize_settings = load_summarize_settings()
+    api_url = str(config.get(CONFIG_KEY_CONSOLIDATE_API_URL, "") or "").strip()
+    if not api_url:
+        api_url = str(summarize_settings.get("api_url", "") or "").strip()
+    model_id = str(config.get(CONFIG_KEY_CONSOLIDATE_MODEL_ID, "") or "").strip()
+    if not model_id:
+        model_id = str(summarize_settings.get("model_id", "") or "").strip()
+    api_key = str(config.get(CONFIG_KEY_CONSOLIDATE_API_KEY, "") or "").strip()
+    if not api_key:
+        api_key = str(summarize_settings.get("api_key", "") or "").strip()
+    disable_reasoning = _read_config_bool(
+        config,
+        CONFIG_KEY_CONSOLIDATE_DISABLE_REASONING,
+        bool(summarize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+    )
+    legacy_consolidate_hearings_prompt = str(
+        config.get(LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_ORGANIZE_PROMPT, "") or ""
+    ).strip() or str(
+        config.get(CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT, "") or ""
+    ).strip()
+    legacy_consolidate_reports_prompt = str(
+        config.get(LEGACY_CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_ORGANIZE_PROMPT, "") or ""
+    ).strip() or str(
+        config.get(CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT, "") or ""
+    ).strip()
+    consolidate_hearings_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
+            legacy_consolidate_hearings_prompt
+            or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT,
+        )
+        or ""
+    ).strip()
+    consolidate_hearings_quick_point_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT,
+            DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT,
+        )
+        or ""
+    ).strip()
+    consolidate_reports_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
+            legacy_consolidate_reports_prompt
+            or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT,
+        )
+        or ""
+    ).strip()
+    consolidate_reports_quick_point_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT,
+            DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT,
+        )
+        or ""
+    ).strip()
+    return {
+        "api_url": api_url,
+        "model_id": model_id,
+        "api_key": api_key,
+        "disable_reasoning": disable_reasoning,
+        "consolidate_hearings_prompt": (
+            consolidate_hearings_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
+        ),
+        "consolidate_hearings_quick_point_prompt": (
+            consolidate_hearings_quick_point_prompt
+            or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT
+        ),
+        "consolidate_reports_prompt": (
+            consolidate_reports_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
+        ),
+        "consolidate_reports_quick_point_prompt": (
+            consolidate_reports_quick_point_prompt
+            or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT
+        ),
+    }
+
+
+def save_consolidate_settings(
+    api_url: str,
+    model_id: str,
+    api_key: str,
+    disable_reasoning: bool,
+    consolidate_hearings_prompt: str,
+    consolidate_hearings_quick_point_prompt: str,
+    consolidate_reports_prompt: str,
+    consolidate_reports_quick_point_prompt: str,
+) -> None:
+    config = _read_config()
+    config[CONFIG_KEY_CONSOLIDATE_API_URL] = api_url
+    config[CONFIG_KEY_CONSOLIDATE_MODEL_ID] = model_id
+    config[CONFIG_KEY_CONSOLIDATE_API_KEY] = api_key
+    config[CONFIG_KEY_CONSOLIDATE_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT] = (
         consolidate_hearings_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
     )
+    config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT] = (
+        consolidate_hearings_quick_point_prompt
+        or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT
+    )
     config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT] = (
         consolidate_reports_prompt or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
+    )
+    config[CONFIG_KEY_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT] = (
+        consolidate_reports_quick_point_prompt
+        or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT
     )
     _write_config(config)
 
@@ -3926,6 +4210,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._classify_names_widgets: ClassifyNamesSettingsWidgets | None = None
         self._advanced_classify_widgets: AdvancedClassificationSettingsWidgets | None = None
         self._local_ocr_widgets: LocalOcrSettingsWidgets | None = None
+        self._consolidate_widgets: ConsolidateSettingsWidgets | None = None
         self._prompt_row_keys: dict[Gtk.ListBoxRow, str] = {}
         self._text_source_row: Adw.ComboRow | None = None
         self._text_source_values: list[str] = []
@@ -4129,6 +4414,20 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._prompt_row_keys[summarize_row] = "summarize"
         summarize_page = self._build_summarize_prompt_page(load_summarize_settings())
         prompt_stack.add_named(summarize_page, "summarize")
+
+        consolidate_row = Gtk.ListBoxRow()
+        consolidate_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        consolidate_box.set_margin_top(8)
+        consolidate_box.set_margin_bottom(8)
+        consolidate_box.set_margin_start(12)
+        consolidate_box.set_margin_end(12)
+        consolidate_label = Gtk.Label(label="Consolidate Summaries", xalign=0)
+        consolidate_box.append(consolidate_label)
+        consolidate_row.set_child(consolidate_box)
+        prompt_list.append(consolidate_row)
+        self._prompt_row_keys[consolidate_row] = "consolidate-summaries"
+        consolidate_page = self._build_consolidate_prompt_page(load_consolidate_settings())
+        prompt_stack.add_named(consolidate_page, "consolidate-summaries")
 
         overview_row = Gtk.ListBoxRow()
         overview_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -4941,34 +5240,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._set_prompt_editor_height(minutes_scroller, 240)
         prompt_section.append(minutes_scroller)
 
-        consolidate_hearings_label = Gtk.Label(
-            label="Consolidate Hearings Prompt",
-            xalign=0,
-        )
-        consolidate_hearings_label.add_css_class("dim-label")
-        prompt_section.append(consolidate_hearings_label)
-        consolidate_hearings_scroller, consolidate_hearings_buffer = (
-            self._build_prompt_editor(
-                settings.get("consolidate_hearings_prompt")
-                or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
-            )
-        )
-        self._set_prompt_editor_height(consolidate_hearings_scroller, 240)
-        prompt_section.append(consolidate_hearings_scroller)
-
-        consolidate_reports_label = Gtk.Label(
-            label="Consolidate Reports Prompt",
-            xalign=0,
-        )
-        consolidate_reports_label.add_css_class("dim-label")
-        prompt_section.append(consolidate_reports_label)
-        consolidate_reports_scroller, consolidate_reports_buffer = self._build_prompt_editor(
-            settings.get("consolidate_reports_prompt")
-            or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
-        )
-        self._set_prompt_editor_height(consolidate_reports_scroller, 240)
-        prompt_section.append(consolidate_reports_scroller)
-
         page_box.append(prompt_section)
 
         page = Gtk.ScrolledWindow()
@@ -4986,8 +5257,132 @@ class SettingsWindow(Adw.ApplicationWindow):
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
             minutes_prompt_buffer=minutes_buffer,
+        )
+        return page
+
+    def _build_consolidate_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page_box.set_margin_top(12)
+        page_box.set_margin_bottom(12)
+        page_box.set_margin_start(12)
+        page_box.set_margin_end(12)
+        page_box.set_vexpand(True)
+
+        title_label = Gtk.Label(label="Consolidate Summaries", xalign=0)
+        title_label.add_css_class("title-3")
+        page_box.append(title_label)
+
+        credentials_group = Adw.PreferencesGroup(title="Credentials")
+        credentials_group.add_css_class("list-stack")
+        credentials_group.set_hexpand(True)
+        page_box.append(credentials_group)
+
+        api_url_row = Adw.EntryRow(title="API URL")
+        api_url_row.set_text(settings.get("api_url", ""))
+        credentials_group.add(api_url_row)
+
+        model_row = Adw.EntryRow(title="Model ID")
+        model_row.set_text(settings.get("model_id", ""))
+        credentials_group.add(model_row)
+
+        api_key_row = self._build_password_row("API Key")
+        api_key_row.set_text(settings.get("api_key", ""))
+        credentials_group.add(api_key_row)
+
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
+        )
+        disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
+        )
+        credentials_group.add(disable_reasoning_row)
+
+        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        prompt_section.set_hexpand(True)
+        prompt_section.set_vexpand(True)
+
+        consolidate_hearings_label = Gtk.Label(
+            label="Consolidate Hearings Prompt",
+            xalign=0,
+        )
+        consolidate_hearings_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_hearings_label)
+        consolidate_hearings_scroller, consolidate_hearings_buffer = (
+            self._build_prompt_editor(
+                settings.get("consolidate_hearings_prompt")
+                or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_PROMPT
+            )
+        )
+        self._set_prompt_editor_height(consolidate_hearings_scroller, 240)
+        prompt_section.append(consolidate_hearings_scroller)
+
+        consolidate_hearings_quick_point_label = Gtk.Label(
+            label="Consolidate Hearings Quick Point Prompt",
+            xalign=0,
+        )
+        consolidate_hearings_quick_point_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_hearings_quick_point_label)
+        consolidate_hearings_quick_point_scroller, consolidate_hearings_quick_point_buffer = (
+            self._build_prompt_editor(
+                settings.get("consolidate_hearings_quick_point_prompt")
+                or DEFAULT_SUMMARIZE_CONSOLIDATE_HEARINGS_QUICK_POINT_PROMPT
+            )
+        )
+        self._set_prompt_editor_height(consolidate_hearings_quick_point_scroller, 240)
+        prompt_section.append(consolidate_hearings_quick_point_scroller)
+
+        consolidate_reports_label = Gtk.Label(
+            label="Consolidate Reports Prompt",
+            xalign=0,
+        )
+        consolidate_reports_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_reports_label)
+        consolidate_reports_scroller, consolidate_reports_buffer = (
+            self._build_prompt_editor(
+                settings.get("consolidate_reports_prompt")
+                or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_PROMPT
+            )
+        )
+        self._set_prompt_editor_height(consolidate_reports_scroller, 240)
+        prompt_section.append(consolidate_reports_scroller)
+
+        consolidate_reports_quick_point_label = Gtk.Label(
+            label="Consolidate Reports Quick Point Prompt",
+            xalign=0,
+        )
+        consolidate_reports_quick_point_label.add_css_class("dim-label")
+        prompt_section.append(consolidate_reports_quick_point_label)
+        consolidate_reports_quick_point_scroller, consolidate_reports_quick_point_buffer = (
+            self._build_prompt_editor(
+                settings.get("consolidate_reports_quick_point_prompt")
+                or DEFAULT_SUMMARIZE_CONSOLIDATE_REPORTS_QUICK_POINT_PROMPT
+            )
+        )
+        self._set_prompt_editor_height(consolidate_reports_quick_point_scroller, 240)
+        prompt_section.append(consolidate_reports_quick_point_scroller)
+
+        page_box.append(prompt_section)
+
+        page = Gtk.ScrolledWindow()
+        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page.set_hexpand(True)
+        page.set_vexpand(True)
+        page.set_child(page_box)
+
+        self._consolidate_widgets = ConsolidateSettingsWidgets(
+            api_url_row=api_url_row,
+            model_row=model_row,
+            api_key_row=api_key_row,
+            disable_reasoning_row=disable_reasoning_row,
             consolidate_hearings_prompt_buffer=consolidate_hearings_buffer,
+            consolidate_hearings_quick_point_prompt_buffer=(
+                consolidate_hearings_quick_point_buffer
+            ),
             consolidate_reports_prompt_buffer=consolidate_reports_buffer,
+            consolidate_reports_quick_point_prompt_buffer=(
+                consolidate_reports_quick_point_buffer
+            ),
         )
         return page
 
@@ -5147,6 +5542,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         local_ocr_widgets = self._local_ocr_widgets
         optimize_widgets = getattr(self, "_optimize_widgets", None)
         summarize_widgets = getattr(self, "_summarize_widgets", None)
+        consolidate_widgets = getattr(self, "_consolidate_widgets", None)
         overview_widgets = getattr(self, "_overview_widgets", None)
         rag_widgets = getattr(self, "_rag_widgets", None)
         if self._text_source_row:
@@ -5245,7 +5641,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
             )
-        if summarize_widgets:
+        if summarize_widgets and consolidate_widgets:
             save_summarize_settings(
                 summarize_widgets.api_url_row.get_text().strip(),
                 summarize_widgets.model_row.get_text().strip(),
@@ -5255,11 +5651,23 @@ class SettingsWindow(Adw.ApplicationWindow):
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
+            )
+            save_consolidate_settings(
+                consolidate_widgets.api_url_row.get_text().strip(),
+                consolidate_widgets.model_row.get_text().strip(),
+                consolidate_widgets.api_key_row.get_text().strip(),
+                bool(consolidate_widgets.disable_reasoning_row.get_active()),
                 self._prompt_text(
-                    summarize_widgets.consolidate_hearings_prompt_buffer
+                    consolidate_widgets.consolidate_hearings_prompt_buffer
                 ).strip(),
                 self._prompt_text(
-                    summarize_widgets.consolidate_reports_prompt_buffer
+                    consolidate_widgets.consolidate_hearings_quick_point_prompt_buffer
+                ).strip(),
+                self._prompt_text(
+                    consolidate_widgets.consolidate_reports_prompt_buffer
+                ).strip(),
+                self._prompt_text(
+                    consolidate_widgets.consolidate_reports_quick_point_prompt_buffer
                 ).strip(),
             )
         if overview_widgets:
@@ -5572,7 +5980,9 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
             ("Summarize (Reports prompt)", "summarize_reports"),
             ("Summarize (Minutes prompt)", "summarize_minutes"),
             ("Consolidate (Hearings prompt)", "consolidate_hearings"),
+            ("Consolidate (Hearings quick point prompt)", "consolidate_hearings_quick_point"),
             ("Consolidate (Reports prompt)", "consolidate_reports"),
+            ("Consolidate (Reports quick point prompt)", "consolidate_reports_quick_point"),
         ]
         labels = [label for label, _value in options]
         self._mode_values = [value for _label, value in options]
@@ -5706,9 +6116,13 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
         if mode_id == "summarize_minutes":
             return "Uses the saved Summarize minutes prompt. Paste minute order text."
         if mode_id == "consolidate_hearings":
-            return "Uses the saved Consolidate hearings prompt. Paste one generated hearing summary section body."
+            return "Uses the saved Consolidate credentials and Consolidate hearings prompt. Paste one generated hearing summary section body."
+        if mode_id == "consolidate_hearings_quick_point":
+            return "Uses the saved Consolidate credentials and Consolidate hearings quick point prompt. Paste one organized hearing section."
         if mode_id == "consolidate_reports":
-            return "Uses the saved Consolidate reports prompt. Paste one generated report summary section body."
+            return "Uses the saved Consolidate credentials and Consolidate reports prompt. Paste one generated report summary section body."
+        if mode_id == "consolidate_reports_quick_point":
+            return "Uses the saved Consolidate credentials and Consolidate reports quick point prompt. Paste one organized report section."
         return "Uses the saved prompt for the selected mode."
 
     def _apply_mode_settings(self, mode_id: str) -> None:
@@ -6387,8 +6801,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError(f"Unknown optimize test mode: {mode_id}")
             return request_settings
         if mode_id.startswith("summarize_") or mode_id.startswith("consolidate_"):
-            settings = load_summarize_settings()
-            prompt = settings["reports_prompt"]
+            if mode_id.startswith("consolidate_"):
+                settings = load_consolidate_settings()
+                prompt = settings["consolidate_reports_prompt"]
+            else:
+                settings = load_summarize_settings()
+                prompt = settings["reports_prompt"]
             if mode_id == "summarize_hearings":
                 prompt = settings["hearings_prompt"]
             elif mode_id == "summarize_reports":
@@ -6397,8 +6815,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 prompt = settings["minutes_prompt"]
             elif mode_id == "consolidate_hearings":
                 prompt = settings["consolidate_hearings_prompt"]
+            elif mode_id == "consolidate_hearings_quick_point":
+                prompt = settings["consolidate_hearings_quick_point_prompt"]
             elif mode_id == "consolidate_reports":
                 prompt = settings["consolidate_reports_prompt"]
+            elif mode_id == "consolidate_reports_quick_point":
+                prompt = settings["consolidate_reports_quick_point_prompt"]
             else:
                 raise ValueError(f"Unknown summarize test mode: {mode_id}")
             return {
@@ -6704,12 +7126,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 elif mode_id == "summarize_minutes":
                     output = self._request_plain_text(settings, raw_text)
                 elif mode_id == "consolidate_hearings":
-                    output = _normalize_consolidated_summary_response(
-                        self._request_plain_text(settings, raw_text)
+                    response = self._request_plain_text(settings, raw_text)
+                    _headings, output = _normalize_combined_consolidation_response(
+                        response or "",
+                        self._fallback_consolidation_heading("hearing"),
+                    )
+                    output = _remove_standalone_date_lines(
+                        _remove_hearing_date_mentions(output)
+                    )
+                elif mode_id == "consolidate_hearings_quick_point":
+                    output = _normalize_quick_point_response(
+                        self._request_plain_text(settings, raw_text) or ""
                     )
                 elif mode_id == "consolidate_reports":
-                    output = _normalize_consolidated_summary_response(
-                        self._request_plain_text(settings, raw_text)
+                    response = self._request_plain_text(settings, raw_text)
+                    _headings, output = _normalize_combined_consolidation_response(
+                        response or "",
+                        self._fallback_consolidation_heading("report"),
+                    )
+                elif mode_id == "consolidate_reports_quick_point":
+                    output = _normalize_quick_point_response(
+                        self._request_plain_text(settings, raw_text) or ""
                     )
                 else:
                     raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
@@ -10404,7 +10841,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             settings = load_summarize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure summarize API URL, model ID, and API key in Settings.")
+                raise ValueError(
+                    "Configure Summarize API URL, model ID, and API key in Settings."
+                )
             chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
             chunk_size_raw = settings.get("chunk_size", "")
             if chunk_size_raw:
@@ -10649,6 +11088,87 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
 
+    def _build_summarize_request_settings(
+        self,
+        summarize_settings: dict[str, Any],
+        prompt: str,
+    ) -> dict[str, Any]:
+        return {
+            "api_url": summarize_settings["api_url"],
+            "model_id": summarize_settings["model_id"],
+            "api_key": summarize_settings["api_key"],
+            "disable_reasoning": bool(
+                summarize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+            ),
+            "prompt": prompt,
+        }
+
+    def _fallback_consolidation_heading(self, source_type: str) -> str:
+        return "Proceedings" if source_type == "hearing" else "Report Summary"
+
+    def _run_consolidation_passes(
+        self,
+        summarize_settings: dict[str, Any],
+        sections: list[dict[str, Any]],
+        *,
+        source_type: str,
+        organize_prompt_key: str,
+        quick_point_prompt_key: str,
+        body_cleanup: Callable[[str], str] | None = None,
+    ) -> None:
+        fallback_heading = self._fallback_consolidation_heading(source_type)
+
+        for section in sections:
+            self._raise_if_stop_requested()
+            body_text = _summary_section_body_text(list(section.get("body_lines", [])))
+            organized_text = ""
+            headings: list[str] = []
+            if body_text:
+                response = self._request_plain_text(
+                    self._build_summarize_request_settings(
+                        summarize_settings,
+                        summarize_settings[organize_prompt_key],
+                    ),
+                    body_text,
+                )
+                headings, organized_text = _normalize_combined_consolidation_response(
+                    response or "",
+                    fallback_heading,
+                )
+            if not headings:
+                headings = [fallback_heading]
+            section["_organized_text"] = organized_text
+
+        for section in sections:
+            self._raise_if_stop_requested()
+            body_text = _summary_section_body_text(list(section.get("body_lines", [])))
+            if not body_text:
+                section["body_lines"] = []
+                continue
+            organized_text = str(section.pop("_organized_text", "") or "").strip()
+            if not organized_text:
+                fallback_heading = self._fallback_consolidation_heading(source_type)
+                _headings, organized_text = _normalize_combined_consolidation_response(
+                    body_text,
+                    fallback_heading,
+                )
+            if body_cleanup is not None:
+                organized_text = body_cleanup(organized_text)
+            quick_point_response = self._request_plain_text(
+                self._build_summarize_request_settings(
+                    summarize_settings,
+                    summarize_settings[quick_point_prompt_key],
+                ),
+                organized_text,
+            )
+            consolidated_body = _build_consolidated_section_body(
+                quick_point_response or "",
+                organized_text,
+            )
+            if body_cleanup is not None:
+                consolidated_body = body_cleanup(consolidated_body)
+            section["body_lines"] = consolidated_body.splitlines() if consolidated_body else []
+
     def _run_step_consolidate_summaries(self) -> bool:
         success: bool | str | None = False
         try:
@@ -10674,9 +11194,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "Run Find boundaries to generate hearing and report boundaries first."
                 )
 
-            settings = load_summarize_settings()
+            settings = load_consolidate_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure summarize API URL, model ID, and API key in Settings.")
+                raise ValueError(
+                    "Configure Consolidate Summaries API URL, model ID, and API key in Settings."
+                )
 
             hearing_entries = _load_json_entries(hearing_boundaries_path)
             hearing_keys: set[str] = set()
@@ -10705,28 +11227,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             if not hearing_sections:
                 raise ValueError("No hearing summary sections matched hearing boundary dates.")
-
-            hearing_request_settings = {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "disable_reasoning": bool(
-                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+            self._run_consolidation_passes(
+                settings,
+                hearing_sections,
+                source_type="hearing",
+                organize_prompt_key="consolidate_hearings_prompt",
+                quick_point_prompt_key="consolidate_hearings_quick_point_prompt",
+                body_cleanup=lambda text: _remove_standalone_date_lines(
+                    _remove_hearing_date_mentions(text)
                 ),
-                "prompt": settings["consolidate_hearings_prompt"],
-            }
-            for section in hearing_sections:
-                self._raise_if_stop_requested()
-                body_text = _summary_section_body_text(list(section.get("body_lines", [])))
-                if not body_text:
-                    continue
-                response = self._request_plain_text(hearing_request_settings, body_text)
-                cleaned_response = _normalize_consolidated_summary_response(response or "")
-                if cleaned_response:
-                    cleaned_response = _remove_hearing_date_mentions(cleaned_response)
-                    cleaned_response = _remove_standalone_date_lines(cleaned_response)
-                    section["body_lines"] = cleaned_response.splitlines()
-
+            )
             consolidated_summaries_path.write_text(
                 _render_summary_sections(hearing_preamble, hearing_sections),
                 encoding="utf-8",
@@ -10765,25 +11275,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             if report_name_by_key and not report_sections:
                 raise ValueError("No report summary sections matched report boundary names.")
-            report_request_settings = {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "disable_reasoning": bool(
-                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                ),
-                "prompt": settings["consolidate_reports_prompt"],
-            }
-            for section in report_sections:
-                self._raise_if_stop_requested()
-                body_text = _summary_section_body_text(list(section.get("body_lines", [])))
-                if not body_text:
-                    continue
-                response = self._request_plain_text(report_request_settings, body_text)
-                cleaned_response = _normalize_consolidated_summary_response(response or "")
-                if cleaned_response:
-                    section["body_lines"] = cleaned_response.splitlines()
-
+            self._run_consolidation_passes(
+                settings,
+                report_sections,
+                source_type="report",
+                organize_prompt_key="consolidate_reports_prompt",
+                quick_point_prompt_key="consolidate_reports_quick_point_prompt",
+            )
             consolidated_reports_path.write_text(
                 _render_summary_sections(report_preamble, report_sections),
                 encoding="utf-8",
@@ -10977,7 +11475,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     modified += 1
                 if body_lines:
                     linked_lines.extend(
-                        _prefix_minute_order_body_links(
+                        _suffix_minute_order_body_links(
                             body_lines,
                             minute_page_by_date.get(date_key),
                         )

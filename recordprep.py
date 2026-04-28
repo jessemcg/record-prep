@@ -515,6 +515,22 @@ def _model_looks_deepseek(model_id: str) -> bool:
     return "deepseek" in normalized
 
 
+def _apply_disable_reasoning_to_body(
+    body: dict[str, Any],
+    *,
+    model_id: str,
+    disable_reasoning: bool,
+) -> None:
+    if not disable_reasoning:
+        return
+    if _model_looks_deepseek(model_id):
+        body["reasoning_effort"] = "none"
+    elif _model_looks_kimi(model_id):
+        body["thinking"] = {"type": "disabled"}
+    else:
+        body["reasoning_effort"] = "none"
+
+
 def _extract_embedding_vectors(response: Any) -> list[list[float]]:
     embeddings = getattr(response, "embeddings", None)
     if embeddings is None and isinstance(response, dict):
@@ -11933,8 +11949,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 },
             ],
         }
-        if bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)):
-            body["thinking"] = {"type": "disabled"}
+        _apply_disable_reasoning_to_body(
+            body,
+            model_id=str(settings["model_id"]),
+            disable_reasoning=bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        )
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
         payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
@@ -11993,8 +12012,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 {"role": "user", "content": content},
             ],
         }
-        if bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)):
-            body["thinking"] = {"type": "disabled"}
+        _apply_disable_reasoning_to_body(
+            body,
+            model_id=str(settings["model_id"]),
+            disable_reasoning=bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+        )
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
         payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
@@ -12069,11 +12091,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
-        if disable_reasoning:
-            if _model_looks_deepseek(model_id) or _model_looks_kimi(model_id):
-                body["thinking"] = {"type": "disabled"}
-            else:
-                body["reasoning_effort"] = "none"
+        _apply_disable_reasoning_to_body(
+            body,
+            model_id=model_id,
+            disable_reasoning=disable_reasoning,
+        )
         error_label = "Classifier request failed"
         attempted_without_thinking = False
         attempted_without_reasoning_effort = False

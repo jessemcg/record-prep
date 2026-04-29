@@ -28,9 +28,8 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 ## Recommended models
 - OCR model: LightOnOCR-2-1B-Q8_0.gguf via llama.cpp
 - Classification model: Qwen3.6-27B-UD-Q4_K_XL.gguf via llama.cpp
-- Vision model: Qwen_Qwen3.5-27B-Q4_K_L.gguf via llama.cpp
-- Optimize model: gpt-oss-120b via Cerebras API
-- Summarization model: deepseek-v3p2 via Fireworks API
+- Optimize models: deepseek-v3p1 via Fireworks API for hearings and counsel roles; gpt-oss-120b via Cerebras API for reports
+- Summarization model: qwen3p6-plus via Fireworks API
 - Embeddings model: kanon-2-embedder via Isaacus API
 
 ## Quick start
@@ -68,8 +67,8 @@ case_bundle/
 - Correct basic classification: fix common page-type gaps.
 - Advanced classification: mark hearing, minute, and form first pages.
 - Correct advanced classification: when two `RT_body_first_page` markers are consecutive, keep the first and convert the second to `RT_body`.
-- Classification dates: add hearing and minute order dates (vision model on page images).
-- Classification names: add report and form names (vision model on page images).
+- Classification dates: add hearing and minute order dates (classification model on page images).
+- Classification names: add report and form names (classification model on page images).
 - Build TOC: generate `artifacts/toc.txt`.
 - Correct TOC: remove duplicate minute order dates.
 - Find boundaries: write hearing/report/minute boundaries JSON.

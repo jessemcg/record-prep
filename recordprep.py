@@ -6273,6 +6273,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         content.append(log_frame)
 
+        action_group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.run_all_button = Gtk.Button(label="Run all steps")
         self.run_all_button.set_halign(Gtk.Align.START)
@@ -6290,20 +6292,24 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.connect("clicked", self.on_stop_clicked)
         action_box.append(self.stop_button)
 
+        self.run_indicator_spinner = Gtk.Spinner()
+        self.run_indicator_spinner.set_tooltip_text("Pipeline running")
+        action_box.append(self.run_indicator_spinner)
+
+        action_group.append(action_box)
+
+        run_until_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         run_until_label = Gtk.Label(label="Run until", xalign=0)
-        action_box.append(run_until_label)
+        run_until_box.append(run_until_label)
         self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
         self._run_until_dropdown.set_tooltip_text(
             "Stop automatically after the selected step when running all steps."
         )
         self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
-        action_box.append(self._run_until_dropdown)
+        run_until_box.append(self._run_until_dropdown)
+        action_group.append(run_until_box)
 
-        self.run_indicator_spinner = Gtk.Spinner()
-        self.run_indicator_spinner.set_tooltip_text("Pipeline running")
-        action_box.append(self.run_indicator_spinner)
-
-        content.append(action_box)
+        content.append(action_group)
 
         self.step_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.step_list.add_css_class("boxed-list")
@@ -7610,7 +7616,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         controls.append(label)
 
         entry = Gtk.Entry()
-        entry.set_width_chars(4)
+        entry.set_width_chars(3)
         entry.set_max_length(5)
         entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
         entry.connect("activate", self._on_rt_ct_split_commit)

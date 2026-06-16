@@ -4712,6 +4712,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         disable_reasoning_row: Adw.SwitchRow | None = None
         if is_classify_basic:
             workers_row = Adw.EntryRow(title="Classification Workers")
+            workers_row.set_tooltip_text(
+                "Concurrent classification requests for basic, advanced, dates, and names."
+            )
             workers_row.set_text(str(settings.get("workers", DEFAULT_CLASSIFIER_WORKERS)))
             if hasattr(workers_row, "set_input_purpose"):
                 workers_row.set_input_purpose(Gtk.InputPurpose.NUMBER)
@@ -8939,15 +8942,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     if not need_ct or text_path.name in done_ct:
                         continue
                 image_path = _image_path_for_filename(text_path.name, image_dir)
-                if not local_vision_enabled:
-                    entry = self._classify_image_with_page_type(
-                        basic_rt_settings if is_rt else basic_ct_settings,
-                        text_path.name,
-                        image_path,
-                        3,
-                    )
-                    append_basic_entry(is_rt, text_path.name, entry)
-                    continue
                 pending_pages.append((is_rt, text_path.name))
                 jobs.append(
                     (

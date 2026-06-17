@@ -1564,26 +1564,16 @@ def _strip_page_markdown_links(text: str) -> str:
     return re.sub(r"\s*\[[^\]]+\]\(page:\d{4}\)", "", text).strip()
 
 
-def _suffix_minute_order_body_links(body_lines: list[str], minute_page: str | None) -> list[str]:
-    if not minute_page:
-        return body_lines
-
-    linked_lines: list[str] = []
+def _strip_minute_order_body_links(body_lines: list[str]) -> list[str]:
+    cleaned_lines: list[str] = []
     for line in body_lines:
         cleaned = re.sub(r"^\s*\[(?:MO|M>)\]\(page:\d{4}\)\s*", "", line).strip()
         cleaned = re.sub(r"\s*\[:M\]\(page:\d{4}\)\s*$", "", cleaned).strip()
         if not cleaned:
-            linked_lines.append(line)
-            continue
-        if re.match(r"(?i)^quick point\s*:", cleaned):
-            linked_lines.append(cleaned)
-            continue
-        sentence_count = len(_split_into_sentences(_strip_page_markdown_links(cleaned)))
-        if sentence_count >= 2:
-            linked_lines.append(f"{cleaned} [:M](page:{minute_page})")
+            cleaned_lines.append(line)
         else:
-            linked_lines.append(cleaned)
-    return linked_lines
+            cleaned_lines.append(cleaned)
+    return cleaned_lines
 
 
 def _split_summary_sections(
@@ -11490,12 +11480,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 else:
                     modified += 1
                 if body_lines:
-                    linked_lines.extend(
-                        _suffix_minute_order_body_links(
-                            body_lines,
-                            minute_page_by_date.get(date_key),
-                        )
-                    )
+                    linked_lines.extend(_strip_minute_order_body_links(body_lines))
 
             if modified == 0 and inserted == 0:
                 raise ValueError("No hearing/minute date headings matched boundary dates.")

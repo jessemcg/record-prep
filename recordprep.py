@@ -6841,6 +6841,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if label is not None:
             label.set_text(status)
 
+    def _report_step_progress(
+        self,
+        row: Adw.ActionRow,
+        status: str,
+        message: str | None = None,
+        level: str = "INFO",
+    ) -> None:
+        GLib.idle_add(self._set_step_status, row, status)
+        if message:
+            GLib.idle_add(self._append_log_message, message, level)
+
     def _reset_step_statuses(self) -> None:
         for row in self._step_status_labels:
             self._set_step_status(row, "Pending")
@@ -10370,11 +10381,63 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if paragraphs:
                     hearing_groups.append((date_value, paragraphs))
 
+            report_groups: list[tuple[str, list[str]]] = []
+            report_sections = _load_labeled_chunk_directories(
+                artifacts_dir / "optimized" / "reports",
+                "report",
+                "report_name",
+            )
+            for section in report_sections:
+                metadata = section.get("metadata")
+                metadata = metadata if isinstance(metadata, dict) else {}
+                report_name = str(metadata.get("report_name", "")).strip() or "Report"
+                report_label = (
+                    str(metadata.get("report_label", "")).strip()
+                    or _format_report_label(
+                        report_name,
+                        str(metadata.get("report_date", "")).strip(),
+                    )
+                )
+                paragraphs = _expand_section_chunk_paragraphs(
+                    list(section.get("chunks", []))
+                )
+                if paragraphs:
+                    report_groups.append((report_label, paragraphs))
+
+            minute_entries = _load_json_entries(minutes_boundaries_path)
+            self._report_step_progress(
+                self.step_ten_row,
+                "Preparing summaries",
+                (
+                    "Create summaries: "
+                    f"{len(hearing_groups)} hearing(s), "
+                    f"{len(report_groups)} report(s), and "
+                    f"{len(minute_entries)} minute order(s) queued."
+                ),
+            )
             hearing_responses: list[str] = []
-            for date_value, paragraphs in hearing_groups:
+            total_hearing_groups = len(hearing_groups)
+            for hearing_index, (date_value, paragraphs) in enumerate(hearing_groups, start=1):
                 self._raise_if_stop_requested()
-                for chunk in _chunk_paragraphs(paragraphs, chunk_size):
+                hearing_chunks = _chunk_paragraphs(paragraphs, chunk_size)
+                total_hearing_chunks = len(hearing_chunks)
+                for chunk_index, chunk in enumerate(hearing_chunks, start=1):
                     self._raise_if_stop_requested()
+                    progress_status = (
+                        f"Hearing {hearing_index}/{total_hearing_groups} "
+                        f"chunk {chunk_index}/{total_hearing_chunks}"
+                    )
+                    progress_message = (
+                        "Create summaries: summarizing hearing "
+                        f"{hearing_index}/{total_hearing_groups} "
+                        f"({date_value or 'HEARING'}), "
+                        f"chunk {chunk_index}/{total_hearing_chunks}."
+                    )
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        progress_message,
+                    )
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -10389,6 +10452,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                     cleaned_response = response.strip() if response else ""
                     hearing_responses.append(cleaned_response)
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        (
+                            "Create summaries: completed hearing "
+                            f"{hearing_index}/{total_hearing_groups} "
+                            f"({date_value or 'HEARING'}), "
+                            f"chunk {chunk_index}/{total_hearing_chunks}."
+                        ),
+                    )
 
             first_section = True
             hearing_chunk_index = 0
@@ -10413,34 +10486,36 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 summary_reports.extend(["Reports Summary", ""])
 
-            report_groups: list[tuple[str, list[str]]] = []
-            report_sections = _load_labeled_chunk_directories(
-                artifacts_dir / "optimized" / "reports",
-                "report",
-                "report_name",
-            )
-            for section in report_sections:
-                metadata = section.get("metadata")
-                metadata = metadata if isinstance(metadata, dict) else {}
-                report_name = str(metadata.get("report_name", "")).strip() or "Report"
-                report_label = (
-                    str(metadata.get("report_label", "")).strip()
-                    or _format_report_label(
-                        report_name,
-                        str(metadata.get("report_date", "")).strip(),
-                    )
-                )
-                paragraphs = _expand_section_chunk_paragraphs(
-                    list(section.get("chunks", []))
-                )
-                if paragraphs:
-                    report_groups.append((report_label, paragraphs))
             report_responses: list[str] = []
             report_group_chunk_counts: list[int] = []
-            for _report_name, paragraphs in report_groups:
+            total_report_groups = len(report_groups)
+            if total_report_groups:
+                self._report_step_progress(
+                    self.step_ten_row,
+                    "Summarizing reports",
+                    f"Create summaries: {total_report_groups} report(s) queued.",
+                )
+            for report_index, (report_name, paragraphs) in enumerate(report_groups, start=1):
                 group_chunk_count = 0
-                for chunk in _chunk_paragraphs(paragraphs, chunk_size):
+                report_chunks = _chunk_paragraphs(paragraphs, chunk_size)
+                total_report_chunks = len(report_chunks)
+                for chunk_index, chunk in enumerate(report_chunks, start=1):
                     self._raise_if_stop_requested()
+                    progress_status = (
+                        f"Report {report_index}/{total_report_groups} "
+                        f"chunk {chunk_index}/{total_report_chunks}"
+                    )
+                    progress_message = (
+                        "Create summaries: summarizing report "
+                        f"{report_index}/{total_report_groups} "
+                        f"({report_name or 'Report'}), "
+                        f"chunk {chunk_index}/{total_report_chunks}."
+                    )
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        progress_message,
+                    )
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -10456,6 +10531,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     cleaned_response = response.strip() if response else ""
                     report_responses.append(cleaned_response)
                     group_chunk_count += 1
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        (
+                            "Create summaries: completed report "
+                            f"{report_index}/{total_report_groups} "
+                            f"({report_name or 'Report'}), "
+                            f"chunk {chunk_index}/{total_report_chunks}."
+                        ),
+                    )
                 report_group_chunk_counts.append(group_chunk_count)
 
             report_chunk_index = 0
@@ -10493,9 +10578,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 minutes_outline.append("Minutes Summary")
 
-            minute_entries = _load_json_entries(minutes_boundaries_path)
             minutes_index = 0
-            for entry in minute_entries:
+            total_minute_entries = len(minute_entries)
+            if total_minute_entries:
+                self._report_step_progress(
+                    self.step_ten_row,
+                    "Summarizing minutes",
+                    f"Create summaries: {total_minute_entries} minute order(s) queued.",
+                )
+            for minute_entry_index, entry in enumerate(minute_entries, start=1):
                 self._raise_if_stop_requested()
                 date_value = _extract_entry_value(entry, "date").strip()
                 start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
@@ -10518,6 +10609,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 minutes_payload = "\n".join(page_texts).strip()
                 response = ""
                 if minutes_payload:
+                    progress_status = f"Minutes {minute_entry_index}/{total_minute_entries}"
+                    progress_message = (
+                        "Create summaries: summarizing minute order "
+                        f"{minute_entry_index}/{total_minute_entries} "
+                        f"({date_value or 'Minute Order'}), pages "
+                        f"{start_label or start_page}-{end_label or end_page}."
+                    )
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        progress_message,
+                    )
                     response = self._request_plain_text(
                         {
                             "api_url": settings["api_url"],
@@ -10529,6 +10632,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             "prompt": settings["minutes_prompt"],
                         },
                         minutes_payload,
+                    )
+                    self._report_step_progress(
+                        self.step_ten_row,
+                        progress_status,
+                        (
+                            "Create summaries: completed minute order "
+                            f"{minute_entry_index}/{total_minute_entries} "
+                            f"({date_value or 'Minute Order'}), pages "
+                            f"{start_label or start_page}-{end_label or end_page}."
+                        ),
                     )
                 response = response.strip() if response else ""
                 if response:

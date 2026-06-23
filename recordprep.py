@@ -3988,7 +3988,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Gtk.Label(label="Settings", xalign=0))
+        header.set_title_widget(Adw.WindowTitle(title="Settings"))
         view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5303,7 +5303,7 @@ class TocEditorWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Gtk.Label(label="Edit TOC", xalign=0))
+        header.set_title_widget(Adw.WindowTitle(title="Edit TOC"))
         save_button = Gtk.Button(label="Save")
         save_button.add_css_class("flat")
         save_button.connect("clicked", self._on_save_clicked)
@@ -5357,7 +5357,7 @@ class TestClassificationWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Gtk.Label(label="Test Classification", xalign=0))
+        header.set_title_widget(Adw.WindowTitle(title="Test Classification"))
         view.add_top_bar(header)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5549,7 +5549,7 @@ class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Gtk.Label(label="Test Optimize and Summarize", xalign=0))
+        header.set_title_widget(Adw.WindowTitle(title="Test Optimize and Summarize"))
         view.add_top_bar(header)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)

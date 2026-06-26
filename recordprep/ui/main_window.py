@@ -40,8 +40,9 @@ from bs4.element import NavigableString
 from pylatexenc.latex2text import LatexNodes2Text
 from tabulate import tabulate
 
-APPLICATION_ID = "com.mcglaw.RecordPrep"
-APPLICATION_NAME = "Record Prep"
+from recordprep import APPLICATION_ID, APPLICATION_NAME
+from recordprep.classification import run_classifier_jobs
+
 STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
 
 GLib.set_application_name(APPLICATION_NAME)
@@ -87,7 +88,8 @@ def _log_startup(message: str) -> None:
     except OSError:
         pass
 
-CONFIG_FILE = Path(__file__).with_name("config.json")
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+CONFIG_FILE = PROJECT_DIR / "config.json"
 CONFIG_KEY_CLASSIFIER_API_URL = "classifier_api_url"
 CONFIG_KEY_CLASSIFIER_MODEL_ID = "classifier_model_id"
 CONFIG_KEY_CLASSIFIER_API_KEY = "classifier_api_key"
@@ -7331,26 +7333,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]],
         workers: int,
     ) -> list[dict[str, str]]:
-        if not jobs:
-            return []
-        results: list[dict[str, str] | None] = [None] * len(jobs)
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers))
-        future_to_index = {
-            executor.submit(callback, *args): index
-            for index, (callback, args) in enumerate(jobs)
-        }
-        try:
-            for future in concurrent.futures.as_completed(future_to_index):
-                self._raise_if_stop_requested()
-                index = future_to_index[future]
-                results[index] = future.result()
-        except BaseException:
-            for future in future_to_index:
-                future.cancel()
-            executor.shutdown(wait=True, cancel_futures=True)
-            raise
-        executor.shutdown(wait=True)
-        return [result or {} for result in results]
+        return run_classifier_jobs(
+            jobs,
+            workers=workers,
+            stop_check=self._raise_if_stop_requested,
+        )
 
     def _ensure_local_vision_server_running(self) -> bool:
         settings = load_classifier_settings()

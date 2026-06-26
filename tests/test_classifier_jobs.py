@@ -2,13 +2,12 @@ import threading
 import time
 import unittest
 
-import recordprep
+from recordprep.classification import run_classifier_jobs
 
 
 class ClassifierJobTests(unittest.TestCase):
     def test_classifier_jobs_use_workers_and_preserve_order(self) -> None:
-        window = recordprep.RecordPrepWindow.__new__(recordprep.RecordPrepWindow)
-        window._stop_event = threading.Event()
+        stop_event = threading.Event()
 
         lock = threading.Lock()
         active = 0
@@ -28,7 +27,13 @@ class ClassifierJobTests(unittest.TestCase):
 
         jobs = [(job, (index,)) for index in range(4)]
 
-        results = window._run_classifier_jobs(jobs, workers=2)
+        results = run_classifier_jobs(
+            jobs,
+            workers=2,
+            stop_check=lambda: (_ for _ in ()).throw(RuntimeError("stopped"))
+            if stop_event.is_set()
+            else None,
+        )
 
         self.assertGreater(max_active, 1)
         self.assertEqual(

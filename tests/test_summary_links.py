@@ -4,7 +4,8 @@ import threading
 import unittest
 from pathlib import Path
 
-import recordprep
+from recordprep import manifest, summaries
+from recordprep.ui.main_window import RecordPrepWindow
 
 
 class SummaryLinkTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class SummaryLinkTests(unittest.TestCase):
         ]
 
         linked_hearings, modified, inserted = (
-            recordprep._add_page_links_to_hearing_summary_text(
+            summaries._add_page_links_to_hearing_summary_text(
                 hearing_text,
                 hearing_entries,
                 minute_entries,
@@ -50,7 +51,7 @@ class SummaryLinkTests(unittest.TestCase):
         self.assertNotIn("[:M](page:0098)", linked_hearings)
 
         rerun_hearings, rerun_modified, rerun_inserted = (
-            recordprep._add_page_links_to_hearing_summary_text(
+            summaries._add_page_links_to_hearing_summary_text(
                 linked_hearings,
                 hearing_entries,
                 minute_entries,
@@ -71,7 +72,7 @@ class SummaryLinkTests(unittest.TestCase):
             (root / "summaries").mkdir(parents=True)
             (root / "artifacts").mkdir()
             (root / "case_name.txt").write_text("Test_Case", encoding="utf-8")
-            summaries_path, reports_path = recordprep._summary_output_paths(root)
+            summaries_path, reports_path = summaries._summary_output_paths(root)
             summaries_path.write_text(
                 "January 5, 2024\n\nThe hearing happened.",
                 encoding="utf-8",
@@ -87,7 +88,7 @@ class SummaryLinkTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            window = recordprep.RecordPrepWindow.__new__(recordprep.RecordPrepWindow)
+            window = RecordPrepWindow.__new__(RecordPrepWindow)
             window.selected_pdfs = []
             window._stop_event = threading.Event()
             window.step_add_hearing_date_links_row = DummyRow()
@@ -106,14 +107,14 @@ class SummaryLinkTests(unittest.TestCase):
             root = Path(tmp) / "case_bundle"
             root.mkdir()
 
-            recordprep._write_manifest(root, [])
+            manifest._write_manifest(root, [])
 
-            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
 
-        self.assertIn("summarized_hearings", manifest["files"])
-        self.assertIn("summarized_reports", manifest["files"])
-        self.assertNotIn("consolidated_hearings", manifest["files"])
-        self.assertNotIn("consolidated_reports", manifest["files"])
+        self.assertIn("summarized_hearings", payload["files"])
+        self.assertIn("summarized_reports", payload["files"])
+        self.assertNotIn("consolidated_hearings", payload["files"])
+        self.assertNotIn("consolidated_reports", payload["files"])
 
 
 if __name__ == "__main__":

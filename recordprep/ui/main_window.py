@@ -22,7 +22,7 @@ import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import gi
 
@@ -64,6 +64,51 @@ VISION_CLASSIFICATION_STEP_IDS = {
     "classify_dates",
     "classify_names",
 }
+PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "prepare",
+        "Prepare",
+        ("create_files", "strip_characters", "infer_case"),
+    ),
+    (
+        "classify",
+        "Classify",
+        (
+            "classify_basic",
+            "classify_advanced",
+            "correct_classify_advanced",
+            "classify_dates",
+            "classify_names",
+        ),
+    ),
+    (
+        "organize",
+        "Organize",
+        ("build_toc", "correct_toc", "find_boundaries", "correct_boundaries"),
+    ),
+    (
+        "summarize",
+        "Summarize",
+        (
+            "create_raw",
+            "create_preoptimized",
+            "create_optimized",
+            "create_summaries",
+            "add_hearing_date_links",
+        ),
+    ),
+    (
+        "index",
+        "Index",
+        ("case_overview", "create_rag_index"),
+    ),
+)
+PIPELINE_STEP_PHASE = {
+    step_id: phase_id
+    for phase_id, _title, step_ids in PIPELINE_PHASES
+    for step_id in step_ids
+}
+COMPLETED_STEP_STATUSES = {"Done", "Skipped"}
 MODEL_ID = "LightOnOCR-2-1B-Q8_0.gguf"
 DEFAULT_SERVER_URL = "http://localhost:8000/v1/chat/completions"
 START_SERVER_COMMAND = """\
@@ -78,6 +123,43 @@ cd $HOME/llama.cpp/build/bin
 
 class StopRequested(RuntimeError):
     pass
+
+
+def _phase_progress_text(
+    step_ids: Sequence[str],
+    statuses: Mapping[str, str],
+) -> str:
+    completed = sum(
+        statuses.get(step_id) in COMPLETED_STEP_STATUSES for step_id in step_ids
+    )
+    inactive_statuses = COMPLETED_STEP_STATUSES | {"Pending"}
+    running = any(
+        statuses.get(step_id, "Pending") not in inactive_statuses
+        for step_id in step_ids
+    )
+    summary = f"{completed} of {len(step_ids)} complete"
+    return f"{summary} • Running" if running else summary
+
+
+def _first_incomplete_phase_id(completed_step_ids: set[str]) -> str | None:
+    for phase_id, _title, step_ids in PIPELINE_PHASES:
+        if any(step_id not in completed_step_ids for step_id in step_ids):
+            return phase_id
+    return None
+
+
+def _run_action_label(endpoint_label: str | None) -> str:
+    return f"Run through {endpoint_label}" if endpoint_label else "Run all steps"
+
+
+def _transcript_summary(split_mode: str, split_page: int | None) -> str:
+    if split_mode == "rt_only":
+        return "Reporter's transcript only"
+    if split_mode == "ct_only":
+        return "Clerk's transcript only"
+    if split_page:
+        return f"RT + CT • RT through page {split_page}"
+    return "RT + CT • split page not set"
 
 
 def _log_startup(message: str) -> None:
@@ -5753,10 +5835,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pipeline_running = False
         self._stop_event = threading.Event()
         self._step_status_labels: dict[Adw.ActionRow, Gtk.Label] = {}
+        self._step_status_values: dict[str, str] = {}
+        self._step_rows_by_id: dict[str, Adw.ActionRow] = {}
+        self._step_ids_by_row: dict[Adw.ActionRow, str] = {}
+        self._step_menu_buttons: dict[Adw.ActionRow, Gtk.MenuButton] = {}
+        self._phase_rows: dict[str, Adw.ExpanderRow] = {}
+        self._phase_expansion_updating = False
+        self._active_step_id: str | None = None
         self._rt_ct_split_spin: Gtk.SpinButton | None = None
         self._rt_ct_split_label: Gtk.Label | None = None
-        self._rt_ct_split_dropdown: Gtk.DropDown | None = None
+        self._rt_ct_split_dropdown: Adw.ComboRow | None = None
         self._rt_ct_split_entry: Gtk.Entry | None = None
+        self._rt_ct_split_page_row: Adw.ActionRow | None = None
+        self._source_row: Adw.ExpanderRow | None = None
+        self._activity_row: Adw.ExpanderRow | None = None
+        self._edit_toc_button: Gtk.Button | None = None
         self._rt_ct_split_pending: int | None = None
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
@@ -5764,7 +5857,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._test_optimize_summarize_window: TestOptimizeSummarizeWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
-        self.run_indicator_spinner: Gtk.Spinner | None = None
         self._run_until_dropdown: Gtk.DropDown | None = None
         self._run_until_values: list[str | None] = [None]
         self._run_completion_message: str | None = None
@@ -5788,7 +5880,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.file_button.connect("clicked", self.on_choose_pdf)
         header_bar.pack_start(self.file_button)
 
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_box.set_halign(Gtk.Align.CENTER)
+        self.status_spinner = Gtk.Spinner()
+        self.status_label = Gtk.Label(label=APPLICATION_NAME, xalign=0)
+        self.status_label.set_ellipsize(3)
+        self.status_label.set_max_width_chars(52)
+        status_box.append(self.status_spinner)
+        status_box.append(self.status_label)
+        header_bar.set_title_widget(status_box)
+
         self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
+        self.menu_button.add_css_class("flat")
         header_bar.pack_end(self.menu_button)
 
         toolbar_view = Adw.ToolbarView()
@@ -5807,12 +5910,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         scroller.set_vexpand(True)
         toolbar_view.set_content(scroller)
 
-        log_frame = Gtk.Frame(label="Log")
-        log_frame.set_hexpand(True)
-        log_frame.set_margin_top(6)
         log_scroller = Gtk.ScrolledWindow()
         log_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        log_scroller.set_min_content_height(280)
+        log_scroller.set_min_content_height(220)
         log_scroller.set_vexpand(False)
         log_view = Gtk.TextView()
         log_view.set_editable(False)
@@ -5824,25 +5924,42 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         log_view.set_top_margin(8)
         log_view.set_bottom_margin(8)
         log_scroller.set_child(log_view)
-        log_frame.set_child(log_scroller)
         self._log_view = log_view
         self._log_buffer = log_view.get_buffer()
 
-        transcript_section = self._build_transcript_split_section()
-        content.append(transcript_section)
+        source_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        source_list.add_css_class("boxed-list")
+        source_list.append(self._build_transcript_split_section())
+        content.append(source_list)
 
-        self.selected_label = Gtk.Label(label="Selected: None", xalign=0)
-        self.selected_label.add_css_class("dim-label")
-        content.append(self.selected_label)
-
-        content.append(log_frame)
-
-        action_group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.selected_label = Gtk.Label(label="Selected: None")
+        self.selected_label.connect(
+            "notify::label", lambda *_args: self._update_source_summary()
+        )
 
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.run_all_button = Gtk.Button(label="Run all steps")
+        self.run_all_button = Adw.SplitButton()
+        self.run_all_button.set_label("Run all steps")
         self.run_all_button.set_halign(Gtk.Align.START)
         self.run_all_button.connect("clicked", self.on_run_all_clicked)
+
+        run_target_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        run_target_box.set_margin_top(12)
+        run_target_box.set_margin_bottom(12)
+        run_target_box.set_margin_start(12)
+        run_target_box.set_margin_end(12)
+        run_target_label = Gtk.Label(label="Run through", xalign=0)
+        run_target_label.add_css_class("heading")
+        run_target_box.append(run_target_label)
+        self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
+        self._run_until_dropdown.set_tooltip_text(
+            "Stop automatically after the selected step when running the pipeline."
+        )
+        self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
+        run_target_box.append(self._run_until_dropdown)
+        run_target_popover = Gtk.Popover()
+        run_target_popover.set_child(run_target_box)
+        self.run_all_button.set_popover(run_target_popover)
         action_box.append(self.run_all_button)
 
         self.resume_button = Gtk.Button(label="Resume")
@@ -5851,33 +5968,33 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         action_box.append(self.resume_button)
 
         self.stop_button = Gtk.Button(label="Stop")
+        self.stop_button.add_css_class("destructive-action")
         self.stop_button.set_halign(Gtk.Align.START)
         self.stop_button.set_sensitive(False)
         self.stop_button.connect("clicked", self.on_stop_clicked)
         action_box.append(self.stop_button)
 
-        self.run_indicator_spinner = Gtk.Spinner()
-        self.run_indicator_spinner.set_tooltip_text("Pipeline running")
-        action_box.append(self.run_indicator_spinner)
+        self._edit_toc_button = Gtk.Button(label="Edit TOC")
+        self._edit_toc_button.connect("clicked", self.on_edit_toc_clicked)
+        action_box.append(self._edit_toc_button)
 
-        action_group.append(action_box)
+        content.append(action_box)
 
-        run_until_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        run_until_label = Gtk.Label(label="Run until", xalign=0)
-        run_until_box.append(run_until_label)
-        self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
-        self._run_until_dropdown.set_tooltip_text(
-            "Stop automatically after the selected step when running all steps."
+        activity_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        activity_list.add_css_class("boxed-list")
+        self._activity_row = Adw.ExpanderRow(
+            title="Activity",
+            subtitle="No activity yet",
         )
-        self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
-        run_until_box.append(self._run_until_dropdown)
-        action_group.append(run_until_box)
-
-        content.append(action_group)
+        self._activity_row.set_expanded(False)
+        self._activity_row.add_row(log_scroller)
+        activity_list.append(self._activity_row)
+        content.append(activity_list)
 
         self.step_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.step_list.add_css_class("boxed-list")
         content.append(self.step_list)
+        self._build_pipeline_phase_rows()
 
         self.step_one_row = Adw.ActionRow(
             title="Create files",
@@ -5890,7 +6007,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_one_clicked(self.step_one_row),
         )
         self._attach_step_status(self.step_one_row)
-        self.step_list.append(self.step_one_row)
 
         self.step_strip_nonstandard_row = Adw.ActionRow(
             title="Process text files",
@@ -5903,7 +6019,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_strip_nonstandard_clicked(self.step_strip_nonstandard_row),
         )
         self._attach_step_status(self.step_strip_nonstandard_row)
-        self.step_list.append(self.step_strip_nonstandard_row)
 
         self.step_infer_case_row = Adw.ActionRow(
             title="Infer case",
@@ -5916,7 +6031,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_infer_case_clicked(self.step_infer_case_row),
         )
         self._attach_step_status(self.step_infer_case_row)
-        self.step_list.append(self.step_infer_case_row)
 
         self.step_two_row = Adw.ActionRow(
             title="Classification basic",
@@ -5929,7 +6043,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_two_clicked(self.step_two_row),
         )
         self._attach_step_status(self.step_two_row)
-        self.step_list.append(self.step_two_row)
 
         self.step_advanced_row = Adw.ActionRow(
             title="Classification advanced",
@@ -5942,7 +6055,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_advanced_clicked(self.step_advanced_row),
         )
         self._attach_step_status(self.step_advanced_row)
-        self.step_list.append(self.step_advanced_row)
 
         self.step_correct_advanced_row = Adw.ActionRow(
             title="Correct classification advanced",
@@ -5957,7 +6069,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
         )
         self._attach_step_status(self.step_correct_advanced_row)
-        self.step_list.append(self.step_correct_advanced_row)
 
         self.step_dates_row = Adw.ActionRow(
             title="Classification dates",
@@ -5970,7 +6081,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_dates_clicked(self.step_dates_row),
         )
         self._attach_step_status(self.step_dates_row)
-        self.step_list.append(self.step_dates_row)
 
         self.step_names_row = Adw.ActionRow(
             title="Classification names",
@@ -5983,7 +6093,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_names_clicked(self.step_names_row),
         )
         self._attach_step_status(self.step_names_row)
-        self.step_list.append(self.step_names_row)
 
         self.step_six_row = Adw.ActionRow(
             title="Build TOC",
@@ -5996,7 +6105,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_six_clicked(self.step_six_row),
         )
         self._attach_step_status(self.step_six_row)
-        self.step_list.append(self.step_six_row)
 
         self.step_correct_toc_row = Adw.ActionRow(
             title="Correct TOC",
@@ -6009,7 +6117,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_correct_toc_clicked(self.step_correct_toc_row),
         )
         self._attach_step_status(self.step_correct_toc_row)
-        self.step_list.append(self.step_correct_toc_row)
 
         self.step_seven_row = Adw.ActionRow(
             title="Find boundaries",
@@ -6022,7 +6129,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_seven_clicked(self.step_seven_row),
         )
         self._attach_step_status(self.step_seven_row)
-        self.step_list.append(self.step_seven_row)
 
         self.step_correct_boundaries_row = Adw.ActionRow(
             title="Correct boundaries",
@@ -6037,7 +6143,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
         )
         self._attach_step_status(self.step_correct_boundaries_row)
-        self.step_list.append(self.step_correct_boundaries_row)
 
         self.step_eight_row = Adw.ActionRow(
             title="Create raw",
@@ -6050,7 +6155,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_eight_clicked(self.step_eight_row),
         )
         self._attach_step_status(self.step_eight_row)
-        self.step_list.append(self.step_eight_row)
 
         self.step_preoptimized_row = Adw.ActionRow(
             title="Create pre-optimized",
@@ -6063,7 +6167,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_preoptimized_clicked(self.step_preoptimized_row),
         )
         self._attach_step_status(self.step_preoptimized_row)
-        self.step_list.append(self.step_preoptimized_row)
 
         self.step_nine_row = Adw.ActionRow(
             title="Create optimized",
@@ -6076,7 +6179,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_nine_clicked(self.step_nine_row),
         )
         self._attach_step_status(self.step_nine_row)
-        self.step_list.append(self.step_nine_row)
 
         self.step_ten_row = Adw.ActionRow(
             title="Create summaries",
@@ -6089,7 +6191,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_ten_clicked(self.step_ten_row),
         )
         self._attach_step_status(self.step_ten_row)
-        self.step_list.append(self.step_ten_row)
 
         self.step_add_hearing_date_links_row = Adw.ActionRow(
             title="Add links to summaries",
@@ -6104,7 +6205,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
         )
         self._attach_step_status(self.step_add_hearing_date_links_row)
-        self.step_list.append(self.step_add_hearing_date_links_row)
 
         self.step_eleven_row = Adw.ActionRow(
             title="Case overview",
@@ -6117,7 +6217,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_eleven_clicked(self.step_eleven_row),
         )
         self._attach_step_status(self.step_eleven_row)
-        self.step_list.append(self.step_eleven_row)
 
         self.step_twelve_row = Adw.ActionRow(
             title="Create RAG index",
@@ -6130,7 +6229,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_twelve_clicked(self.step_twelve_row),
         )
         self._attach_step_status(self.step_twelve_row)
-        self.step_list.append(self.step_twelve_row)
 
         self._setup_menu(app)
         self._populate_run_until_dropdown()
@@ -6766,6 +6864,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             level_normalized = self._infer_log_level(text)
         end_iter = self._log_buffer.get_end_iter()
         self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
+        if self._activity_row is not None:
+            summary = text if len(text) <= 120 else f"{text[:117]}…"
+            self._activity_row.set_subtitle(summary)
+            if level_normalized == "ERROR":
+                self._activity_row.set_expanded(True)
+                self._open_phase_for_step(self._active_step_id)
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
@@ -6779,6 +6883,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         level_normalized = str(level or "INFO").upper()
         end_iter = self._log_buffer.get_end_iter()
         self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
+        if self._activity_row is not None and text:
+            summary = text if len(text) <= 120 else f"{text[:117]}…"
+            self._activity_row.set_subtitle(summary)
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
@@ -6801,20 +6908,82 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         enabled = bool(toc_path and toc_path.exists())
         if hasattr(self, "_edit_toc_action") and self._edit_toc_action:
             self._edit_toc_action.set_enabled(enabled)
+        if self._edit_toc_button is not None:
+            self._edit_toc_button.set_visible(enabled and not self._pipeline_running)
+            self._edit_toc_button.set_sensitive(enabled and not self._pipeline_running)
 
     def _set_status(self, message: str, active: bool) -> None:
+        self.status_label.set_text(message)
         if active:
-            if self.run_indicator_spinner is not None:
-                self.run_indicator_spinner.start()
+            self.status_spinner.start()
         else:
-            if self.run_indicator_spinner is not None:
-                self.run_indicator_spinner.stop()
+            self.status_spinner.stop()
+
+    def _build_pipeline_phase_rows(self) -> None:
+        for phase_id, title, step_ids in PIPELINE_PHASES:
+            phase_row = Adw.ExpanderRow(
+                title=title,
+                subtitle=_phase_progress_text(step_ids, self._step_status_values),
+            )
+            phase_row.set_expanded(False)
+            phase_row.connect(
+                "notify::expanded",
+                self._on_phase_expanded,
+                phase_id,
+            )
+            self._phase_rows[phase_id] = phase_row
+            self.step_list.append(phase_row)
+
+    def _on_phase_expanded(
+        self,
+        row: Adw.ExpanderRow,
+        _pspec: GObject.ParamSpec,
+        phase_id: str,
+    ) -> None:
+        if self._phase_expansion_updating or not row.get_expanded():
+            return
+        self._set_expanded_phase(phase_id)
+
+    def _set_expanded_phase(self, phase_id: str | None) -> None:
+        self._phase_expansion_updating = True
+        try:
+            for candidate_id, phase_row in self._phase_rows.items():
+                phase_row.set_expanded(candidate_id == phase_id)
+        finally:
+            self._phase_expansion_updating = False
+
+    def _refresh_phase_summaries(self) -> None:
+        for phase_id, _title, step_ids in PIPELINE_PHASES:
+            phase_row = self._phase_rows.get(phase_id)
+            if phase_row is not None:
+                phase_row.set_subtitle(
+                    _phase_progress_text(step_ids, self._step_status_values)
+                )
+
+    def _open_first_incomplete_phase(self) -> None:
+        completed = {
+            step_id
+            for step_id, status in self._step_status_values.items()
+            if status in COMPLETED_STEP_STATUSES
+        }
+        self._set_expanded_phase(_first_incomplete_phase_id(completed))
+
+    def _open_phase_for_step(self, step_id: str | None) -> None:
+        if step_id:
+            self._set_expanded_phase(PIPELINE_STEP_PHASE.get(step_id))
 
     def _attach_step_status(self, row: Adw.ActionRow) -> None:
         status_label = Gtk.Label(label="Pending", xalign=1)
         status_label.add_css_class("dim-label")
         row.add_suffix(status_label)
+        menu_button = self._step_menu_buttons.get(row)
+        if menu_button is not None:
+            row.add_suffix(menu_button)
         self._step_status_labels[row] = status_label
+        step_id = self._step_ids_by_row.get(row)
+        if step_id:
+            self._step_status_values[step_id] = "Pending"
+        self._refresh_phase_summaries()
 
     def _attach_step_controls(
         self,
@@ -6822,26 +6991,54 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         row: Adw.ActionRow,
         run_one: Callable[[Gtk.Button], None],
     ) -> None:
-        control_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        run_one_button = Gtk.Button(icon_name="media-playback-start-symbolic")
-        run_one_button.add_css_class("flat")
-        run_one_button.set_tooltip_text("Run this step")
-        run_one_button.connect("clicked", run_one)
-        control_box.append(run_one_button)
+        phase_id = PIPELINE_STEP_PHASE[step_id]
+        self._step_rows_by_id[step_id] = row
+        self._step_ids_by_row[row] = step_id
+        self._phase_rows[phase_id].add_row(row)
 
-        run_from_button = Gtk.Button(icon_name="media-skip-forward-symbolic")
+        menu_button = Gtk.MenuButton(icon_name="view-more-symbolic")
+        menu_button.add_css_class("flat")
+        menu_button.set_tooltip_text(f"Actions for {row.get_title() or step_id}")
+        popover = Gtk.Popover()
+        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        action_box.set_margin_top(6)
+        action_box.set_margin_bottom(6)
+        action_box.set_margin_start(6)
+        action_box.set_margin_end(6)
+        run_one_button = Gtk.Button(label="Run this step")
+        run_one_button.add_css_class("flat")
+        run_from_button = Gtk.Button(label="Run from here")
         run_from_button.add_css_class("flat")
-        run_from_button.set_tooltip_text("Run this and all remaining steps")
-        run_from_button.connect(
-            "clicked", lambda _btn, step=step_id: self.on_run_from_step_clicked(step)
-        )
-        control_box.append(run_from_button)
-        row.add_suffix(control_box)
+
+        def _run_one_clicked(button: Gtk.Button) -> None:
+            popover.popdown()
+            run_one(button)
+
+        def _run_from_clicked(_button: Gtk.Button) -> None:
+            popover.popdown()
+            self.on_run_from_step_clicked(step_id)
+
+        run_one_button.connect("clicked", _run_one_clicked)
+        run_from_button.connect("clicked", _run_from_clicked)
+        action_box.append(run_one_button)
+        action_box.append(run_from_button)
+        popover.set_child(action_box)
+        menu_button.set_popover(popover)
+        self._step_menu_buttons[row] = menu_button
 
     def _set_step_status(self, row: Adw.ActionRow, status: str) -> None:
         label = self._step_status_labels.get(row)
         if label is not None:
-            label.set_text(status)
+            label.set_text("✓" if status == "Done" else status)
+            label.set_tooltip_text(status)
+            if status == "Pending":
+                label.add_css_class("dim-label")
+            else:
+                label.remove_css_class("dim-label")
+        step_id = self._step_ids_by_row.get(row)
+        if step_id:
+            self._step_status_values[step_id] = status
+        self._refresh_phase_summaries()
 
     def _report_step_progress(
         self,
@@ -6851,18 +7048,24 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         level: str = "INFO",
     ) -> None:
         GLib.idle_add(self._set_step_status, row, status)
+        title = row.get_title() or "Working"
+        GLib.idle_add(self._set_status, f"{title} — {status}", True)
         if message:
             GLib.idle_add(self._append_log_message, message, level)
 
     def _reset_step_statuses(self) -> None:
         for row in self._step_status_labels:
             self._set_step_status(row, "Pending")
+        self._open_first_incomplete_phase()
+        self._sync_pipeline_controls()
 
     def _refresh_step_statuses_from_artifacts(self) -> None:
         if self._pipeline_running:
             return
         root_dir = self._resolve_case_root()
         if root_dir is None:
+            self._open_first_incomplete_phase()
+            self._sync_pipeline_controls()
             return
 
         def _set_done(row: Adw.ActionRow, done: bool) -> None:
@@ -6870,6 +7073,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         for step_id, row, _handler in self._pipeline_steps():
             _set_done(row, self._step_artifact_complete(step_id, root_dir, self.selected_pdfs))
+        self._open_first_incomplete_phase()
+        self._sync_pipeline_controls()
 
     def _expected_classification_file_names(
         self,
@@ -7084,11 +7289,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _start_step(self, row: Adw.ActionRow) -> None:
         title = row.get_title() or "Working"
-        self._set_step_status(row, "Pending")
+        self._active_step_id = self._step_ids_by_row.get(row)
+        self._open_phase_for_step(self._active_step_id)
+        self._set_step_status(row, "Running")
         self._set_status(f"Working: {title}", True)
         self.show_toast(f"Working on {title}.", "INFO")
 
     def _stop_status(self) -> None:
+        self._active_step_id = None
         self._set_status(APPLICATION_NAME, False)
 
     def _stop_status_if_idle(self) -> None:
@@ -7098,41 +7306,140 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _stop_button_if_idle(self) -> None:
         if not self._pipeline_running:
             self.stop_button.set_sensitive(False)
+            self._sync_pipeline_controls()
 
-    def _build_transcript_split_section(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    def _resume_is_available(self) -> bool:
+        root_dir = self._resolve_case_root()
+        if root_dir is None or not root_dir.exists():
+            return False
+        if not any(status == "Done" for status in self._step_status_values.values()):
+            return False
+        try:
+            start_index = self._resume_start_index(
+                root_dir,
+                self._selected_run_until_step(),
+            )
+        except ValueError:
+            return False
+        if start_index is None:
+            return False
+        step_id = self._pipeline_steps()[start_index][0]
+        return step_id != "create_files" or bool(self.selected_pdfs)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    def _sync_pipeline_controls(self) -> None:
+        running = self._pipeline_running
+        self.run_all_button.set_visible(not running)
+        self.run_all_button.set_sensitive(not running and bool(self.selected_pdfs))
+        self.resume_button.set_visible(not running and self._resume_is_available())
+        self.resume_button.set_sensitive(not running)
+        self.stop_button.set_visible(running)
+        self.stop_button.set_sensitive(running and not self._stop_event.is_set())
+        if self._run_until_dropdown is not None:
+            self._run_until_dropdown.set_sensitive(not running)
+        for menu_button in self._step_menu_buttons.values():
+            menu_button.set_sensitive(not running)
+        if self._rt_ct_split_dropdown is not None:
+            self._rt_ct_split_dropdown.set_sensitive(not running)
+        if self._rt_ct_split_entry is not None:
+            split_selected = bool(
+                self._rt_ct_split_dropdown is not None
+                and self._rt_ct_split_dropdown.get_selected() == 0
+            )
+            self._rt_ct_split_entry.set_sensitive(not running and split_selected)
+        if self._rt_ct_split_page_row is not None:
+            self._rt_ct_split_page_row.set_sensitive(
+                not running
+                and self._rt_ct_split_dropdown is not None
+                and self._rt_ct_split_dropdown.get_selected() == 0
+            )
+        self._update_toc_button()
 
-        dropdown = Gtk.DropDown.new_from_strings(
-            [
-                "RT/CT Split",
-                "Reporter's transcript only",
-                "Clerk's transcript only",
-            ]
+    def _build_transcript_split_section(self) -> Adw.ExpanderRow:
+        source_row = Adw.ExpanderRow(
+            title="No case selected",
+            subtitle="Choose a case bundle or PDF files",
         )
-        dropdown.set_halign(Gtk.Align.START)
-        dropdown.connect("notify::selected", self._on_rt_ct_split_mode_changed)
-        controls.append(dropdown)
+        source_row.set_expanded(False)
 
-        label = Gtk.Label(label="RT ends at page", xalign=0)
-        controls.append(label)
+        dropdown = Adw.ComboRow(title="Transcript type")
+        dropdown.set_model(
+            Gtk.StringList.new(
+                [
+                    "RT + CT",
+                    "Reporter's transcript only",
+                    "Clerk's transcript only",
+                ]
+            )
+        )
+        dropdown.connect("notify::selected", self._on_rt_ct_split_mode_changed)
+        source_row.add_row(dropdown)
+
+        page_row = Adw.ActionRow(title="RT ends at page")
 
         entry = Gtk.Entry()
         entry.set_width_chars(3)
+        entry.set_max_width_chars(5)
         entry.set_max_length(5)
         entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
         entry.connect("activate", self._on_rt_ct_split_commit)
         entry.connect("notify::has-focus", self._on_rt_ct_split_focus_notify)
-        controls.append(entry)
+        page_row.add_suffix(entry)
+        source_row.add_row(page_row)
 
+        self._source_row = source_row
         self._rt_ct_split_dropdown = dropdown
         self._rt_ct_split_spin = None
         self._rt_ct_split_entry = entry
+        self._rt_ct_split_page_row = page_row
         self._rt_ct_split_label = None
+        return source_row
 
-        box.append(controls)
-        return box
+    def _update_source_summary(
+        self,
+        split_page: int | None = None,
+        split_mode: str | None = None,
+    ) -> None:
+        source_row = self._source_row
+        if source_row is None:
+            return
+        case_name, base_dir = load_case_context()
+        if self.selected_pdfs:
+            selected_parents = {path.parent for path in self.selected_pdfs}
+            if len(selected_parents) != 1 or base_dir not in selected_parents:
+                case_name = ""
+        display_case = _display_case_name(case_name) if case_name else ""
+        if display_case:
+            title = display_case
+        elif len(self.selected_pdfs) == 1:
+            title = self.selected_pdfs[0].name
+        elif self.selected_pdfs:
+            title = f"{len(self.selected_pdfs)} PDFs selected"
+        else:
+            title = "No case selected"
+
+        if not display_case and not self.selected_pdfs:
+            subtitle = "Choose a case bundle or PDF files"
+        else:
+            if split_mode is None:
+                root_dir = self._resolve_case_root()
+                if root_dir is not None and root_dir.exists():
+                    split_mode = _read_rt_ct_split_mode(root_dir)
+                    split_page = _read_rt_ct_split_page(root_dir)
+                else:
+                    split_mode = self._rt_ct_split_mode_pending or "split"
+                    if split_page is None:
+                        split_page = self._rt_ct_split_pending
+            source_description = "Existing case bundle"
+            if len(self.selected_pdfs) == 1:
+                source_description = self.selected_pdfs[0].name
+            elif self.selected_pdfs:
+                source_description = f"{len(self.selected_pdfs)} PDFs"
+            subtitle = (
+                f"{source_description} • "
+                f"{_transcript_summary(split_mode or 'split', split_page)}"
+            )
+        source_row.set_title(title)
+        source_row.set_subtitle(subtitle)
 
     def _set_rt_ct_split_ui(
         self, split_page: int | None, total_pages: int | None, split_mode: str
@@ -7148,11 +7455,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             0 if split_mode == "split" else (1 if split_mode == "rt_only" else 2)
         )
         self._rt_ct_split_updating = False
-        entry.set_sensitive(split_mode == "split")
+        page_sensitive = split_mode == "split" and not self._pipeline_running
+        entry.set_sensitive(page_sensitive)
+        if self._rt_ct_split_page_row is not None:
+            self._rt_ct_split_page_row.set_sensitive(page_sensitive)
         if split_mode == "split":
             entry.remove_css_class("dim-label")
         else:
             entry.add_css_class("dim-label")
+        self._update_source_summary(split_page, split_mode)
 
     def _load_rt_ct_split(self) -> None:
         root_dir = self._resolve_case_root()
@@ -7423,6 +7734,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         self._stop_event.set()
         self.stop_button.set_sensitive(False)
+        self._sync_pipeline_controls()
         self.show_toast("Stop requested.")
 
     def _safe_update_manifest(
@@ -7624,6 +7936,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if saved_value in self._run_until_values:
             selected_index = self._run_until_values.index(saved_value)
         dropdown.set_selected(selected_index)
+        self._update_run_action_label()
 
     def _selected_run_until_step(self) -> str | None:
         dropdown = self._run_until_dropdown
@@ -7642,6 +7955,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 return label
         return step_id
 
+    def _update_run_action_label(self) -> None:
+        step_id = self._selected_run_until_step()
+        endpoint_label = self._run_until_label(step_id) if step_id else None
+        self.run_all_button.set_label(_run_action_label(endpoint_label))
+
     def _on_run_until_changed(
         self, dropdown: Gtk.DropDown, _pspec: GObject.ParamSpec
     ) -> None:
@@ -7650,6 +7968,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if 0 <= selected < len(self._run_until_values):
             step_id = self._run_until_values[selected]
         save_run_until_step_setting(step_id)
+        self._update_run_action_label()
+        self._sync_pipeline_controls()
 
     def _resolve_case_root(self) -> Path | None:
         if self.selected_pdfs:
@@ -7701,6 +8021,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
+        self._sync_pipeline_controls()
         threading.Thread(
             target=self._run_all_steps,
             args=(end_step_id,),
@@ -7743,6 +8064,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
+        self._sync_pipeline_controls()
         threading.Thread(
             target=self._run_steps_from_index,
             args=(start_index, root_dir, end_step_id),
@@ -7780,6 +8102,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
+        self._sync_pipeline_controls()
         threading.Thread(
             target=self._run_steps_from_index,
             args=(start_index, root_dir),
@@ -7803,6 +8126,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(True)
         if self._run_until_dropdown:
             self._run_until_dropdown.set_sensitive(False)
+        self._sync_pipeline_controls()
         row.set_sensitive(False)
         self._start_step(row)
         threading.Thread(
@@ -7842,6 +8166,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
+        self._sync_pipeline_controls()
 
     def on_step_one_clicked(self, _row: Adw.ActionRow) -> None:
         if not self.selected_pdfs:
@@ -8291,6 +8616,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._stop_status()
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
+        self._sync_pipeline_controls()
         completion_message = self._run_completion_message
         self._run_completion_message = None
         if stop_requested:

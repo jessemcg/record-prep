@@ -3,9 +3,14 @@ import unittest
 from recordprep.ui.main_window import (
     PIPELINE_PHASES,
     PIPELINE_STEP_PHASE,
+    SETTINGS_NAV_GROUPS,
+    TEST_PROMPT_GROUPS,
     _first_incomplete_phase_id,
     _phase_progress_text,
     _run_action_label,
+    _settings_destination_keys,
+    _test_prompt_input_kind,
+    _test_prompt_options,
     _transcript_summary,
 )
 
@@ -70,6 +75,38 @@ class MainWindowUiStateTests(unittest.TestCase):
             _transcript_summary("ct_only", None),
             "Clerk's transcript only",
         )
+
+    def test_settings_destinations_are_grouped_once(self) -> None:
+        self.assertEqual(
+            [(group_id, title) for group_id, title, _items in SETTINGS_NAV_GROUPS],
+            [
+                ("prepare", "Prepare"),
+                ("classify", "Classify"),
+                ("summarize", "Summarize"),
+                ("index", "Index"),
+            ],
+        )
+        destination_keys = _settings_destination_keys()
+        self.assertEqual(len(destination_keys), 11)
+        self.assertEqual(len(destination_keys), len(set(destination_keys)))
+        self.assertEqual(destination_keys[0], "text-source")
+        self.assertEqual(destination_keys[-1], "rag")
+
+    def test_prompt_tests_are_grouped_and_use_adaptive_inputs(self) -> None:
+        mode_ids = [
+            mode_id
+            for _group_id, _title, options in TEST_PROMPT_GROUPS
+            for mode_id, _label in options
+        ]
+        self.assertEqual(len(mode_ids), 15)
+        self.assertEqual(len(mode_ids), len(set(mode_ids)))
+        self.assertEqual(len(_test_prompt_options("classification")), 9)
+        self.assertEqual(len(_test_prompt_options("optimize")), 3)
+        self.assertEqual(len(_test_prompt_options("summarize")), 3)
+        self.assertEqual(_test_prompt_input_kind("basic_rt"), "image")
+        self.assertEqual(_test_prompt_input_kind("names_form"), "image")
+        self.assertEqual(_test_prompt_input_kind("optimize_hearings"), "text")
+        self.assertEqual(_test_prompt_input_kind("summarize_minutes"), "text")
 
 
 if __name__ == "__main__":

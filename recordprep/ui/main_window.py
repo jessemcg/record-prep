@@ -109,6 +109,74 @@ PIPELINE_STEP_PHASE = {
     for step_id in step_ids
 }
 COMPLETED_STEP_STATUSES = {"Done", "Skipped"}
+SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "prepare",
+        "Prepare",
+        (
+            ("text-source", "Create files"),
+            ("local-ocr", "Local OCR"),
+            ("case-name", "Infer case"),
+        ),
+    ),
+    (
+        "classify",
+        "Classify",
+        (
+            ("classify-basic", "Basic"),
+            ("classify-advanced", "Advanced"),
+            ("classify-dates", "Dates"),
+            ("classify-names", "Names"),
+        ),
+    ),
+    (
+        "summarize",
+        "Summarize",
+        (("optimize", "Optimize"), ("summarize", "Summarize")),
+    ),
+    (
+        "index",
+        "Index",
+        (("overview", "Case Overview"), ("rag", "RAG")),
+    ),
+)
+TEST_PROMPT_GROUPS: tuple[
+    tuple[str, str, tuple[tuple[str, str], ...]], ...
+] = (
+    (
+        "classification",
+        "Classification",
+        (
+            ("basic_rt", "Basic — RT"),
+            ("basic_ct", "Basic — CT"),
+            ("advanced_hearing", "Advanced — Hearing"),
+            ("advanced_minute", "Advanced — Minute order"),
+            ("advanced_form", "Advanced — Form"),
+            ("dates_hearing", "Dates — Hearing"),
+            ("dates_minute", "Dates — Minute order"),
+            ("names_report", "Names — Report"),
+            ("names_form", "Names — Form"),
+        ),
+    ),
+    (
+        "optimize",
+        "Optimize",
+        (
+            ("optimize_attorneys", "Counsel roles"),
+            ("optimize_hearings", "Hearings"),
+            ("optimize_reports", "Reports"),
+        ),
+    ),
+    (
+        "summarize",
+        "Summarize",
+        (
+            ("summarize_hearings", "Hearings"),
+            ("summarize_reports", "Reports"),
+            ("summarize_minutes", "Minute orders"),
+        ),
+    ),
+)
 MODEL_ID = "LightOnOCR-2-1B-Q8_0.gguf"
 DEFAULT_SERVER_URL = "http://localhost:8000/v1/chat/completions"
 START_SERVER_COMMAND = """\
@@ -160,6 +228,28 @@ def _transcript_summary(split_mode: str, split_page: int | None) -> str:
     if split_page:
         return f"RT + CT • RT through page {split_page}"
     return "RT + CT • split page not set"
+
+
+def _settings_destination_keys() -> tuple[str, ...]:
+    return tuple(
+        key
+        for _group_id, _title, destinations in SETTINGS_NAV_GROUPS
+        for key, _label in destinations
+    )
+
+
+def _test_prompt_options(group_id: str) -> tuple[tuple[str, str], ...]:
+    for candidate_id, _label, options in TEST_PROMPT_GROUPS:
+        if candidate_id == group_id:
+            return options
+    return ()
+
+
+def _test_prompt_input_kind(mode_id: str) -> str:
+    classification_modes = {
+        value for value, _label in TEST_PROMPT_GROUPS[0][2]
+    }
+    return "image" if mode_id in classification_modes else "text"
 
 
 def _log_startup(message: str) -> None:
@@ -4041,7 +4131,13 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._classify_names_widgets: ClassifyNamesSettingsWidgets | None = None
         self._advanced_classify_widgets: AdvancedClassificationSettingsWidgets | None = None
         self._local_ocr_widgets: LocalOcrSettingsWidgets | None = None
-        self._prompt_row_keys: dict[Gtk.ListBoxRow, str] = {}
+        self._settings_group_rows: dict[str, Adw.ExpanderRow] = {}
+        self._settings_group_destinations: dict[str, tuple[str, ...]] = {}
+        self._settings_key_groups: dict[str, str] = {}
+        self._settings_destination_labels: dict[str, str] = {}
+        self._settings_destination_markers: dict[str, Gtk.Image] = {}
+        self._settings_nav_updating = False
+        self._active_settings_key: str | None = None
         self._text_source_row: Adw.ComboRow | None = None
         self._text_source_values: list[str] = []
         self._build_ui()
@@ -4073,6 +4169,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.add_css_class("flat")
         header.set_title_widget(Adw.WindowTitle(title="Settings"))
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        save_btn.add_css_class("flat")
+        save_btn.set_action_name("app.save-settings")
+        header.pack_end(save_btn)
         view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -4081,23 +4182,38 @@ class SettingsWindow(Adw.ApplicationWindow):
         box.set_margin_start(18)
         box.set_margin_end(18)
 
-        split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         split.set_hexpand(True)
         split.set_vexpand(True)
-        split.set_shrink_start_child(False)
-        split.set_shrink_end_child(False)
-        split.set_resize_start_child(False)
-        split.set_resize_end_child(True)
 
         prompt_list = Gtk.ListBox()
-        prompt_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        prompt_list.add_css_class("navigation-sidebar")
-        prompt_list.connect("row-selected", self._on_prompt_row_selected)
+        prompt_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        prompt_list.add_css_class("boxed-list")
+        prompt_list.set_valign(Gtk.Align.START)
+        prompt_list.set_vexpand(False)
         self._prompt_list = prompt_list
+
+        for group_id, title, destinations in SETTINGS_NAV_GROUPS:
+            group_row = Adw.ExpanderRow(
+                title=title,
+                subtitle=f"{len(destinations)} settings",
+            )
+            group_row.set_expanded(False)
+            group_row.connect(
+                "notify::expanded",
+                self._on_settings_group_expanded,
+                group_id,
+            )
+            self._settings_group_rows[group_id] = group_row
+            self._settings_group_destinations[group_id] = tuple(
+                key for key, _label in destinations
+            )
+            prompt_list.append(group_row)
 
         prompt_list_scroller = Gtk.ScrolledWindow()
         prompt_list_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        prompt_list_scroller.set_min_content_width(220)
+        prompt_list_scroller.set_min_content_width(240)
+        prompt_list_scroller.set_size_request(240, -1)
         prompt_list_scroller.set_child(prompt_list)
 
         prompt_stack = Gtk.Stack()
@@ -4106,67 +4222,23 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._prompt_stack = prompt_stack
 
-        text_source_row = Gtk.ListBoxRow()
-        text_source_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        text_source_box.set_margin_top(8)
-        text_source_box.set_margin_bottom(8)
-        text_source_box.set_margin_start(12)
-        text_source_box.set_margin_end(12)
-        text_source_label = Gtk.Label(label="Create files", xalign=0)
-        text_source_box.append(text_source_label)
-        text_source_row.set_child(text_source_box)
-        prompt_list.append(text_source_row)
-        self._prompt_row_keys[text_source_row] = "text-source"
+        self._add_settings_destination("prepare", "text-source", "Create files")
         text_source_page = self._build_text_source_page()
         prompt_stack.add_named(text_source_page, "text-source")
 
-        local_ocr_row = Gtk.ListBoxRow()
-        local_ocr_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        local_ocr_box.set_margin_top(8)
-        local_ocr_box.set_margin_bottom(8)
-        local_ocr_box.set_margin_start(12)
-        local_ocr_box.set_margin_end(12)
-        local_ocr_label = Gtk.Label(label="Local OCR", xalign=0)
-        local_ocr_box.append(local_ocr_label)
-        local_ocr_row.set_child(local_ocr_box)
-        prompt_list.append(local_ocr_row)
-        self._prompt_row_keys[local_ocr_row] = "local-ocr"
+        self._add_settings_destination("prepare", "local-ocr", "Local OCR")
         local_ocr_page = self._build_local_ocr_page(load_local_ocr_settings())
         prompt_stack.add_named(local_ocr_page, "local-ocr")
 
         prompt_definitions = [
             ("case-name", "Infer Case Name", load_case_name_settings(), DEFAULT_CASE_NAME_PROMPT),
         ]
-        first_row: Gtk.ListBoxRow | None = None
         for key, title, settings, default_prompt in prompt_definitions:
-            row = Gtk.ListBoxRow()
-            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            row_box.set_margin_top(8)
-            row_box.set_margin_bottom(8)
-            row_box.set_margin_start(12)
-            row_box.set_margin_end(12)
-            label = Gtk.Label(label=title, xalign=0)
-            row_box.append(label)
-            row.set_child(row_box)
-            prompt_list.append(row)
-            self._prompt_row_keys[row] = key
-            if first_row is None:
-                first_row = row
-
+            self._add_settings_destination("prepare", key, "Infer case")
             page = self._build_prompt_page(key, title, settings, default_prompt)
             prompt_stack.add_named(page, key)
 
-        classify_row = Gtk.ListBoxRow()
-        classify_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        classify_box.set_margin_top(8)
-        classify_box.set_margin_bottom(8)
-        classify_box.set_margin_start(12)
-        classify_box.set_margin_end(12)
-        classify_label = Gtk.Label(label="Classification basic", xalign=0)
-        classify_box.append(classify_label)
-        classify_row.set_child(classify_box)
-        prompt_list.append(classify_row)
-        self._prompt_row_keys[classify_row] = "classify-basic"
+        self._add_settings_destination("classify", "classify-basic", "Basic")
         classify_page = self._build_prompt_page(
             "classify-basic",
             "Classification basic",
@@ -4175,134 +4247,42 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         prompt_stack.add_named(classify_page, "classify-basic")
 
-        classify_advanced_row = Gtk.ListBoxRow()
-        classify_advanced_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        classify_advanced_box.set_margin_top(8)
-        classify_advanced_box.set_margin_bottom(8)
-        classify_advanced_box.set_margin_start(12)
-        classify_advanced_box.set_margin_end(12)
-        classify_advanced_label = Gtk.Label(label="Classification advanced", xalign=0)
-        classify_advanced_box.append(classify_advanced_label)
-        classify_advanced_row.set_child(classify_advanced_box)
-        prompt_list.append(classify_advanced_row)
-        self._prompt_row_keys[classify_advanced_row] = "classify-advanced"
+        self._add_settings_destination("classify", "classify-advanced", "Advanced")
         classify_advanced_page = self._build_advanced_classify_prompt_page()
         prompt_stack.add_named(classify_advanced_page, "classify-advanced")
 
-        classify_dates_row = Gtk.ListBoxRow()
-        classify_dates_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        classify_dates_box.set_margin_top(8)
-        classify_dates_box.set_margin_bottom(8)
-        classify_dates_box.set_margin_start(12)
-        classify_dates_box.set_margin_end(12)
-        classify_dates_label = Gtk.Label(label="Classification dates", xalign=0)
-        classify_dates_box.append(classify_dates_label)
-        classify_dates_row.set_child(classify_dates_box)
-        prompt_list.append(classify_dates_row)
-        self._prompt_row_keys[classify_dates_row] = "classify-dates"
+        self._add_settings_destination("classify", "classify-dates", "Dates")
         classify_dates_page = self._build_classify_dates_prompt_page()
         prompt_stack.add_named(classify_dates_page, "classify-dates")
 
-        classify_names_row = Gtk.ListBoxRow()
-        classify_names_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        classify_names_box.set_margin_top(8)
-        classify_names_box.set_margin_bottom(8)
-        classify_names_box.set_margin_start(12)
-        classify_names_box.set_margin_end(12)
-        classify_names_label = Gtk.Label(label="Classification names", xalign=0)
-        classify_names_box.append(classify_names_label)
-        classify_names_row.set_child(classify_names_box)
-        prompt_list.append(classify_names_row)
-        self._prompt_row_keys[classify_names_row] = "classify-names"
+        self._add_settings_destination("classify", "classify-names", "Names")
         classify_names_page = self._build_classify_names_prompt_page()
         prompt_stack.add_named(classify_names_page, "classify-names")
 
-        optimize_row = Gtk.ListBoxRow()
-        optimize_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        optimize_box.set_margin_top(8)
-        optimize_box.set_margin_bottom(8)
-        optimize_box.set_margin_start(12)
-        optimize_box.set_margin_end(12)
-        optimize_label = Gtk.Label(label="Optimize", xalign=0)
-        optimize_box.append(optimize_label)
-        optimize_row.set_child(optimize_box)
-        prompt_list.append(optimize_row)
-        self._prompt_row_keys[optimize_row] = "optimize"
+        self._add_settings_destination("summarize", "optimize", "Optimize")
         optimize_page = self._build_optimize_prompt_page(load_optimize_settings())
         prompt_stack.add_named(optimize_page, "optimize")
 
-        summarize_row = Gtk.ListBoxRow()
-        summarize_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        summarize_box.set_margin_top(8)
-        summarize_box.set_margin_bottom(8)
-        summarize_box.set_margin_start(12)
-        summarize_box.set_margin_end(12)
-        summarize_label = Gtk.Label(label="Summarize", xalign=0)
-        summarize_box.append(summarize_label)
-        summarize_row.set_child(summarize_box)
-        prompt_list.append(summarize_row)
-        self._prompt_row_keys[summarize_row] = "summarize"
+        self._add_settings_destination("summarize", "summarize", "Summarize")
         summarize_page = self._build_summarize_prompt_page(load_summarize_settings())
         prompt_stack.add_named(summarize_page, "summarize")
 
-        overview_row = Gtk.ListBoxRow()
-        overview_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        overview_box.set_margin_top(8)
-        overview_box.set_margin_bottom(8)
-        overview_box.set_margin_start(12)
-        overview_box.set_margin_end(12)
-        overview_label = Gtk.Label(label="Case Overview", xalign=0)
-        overview_box.append(overview_label)
-        overview_row.set_child(overview_box)
-        prompt_list.append(overview_row)
-        self._prompt_row_keys[overview_row] = "overview"
+        self._add_settings_destination("index", "overview", "Case Overview")
         overview_page = self._build_overview_prompt_page(load_overview_settings())
         prompt_stack.add_named(overview_page, "overview")
 
-        rag_row = Gtk.ListBoxRow()
-        rag_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        rag_box.set_margin_top(8)
-        rag_box.set_margin_bottom(8)
-        rag_box.set_margin_start(12)
-        rag_box.set_margin_end(12)
-        rag_label = Gtk.Label(label="RAG", xalign=0)
-        rag_box.append(rag_label)
-        rag_row.set_child(rag_box)
-        prompt_list.append(rag_row)
-        self._prompt_row_keys[rag_row] = "rag"
+        self._add_settings_destination("index", "rag", "RAG")
         rag_page = self._build_rag_prompt_page(load_rag_settings())
         prompt_stack.add_named(rag_page, "rag")
 
-        if first_row is not None:
-            prompt_list.select_row(first_row)
-            prompt_stack.set_visible_child_name(self._prompt_row_keys[first_row])
+        self._set_settings_group_expanded("prepare")
+        self._select_settings_page("text-source")
 
-        split.set_start_child(prompt_list_scroller)
-        split.set_end_child(prompt_stack)
+        split.append(prompt_list_scroller)
+        split.append(prompt_stack)
         box.append(split)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_hexpand(True)
-        scrolled.set_vexpand(True)
-        scrolled.set_child(box)
-        content.append(scrolled)
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_margin_top(6)
-        buttons.set_margin_bottom(12)
-        buttons.set_margin_start(12)
-        buttons.set_margin_end(12)
-        buttons.set_halign(Gtk.Align.END)
-        save_btn = Gtk.Button(label="Save Settings")
-        save_btn.add_css_class("suggested-action")
-        save_btn.add_css_class("flat")
-        save_btn.set_action_name("app.save-settings")
-        buttons.append(save_btn)
-        content.append(buttons)
-
-        view.set_content(content)
+        view.set_content(box)
         self.set_content(view)
 
     def _build_text_source_page(self) -> Gtk.Widget:
@@ -4434,15 +4414,18 @@ class SettingsWindow(Adw.ApplicationWindow):
         command_section.set_hexpand(True)
         command_section.set_vexpand(True)
 
-        command_label = Gtk.Label(label="Start server command", xalign=0)
-        command_label.add_css_class("dim-label")
-        command_section.append(command_label)
         command_scroller, command_buffer = self._build_prompt_editor(
             settings.get("start_command", START_SERVER_COMMAND)
         )
         self._set_prompt_editor_height(command_scroller, 180)
         command_section.append(command_scroller)
-        page_box.append(command_section)
+        page_box.append(
+            self._build_disclosure(
+                "Advanced",
+                command_section,
+                subtitle="Local server start command",
+            )
+        )
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4558,15 +4541,18 @@ class SettingsWindow(Adw.ApplicationWindow):
             command_section.set_hexpand(True)
             command_section.set_vexpand(True)
 
-            command_label = Gtk.Label(label="Local server start command", xalign=0)
-            command_label.add_css_class("dim-label")
-            command_section.append(command_label)
             command_scroller, local_start_command_buffer = self._build_prompt_editor(
                 settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
             )
             self._set_prompt_editor_height(command_scroller, 160)
             command_section.append(command_scroller)
-            page_box.append(command_section)
+            page_box.append(
+                self._build_disclosure(
+                    "Advanced",
+                    command_section,
+                    subtitle="Local vision server start command",
+                )
+            )
 
         buffer: Gtk.TextBuffer
         ct_buffer: Gtk.TextBuffer | None = None
@@ -4600,7 +4586,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
             self._set_prompt_editor_height(prompt_scroller, 320)
             prompt_section.append(prompt_scroller)
-        page_box.append(prompt_section)
+        page_box.append(self._build_disclosure("Prompts", prompt_section))
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4647,32 +4633,31 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        hearing_label = Gtk.Label(label="Hearing First Page Prompt", xalign=0)
-        hearing_label.add_css_class("dim-label")
-        prompt_section.append(hearing_label)
         hearing_scroller, hearing_buffer = self._build_prompt_editor(
             settings.get("hearing_prompt") or DEFAULT_ADVANCED_HEARING_PROMPT
         )
         self._set_prompt_editor_height(hearing_scroller, 240)
-        prompt_section.append(hearing_scroller)
+        prompt_section.append(
+            self._build_disclosure(
+                "Hearing first page prompt", hearing_scroller, expanded=True
+            )
+        )
 
-        minute_label = Gtk.Label(label="Minute Order First Page Prompt", xalign=0)
-        minute_label.add_css_class("dim-label")
-        prompt_section.append(minute_label)
         minute_scroller, minute_buffer = self._build_prompt_editor(
             settings.get("minute_prompt") or DEFAULT_ADVANCED_MINUTE_PROMPT
         )
         self._set_prompt_editor_height(minute_scroller, 240)
-        prompt_section.append(minute_scroller)
+        prompt_section.append(
+            self._build_disclosure("Minute order first page prompt", minute_scroller)
+        )
 
-        forms_label = Gtk.Label(label="Form First Page Prompt", xalign=0)
-        forms_label.add_css_class("dim-label")
-        prompt_section.append(forms_label)
         forms_scroller, forms_buffer = self._build_prompt_editor(
             settings.get("form_prompt") or DEFAULT_ADVANCED_FORM_PROMPT
         )
         self._set_prompt_editor_height(forms_scroller, 240)
-        prompt_section.append(forms_scroller)
+        prompt_section.append(
+            self._build_disclosure("Form first page prompt", forms_scroller)
+        )
 
         page_box.append(prompt_section)
 
@@ -4714,23 +4699,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        hearing_label = Gtk.Label(label="Hearing Date Prompt", xalign=0)
-        hearing_label.add_css_class("dim-label")
-        prompt_section.append(hearing_label)
         hearing_scroller, hearing_buffer = self._build_prompt_editor(
             settings.get("hearing_prompt") or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT
         )
         self._set_prompt_editor_height(hearing_scroller, 240)
-        prompt_section.append(hearing_scroller)
+        prompt_section.append(
+            self._build_disclosure("Hearing date prompt", hearing_scroller, expanded=True)
+        )
 
-        minute_label = Gtk.Label(label="Minute Order Date Prompt", xalign=0)
-        minute_label.add_css_class("dim-label")
-        prompt_section.append(minute_label)
         minute_scroller, minute_buffer = self._build_prompt_editor(
             settings.get("minute_prompt") or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT
         )
         self._set_prompt_editor_height(minute_scroller, 240)
-        prompt_section.append(minute_scroller)
+        prompt_section.append(
+            self._build_disclosure("Minute order date prompt", minute_scroller)
+        )
 
         page_box.append(prompt_section)
 
@@ -4771,23 +4754,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        reports_label = Gtk.Label(label="Report Name/Date Prompt", xalign=0)
-        reports_label.add_css_class("dim-label")
-        prompt_section.append(reports_label)
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("report_prompt") or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT
         )
         self._set_prompt_editor_height(reports_scroller, 240)
-        prompt_section.append(reports_scroller)
+        prompt_section.append(
+            self._build_disclosure(
+                "Report name and date prompt", reports_scroller, expanded=True
+            )
+        )
 
-        forms_label = Gtk.Label(label="Form Name Prompt", xalign=0)
-        forms_label.add_css_class("dim-label")
-        prompt_section.append(forms_label)
         forms_scroller, forms_buffer = self._build_prompt_editor(
             settings.get("form_prompt") or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT
         )
         self._set_prompt_editor_height(forms_scroller, 240)
-        prompt_section.append(forms_scroller)
+        prompt_section.append(self._build_disclosure("Form name prompt", forms_scroller))
 
         page_box.append(prompt_section)
 
@@ -4815,24 +4796,23 @@ class SettingsWindow(Adw.ApplicationWindow):
         title_label.add_css_class("title-3")
         page_box.append(title_label)
 
-        hearing_credentials_group = Adw.PreferencesGroup(
-            title="Hearing Optimization Credentials",
+        hearing_credentials_group = self._build_disclosure(
+            "Hearing credentials",
+            expanded=True,
         )
-        hearing_credentials_group.add_css_class("list-stack")
-        hearing_credentials_group.set_hexpand(True)
         page_box.append(hearing_credentials_group)
 
         hearing_api_url_row = Adw.EntryRow(title="Hearing API URL")
         hearing_api_url_row.set_text(settings.get("hearing_api_url", ""))
-        hearing_credentials_group.add(hearing_api_url_row)
+        hearing_credentials_group.add_row(hearing_api_url_row)
 
         hearing_model_row = Adw.EntryRow(title="Hearing Model ID")
         hearing_model_row.set_text(settings.get("hearing_model_id", ""))
-        hearing_credentials_group.add(hearing_model_row)
+        hearing_credentials_group.add_row(hearing_model_row)
 
         hearing_api_key_row = self._build_password_row("Hearing API Key")
         hearing_api_key_row.set_text(settings.get("hearing_api_key", ""))
-        hearing_credentials_group.add(hearing_api_key_row)
+        hearing_credentials_group.add_row(hearing_api_key_row)
 
         hearing_disable_reasoning_row = Adw.SwitchRow(
             title="Disable hearing reasoning",
@@ -4846,26 +4826,22 @@ class SettingsWindow(Adw.ApplicationWindow):
                 )
             )
         )
-        hearing_credentials_group.add(hearing_disable_reasoning_row)
+        hearing_credentials_group.add_row(hearing_disable_reasoning_row)
 
-        report_credentials_group = Adw.PreferencesGroup(
-            title="Report Optimization Credentials",
-        )
-        report_credentials_group.add_css_class("list-stack")
-        report_credentials_group.set_hexpand(True)
+        report_credentials_group = self._build_disclosure("Report credentials")
         page_box.append(report_credentials_group)
 
         report_api_url_row = Adw.EntryRow(title="Report API URL")
         report_api_url_row.set_text(settings.get("report_api_url", ""))
-        report_credentials_group.add(report_api_url_row)
+        report_credentials_group.add_row(report_api_url_row)
 
         report_model_row = Adw.EntryRow(title="Report Model ID")
         report_model_row.set_text(settings.get("report_model_id", ""))
-        report_credentials_group.add(report_model_row)
+        report_credentials_group.add_row(report_model_row)
 
         report_api_key_row = self._build_password_row("Report API Key")
         report_api_key_row.set_text(settings.get("report_api_key", ""))
-        report_credentials_group.add(report_api_key_row)
+        report_credentials_group.add_row(report_api_key_row)
 
         report_disable_reasoning_row = Adw.SwitchRow(
             title="Disable report reasoning",
@@ -4879,26 +4855,24 @@ class SettingsWindow(Adw.ApplicationWindow):
                 )
             )
         )
-        report_credentials_group.add(report_disable_reasoning_row)
+        report_credentials_group.add_row(report_disable_reasoning_row)
 
-        attorney_credentials_group = Adw.PreferencesGroup(
-            title="Counsel Role Extraction Credentials",
+        attorney_credentials_group = self._build_disclosure(
+            "Counsel role credentials"
         )
-        attorney_credentials_group.add_css_class("list-stack")
-        attorney_credentials_group.set_hexpand(True)
         page_box.append(attorney_credentials_group)
 
         attorney_api_url_row = Adw.EntryRow(title="Counsel Role API URL")
         attorney_api_url_row.set_text(settings.get("attorney_api_url", ""))
-        attorney_credentials_group.add(attorney_api_url_row)
+        attorney_credentials_group.add_row(attorney_api_url_row)
 
         attorney_model_row = Adw.EntryRow(title="Counsel Role Model ID")
         attorney_model_row.set_text(settings.get("attorney_model_id", ""))
-        attorney_credentials_group.add(attorney_model_row)
+        attorney_credentials_group.add_row(attorney_model_row)
 
         attorney_api_key_row = self._build_password_row("Counsel Role API Key")
         attorney_api_key_row.set_text(settings.get("attorney_api_key", ""))
-        attorney_credentials_group.add(attorney_api_key_row)
+        attorney_credentials_group.add_row(attorney_api_key_row)
 
         attorney_disable_reasoning_row = Adw.SwitchRow(
             title="Disable counsel role reasoning",
@@ -4912,52 +4886,60 @@ class SettingsWindow(Adw.ApplicationWindow):
                 )
             )
         )
-        attorney_credentials_group.add(attorney_disable_reasoning_row)
+        attorney_credentials_group.add_row(attorney_disable_reasoning_row)
+
+        processing_group = Adw.PreferencesGroup(title="Processing")
+        processing_group.add_css_class("list-stack")
+        processing_group.set_hexpand(True)
+        page_box.append(processing_group)
 
         chunk_size_row = Adw.EntryRow(title="Chunk Size (characters)")
         chunk_size_row.set_text(
             settings.get("chunk_size", str(DEFAULT_OPTIMIZE_CHUNK_SIZE))
         )
-        hearing_credentials_group.add(chunk_size_row)
+        processing_group.add(chunk_size_row)
 
         max_tokens_row = Adw.EntryRow(title="Max Output Tokens")
         max_tokens_row.set_text(
             settings.get("max_tokens", str(DEFAULT_OPTIMIZE_MAX_TOKENS))
         )
-        hearing_credentials_group.add(max_tokens_row)
+        processing_group.add(max_tokens_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        attorneys_label = Gtk.Label(label="Counsel Role Extraction Prompt", xalign=0)
-        attorneys_label.add_css_class("dim-label")
-        prompt_section.append(attorneys_label)
         attorneys_scroller, attorneys_buffer = self._build_prompt_editor(
             settings.get("attorneys_prompt") or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
         )
         self._set_prompt_editor_height(attorneys_scroller, 220)
-        prompt_section.append(attorneys_scroller)
+        prompt_section.append(
+            self._build_disclosure("Counsel role prompt", attorneys_scroller)
+        )
 
-        hearings_label = Gtk.Label(label="Optimize Hearings Prompt", xalign=0)
-        hearings_label.add_css_class("dim-label")
-        prompt_section.append(hearings_label)
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
             settings.get("hearings_prompt") or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
         )
         self._set_prompt_editor_height(hearings_scroller, 260)
-        prompt_section.append(hearings_scroller)
+        prompt_section.append(
+            self._build_disclosure("Optimize hearings prompt", hearings_scroller)
+        )
 
-        reports_label = Gtk.Label(label="Optimize Reports Prompt", xalign=0)
-        reports_label.add_css_class("dim-label")
-        prompt_section.append(reports_label)
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("reports_prompt") or DEFAULT_OPTIMIZE_REPORTS_PROMPT
         )
         self._set_prompt_editor_height(reports_scroller, 260)
-        prompt_section.append(reports_scroller)
+        prompt_section.append(
+            self._build_disclosure("Optimize reports prompt", reports_scroller)
+        )
 
-        page_box.append(prompt_section)
+        page_box.append(
+            self._build_disclosure(
+                "Prompts",
+                prompt_section,
+                subtitle="Counsel roles, hearings, and reports",
+            )
+        )
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5032,34 +5014,37 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
-        hearings_label = Gtk.Label(label="Summarize Hearings Prompt", xalign=0)
-        hearings_label.add_css_class("dim-label")
-        prompt_section.append(hearings_label)
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
             settings.get("hearings_prompt") or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
         )
         self._set_prompt_editor_height(hearings_scroller, 240)
-        prompt_section.append(hearings_scroller)
+        prompt_section.append(
+            self._build_disclosure("Summarize hearings prompt", hearings_scroller)
+        )
 
-        reports_label = Gtk.Label(label="Summarize Reports Prompt", xalign=0)
-        reports_label.add_css_class("dim-label")
-        prompt_section.append(reports_label)
         reports_scroller, reports_buffer = self._build_prompt_editor(
             settings.get("reports_prompt") or DEFAULT_SUMMARIZE_REPORTS_PROMPT
         )
         self._set_prompt_editor_height(reports_scroller, 240)
-        prompt_section.append(reports_scroller)
+        prompt_section.append(
+            self._build_disclosure("Summarize reports prompt", reports_scroller)
+        )
 
-        minutes_label = Gtk.Label(label="Summarize Minute Orders Prompt", xalign=0)
-        minutes_label.add_css_class("dim-label")
-        prompt_section.append(minutes_label)
         minutes_scroller, minutes_buffer = self._build_prompt_editor(
             settings.get("minutes_prompt") or DEFAULT_SUMMARIZE_MINUTES_PROMPT
         )
         self._set_prompt_editor_height(minutes_scroller, 240)
-        prompt_section.append(minutes_scroller)
+        prompt_section.append(
+            self._build_disclosure("Summarize minute orders prompt", minutes_scroller)
+        )
 
-        page_box.append(prompt_section)
+        page_box.append(
+            self._build_disclosure(
+                "Prompts",
+                prompt_section,
+                subtitle="Hearings, reports, and minute orders",
+            )
+        )
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5120,15 +5105,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
-        prompt_label = Gtk.Label(label="Prompt", xalign=0)
-        prompt_label.add_css_class("dim-label")
-        prompt_section.append(prompt_label)
         prompt_scroller, buffer = self._build_prompt_editor(
             settings.get("prompt") or DEFAULT_OVERVIEW_PROMPT
         )
         self._set_prompt_editor_height(prompt_scroller, 320)
         prompt_section.append(prompt_scroller)
-        page_box.append(prompt_section)
+        page_box.append(self._build_disclosure("Prompt", prompt_section))
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5176,7 +5158,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         voyage_group = Adw.PreferencesGroup(title="Voyage RAG")
         voyage_group.add_css_class("list-stack")
         voyage_group.set_hexpand(True)
-        page_box.append(voyage_group)
 
         voyage_model_row = Adw.EntryRow(title="Voyage Model")
         voyage_model_row.set_text(settings.get("voyage_model", DEFAULT_RAG_VOYAGE_MODEL))
@@ -5189,7 +5170,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         isaacus_group = Adw.PreferencesGroup(title="Isaacus RAG")
         isaacus_group.add_css_class("list-stack")
         isaacus_group.set_hexpand(True)
-        page_box.append(isaacus_group)
 
         isaacus_model_row = Adw.EntryRow(title="Isaacus Model")
         isaacus_model_row.set_text(settings.get("isaacus_model", DEFAULT_RAG_ISAACUS_MODEL))
@@ -5198,6 +5178,23 @@ class SettingsWindow(Adw.ApplicationWindow):
         isaacus_key_row = self._build_password_row("Isaacus API Key")
         isaacus_key_row.set_text(settings.get("isaacus_api_key", ""))
         isaacus_group.add(isaacus_key_row)
+
+        provider_stack = Gtk.Stack()
+        provider_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        provider_stack.add_named(voyage_group, RAG_PROVIDER_VOYAGE)
+        provider_stack.add_named(isaacus_group, RAG_PROVIDER_ISAACUS)
+        provider_stack.set_visible_child_name(provider_values[provider_row.get_selected()])
+
+        def _on_provider_changed(
+            row: Adw.ComboRow,
+            _pspec: GObject.ParamSpec,
+        ) -> None:
+            selected = row.get_selected()
+            if 0 <= selected < len(provider_values):
+                provider_stack.set_visible_child_name(provider_values[selected])
+
+        provider_row.connect("notify::selected", _on_provider_changed)
+        page_box.append(provider_stack)
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5219,12 +5216,77 @@ class SettingsWindow(Adw.ApplicationWindow):
         start, end = buffer.get_bounds()
         return buffer.get_text(start, end, True)
 
-    def _on_prompt_row_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
-        if not row:
+    def _add_settings_destination(
+        self,
+        group_id: str,
+        key: str,
+        label: str,
+    ) -> None:
+        row = Adw.ActionRow(title=label)
+        row.set_activatable(True)
+        marker = Gtk.Image.new_from_icon_name("object-select-symbolic")
+        marker.set_visible(False)
+        row.add_suffix(marker)
+        row.connect(
+            "activated",
+            lambda _row, destination=key: self._select_settings_page(destination),
+        )
+        self._settings_key_groups[key] = group_id
+        self._settings_destination_labels[key] = label
+        self._settings_destination_markers[key] = marker
+        self._settings_group_rows[group_id].add_row(row)
+
+    def _set_settings_group_expanded(self, group_id: str | None) -> None:
+        self._settings_nav_updating = True
+        try:
+            for candidate_id, row in self._settings_group_rows.items():
+                row.set_expanded(candidate_id == group_id)
+        finally:
+            self._settings_nav_updating = False
+
+    def _on_settings_group_expanded(
+        self,
+        row: Adw.ExpanderRow,
+        _pspec: GObject.ParamSpec,
+        group_id: str,
+    ) -> None:
+        if self._settings_nav_updating or not row.get_expanded():
             return
-        key = self._prompt_row_keys.get(row)
-        if key:
-            self._prompt_stack.set_visible_child_name(key)
+        self._set_settings_group_expanded(group_id)
+        if self._settings_key_groups.get(self._active_settings_key or "") != group_id:
+            destinations = self._settings_group_destinations.get(group_id, ())
+            if destinations:
+                self._select_settings_page(destinations[0])
+
+    def _select_settings_page(self, key: str) -> None:
+        if key not in self._settings_destination_labels:
+            return
+        group_id = self._settings_key_groups[key]
+        self._active_settings_key = key
+        self._set_settings_group_expanded(group_id)
+        self._prompt_stack.set_visible_child_name(key)
+        for destination, marker in self._settings_destination_markers.items():
+            marker.set_visible(destination == key)
+        for candidate_id, _title, destinations in SETTINGS_NAV_GROUPS:
+            group_row = self._settings_group_rows[candidate_id]
+            if candidate_id == group_id:
+                group_row.set_subtitle(self._settings_destination_labels[key])
+            else:
+                group_row.set_subtitle(f"{len(destinations)} settings")
+
+    def _build_disclosure(
+        self,
+        title: str,
+        child: Gtk.Widget | None = None,
+        *,
+        expanded: bool = False,
+        subtitle: str | None = None,
+    ) -> Adw.ExpanderRow:
+        row = Adw.ExpanderRow(title=title, subtitle=subtitle or "")
+        row.set_expanded(expanded)
+        if child is not None:
+            row.add_row(child)
+        return row
 
     def _save_settings(self) -> None:
         case_widgets = self._prompt_editors.get("case-name")
@@ -5425,15 +5487,17 @@ class TocEditorWindow(Adw.ApplicationWindow):
             self._on_saved(self._toc_path)
 
 
-class TestClassificationWindow(Adw.ApplicationWindow):
+class TestPromptsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, parent: "RecordPrepWindow") -> None:
-        super().__init__(application=app, title="Test Classification")
-        self.set_default_size(720, 560)
+        super().__init__(application=app, title="Test prompts")
+        self.set_default_size(900, 640)
         self.set_resizable(True)
         self._parent = parent
         self._selected_image_path: Path | None = None
+        self._group_values = [group_id for group_id, _label, _options in TEST_PROMPT_GROUPS]
         self._mode_values: list[str] = []
         self._running = False
+        self._updating_mode = False
         self._paned_position_set = False
         self._build_ui()
 
@@ -5441,7 +5505,7 @@ class TestClassificationWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Adw.WindowTitle(title="Test Classification"))
+        header.set_title_widget(Adw.WindowTitle(title="Test prompts"))
         view.add_top_bar(header)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5450,38 +5514,41 @@ class TestClassificationWindow(Adw.ApplicationWindow):
         content.set_margin_start(18)
         content.set_margin_end(18)
 
-        group = Adw.PreferencesGroup(title="Test settings")
-        group.add_css_class("list-stack")
-        content.append(group)
+        settings_group = Adw.PreferencesGroup(title="Test settings")
+        settings_group.add_css_class("list-stack")
+        content.append(settings_group)
 
-        options = [
-            ("Basic (RT prompt)", "basic_rt"),
-            ("Basic (CT prompt)", "basic_ct"),
-            ("Advanced (Hearing prompt)", "advanced_hearing"),
-            ("Advanced (Minute prompt)", "advanced_minute"),
-            ("Advanced (Form prompt)", "advanced_form"),
-            ("Dates (Hearing prompt)", "dates_hearing"),
-            ("Dates (Minute prompt)", "dates_minute"),
-            ("Names (Report prompt)", "names_report"),
-            ("Names (Form prompt)", "names_form"),
-        ]
-        labels = [label for label, _value in options]
-        self._mode_values = [value for _label, value in options]
-        model = Gtk.StringList.new(labels)
-        mode_row = Adw.ComboRow(title="Classification step")
-        mode_row.set_model(model)
-        mode_row.set_selected(0)
-        group.add(mode_row)
+        group_row = Adw.ComboRow(title="Group")
+        group_row.set_model(
+            Gtk.StringList.new(
+                [label for _group_id, label, _options in TEST_PROMPT_GROUPS]
+            )
+        )
+        group_row.set_selected(0)
+        group_row.connect("notify::selected", self._on_group_changed)
+        settings_group.add(group_row)
+        self._group_row = group_row
+
+        mode_row = Adw.ComboRow(title="Prompt")
+        mode_row.connect("notify::selected", self._on_mode_changed)
+        settings_group.add(mode_row)
         self._mode_row = mode_row
 
-        image_row = Adw.ActionRow(title="Image file")
-        image_row.set_subtitle("Choose a PNG image to classify.")
+        details_row = Adw.ActionRow(title="Input")
+        settings_group.add(details_row)
+        self._details_row = details_row
+
+        image_row = Adw.ActionRow(
+            title="Image file",
+            subtitle="Choose a PNG page image.",
+        )
         choose_button = Gtk.Button(label="Choose image")
         choose_button.add_css_class("flat")
         choose_button.connect("clicked", self._on_choose_image_clicked)
         image_row.add_suffix(choose_button)
-        group.add(image_row)
+        settings_group.add(image_row)
         self._image_row = image_row
+        self._choose_image_button = choose_button
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         paned.set_hexpand(True)
@@ -5492,9 +5559,14 @@ class TestClassificationWindow(Adw.ApplicationWindow):
         paned.set_resize_end_child(True)
         self._paned = paned
 
+        input_stack = Gtk.Stack()
+        input_stack.set_hexpand(True)
+        input_stack.set_vexpand(True)
+        input_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self._input_stack = input_stack
+
         preview_frame = Gtk.Frame()
         preview_frame.set_margin_top(6)
-        preview_frame.set_margin_bottom(6)
         preview_frame.set_margin_end(6)
         preview_frame.set_hexpand(True)
         preview_frame.set_vexpand(True)
@@ -5504,47 +5576,160 @@ class TestClassificationWindow(Adw.ApplicationWindow):
         preview_picture.set_vexpand(True)
         preview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
         preview_frame.set_child(preview_picture)
+        input_stack.add_named(preview_frame, "image")
         self._preview_picture = preview_picture
+
+        input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        input_box.set_hexpand(True)
+        input_box.set_vexpand(True)
+        input_box.set_margin_top(6)
+        input_box.set_margin_end(6)
+        input_box.append(Gtk.Label(label="Raw input", xalign=0))
+        input_scroller = Gtk.ScrolledWindow()
+        input_scroller.set_hexpand(True)
+        input_scroller.set_vexpand(True)
+        input_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        input_view = Gtk.TextView()
+        input_view.set_monospace(True)
+        input_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        input_view.set_vexpand(True)
+        input_view.set_hexpand(True)
+        input_view.set_top_margin(10)
+        input_view.set_bottom_margin(10)
+        input_view.set_left_margin(10)
+        input_view.set_right_margin(10)
+        input_scroller.set_child(input_view)
+        input_box.append(input_scroller)
+        input_stack.add_named(input_box, "text")
+        self._input_view = input_view
+        self._input_buffer = input_view.get_buffer()
 
         output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         output_box.set_hexpand(True)
         output_box.set_vexpand(True)
-
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._run_button = Gtk.Button(label="Run test")
-        self._run_button.add_css_class("suggested-action")
-        self._run_button.add_css_class("flat")
-        self._run_button.connect("clicked", self._on_run_clicked)
-        action_box.append(self._run_button)
-
-        self._status_spinner = Gtk.Spinner()
-        self._status_label = Gtk.Label(label="Idle", xalign=0)
-        action_box.append(self._status_spinner)
-        action_box.append(self._status_label)
-        output_box.append(action_box)
-
+        output_box.set_margin_top(6)
+        output_box.append(Gtk.Label(label="Output", xalign=0))
         output_scroller = Gtk.ScrolledWindow()
         output_scroller.set_hexpand(True)
         output_scroller.set_vexpand(True)
         output_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         output_view = Gtk.TextView()
         output_view.set_monospace(True)
-        output_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         output_view.set_editable(False)
         output_view.set_cursor_visible(False)
         output_view.set_vexpand(True)
         output_view.set_hexpand(True)
+        output_view.set_top_margin(10)
+        output_view.set_bottom_margin(10)
+        output_view.set_left_margin(10)
+        output_view.set_right_margin(10)
         output_scroller.set_child(output_view)
         output_box.append(output_scroller)
+        self._output_view = output_view
         self._output_buffer = output_view.get_buffer()
 
-        paned.set_start_child(preview_frame)
+        paned.set_start_child(input_stack)
         paned.set_end_child(output_box)
         content.append(paned)
 
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        run_button = Gtk.Button(label="Run test")
+        run_button.add_css_class("suggested-action")
+        run_button.add_css_class("flat")
+        run_button.connect("clicked", self._on_run_clicked)
+        action_box.append(run_button)
+        status_spinner = Gtk.Spinner()
+        status_label = Gtk.Label(label="Idle", xalign=0)
+        status_label.set_hexpand(True)
+        status_label.set_ellipsize(3)
+        action_box.append(status_spinner)
+        action_box.append(status_label)
+        content.append(action_box)
+        self._run_button = run_button
+        self._status_spinner = status_spinner
+        self._status_label = status_label
+
         view.set_content(content)
         self.set_content(view)
+        self._update_mode_options()
         GLib.idle_add(self._set_initial_paned_position)
+
+    def _current_group_id(self) -> str | None:
+        selected = self._group_row.get_selected()
+        if 0 <= selected < len(self._group_values):
+            return self._group_values[selected]
+        return None
+
+    def _current_mode_id(self) -> str | None:
+        selected = self._mode_row.get_selected()
+        if 0 <= selected < len(self._mode_values):
+            return self._mode_values[selected]
+        return None
+
+    def _buffer_text(self, buffer: Gtk.TextBuffer) -> str:
+        start, end = buffer.get_bounds()
+        return buffer.get_text(start, end, True)
+
+    def _mode_details(self, mode_id: str) -> str:
+        if _test_prompt_input_kind(mode_id) == "image":
+            return "Choose a page image; the test uses the saved classification prompt."
+        if mode_id == "optimize_attorneys":
+            return "Paste hearing text; uses the saved counsel role prompt and credentials."
+        if mode_id == "optimize_hearings":
+            return (
+                "Paste hearing text; uses saved hearing settings and the selected case's "
+                "counsel_roles.json."
+            )
+        if mode_id == "optimize_reports":
+            return "Paste raw report text; uses the saved report optimization prompt."
+        if mode_id == "summarize_hearings":
+            return "Paste optimized hearing text; uses the saved hearing summary prompt."
+        if mode_id == "summarize_reports":
+            return "Paste optimized report text; uses the saved report summary prompt."
+        if mode_id == "summarize_minutes":
+            return "Paste minute-order text; uses the saved minute summary prompt."
+        return "Uses the saved prompt for the selected mode."
+
+    def _update_mode_options(self) -> None:
+        group_id = self._current_group_id()
+        options = _test_prompt_options(group_id or "")
+        self._updating_mode = True
+        self._mode_values = [value for value, _label in options]
+        self._mode_row.set_model(Gtk.StringList.new([label for _value, label in options]))
+        self._mode_row.set_selected(0 if options else Gtk.INVALID_LIST_POSITION)
+        self._updating_mode = False
+        self._apply_selected_mode()
+
+    def _apply_selected_mode(self) -> None:
+        mode_id = self._current_mode_id()
+        if not mode_id:
+            return
+        input_kind = _test_prompt_input_kind(mode_id)
+        self._input_stack.set_visible_child_name(input_kind)
+        self._image_row.set_visible(input_kind == "image")
+        self._details_row.set_subtitle(self._mode_details(mode_id))
+        self._output_view.set_wrap_mode(
+            Gtk.WrapMode.NONE if input_kind == "image" else Gtk.WrapMode.WORD_CHAR
+        )
+        self._output_buffer.set_text("")
+        self._set_status("Idle", False)
+
+    def _on_group_changed(
+        self,
+        _row: Adw.ComboRow,
+        _pspec: GObject.ParamSpec,
+    ) -> None:
+        if not self._running:
+            self._update_mode_options()
+
+    def _on_mode_changed(
+        self,
+        _row: Adw.ComboRow,
+        _pspec: GObject.ParamSpec,
+    ) -> None:
+        if not self._updating_mode and not self._running:
+            self._apply_selected_mode()
 
     def _set_status(self, message: str, running: bool) -> None:
         self._status_label.set_text(message)
@@ -5552,6 +5737,14 @@ class TestClassificationWindow(Adw.ApplicationWindow):
             self._status_spinner.start()
         else:
             self._status_spinner.stop()
+
+    def _set_running(self, running: bool) -> None:
+        self._running = running
+        self._run_button.set_sensitive(not running)
+        self._group_row.set_sensitive(not running)
+        self._mode_row.set_sensitive(not running)
+        self._choose_image_button.set_sensitive(not running)
+        self._input_view.set_editable(not running)
 
     def _on_choose_image_clicked(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileDialog(title="Choose PNG image")
@@ -5593,17 +5786,13 @@ class TestClassificationWindow(Adw.ApplicationWindow):
     def _on_run_clicked(self, _button: Gtk.Button) -> None:
         if self._running:
             return
-        if not self._selected_image_path or not self._selected_image_path.exists():
-            self._set_status("Choose an image first.", False)
+        mode_id = self._current_mode_id()
+        if not mode_id:
+            self._set_status("Choose a prompt.", False)
             return
-        selected = self._mode_row.get_selected()
-        if not (0 <= selected < len(self._mode_values)):
-            self._set_status("Choose a classification step.", False)
-            return
-        mode_id = self._mode_values[selected]
-        self._running = True
-        self._run_button.set_sensitive(False)
-        self._set_status("Running...", True)
+        self._output_buffer.set_text("")
+        self._set_running(True)
+        self._set_status("Running…", True)
 
         def _on_done(output: str, error: str | None) -> None:
             if error:
@@ -5612,215 +5801,22 @@ class TestClassificationWindow(Adw.ApplicationWindow):
             else:
                 self._set_status("Done", False)
             self._output_buffer.set_text(output)
-            self._run_button.set_sensitive(True)
-            self._running = False
+            self._set_running(False)
 
-        self._parent.run_test_classification(mode_id, self._selected_image_path, _on_done)
-
-
-class TestOptimizeSummarizeWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, parent: "RecordPrepWindow") -> None:
-        super().__init__(application=app, title="Test Optimize and Summarize")
-        self.set_default_size(960, 640)
-        self.set_resizable(True)
-        self._parent = parent
-        self._mode_values: list[str] = []
-        self._running = False
-        self._paned_position_set = False
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.add_css_class("flat")
-        header.set_title_widget(Adw.WindowTitle(title="Test Optimize and Summarize"))
-        view.add_top_bar(header)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(18)
-        content.set_margin_bottom(12)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
-
-        settings_group = Adw.PreferencesGroup(title="Test settings")
-        settings_group.add_css_class("list-stack")
-        content.append(settings_group)
-
-        options = [
-            ("Optimize (Counsel roles prompt)", "optimize_attorneys"),
-            ("Optimize (Hearings prompt)", "optimize_hearings"),
-            ("Optimize (Reports prompt)", "optimize_reports"),
-            ("Summarize (Hearings prompt)", "summarize_hearings"),
-            ("Summarize (Reports prompt)", "summarize_reports"),
-            ("Summarize (Minutes prompt)", "summarize_minutes"),
-        ]
-        labels = [label for label, _value in options]
-        self._mode_values = [value for _label, value in options]
-        mode_model = Gtk.StringList.new(labels)
-        mode_row = Adw.ComboRow(title="Test mode")
-        mode_row.set_model(mode_model)
-        mode_row.set_selected(0)
-        mode_row.connect("notify::selected", self._on_mode_changed)
-        settings_group.add(mode_row)
-        self._mode_row = mode_row
-
-        details_row = Adw.ActionRow(title="Prompt and input")
-        settings_group.add(details_row)
-        self._details_row = details_row
-
-        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        paned.set_hexpand(True)
-        paned.set_vexpand(True)
-        paned.set_shrink_start_child(False)
-        paned.set_shrink_end_child(False)
-        paned.set_resize_start_child(True)
-        paned.set_resize_end_child(True)
-        self._paned = paned
-
-        input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        input_box.set_hexpand(True)
-        input_box.set_vexpand(True)
-        input_box.set_margin_top(6)
-        input_box.set_margin_end(6)
-        input_box.append(Gtk.Label(label="Raw input", xalign=0))
-        input_scroller = Gtk.ScrolledWindow()
-        input_scroller.set_hexpand(True)
-        input_scroller.set_vexpand(True)
-        input_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        input_view = Gtk.TextView()
-        input_view.set_monospace(True)
-        input_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        input_view.set_vexpand(True)
-        input_view.set_hexpand(True)
-        input_view.set_top_margin(10)
-        input_view.set_bottom_margin(10)
-        input_view.set_left_margin(10)
-        input_view.set_right_margin(10)
-        input_scroller.set_child(input_view)
-        input_box.append(input_scroller)
-        self._input_buffer = input_view.get_buffer()
-
-        output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        output_box.set_hexpand(True)
-        output_box.set_vexpand(True)
-        output_box.set_margin_top(6)
-        output_box.append(Gtk.Label(label="Output", xalign=0))
-
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._run_button = Gtk.Button(label="Run test")
-        self._run_button.add_css_class("suggested-action")
-        self._run_button.add_css_class("flat")
-        self._run_button.connect("clicked", self._on_run_clicked)
-        action_box.append(self._run_button)
-
-        self._status_spinner = Gtk.Spinner()
-        self._status_label = Gtk.Label(label="Idle", xalign=0)
-        action_box.append(self._status_spinner)
-        action_box.append(self._status_label)
-        output_box.append(action_box)
-
-        output_scroller = Gtk.ScrolledWindow()
-        output_scroller.set_hexpand(True)
-        output_scroller.set_vexpand(True)
-        output_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        output_view = Gtk.TextView()
-        output_view.set_monospace(True)
-        output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        output_view.set_editable(False)
-        output_view.set_cursor_visible(False)
-        output_view.set_vexpand(True)
-        output_view.set_hexpand(True)
-        output_view.set_top_margin(10)
-        output_view.set_bottom_margin(10)
-        output_view.set_left_margin(10)
-        output_view.set_right_margin(10)
-        output_scroller.set_child(output_view)
-        output_box.append(output_scroller)
-        self._output_buffer = output_view.get_buffer()
-
-        paned.set_start_child(input_box)
-        paned.set_end_child(output_box)
-        content.append(paned)
-
-        view.set_content(content)
-        self.set_content(view)
-        self._apply_mode_settings(self._mode_values[0])
-        GLib.idle_add(self._set_initial_paned_position)
-
-    def _buffer_text(self, buffer: Gtk.TextBuffer) -> str:
-        start, end = buffer.get_bounds()
-        return buffer.get_text(start, end, True)
-
-    def _set_status(self, message: str, running: bool) -> None:
-        self._status_label.set_text(message)
-        if running:
-            self._status_spinner.start()
-        else:
-            self._status_spinner.stop()
-
-    def _set_initial_paned_position(self) -> bool:
-        if self._paned_position_set:
-            return False
-        width = self._paned.get_width()
-        if width <= 0:
-            return True
-        self._paned.set_position(width // 2)
-        self._paned_position_set = True
-        return False
-
-    def _mode_details(self, mode_id: str) -> str:
-        if mode_id == "optimize_attorneys":
-            return "Uses the saved counsel role extraction prompt and counsel role credentials. Paste hearing transcript text."
-        if mode_id == "optimize_hearings":
-            return (
-                "Uses the saved hearing optimize prompt and the selected case's "
-                "`artifacts/preoptimized/counsel_roles.json`. If the first line starts with "
-                "'Hearing date:', that date is used; otherwise 'TEST DATE' is used."
-            )
-        if mode_id == "optimize_reports":
-            return "Uses the saved Optimize reports prompt. Paste raw report text."
-        if mode_id == "summarize_hearings":
-            return "Uses the saved Summarize hearings prompt. Paste optimized hearing text."
-        if mode_id == "summarize_reports":
-            return "Uses the saved Summarize reports prompt. Paste optimized report text."
-        if mode_id == "summarize_minutes":
-            return "Uses the saved Summarize minutes prompt. Paste minute order text."
-        return "Uses the saved prompt for the selected mode."
-
-    def _apply_mode_settings(self, mode_id: str) -> None:
-        self._details_row.set_subtitle(self._mode_details(mode_id))
-
-    def _on_mode_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
-        selected = self._mode_row.get_selected()
-        if 0 <= selected < len(self._mode_values):
-            self._apply_mode_settings(self._mode_values[selected])
-
-    def _on_run_clicked(self, _button: Gtk.Button) -> None:
-        if self._running:
+        if _test_prompt_input_kind(mode_id) == "image":
+            image_path = self._selected_image_path
+            if image_path is None or not image_path.exists():
+                self._set_running(False)
+                self._set_status("Choose an image first.", False)
+                return
+            self._parent.run_test_classification(mode_id, image_path, _on_done)
             return
-        selected = self._mode_row.get_selected()
-        if not (0 <= selected < len(self._mode_values)):
-            self._set_status("Choose a test mode.", False)
-            return
+
         raw_text = self._buffer_text(self._input_buffer).strip()
         if not raw_text:
+            self._set_running(False)
             self._set_status("Enter raw text first.", False)
             return
-        mode_id = self._mode_values[selected]
-        self._running = True
-        self._run_button.set_sensitive(False)
-        self._set_status("Running...", True)
-
-        def _on_done(output: str, error: str | None) -> None:
-            if error:
-                self._set_status(f"Failed: {error}", False)
-                output = error
-            else:
-                self._set_status("Done", False)
-            self._output_buffer.set_text(output)
-            self._run_button.set_sensitive(True)
-            self._running = False
-
         self._parent.run_test_optimize_summarize(mode_id, raw_text, {}, _on_done)
 
 
@@ -5853,8 +5849,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_pending: int | None = None
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
-        self._test_classification_window: TestClassificationWindow | None = None
-        self._test_optimize_summarize_window: TestOptimizeSummarizeWindow | None = None
+        self._test_prompts_window: TestPromptsWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
         self._run_until_dropdown: Gtk.DropDown | None = None
@@ -6240,19 +6235,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _setup_menu(self, app: Adw.Application) -> None:
         menu = Gio.Menu()
-        menu.append("Edit TOC", "app.edit-toc")
-        menu.append("Test Classification...", "app.test-classification")
-        menu.append("Test Optimize/Summarize...", "app.test-optimize-summarize")
         menu.append("Settings", "app.settings")
+        menu.append("Test prompts…", "app.test-prompts")
         self.menu_button.set_menu_model(menu)
-
-        edit_toc_action = app.lookup_action("edit-toc")
-        if edit_toc_action is None:
-            edit_toc_action = Gio.SimpleAction.new("edit-toc", None)
-            edit_toc_action.connect("activate", self.on_edit_toc_clicked)
-            app.add_action(edit_toc_action)
-        edit_toc_action.set_enabled(False)
-        self._edit_toc_action = edit_toc_action
 
         action = Gio.SimpleAction.new("settings", None)
         action.connect("activate", self.on_settings)
@@ -6263,19 +6248,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             save_action.connect("activate", self._on_action_save_settings)
             app.add_action(save_action)
 
-        if app.lookup_action("test-classification") is None:
-            test_action = Gio.SimpleAction.new("test-classification", None)
-            test_action.connect("activate", self.on_test_classification)
+        if app.lookup_action("test-prompts") is None:
+            test_action = Gio.SimpleAction.new("test-prompts", None)
+            test_action.connect("activate", self.on_test_prompts)
             app.add_action(test_action)
-
-        if app.lookup_action("test-optimize-summarize") is None:
-            optimize_summarize_action = Gio.SimpleAction.new(
-                "test-optimize-summarize", None
-            )
-            optimize_summarize_action.connect(
-                "activate", self.on_test_optimize_summarize
-            )
-            app.add_action(optimize_summarize_action)
 
     def on_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if self._settings_window:
@@ -6293,38 +6269,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._settings_window = None
         return False
 
-    def on_test_classification(self, _action: Gio.SimpleAction, _param: object) -> None:
-        if self._test_classification_window:
-            self._test_classification_window.present()
+    def on_test_prompts(self, _action: Gio.SimpleAction, _param: object) -> None:
+        if self._test_prompts_window:
+            self._test_prompts_window.present()
             return
-        test_window = TestClassificationWindow(self.get_application(), parent=self)
-        test_window.connect("close-request", self._on_test_classification_close_request)
-        self._test_classification_window = test_window
+        test_window = TestPromptsWindow(self.get_application(), parent=self)
+        test_window.connect("close-request", self._on_test_prompts_close_request)
+        self._test_prompts_window = test_window
         test_window.present()
 
-    def _on_test_classification_close_request(
-        self, _window: TestClassificationWindow
-    ) -> bool:
-        self._test_classification_window = None
-        return False
-
-    def on_test_optimize_summarize(
-        self, _action: Gio.SimpleAction, _param: object
-    ) -> None:
-        if self._test_optimize_summarize_window:
-            self._test_optimize_summarize_window.present()
-            return
-        test_window = TestOptimizeSummarizeWindow(self.get_application(), parent=self)
-        test_window.connect(
-            "close-request", self._on_test_optimize_summarize_close_request
-        )
-        self._test_optimize_summarize_window = test_window
-        test_window.present()
-
-    def _on_test_optimize_summarize_close_request(
-        self, _window: TestOptimizeSummarizeWindow
-    ) -> bool:
-        self._test_optimize_summarize_window = None
+    def _on_test_prompts_close_request(self, _window: TestPromptsWindow) -> bool:
+        self._test_prompts_window = None
         return False
 
     def _build_test_classification_settings(self, mode_id: str) -> dict[str, Any]:
@@ -6906,8 +6861,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _update_toc_button(self) -> None:
         toc_path = self._toc_path()
         enabled = bool(toc_path and toc_path.exists())
-        if hasattr(self, "_edit_toc_action") and self._edit_toc_action:
-            self._edit_toc_action.set_enabled(enabled)
         if self._edit_toc_button is not None:
             self._edit_toc_button.set_visible(enabled and not self._pipeline_running)
             self._edit_toc_button.set_sensitive(enabled and not self._pipeline_running)

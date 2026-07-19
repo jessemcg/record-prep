@@ -120,9 +120,10 @@ case_bundle/
 
 Each row launches one project-local skill in PI's native interactive terminal
 interface, including PI's model indicator, tool and diff rendering, colors, and
-keyboard controls. Exit PI after it finishes a task so RecordPrep can validate
-that step and continue to the next row. The four rows run sequentially and retain
-their terminal history. They overwrite only derived transcript-numbering,
+keyboard controls. A small project-local lifecycle extension gracefully closes
+PI after its response settles so RecordPrep can validate that step and continue
+to the next row automatically. The four rows run sequentially and retain their
+terminal history. They overwrite only derived transcript-numbering,
 organized-summary, and source-map outputs; original summaries and record pages
 remain unchanged. Stop terminates the active PI process tree. Resume skips each
 fresh, valid Agent Refinement output and always keeps source-map generation last.

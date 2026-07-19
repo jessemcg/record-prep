@@ -43,14 +43,22 @@ class PiResourceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("sequential PI resources are valid", result.stdout)
 
-    def test_project_has_only_settings_skills_and_runner(self) -> None:
+    def test_project_has_only_settings_skills_runner_and_auto_exit(self) -> None:
         settings = json.loads((PI_DIR / "settings.json").read_text(encoding="utf-8"))
         self.assertTrue(settings["defaultProvider"])
         self.assertTrue(settings["defaultModel"])
         self.assertTrue(settings["enableSkillCommands"])
         self.assertFalse((PI_DIR / "agents").exists())
         self.assertFalse((PI_DIR / "workflows").exists())
-        self.assertFalse((PI_DIR / "extensions").exists())
+        extensions = sorted(
+            path.name for path in (PI_DIR / "extensions").iterdir()
+        )
+        self.assertEqual(extensions, ["recordprep-auto-exit.ts"])
+        extension_text = (
+            PI_DIR / "extensions" / "recordprep-auto-exit.ts"
+        ).read_text(encoding="utf-8")
+        self.assertIn('pi.on("agent_end"', extension_text)
+        self.assertIn("ctx.shutdown()", extension_text)
         skills = sorted(path.parent.name for path in (PI_DIR / "skills").glob("*/SKILL.md"))
         self.assertEqual(
             skills,
@@ -111,6 +119,8 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             self.assertNotIn("--no-themes", text)
             self.assertNotIn("--no-context-files", text)
             self.assertIn("--no-extensions", text)
+            self.assertIn("--extension", text)
+            self.assertIn("recordprep-auto-exit.ts", text)
             self.assertIn("recordprep-number-transcript-pages/SKILL.md", text)
             self.assertNotIn("recordprep-organize-hearing-summary", text)
             self.assertNotIn(".pi/agents", text)

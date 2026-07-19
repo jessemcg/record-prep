@@ -58,11 +58,13 @@ PI workflow rules:
 - Invoke one project-local skill per UI row with `.pi/scripts/run_recordprep_skill.py`.
 - Run PI's native interactive terminal UI directly inside VTE, with terminal
   input, its model indicator, ANSI colors, and diff rendering intact.
-- After the user exits PI, validate the stage output before advancing.
+- Load only `.pi/extensions/recordprep-auto-exit.ts`; it requests graceful
+  shutdown after `agent_end` so stage validation and advancement are automatic.
+- After PI exits, validate the stage output before advancing.
 - The first three skills must not update `manifest.json`; the final source-map
   skill is the single manifest writer.
 - All skills inherit the provider/model in `.pi/settings.json`.
-- Do not add an agent extension, custom subagent abstraction, or runtime npm install.
+- Do not add an agent framework, custom subagent abstraction, or runtime npm install.
 
 Step 1 implementation details:
 - Use `pdftotext` with `physical=True` to create per-page text files named `0001.txt`, `0002.txt`, etc.

@@ -16,6 +16,7 @@ from typing import Sequence
 
 
 MINIMUM_PI_MINOR = 80
+AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +109,17 @@ def _resource_issues(project_dir: Path) -> list[str]:
         skill = project_dir / "skills" / stage.skill_name / "SKILL.md"
         if not skill.is_file():
             issues.append(f"{stage.skill_name}/SKILL.md is missing.")
-    for obsolete in ("agents", "workflows", "extensions"):
+    extension_dir = project_dir / "extensions"
+    auto_exit_extension = extension_dir / AUTO_EXIT_EXTENSION_NAME
+    if not auto_exit_extension.is_file():
+        issues.append(f"extensions/{AUTO_EXIT_EXTENSION_NAME} is missing.")
+    elif {
+        path.name
+        for path in extension_dir.iterdir()
+        if path.is_file() or path.is_dir()
+    } != {AUTO_EXIT_EXTENSION_NAME}:
+        issues.append("unexpected project-local PI extension resources are present.")
+    for obsolete in ("agents", "workflows"):
         if (project_dir / obsolete).exists():
             issues.append(f"obsolete .pi/{obsolete}/ resources are still present.")
     return issues
@@ -244,9 +255,15 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     try:
         staged_pi = workspace / ".pi"
         staged_skill = staged_pi / "skills" / stage.skill_name
+        staged_extension = staged_pi / "extensions" / AUTO_EXIT_EXTENSION_NAME
         staged_skill.parent.mkdir(parents=True)
+        staged_extension.parent.mkdir(parents=True)
         shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
         shutil.copytree(project_dir / "skills" / stage.skill_name, staged_skill)
+        shutil.copy2(
+            project_dir / "extensions" / AUTO_EXIT_EXTENSION_NAME,
+            staged_extension,
+        )
         (workspace / "tmp").mkdir()
         (workspace / "sessions").mkdir()
         env = os.environ.copy()
@@ -259,6 +276,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             *pi_command,
             "--approve",
             "--no-extensions",
+            "--extension",
+            str(staged_extension),
             "--no-skills",
             "--skill",
             str(staged_skill / "SKILL.md"),
@@ -270,7 +289,6 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         _line(f"\033[1;36m{stage.title}\033[0m")
         _line(f"Skill: {stage.skill_name}")
         _line(f"Case bundle: {root}")
-        _line("Exit PI after the task finishes so RecordPrep can validate this step.")
         _line()
         runner_process_group = os.getpgrp()
         _active_process = subprocess.Popen(

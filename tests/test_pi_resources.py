@@ -62,7 +62,7 @@ class PiResourceTests(unittest.TestCase):
             ],
         )
 
-    def test_runner_stages_one_skill_and_renders_live_json_events(self) -> None:
+    def test_runner_stages_one_skill_in_native_interactive_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             case_bundle = temp / "case_bundle"
@@ -79,16 +79,14 @@ if [[ "${1:-}" == "--version" ]]; then
 fi
 {
   printf 'cwd=%s\\n' "$PWD"
+  printf 'session=%s\\n' "$PI_CODING_AGENT_SESSION_DIR"
   printf '%s\\n' "$@"
   find .pi -type f | sort
 } > "$FAKE_PI_INVOCATION"
 mkdir -p "$RECORDPREP_CASE_BUNDLE/artifacts"
 printf '%s\\n' '{"schema_version":2,"entries":[{}],"citation_series":[]}' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_page_numbers.json"
 printf '# Citation series\\n' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_page_number_series.md"
-printf '%s\\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Live assistant output\\n"}}'
-printf '%s\\n' '{"type":"tool_execution_start","toolName":"bash","args":{"command":"validate"}}'
-printf '%s\\n' '{"type":"tool_execution_end","toolName":"bash","isError":false,"result":{"content":[{"type":"text","text":"validation passed"}]}}'
-printf '%s\\n' '{"type":"message_end","message":{"content":[{"type":"text","text":"Live assistant output"}]}}'
+printf '\\033[32mNative PI terminal output\\033[0m\\n'
 """,
                 encoding="utf-8",
             )
@@ -106,14 +104,13 @@ printf '%s\\n' '{"type":"message_end","message":{"content":[{"type":"text","text
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("Live assistant output", result.stdout)
-            self.assertIn("[tool]", result.stdout)
-            self.assertIn("[done]", result.stdout)
-            self.assertIn("validation passed", result.stdout)
+            self.assertIn("Native PI terminal output", result.stdout)
             text = invocation.read_text(encoding="utf-8")
-            self.assertIn("--mode\njson", text)
+            self.assertNotIn("--mode", text)
+            self.assertNotIn("--no-session", text)
+            self.assertNotIn("--no-themes", text)
+            self.assertNotIn("--no-context-files", text)
             self.assertIn("--no-extensions", text)
-            self.assertIn("--no-session", text)
             self.assertIn("recordprep-number-transcript-pages/SKILL.md", text)
             self.assertNotIn("recordprep-organize-hearing-summary", text)
             self.assertNotIn(".pi/agents", text)
@@ -121,6 +118,10 @@ printf '%s\\n' '{"type":"message_end","message":{"content":[{"type":"text","text
                 line for line in text.splitlines() if line.startswith("cwd=")
             )
             self.assertFalse(Path(workspace_line.split("=", 1)[1]).exists())
+            session_line = next(
+                line for line in text.splitlines() if line.startswith("session=")
+            )
+            self.assertIn("/sessions", session_line)
 
     def test_build_source_map_requires_the_first_three_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

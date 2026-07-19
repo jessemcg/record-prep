@@ -56,8 +56,9 @@ Pipeline steps (current):
 PI workflow rules:
 - Keep every RecordPrep-specific PI resource under tracked `.pi/`.
 - Invoke one project-local skill per UI row with `.pi/scripts/run_recordprep_skill.py`.
-- Stream PI JSON events into the embedded VTE terminal; do not use buffered
-  `--print` output.
+- Run PI's native interactive terminal UI directly inside VTE, with terminal
+  input, its model indicator, ANSI colors, and diff rendering intact.
+- After the user exits PI, validate the stage output before advancing.
 - The first three skills must not update `manifest.json`; the final source-map
   skill is the single manifest writer.
 - All skills inherit the provider/model in `.pi/settings.json`.

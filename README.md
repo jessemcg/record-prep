@@ -13,7 +13,7 @@ case bundle with classifications, summaries, and retrieval-ready artifacts for a
 - Activity is always visible in a fixed-height, embedded GTK4 VTE terminal.
 - RT + CT pipelines require the last RT page before any pipeline action can start.
 - The final Agent Refinement phase runs four project-local PI skills in order
-  and streams their live output in the embedded terminal.
+  using PI's native interactive terminal interface.
 
 ## What it does
 - Imports one or more PDFs, merged in natural sort order when needed.
@@ -118,10 +118,11 @@ case_bundle/
   - Organize report summary.
   - Build source map, only after the preceding three outputs validate.
 
-Each row launches one project-local skill with PI in JSON event mode. RecordPrep
-renders assistant text, tool activity, retries, and errors as they arrive in the
-embedded terminal. The four rows run sequentially and retain one continuous
-terminal transcript. They overwrite only derived transcript-numbering,
+Each row launches one project-local skill in PI's native interactive terminal
+interface, including PI's model indicator, tool and diff rendering, colors, and
+keyboard controls. Exit PI after it finishes a task so RecordPrep can validate
+that step and continue to the next row. The four rows run sequentially and retain
+their terminal history. They overwrite only derived transcript-numbering,
 organized-summary, and source-map outputs; original summaries and record pages
 remain unchanged. Stop terminates the active PI process tree. Resume skips each
 fresh, valid Agent Refinement output and always keeps source-map generation last.

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Run one RecordPrep PI skill and render PI's JSON event stream for VTE."""
+"""Run one RecordPrep PI skill in PI's native interactive terminal UI."""
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -13,7 +12,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 
 MINIMUM_PI_MINOR = 80
@@ -133,118 +132,6 @@ def _check_pi_version(command: Sequence[str]) -> None:
         )
 
 
-def _compact(value: object, limit: int = 500) -> str:
-    try:
-        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError):
-        text = str(value)
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _content_text(value: object) -> str:
-    if isinstance(value, str):
-        return value
-    if not isinstance(value, list):
-        return ""
-    parts: list[str] = []
-    for item in value:
-        if isinstance(item, dict) and item.get("type") == "text":
-            text = item.get("text")
-            if isinstance(text, str) and text:
-                parts.append(text)
-    return "\n".join(parts)
-
-
-class EventRenderer:
-    def __init__(self) -> None:
-        self._assistant_open = False
-        self._saw_text_delta = False
-
-    def _end_assistant_line(self) -> None:
-        if self._assistant_open:
-            _line()
-            self._assistant_open = False
-
-    def render(self, raw_line: str) -> None:
-        try:
-            event = json.loads(raw_line)
-        except json.JSONDecodeError:
-            self._end_assistant_line()
-            _line(f"[pi] {raw_line}")
-            return
-        if not isinstance(event, dict):
-            return
-        event_type = str(event.get("type") or "")
-        if event_type == "message_start":
-            message = event.get("message")
-            if isinstance(message, dict) and message.get("role") not in {
-                None,
-                "assistant",
-            }:
-                return
-            self._end_assistant_line()
-            self._saw_text_delta = False
-            return
-        if event_type == "message_update":
-            update = event.get("assistantMessageEvent")
-            if isinstance(update, dict) and update.get("type") == "text_delta":
-                delta = update.get("delta")
-                if isinstance(delta, str) and delta:
-                    _write(delta)
-                    self._assistant_open = not delta.endswith("\n")
-                    self._saw_text_delta = True
-            return
-        if event_type == "message_end":
-            message = event.get("message")
-            if isinstance(message, dict) and message.get("role") not in {
-                None,
-                "assistant",
-            }:
-                return
-            if not self._saw_text_delta and isinstance(message, dict):
-                text = _content_text(message.get("content"))
-                if text:
-                    _write(text)
-                    self._assistant_open = not text.endswith("\n")
-            self._end_assistant_line()
-            return
-        if event_type == "tool_execution_start":
-            self._end_assistant_line()
-            name = str(event.get("toolName") or "tool")
-            args = _compact(event.get("args") or {})
-            _line(f"\033[2m[tool]\033[0m {name} {args}".rstrip())
-            return
-        if event_type == "tool_execution_end":
-            self._end_assistant_line()
-            name = str(event.get("toolName") or "tool")
-            failed = bool(event.get("isError"))
-            _line(
-                f"\033[{'31' if failed else '32'}m"
-                f"[{'failed' if failed else 'done'}]\033[0m {name}"
-            )
-            result = event.get("result")
-            if isinstance(result, dict):
-                text = _content_text(result.get("content")).strip()
-                if text:
-                    if len(text) > 2400:
-                        text = text[:2399] + "…"
-                    _line(text)
-            return
-        if event_type in {"auto_retry_start", "auto_retry_end"}:
-            self._end_assistant_line()
-            detail = event.get("error") or event.get("message") or event_type
-            _line(f"\033[33m[retry]\033[0m {_compact(detail)}")
-            return
-        if event_type in {"error", "agent_error"}:
-            self._end_assistant_line()
-            detail = event.get("error") or event.get("message") or event
-            _line(f"\033[31m[PI error]\033[0m {_compact(detail, 1200)}")
-
-    def finish(self) -> None:
-        self._end_assistant_line()
-
-
 def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
     project_root = project_dir.parent
     if str(project_root) not in sys.path:
@@ -255,7 +142,7 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
         f"/skill:{stage.skill_name}\n"
         f"Run the loaded {stage.skill_name} skill now against the absolute case "
         f"bundle in RECORDPREP_CASE_BUNDLE ({root}). Follow the skill completely, "
-        "validate its outputs, and exit with a concise result."
+        "validate its outputs, and finish with a concise result."
     )
     if stage.step_id == "organize_hearing_summary":
         expected = expected_organized_summary_path(root, "hearings")
@@ -287,6 +174,16 @@ def _handle_stop(_signum: int, _frame: object) -> None:
     global _stopped
     _stopped = True
     _terminate_active_process()
+
+
+def _set_terminal_foreground_process_group(process_group: int) -> None:
+    if not sys.stdin.isatty():
+        return
+    previous_handler = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    try:
+        os.tcsetpgrp(sys.stdin.fileno(), process_group)
+    finally:
+        signal.signal(signal.SIGTTOU, previous_handler)
 
 
 def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[str]:
@@ -351,6 +248,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
         shutil.copytree(project_dir / "skills" / stage.skill_name, staged_skill)
         (workspace / "tmp").mkdir()
+        (workspace / "sessions").mkdir()
         env = os.environ.copy()
         env["TMPDIR"] = str(workspace / "tmp")
         env["PI_CODING_AGENT_SESSION_DIR"] = str(workspace / "sessions")
@@ -360,16 +258,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         command = [
             *pi_command,
             "--approve",
-            "--mode",
-            "json",
-            "--no-session",
             "--no-extensions",
             "--no-skills",
             "--skill",
             str(staged_skill / "SKILL.md"),
-            "--no-prompt-templates",
-            "--no-themes",
-            "--no-context-files",
             "--tools",
             stage.tools,
             _stage_prompt(stage, root, project_dir),
@@ -378,24 +270,22 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         _line(f"\033[1;36m{stage.title}\033[0m")
         _line(f"Skill: {stage.skill_name}")
         _line(f"Case bundle: {root}")
+        _line("Exit PI after the task finishes so RecordPrep can validate this step.")
         _line()
-        renderer = EventRenderer()
+        runner_process_group = os.getpgrp()
         _active_process = subprocess.Popen(
             command,
             cwd=workspace,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
+            process_group=0,
         )
-        assert _active_process.stdout is not None
-        for line in _active_process.stdout:
-            renderer.render(line.rstrip("\r\n"))
-        renderer.finish()
-        return_code = _active_process.wait()
-        _active_process.stdout.close()
+        if sys.stdin.isatty():
+            _set_terminal_foreground_process_group(_active_process.pid)
+            os.killpg(_active_process.pid, signal.SIGCONT)
+        try:
+            return_code = _active_process.wait()
+        finally:
+            _set_terminal_foreground_process_group(runner_process_group)
         _active_process = None
         if _stopped:
             return 130

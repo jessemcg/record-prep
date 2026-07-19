@@ -318,11 +318,36 @@ def _rgba_color(spec: str) -> Gdk.RGBA:
     return color
 
 
+TERMINAL_PALETTE = (
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+)
+
+
 def _apply_recordprep_terminal_theme(terminal: Any) -> None:
     dark = Adw.StyleManager.get_default().get_dark()
     foreground = _rgba_color("#f2f4f8" if dark else "#20242c")
     background = _rgba_color("#3d3d3d" if dark else "#f5f5f5")
     selection = _rgba_color("#365a7a" if dark else "#c9e6ff")
+    terminal.set_colors(
+        foreground,
+        background,
+        [_rgba_color(spec) for spec in TERMINAL_PALETTE],
+    )
     terminal.set_color_foreground(foreground)
     terminal.set_color_background(background)
     terminal.set_color_highlight(selection)
@@ -344,6 +369,13 @@ def _install_recordprep_css() -> Gtk.CssProvider:
   background-color: transparent;
   border: none;
   box-shadow: none;
+}
+.recordprep-terminal {
+  border-radius: 12px;
+  padding: 8px;
+  background-color: @window_bg_color;
+  background-image: none;
+  color: @window_fg_color;
 }
 """
     )
@@ -6509,6 +6541,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             terminal.set_vexpand(True)
             terminal.set_scrollback_lines(10_000)
             terminal.set_mouse_autohide(True)
+            terminal.set_input_enabled(False)
+            terminal.add_css_class("recordprep-terminal")
             _apply_recordprep_terminal_theme(terminal)
             terminal.connect("child-exited", self._on_activity_terminal_child_exited)
             terminal_keys = Gtk.EventControllerKey()
@@ -7523,6 +7557,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         done = self._pi_terminal_done
         if done is not None:
             done.set()
+        if self._activity_terminal is not None:
+            self._activity_terminal.set_input_enabled(False)
 
     def _append_log_message(self, message: str, level: str = "INFO") -> bool:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -9560,7 +9596,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not self._pi_terminal_sequence_started:
             terminal.reset(False, False)
             self._pi_terminal_sequence_started = True
-        terminal.set_input_enabled(False)
+        terminal.set_input_enabled(True)
         _apply_recordprep_terminal_theme(terminal)
         if self._activity_status_label is not None:
             self._activity_status_label.set_label(f"{step_title} running…")
@@ -9599,6 +9635,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._pi_terminal_done.set()
             return
         self._pi_terminal_pid = pid
+        if self._activity_terminal is not None:
+            self._activity_terminal.grab_focus()
         if self._stop_event.is_set():
             self._terminate_pi_terminal()
 

@@ -11,6 +11,7 @@ import importlib
 import json
 import random
 import re
+import signal
 import shutil
 import subprocess
 import threading
@@ -28,7 +29,16 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk, GObject  # type: ignore
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, GObject  # type: ignore
+
+Vte = None  # type: ignore[assignment]
+try:
+    gi.require_version("Vte", "3.91")
+    from gi.repository import Vte as VteModule  # type: ignore
+
+    Vte = VteModule  # type: ignore[assignment]
+except (ImportError, ValueError):
+    Vte = None  # type: ignore[assignment]
 
 import fitz
 import pdftotext
@@ -42,6 +52,19 @@ from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
+from recordprep.pi_bundle import pi_step_complete
+from recordprep.pi_runtime import (
+    DEFAULT_PI_AGENT_COMMAND,
+    PiModel,
+    PiRuntimeError,
+    PiSettingsError,
+    available_pi_models,
+    current_project_pi_model,
+    discover_pi_agent_command,
+    incompatible_pi_agent_flag,
+    resolve_pi_agent_argv,
+    save_project_pi_model,
+)
 
 STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
 
@@ -102,6 +125,16 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "Index",
         ("case_overview", "create_rag_index"),
     ),
+    (
+        "agent_refinement",
+        "Agent Refinement",
+        (
+            "number_transcript_pages",
+            "organize_hearing_summary",
+            "organize_report_summary",
+            "build_source_map",
+        ),
+    ),
 )
 PIPELINE_STEP_PHASE = {
     step_id: phase_id
@@ -138,6 +171,11 @@ SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = 
         "index",
         "Index",
         (("overview", "Case Overview"), ("rag", "RAG")),
+    ),
+    (
+        "agent",
+        "Agent",
+        (("pi", "PI"),),
     ),
 )
 TEST_PROMPT_GROUPS: tuple[
@@ -230,6 +268,18 @@ def _transcript_summary(split_mode: str, split_page: int | None) -> str:
     return "RT + CT • split page not set"
 
 
+def _pipeline_split_validation_message(
+    split_mode: str | None,
+    split_page: int | None,
+) -> str | None:
+    if (
+        _normalize_rt_ct_split_mode(split_mode) == "split"
+        and _normalize_rt_ct_split_page(split_page) is None
+    ):
+        return "Enter the last RT page before starting the pipeline."
+    return None
+
+
 def _settings_destination_keys() -> tuple[str, ...]:
     return tuple(
         key
@@ -260,8 +310,92 @@ def _log_startup(message: str) -> None:
     except OSError:
         pass
 
+
+def _rgba_color(spec: str) -> Gdk.RGBA:
+    color = Gdk.RGBA()
+    if not color.parse(spec):
+        raise ValueError(f"Invalid color: {spec}")
+    return color
+
+
+def _apply_recordprep_terminal_theme(terminal: Any) -> None:
+    dark = Adw.StyleManager.get_default().get_dark()
+    foreground = _rgba_color("#f2f4f8" if dark else "#20242c")
+    background = _rgba_color("#3d3d3d" if dark else "#f5f5f5")
+    selection = _rgba_color("#365a7a" if dark else "#c9e6ff")
+    terminal.set_color_foreground(foreground)
+    terminal.set_color_background(background)
+    terminal.set_color_highlight(selection)
+    terminal.set_color_highlight_foreground(foreground)
+    terminal.set_clear_background(True)
+
+
+def _install_recordprep_css() -> Gtk.CssProvider:
+    provider = Gtk.CssProvider()
+    provider.load_from_data(
+        b"""
+.recordprep-terminal-surface {
+  border-radius: 12px;
+  background-color: alpha(@window_fg_color, 0.08);
+  border: none;
+  box-shadow: none;
+}
+.recordprep-terminal-scroller {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
+"""
+    )
+    display = Gdk.Display.get_default()
+    if display is not None:
+        Gtk.StyleContext.add_provider_for_display(
+            display,
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+    return provider
+
+
+def _sanitize_terminal_log_text(value: object, *, preserve_newlines: bool) -> str:
+    text = str(value)
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", text)
+    if preserve_newlines:
+        return text.rstrip("\r\n")
+    return " ".join(text.split()).strip()
+
+
+def _terminal_log_line(message: object, level: str = "INFO") -> str:
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    normalized = str(level or "INFO").upper()
+    color = {
+        "INFO": "\x1b[36m",
+        "WARN": "\x1b[33m",
+        "ERROR": "\x1b[31m",
+    }.get(normalized, "\x1b[36m")
+    text = _sanitize_terminal_log_text(message, preserve_newlines=True)
+    return f"\x1b[2m[{timestamp}]\x1b[0m {color}[{normalized}]\x1b[0m {text}\r\n"
+
+
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_FILE = PROJECT_DIR / "config.json"
+PI_PROJECT_DIR = PROJECT_DIR / ".pi"
+PI_SKILL_RUNNER = PI_PROJECT_DIR / "scripts" / "run_recordprep_skill.py"
+CONFIG_KEY_PI_AGENT_COMMAND = "pi_agent_command"
+INPUT_IDENTITY_VERSION = 1
+GENERATED_CASE_BUNDLE_DIRS = (
+    "text_pages",
+    "image_pages",
+    "classification",
+    "artifacts",
+    "summaries",
+    "rag",
+    "temp",
+)
+GENERATED_CASE_BUNDLE_FILES = (
+    "case_name.txt",
+    "manifest.json",
+)
 CONFIG_KEY_CLASSIFIER_API_URL = "classifier_api_url"
 CONFIG_KEY_CLASSIFIER_MODEL_ID = "classifier_model_id"
 CONFIG_KEY_CLASSIFIER_API_KEY = "classifier_api_key"
@@ -2698,6 +2832,32 @@ def _ensure_case_bundle_dirs(base_dir: Path) -> tuple[Path, Path, Path]:
     return root, text_dir, image_pages_dir
 
 
+def _normalized_pdf_paths(paths: Sequence[Path]) -> tuple[Path, ...]:
+    return tuple(path.expanduser().resolve(strict=False) for path in paths)
+
+
+def _pdf_selections_equal(first: Sequence[Path], second: Sequence[Path]) -> bool:
+    return _normalized_pdf_paths(first) == _normalized_pdf_paths(second)
+
+
+def _case_bundle_root_for_pdfs(paths: Sequence[Path]) -> Path | None:
+    parents = {path.expanduser().resolve(strict=False).parent for path in paths}
+    if len(parents) != 1:
+        return None
+    return parents.pop() / "case_bundle"
+
+
+def _reset_generated_case_bundle(root_dir: Path) -> None:
+    for name in GENERATED_CASE_BUNDLE_DIRS:
+        path = root_dir / name
+        if path.exists():
+            shutil.rmtree(path)
+    for name in GENERATED_CASE_BUNDLE_FILES:
+        path = root_dir / name
+        if path.exists():
+            path.unlink()
+
+
 def _retry_after_seconds(error: urllib.error.HTTPError) -> float | None:
     if not error.headers:
         return None
@@ -2814,6 +2974,24 @@ def _read_manifest(root_dir: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _update_rt_ct_split_manifest(
+    root_dir: Path,
+    split_page: int | None,
+    split_mode: str | None,
+) -> bool:
+    manifest_path = _manifest_path(root_dir)
+    if not manifest_path.exists():
+        return False
+    manifest = _read_manifest(root_dir)
+    if not manifest:
+        return False
+    manifest["rt_ct_split_page"] = _normalize_rt_ct_split_page(split_page)
+    manifest["rt_ct_split_mode"] = _normalize_rt_ct_split_mode(split_mode)
+    manifest["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return True
+
+
 def _write_manifest(
     root_dir: Path,
     selected_pdfs: list[Path],
@@ -2873,15 +3051,51 @@ def _write_manifest(
     split_mode_value = (
         existing_mode if rt_ct_split_mode is None else _normalize_rt_ct_split_mode(rt_ct_split_mode)
     )
+    input_pdfs = [_relpath(path) for path in selected_pdfs]
+    if not input_pdfs and isinstance(existing.get("input_pdfs"), list):
+        input_pdfs = list(existing["input_pdfs"])
+    files_payload = (
+        dict(existing.get("files"))
+        if isinstance(existing.get("files"), dict)
+        else {}
+    )
+    files_payload.update(
+        {
+            "merged_pdf": _relpath(temp_dir / "merged.pdf"),
+            "toc": _relpath(artifacts_dir / "toc.txt"),
+            "hearing_boundaries": _relpath(
+                artifacts_dir / "hearing_boundaries.json"
+            ),
+            "report_boundaries": _relpath(
+                artifacts_dir / "report_boundaries.json"
+            ),
+            "minutes_boundaries": _relpath(
+                artifacts_dir / "minutes_boundaries.json"
+            ),
+            "raw_hearings": _relpath(artifacts_dir / "raw_hearings.txt"),
+            "raw_reports": _relpath(artifacts_dir / "raw_reports.txt"),
+            "optimized_hearings": _relpath(
+                artifacts_dir / "optimized_hearings.txt"
+            ),
+            "optimized_reports": _relpath(
+                artifacts_dir / "optimized_reports.txt"
+            ),
+            "summarized_hearings": _relpath(summarized_hearings_path),
+            "summarized_reports": _relpath(summarized_reports_path),
+            "summarized_minutes": _relpath(summarized_minutes_path),
+            "case_overview": _relpath(rag_dir / "case_overview.txt"),
+        }
+    )
 
     payload: dict[str, Any] = {
         "schema_version": 1,
+        "input_identity_version": INPUT_IDENTITY_VERSION,
         "created_at": created_at,
         "updated_at": now,
         "root_dir": _root_path(root_dir),
         "rt_ct_split_page": split_page_value,
         "rt_ct_split_mode": split_mode_value,
-        "input_pdfs": [_relpath(path) for path in selected_pdfs],
+        "input_pdfs": input_pdfs,
         "dirs": {
             "text_pages": _relpath(text_dir),
             "image_pages": _relpath(image_pages_dir),
@@ -2893,21 +3107,7 @@ def _write_manifest(
             "rag": _relpath(rag_dir),
             "temp": _relpath(temp_dir),
         },
-        "files": {
-            "merged_pdf": _relpath(temp_dir / "merged.pdf"),
-            "toc": _relpath(artifacts_dir / "toc.txt"),
-            "hearing_boundaries": _relpath(artifacts_dir / "hearing_boundaries.json"),
-            "report_boundaries": _relpath(artifacts_dir / "report_boundaries.json"),
-            "minutes_boundaries": _relpath(artifacts_dir / "minutes_boundaries.json"),
-            "raw_hearings": _relpath(artifacts_dir / "raw_hearings.txt"),
-            "raw_reports": _relpath(artifacts_dir / "raw_reports.txt"),
-            "optimized_hearings": _relpath(artifacts_dir / "optimized_hearings.txt"),
-            "optimized_reports": _relpath(artifacts_dir / "optimized_reports.txt"),
-            "summarized_hearings": _relpath(summarized_hearings_path),
-            "summarized_reports": _relpath(summarized_reports_path),
-            "summarized_minutes": _relpath(summarized_minutes_path),
-            "case_overview": _relpath(rag_dir / "case_overview.txt"),
-        },
+        "files": files_payload,
         "classification": {
             "rt_basic": _relpath(classification_dir / "RT_basic.jsonl"),
             "ct_basic": _relpath(classification_dir / "CT_basic.jsonl"),
@@ -2967,6 +3167,16 @@ def _manifest_input_pdf_paths(root_dir: Path) -> list[Path]:
         resolved = (root_dir / value).resolve(strict=False)
         result.append(resolved)
     return result
+
+
+def _bundle_inputs_changed(root_dir: Path, selected_pdfs: Sequence[Path]) -> bool:
+    manifest_pdfs = _manifest_input_pdf_paths(root_dir)
+    if not manifest_pdfs:
+        return False
+    if not _pdf_selections_equal(manifest_pdfs, selected_pdfs):
+        return True
+    manifest = _read_manifest(root_dir)
+    return manifest.get("input_identity_version") != INPUT_IDENTITY_VERSION
 
 
 def _read_config() -> dict[str, Any]:
@@ -3698,17 +3908,25 @@ def _generate_text_files_with_local_ocr(
 
     job_started_at = time.monotonic()
     server_process: subprocess.Popen[str] | None = None
-    try:
-        resolved_start_command = _resolve_local_ocr_start_command(start_command, slots)
-        server_process = _start_server(resolved_start_command)
+
+    def start_server(server_slots: int) -> subprocess.Popen[str]:
+        resolved_start_command = _resolve_local_ocr_start_command(
+            start_command,
+            server_slots,
+        )
+        process = _start_server(resolved_start_command)
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
         _wait_for_endpoint_ready(
             server_url,
-            process=server_process,
+            process=process,
             stop_check=stop_check,
         )
-        _print_server_slot_report(server_url, slots)
+        _print_server_slot_report(server_url, server_slots)
+        return process
+
+    try:
+        server_process = start_server(slots)
 
         if stop_check:
             stop_check()
@@ -3726,14 +3944,45 @@ def _generate_text_files_with_local_ocr(
             return
 
         ocr_started_at = time.monotonic()
-        _ocr_images(
-            image_paths_to_ocr,
-            server_url=server_url,
-            model_id=model_id,
-            text_dir=text_dir,
-            workers=workers,
-            stop_check=stop_check,
-        )
+        try:
+            _ocr_images(
+                image_paths_to_ocr,
+                server_url=server_url,
+                model_id=model_id,
+                text_dir=text_dir,
+                workers=workers,
+                stop_check=stop_check,
+            )
+        except requests.ConnectionError:
+            print(
+                "Local OCR connection closed unexpectedly; restarting the server "
+                "and retrying unfinished pages one at a time.",
+                file=sys.stderr,
+            )
+            _stop_server(server_process)
+            server_process = None
+            if stop_check:
+                stop_check()
+            server_process = start_server(1)
+            remaining_image_paths = [
+                image_path
+                for image_path in image_paths_to_ocr
+                if not (text_dir / f"{image_path.stem}.txt").exists()
+            ]
+            try:
+                _ocr_images(
+                    remaining_image_paths,
+                    server_url=server_url,
+                    model_id=model_id,
+                    text_dir=text_dir,
+                    workers=1,
+                    stop_check=stop_check,
+                )
+            except requests.ConnectionError as exc:
+                raise RuntimeError(
+                    "Local OCR server closed the connection again after an "
+                    "automatic sequential retry."
+                ) from exc
         ocr_elapsed = time.monotonic() - ocr_started_at
         print(f"OCR request phase completed in {_format_elapsed(ocr_elapsed)}.")
         job_elapsed = time.monotonic() - job_started_at
@@ -3839,6 +4088,11 @@ class RagSettingsWidgets:
     voyage_key_row: Adw.EntryRow
     isaacus_model_row: Adw.EntryRow
     isaacus_key_row: Adw.EntryRow
+
+
+@dataclass
+class AgentSettingsWidgets:
+    pi_agent_command_row: Adw.EntryRow
 
 
 def load_optimize_settings() -> dict[str, Any]:
@@ -4120,6 +4374,20 @@ def save_rag_settings(
     _write_config(config)
 
 
+def load_pi_agent_command_setting() -> str:
+    config = _read_config()
+    command = str(config.get(CONFIG_KEY_PI_AGENT_COMMAND, "") or "").strip()
+    return command or discover_pi_agent_command(path_env=os.environ.get("PATH"))
+
+
+def save_pi_agent_command_setting(command: str) -> None:
+    config = _read_config()
+    config[CONFIG_KEY_PI_AGENT_COMMAND] = (
+        command.strip() or discover_pi_agent_command(path_env=os.environ.get("PATH"))
+    )
+    _write_config(config)
+
+
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None) -> None:
         super().__init__(application=app, title="Settings")
@@ -4140,7 +4408,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._active_settings_key: str | None = None
         self._text_source_row: Adw.ComboRow | None = None
         self._text_source_values: list[str] = []
+        self._agent_widgets: AgentSettingsWidgets | None = None
+        self._pi_model_options: list[PiModel | None] = []
+        self._pi_model_generation = 0
+        self._pi_model_closed = False
+        self._pi_model_applying = False
+        self._pi_model_selection_changed = False
+        self._pi_model_settings_error = ""
+        try:
+            self._original_pi_model_key = current_project_pi_model()
+        except PiSettingsError as exc:
+            self._original_pi_model_key = None
+            self._pi_model_settings_error = str(exc)
         self._build_ui()
+        self.connect("close-request", self._on_pi_settings_close_request)
+        self._load_pi_models()
 
     def trigger_save(self) -> None:
         self._save_settings()
@@ -4274,6 +4556,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._add_settings_destination("index", "rag", "RAG")
         rag_page = self._build_rag_prompt_page(load_rag_settings())
         prompt_stack.add_named(rag_page, "rag")
+
+        self._add_settings_destination("agent", "pi", "PI")
+        pi_page = self._build_pi_settings_page()
+        prompt_stack.add_named(pi_page, "pi")
 
         self._set_settings_group_expanded("prepare")
         self._select_settings_page("text-source")
@@ -5212,6 +5498,270 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         return page
 
+    def _build_pi_settings_page(self) -> Gtk.Widget:
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page_box.set_margin_top(12)
+        page_box.set_margin_bottom(12)
+        page_box.set_margin_start(12)
+        page_box.set_margin_end(12)
+        page_box.set_vexpand(True)
+
+        title_label = Gtk.Label(label="PI", xalign=0)
+        title_label.add_css_class("title-3")
+        page_box.append(title_label)
+
+        launch_group = Adw.PreferencesGroup(
+            title="Agent Refinement",
+            description=(
+                "PI runs four project-local skills sequentially in the final "
+                "pipeline group."
+            ),
+        )
+        launch_group.add_css_class("list-stack")
+        launch_group.set_hexpand(True)
+        page_box.append(launch_group)
+
+        command_row = Adw.EntryRow(title="PI command")
+        command_row.set_hexpand(True)
+        command_row.set_text(load_pi_agent_command_setting())
+        launch_group.add(command_row)
+
+        model_row = Adw.ComboRow(
+            title="PI model",
+            subtitle=self._pi_model_settings_error or "Loading models authorized in PI…",
+        )
+        model_row.set_model(Gtk.StringList.new(["Loading PI models…"]))
+        model_row.set_sensitive(False)
+        model_row.connect("notify::selected", self._on_pi_model_selected)
+        refresh_button = Gtk.Button(icon_name="view-refresh-symbolic")
+        refresh_button.add_css_class("flat")
+        refresh_button.set_tooltip_text("Refresh available PI models")
+        refresh_button.connect("clicked", self._on_refresh_pi_models)
+        model_row.add_suffix(refresh_button)
+        launch_group.add(model_row)
+
+        configuration_row = Adw.ActionRow(
+            title="PI configuration",
+            subtitle=(
+                "Provider and model are saved in project .pi/settings.json. "
+                "Credentials remain in your global PI configuration."
+            ),
+        )
+        launch_group.add(configuration_row)
+
+        access_row = Adw.ActionRow(
+            title="Skill access",
+            subtitle=(
+                "Four project skills use narrow local-file tools; no web-search "
+                "tools are enabled."
+            ),
+        )
+        launch_group.add(access_row)
+
+        page = Gtk.ScrolledWindow()
+        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page.set_hexpand(True)
+        page.set_vexpand(True)
+        page.set_child(page_box)
+
+        self._agent_widgets = AgentSettingsWidgets(pi_agent_command_row=command_row)
+        self._pi_model_row = model_row
+        self._pi_model_refresh_button = refresh_button
+        return page
+
+    def _on_pi_settings_close_request(self, *_args: object) -> bool:
+        self._pi_model_closed = True
+        self._pi_model_generation += 1
+        return False
+
+    def _selected_pi_model(self) -> PiModel | None:
+        selected = int(self._pi_model_row.get_selected())
+        if 0 <= selected < len(self._pi_model_options):
+            return self._pi_model_options[selected]
+        return None
+
+    def _update_pi_model_subtitle(self) -> None:
+        model = self._selected_pi_model()
+        if model is not None:
+            self._pi_model_row.set_subtitle(
+                f"Project-wide setting: {model.provider} / {model.model_id}"
+            )
+
+    def _on_pi_model_selected(
+        self,
+        _row: Adw.ComboRow,
+        _parameter: object,
+    ) -> None:
+        if self._pi_model_applying:
+            return
+        model = self._selected_pi_model()
+        if model is None:
+            return
+        self._pi_model_selection_changed = (
+            model.settings_key != self._original_pi_model_key
+        )
+        self._update_pi_model_subtitle()
+
+    def _on_refresh_pi_models(self, _button: Gtk.Button) -> None:
+        self._load_pi_models()
+
+    def _load_pi_models(self) -> None:
+        if self._pi_model_closed:
+            return
+        if self._pi_model_settings_error:
+            try:
+                self._original_pi_model_key = current_project_pi_model()
+                self._pi_model_settings_error = ""
+            except PiSettingsError as exc:
+                self._pi_model_row.set_subtitle(str(exc))
+                self._pi_model_row.set_sensitive(False)
+                self._pi_model_refresh_button.set_sensitive(True)
+                return
+
+        selected = self._selected_pi_model()
+        desired_key = (
+            selected.settings_key
+            if self._pi_model_selection_changed and selected is not None
+            else self._original_pi_model_key
+        )
+        self._pi_model_generation += 1
+        generation = self._pi_model_generation
+        command = (
+            self._agent_widgets.pi_agent_command_row.get_text().strip()
+            if self._agent_widgets is not None
+            else DEFAULT_PI_AGENT_COMMAND
+        )
+        try:
+            command_argv = resolve_pi_agent_argv(
+                command or DEFAULT_PI_AGENT_COMMAND,
+                path_env=os.environ.get("PATH"),
+            )
+        except ValueError as exc:
+            self._finish_pi_model_load(
+                generation,
+                [],
+                f"Invalid PI command: {exc}",
+                desired_key,
+            )
+            return
+        if not command_argv:
+            self._finish_pi_model_load(
+                generation,
+                [],
+                "PI command is empty.",
+                desired_key,
+            )
+            return
+        incompatible_flag = incompatible_pi_agent_flag(command_argv)
+        if incompatible_flag:
+            self._finish_pi_model_load(
+                generation,
+                [],
+                f"PI option {incompatible_flag} is incompatible with RecordPrep.",
+                desired_key,
+            )
+            return
+
+        self._pi_model_row.set_sensitive(False)
+        self._pi_model_row.set_subtitle("Loading models authorized in PI…")
+        self._pi_model_refresh_button.set_sensitive(False)
+
+        def worker() -> None:
+            try:
+                models = available_pi_models(command_argv)
+                error = ""
+            except PiRuntimeError as exc:
+                models = []
+                error = str(exc)
+            GLib.idle_add(
+                self._finish_pi_model_load,
+                generation,
+                models,
+                error,
+                desired_key,
+            )
+
+        threading.Thread(
+            target=worker,
+            name="recordprep-pi-models",
+            daemon=True,
+        ).start()
+
+    def _finish_pi_model_load(
+        self,
+        generation: int,
+        models: list[PiModel],
+        error: str,
+        desired_key: tuple[str, str] | None,
+    ) -> bool:
+        if self._pi_model_closed or generation != self._pi_model_generation:
+            return False
+        self._pi_model_refresh_button.set_sensitive(True)
+        if error:
+            current = self._original_pi_model_key
+            if current is None:
+                self._pi_model_options = [None]
+                labels = ["PI models unavailable"]
+            else:
+                current_model = PiModel(
+                    provider=current[0],
+                    model_id=current[1],
+                    name=current[1],
+                )
+                self._pi_model_options = [current_model]
+                labels = [f"{current_model.label} (currently configured)"]
+            self._pi_model_applying = True
+            self._pi_model_row.set_model(Gtk.StringList.new(labels))
+            self._pi_model_row.set_selected(0)
+            self._pi_model_applying = False
+            self._pi_model_selection_changed = False
+            self._pi_model_row.set_sensitive(False)
+            self._pi_model_row.set_subtitle(error)
+            return False
+
+        available_keys = {model.settings_key for model in models}
+        options: list[PiModel | None] = []
+        labels: list[str] = []
+        current = self._original_pi_model_key
+        if current is not None and current not in available_keys:
+            unavailable = PiModel(
+                provider=current[0],
+                model_id=current[1],
+                name=current[1],
+            )
+            options.append(unavailable)
+            labels.append(f"{unavailable.label} (currently configured; unavailable)")
+        options.extend(models)
+        labels.extend(model.label for model in models)
+        if not options:
+            options = [None]
+            labels = ["No authenticated PI models found"]
+
+        selected_index = 0
+        if desired_key is not None:
+            for index, model in enumerate(options):
+                if model is not None and model.settings_key == desired_key:
+                    selected_index = index
+                    break
+        self._pi_model_options = options
+        self._pi_model_applying = True
+        self._pi_model_row.set_model(Gtk.StringList.new(labels))
+        self._pi_model_row.set_selected(selected_index)
+        self._pi_model_applying = False
+        selected_model = self._selected_pi_model()
+        self._pi_model_selection_changed = bool(
+            selected_model is not None
+            and selected_model.settings_key != self._original_pi_model_key
+        )
+        self._pi_model_row.set_sensitive(bool(models))
+        if selected_model is None:
+            self._pi_model_row.set_subtitle(
+                "Authorize a provider in PI, then refresh this list."
+            )
+        else:
+            self._update_pi_model_subtitle()
+        return False
+
     def _prompt_text(self, buffer: Gtk.TextBuffer) -> str:
         start, end = buffer.get_bounds()
         return buffer.get_text(start, end, True)
@@ -5299,6 +5849,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         summarize_widgets = getattr(self, "_summarize_widgets", None)
         overview_widgets = getattr(self, "_overview_widgets", None)
         rag_widgets = getattr(self, "_rag_widgets", None)
+        agent_widgets = self._agent_widgets
         if self._text_source_row:
             selected = self._text_source_row.get_selected()
             value = DEFAULT_TEXT_SOURCE
@@ -5426,6 +5977,38 @@ class SettingsWindow(Adw.ApplicationWindow):
                 rag_widgets.isaacus_key_row.get_text().strip(),
                 rag_widgets.isaacus_model_row.get_text().strip(),
             )
+        if agent_widgets:
+            pi_command = agent_widgets.pi_agent_command_row.get_text().strip()
+            try:
+                pi_argv = resolve_pi_agent_argv(
+                    pi_command or DEFAULT_PI_AGENT_COMMAND,
+                    path_env=os.environ.get("PATH"),
+                )
+            except ValueError as exc:
+                self._pi_model_row.set_subtitle(f"Invalid PI command: {exc}")
+                self._select_settings_page("pi")
+                return
+            incompatible_flag = incompatible_pi_agent_flag(pi_argv)
+            if not pi_argv or incompatible_flag:
+                detail = (
+                    "PI command is empty."
+                    if not pi_argv
+                    else f"PI option {incompatible_flag} is incompatible with RecordPrep."
+                )
+                self._pi_model_row.set_subtitle(detail)
+                self._select_settings_page("pi")
+                return
+            selected_model = self._selected_pi_model()
+            if self._pi_model_selection_changed and selected_model is not None:
+                try:
+                    save_project_pi_model(selected_model)
+                except PiSettingsError as exc:
+                    self._pi_model_row.set_subtitle(str(exc))
+                    self._select_settings_page("pi")
+                    return
+                self._original_pi_model_key = selected_model.settings_key
+                self._pi_model_selection_changed = False
+            save_pi_agent_command_setting(pi_command)
         if self._on_saved:
             self._on_saved()
         self.close()
@@ -5844,14 +6427,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_entry: Gtk.Entry | None = None
         self._rt_ct_split_page_row: Adw.ActionRow | None = None
         self._source_row: Adw.ExpanderRow | None = None
-        self._activity_row: Adw.ExpanderRow | None = None
+        self._activity_status_label: Gtk.Label | None = None
         self._edit_toc_button: Gtk.Button | None = None
         self._rt_ct_split_pending: int | None = None
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
+        self._bundle_reset_required = False
         self._test_prompts_window: TestPromptsWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
+        self._activity_terminal: Any | None = None
+        self._pi_terminal_pid: int | None = None
+        self._pi_terminal_active = False
+        self._pi_terminal_done: threading.Event | None = None
+        self._pi_terminal_exit_status: int | None = None
+        self._pi_terminal_spawn_error: str | None = None
+        self._pi_terminal_sequence_started = False
         self._run_until_dropdown: Gtk.DropDown | None = None
         self._run_until_values: list[str | None] = [None]
         self._run_completion_message: str | None = None
@@ -5860,6 +6451,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._local_vision_server_log_thread: threading.Thread | None = None
         self._local_vision_server_recent_output: deque[str] = deque(maxlen=40)
         self._local_vision_server_log_lock = threading.Lock()
+        self._css_provider = _install_recordprep_css()
+        self.connect("close-request", self._on_main_close_request)
 
         header_bar = Adw.HeaderBar()
 
@@ -5907,20 +6500,44 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         log_scroller = Gtk.ScrolledWindow()
         log_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        log_scroller.set_min_content_height(220)
-        log_scroller.set_vexpand(False)
-        log_view = Gtk.TextView()
-        log_view.set_editable(False)
-        log_view.set_cursor_visible(False)
-        log_view.set_monospace(True)
-        log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        log_view.set_left_margin(10)
-        log_view.set_right_margin(10)
-        log_view.set_top_margin(8)
-        log_view.set_bottom_margin(8)
-        log_scroller.set_child(log_view)
-        self._log_view = log_view
-        self._log_buffer = log_view.get_buffer()
+        log_scroller.set_hexpand(True)
+        log_scroller.set_vexpand(True)
+        log_scroller.add_css_class("recordprep-terminal-scroller")
+        if Vte is not None:
+            terminal = Vte.Terminal()
+            terminal.set_hexpand(True)
+            terminal.set_vexpand(True)
+            terminal.set_scrollback_lines(10_000)
+            terminal.set_mouse_autohide(True)
+            _apply_recordprep_terminal_theme(terminal)
+            terminal.connect("child-exited", self._on_activity_terminal_child_exited)
+            terminal_keys = Gtk.EventControllerKey()
+            terminal_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            terminal_keys.connect("key-pressed", self._on_activity_terminal_key_pressed)
+            terminal.add_controller(terminal_keys)
+            Adw.StyleManager.get_default().connect(
+                "notify::dark",
+                lambda *_args: _apply_recordprep_terminal_theme(terminal),
+            )
+            log_scroller.set_child(terminal)
+            self._activity_terminal = terminal
+        else:
+            log_view = Gtk.TextView()
+            log_view.set_editable(False)
+            log_view.set_cursor_visible(False)
+            log_view.set_monospace(True)
+            log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            log_view.set_left_margin(10)
+            log_view.set_right_margin(10)
+            log_view.set_top_margin(8)
+            log_view.set_bottom_margin(8)
+            log_scroller.set_child(log_view)
+            self._log_view = log_view
+            self._log_buffer = log_view.get_buffer()
+            self._log_buffer.set_text(
+                "Embedded terminal support requires GTK4 VTE "
+                "(gir1.2-vte-3.91 and libvte-2.91-gtk4-0).\n"
+            )
 
         source_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         source_list.add_css_class("boxed-list")
@@ -5975,16 +6592,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         content.append(action_box)
 
-        activity_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        activity_list.add_css_class("boxed-list")
-        self._activity_row = Adw.ExpanderRow(
-            title="Activity",
-            subtitle="No activity yet",
-        )
-        self._activity_row.set_expanded(False)
-        self._activity_row.add_row(log_scroller)
-        activity_list.append(self._activity_row)
-        content.append(activity_list)
+        activity_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        activity_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        activity_title = Gtk.Label(label="Activity", xalign=0)
+        activity_title.add_css_class("dim-label")
+        activity_header.append(activity_title)
+        activity_status = Gtk.Label(label="No activity yet", xalign=0)
+        activity_status.set_hexpand(True)
+        activity_status.set_ellipsize(3)
+        activity_status.add_css_class("caption")
+        activity_status.add_css_class("dim-label")
+        activity_header.append(activity_status)
+        activity_section.append(activity_header)
+        self._activity_status_label = activity_status
+
+        terminal_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        terminal_frame.set_hexpand(True)
+        terminal_frame.set_vexpand(False)
+        terminal_frame.set_size_request(-1, 220)
+        terminal_frame.set_overflow(Gtk.Overflow.HIDDEN)
+        terminal_frame.add_css_class("recordprep-terminal-surface")
+        terminal_frame.append(log_scroller)
+        activity_section.append(terminal_frame)
+        content.append(activity_section)
 
         self.step_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.step_list.add_css_class("boxed-list")
@@ -6224,6 +6854,51 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_twelve_clicked(self.step_twelve_row),
         )
         self._attach_step_status(self.step_twelve_row)
+
+        self.step_number_transcript_pages_row = Adw.ActionRow(
+            title="Number transcript pages",
+            subtitle="Identify official RT/CT page numbers and citation series with PI.",
+        )
+        self.step_organize_hearing_summary_row = Adw.ActionRow(
+            title="Organize hearing summary",
+            subtitle="Organize hearing entries without rewriting sourced text.",
+        )
+        self.step_organize_report_summary_row = Adw.ActionRow(
+            title="Organize report summary",
+            subtitle="Create a coherent chronological report summary with PI.",
+        )
+        self.step_build_source_map_row = Adw.ActionRow(
+            title="Build source map",
+            subtitle="Validate Agent Refinement outputs and publish source_map.json.",
+        )
+        agent_refinement_rows = (
+            (
+                "number_transcript_pages",
+                self.step_number_transcript_pages_row,
+            ),
+            (
+                "organize_hearing_summary",
+                self.step_organize_hearing_summary_row,
+            ),
+            (
+                "organize_report_summary",
+                self.step_organize_report_summary_row,
+            ),
+            (
+                "build_source_map",
+                self.step_build_source_map_row,
+            ),
+        )
+        for step_id, row in agent_refinement_rows:
+            row.set_activatable(False)
+            self._attach_step_controls(
+                step_id,
+                row,
+                lambda _btn, current_step=step_id, current_row=row: (
+                    self.on_agent_refinement_step_clicked(current_step, current_row)
+                ),
+            )
+            self._attach_step_status(row)
 
         self._setup_menu(app)
         self._populate_run_until_dropdown()
@@ -6807,23 +7482,68 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return "WARN"
         return "INFO"
 
-    def _append_log_message(self, message: str, level: str = "INFO") -> bool:
-        if self._log_buffer is None:
+    def _feed_activity_terminal(self, text: str) -> None:
+        terminal = self._activity_terminal
+        if terminal is None or not text:
+            return
+        terminal.feed(text.encode("utf-8", errors="replace"))
+
+    def _on_activity_terminal_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        terminal = self._activity_terminal
+        if terminal is None:
             return False
+        required = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        if state & required != required:
+            return False
+        if keyval in (Gdk.KEY_c, Gdk.KEY_C):
+            terminal.copy_clipboard_format(Vte.Format.TEXT)
+            return True
+        if keyval in (Gdk.KEY_v, Gdk.KEY_V):
+            terminal.paste_clipboard()
+            return True
+        return False
+
+    def _on_activity_terminal_child_exited(
+        self,
+        _terminal: Any,
+        status: int,
+    ) -> None:
+        self._pi_terminal_active = False
+        self._pi_terminal_pid = None
+        try:
+            self._pi_terminal_exit_status = os.waitstatus_to_exitcode(status)
+        except (AttributeError, ValueError):
+            self._pi_terminal_exit_status = int(status)
+        done = self._pi_terminal_done
+        if done is not None:
+            done.set()
+
+    def _append_log_message(self, message: str, level: str = "INFO") -> bool:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        text = " ".join(str(message).split()).strip()
+        text = _sanitize_terminal_log_text(message, preserve_newlines=False)
         if not text:
             return False
         level_normalized = str(level or "").upper()
         if level_normalized not in {"INFO", "WARN", "ERROR"}:
             level_normalized = self._infer_log_level(text)
-        end_iter = self._log_buffer.get_end_iter()
-        self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
-        if self._activity_row is not None:
+        if self._activity_terminal is not None:
+            self._feed_activity_terminal(_terminal_log_line(text, level_normalized))
+        elif self._log_buffer is not None:
+            end_iter = self._log_buffer.get_end_iter()
+            self._log_buffer.insert(
+                end_iter,
+                f"[{timestamp}] [{level_normalized}] {text}\n",
+            )
+        if self._activity_status_label is not None:
             summary = text if len(text) <= 120 else f"{text[:117]}…"
-            self._activity_row.set_subtitle(summary)
+            self._activity_status_label.set_label(summary)
             if level_normalized == "ERROR":
-                self._activity_row.set_expanded(True)
                 self._open_phase_for_step(self._active_step_id)
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
@@ -6831,16 +7551,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return False
 
     def _append_raw_log_message(self, message: str, level: str = "INFO") -> bool:
-        if self._log_buffer is None:
-            return False
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        text = str(message).rstrip("\r\n")
+        text = _sanitize_terminal_log_text(message, preserve_newlines=True)
         level_normalized = str(level or "INFO").upper()
-        end_iter = self._log_buffer.get_end_iter()
-        self._log_buffer.insert(end_iter, f"[{timestamp}] [{level_normalized}] {text}\n")
-        if self._activity_row is not None and text:
+        if self._activity_terminal is not None:
+            self._feed_activity_terminal(_terminal_log_line(text, level_normalized))
+        elif self._log_buffer is not None:
+            end_iter = self._log_buffer.get_end_iter()
+            self._log_buffer.insert(
+                end_iter,
+                f"[{timestamp}] [{level_normalized}] {text}\n",
+            )
+        if self._activity_status_label is not None and text:
             summary = text if len(text) <= 120 else f"{text[:117]}…"
-            self._activity_row.set_subtitle(summary)
+            self._activity_status_label.set_label(summary)
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
@@ -7232,6 +7956,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 and (rag_dir / "vector_database").exists()
                 and _dir_has_files(rag_dir / "vector_database", "*")
             )
+        if step_id in {
+            "number_transcript_pages",
+            "organize_hearing_summary",
+            "organize_report_summary",
+            "build_source_map",
+        }:
+            return pi_step_complete(step_id, root_dir)
         return False
 
     def _finish_step(self, row: Adw.ActionRow, success: bool | str | None) -> None:
@@ -7334,6 +8065,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         entry.set_max_width_chars(5)
         entry.set_max_length(5)
         entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
+        entry.connect("changed", self._on_rt_ct_split_entry_changed)
         entry.connect("activate", self._on_rt_ct_split_commit)
         entry.connect("notify::has-focus", self._on_rt_ct_split_focus_notify)
         page_row.add_suffix(entry)
@@ -7420,7 +8152,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _load_rt_ct_split(self) -> None:
         root_dir = self._resolve_case_root()
-        if root_dir is None or not root_dir.exists():
+        if root_dir is None or not _manifest_path(root_dir).exists():
             pending_mode = self._rt_ct_split_mode_pending or "split"
             split_page = self._rt_ct_split_pending
             if split_page is None:
@@ -7432,27 +8164,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if split_page is None and self._rt_ct_split_pending:
             split_page = self._rt_ct_split_pending
             try:
-                _write_manifest(
+                saved = _update_rt_ct_split_manifest(
                     root_dir,
-                    self.selected_pdfs,
-                    rt_ct_split_page=split_page,
-                    rt_ct_split_mode=split_mode,
+                    split_page,
+                    split_mode,
                 )
             except Exception:
-                pass
-            self._rt_ct_split_pending = None
+                saved = False
+            if saved:
+                self._rt_ct_split_pending = None
         if self._rt_ct_split_mode_pending:
             split_mode = self._rt_ct_split_mode_pending
             try:
-                _write_manifest(
+                saved = _update_rt_ct_split_manifest(
                     root_dir,
-                    self.selected_pdfs,
-                    rt_ct_split_page=split_page,
-                    rt_ct_split_mode=split_mode,
+                    split_page,
+                    split_mode,
                 )
             except Exception:
-                pass
-            self._rt_ct_split_mode_pending = None
+                saved = False
+            if saved:
+                self._rt_ct_split_mode_pending = None
         total_pages = _count_text_pages(root_dir / "text_pages")
         self._set_rt_ct_split_ui(split_page, total_pages, split_mode)
 
@@ -7482,16 +8214,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         elif selected == 2:
             mode = "ct_only"
         root_dir = self._resolve_case_root()
-        if root_dir is None or not root_dir.exists():
+        if root_dir is None or not _manifest_path(root_dir).exists():
             self._rt_ct_split_mode_pending = mode
             self._set_rt_ct_split_ui(self._rt_ct_split_pending, None, mode)
             return
         try:
-            _write_manifest(
+            _update_rt_ct_split_manifest(
                 root_dir,
-                self.selected_pdfs,
-                rt_ct_split_page=_read_rt_ct_split_page(root_dir),
-                rt_ct_split_mode=mode,
+                _read_rt_ct_split_page(root_dir),
+                mode,
             )
         except Exception as exc:
             self.show_toast(f"Unable to save RT/CT split: {exc}")
@@ -7508,7 +8239,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             return
         root_dir = self._resolve_case_root()
-        if root_dir is None or not root_dir.exists():
+        if root_dir is None or not _manifest_path(root_dir).exists():
             self._rt_ct_split_pending = split_page
             _write_rt_ct_split_page_config(split_page)
             pending_mode = self._rt_ct_split_mode_pending or "split"
@@ -7516,11 +8247,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._set_rt_ct_split_ui(split_page, None, pending_mode)
             return
         try:
-            _write_manifest(
+            _update_rt_ct_split_manifest(
                 root_dir,
-                self.selected_pdfs,
-                rt_ct_split_page=split_page,
-                rt_ct_split_mode=_read_rt_ct_split_mode(root_dir),
+                split_page,
+                _read_rt_ct_split_mode(root_dir),
             )
             _write_rt_ct_split_page_config(split_page)
         except Exception as exc:
@@ -7536,6 +8266,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _on_rt_ct_split_commit(self, entry: Gtk.Entry) -> None:
         self._commit_rt_ct_split_entry(entry, allow_ui_update=False)
 
+    def _on_rt_ct_split_entry_changed(self, entry: Gtk.Entry) -> None:
+        raw = entry.get_text().strip()
+        split_page = _normalize_rt_ct_split_page(int(raw) if raw.isdigit() else None)
+        if split_page is not None:
+            entry.remove_css_class("error")
+
     def _on_rt_ct_split_focus_notify(
         self, entry: Gtk.Entry, _pspec: GObject.ParamSpec
     ) -> None:
@@ -7544,6 +8280,48 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         if not has_focus:
             self._commit_rt_ct_split_entry(entry, allow_ui_update=True)
+
+    def _current_rt_ct_split_selection(self) -> tuple[str, int | None]:
+        dropdown = self._rt_ct_split_dropdown
+        entry = self._rt_ct_split_entry
+        if dropdown is not None:
+            selected = dropdown.get_selected()
+            split_mode = "rt_only" if selected == 1 else ("ct_only" if selected == 2 else "split")
+        else:
+            root_dir = self._resolve_case_root()
+            split_mode = (
+                _read_rt_ct_split_mode(root_dir)
+                if root_dir is not None and root_dir.exists()
+                else (self._rt_ct_split_mode_pending or "split")
+            )
+        if entry is not None:
+            raw = entry.get_text().strip()
+            split_page = _normalize_rt_ct_split_page(int(raw) if raw.isdigit() else None)
+        else:
+            root_dir = self._resolve_case_root()
+            split_page = (
+                _read_rt_ct_split_page(root_dir)
+                if root_dir is not None and root_dir.exists()
+                else self._rt_ct_split_pending
+            )
+        return split_mode, split_page
+
+    def _ensure_rt_ct_split_ready(self) -> bool:
+        split_mode, split_page = self._current_rt_ct_split_selection()
+        message = _pipeline_split_validation_message(split_mode, split_page)
+        entry = self._rt_ct_split_entry
+        if message is not None:
+            if self._source_row is not None:
+                self._source_row.set_expanded(True)
+            if entry is not None:
+                entry.add_css_class("error")
+                entry.grab_focus()
+            self.show_toast(message, "WARN")
+            return False
+        if split_mode == "split" and entry is not None:
+            self._commit_rt_ct_split_entry(entry, allow_ui_update=False)
+            entry.remove_css_class("error")
+        return True
 
     def _raise_if_stop_requested(self) -> None:
         if self._stop_event.is_set():
@@ -7689,6 +8467,36 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(False)
         self._sync_pipeline_controls()
         self.show_toast("Stop requested.")
+        if self._pi_terminal_active:
+            self._terminate_pi_terminal()
+
+    def _on_main_close_request(self, *_args: object) -> bool:
+        self._stop_event.set()
+        self._terminate_pi_terminal()
+        return False
+
+    def _terminate_pi_terminal(self) -> bool:
+        pid = self._pi_terminal_pid
+        if pid is None:
+            return False
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return False
+        except OSError as exc:
+            self.show_toast(f"Unable to stop PI process: {exc}", "WARN")
+            return False
+
+        def _force_stop() -> bool:
+            if self._pi_terminal_active and self._pi_terminal_pid == pid:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            return False
+
+        GLib.timeout_add_seconds(3, _force_stop)
+        return False
 
     def _safe_update_manifest(
         self,
@@ -7769,6 +8577,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             case_name = _sanitize_case_name_value(base_dir.name)
         save_case_context(case_name, base_dir)
         self.selected_pdfs = []
+        self._bundle_reset_required = False
         save_selected_pdfs([])
         display_name = _display_case_name(case_name) or "case bundle"
         self.selected_label.set_text(f"Selected: {display_name}")
@@ -7796,7 +8605,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not paths:
             self.show_toast("No PDFs selected.")
             return
-        self.selected_pdfs = sorted(paths, key=_natural_sort_key)
+        selected_pdfs = sorted(paths, key=_natural_sort_key)
+        root_dir = _case_bundle_root_for_pdfs(selected_pdfs)
+        previous_root = _case_bundle_root_for_pdfs(self.selected_pdfs)
+        selection_changed_in_place = bool(
+            root_dir is not None
+            and previous_root == root_dir
+            and self.selected_pdfs
+            and not _pdf_selections_equal(self.selected_pdfs, selected_pdfs)
+        )
+        manifest_inputs_changed = bool(
+            root_dir is not None
+            and _bundle_inputs_changed(root_dir, selected_pdfs)
+        )
+        self._bundle_reset_required = (
+            selection_changed_in_place or manifest_inputs_changed
+        )
+        self.selected_pdfs = selected_pdfs
         save_selected_pdfs(self.selected_pdfs)
         label = (
             self.selected_pdfs[0].name
@@ -7814,6 +8639,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.selected_pdfs = load_selected_pdfs()
         if not self.selected_pdfs:
             return
+        root_dir = _case_bundle_root_for_pdfs(self.selected_pdfs)
+        self._bundle_reset_required = bool(
+            root_dir is not None
+            and _bundle_inputs_changed(root_dir, self.selected_pdfs)
+        )
         label = (
             self.selected_pdfs[0].name
             if len(self.selected_pdfs) == 1
@@ -7867,6 +8697,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
             ("case_overview", self.step_eleven_row, self._run_step_eleven),
             ("create_rag_index", self.step_twelve_row, self._run_step_twelve),
+            (
+                "number_transcript_pages",
+                self.step_number_transcript_pages_row,
+                self._run_step_number_transcript_pages,
+            ),
+            (
+                "organize_hearing_summary",
+                self.step_organize_hearing_summary_row,
+                self._run_step_organize_hearing_summary,
+            ),
+            (
+                "organize_report_summary",
+                self.step_organize_report_summary_row,
+                self._run_step_organize_report_summary,
+            ),
+            (
+                "build_source_map",
+                self.step_build_source_map_row,
+                self._run_step_build_source_map,
+            ),
         ]
 
     def _pipeline_step_options(self) -> list[tuple[str, str]]:
@@ -7965,9 +8815,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
             return
+        if not self._ensure_rt_ct_split_ready():
+            return
         end_step_id = self._selected_run_until_step()
         self._stop_event.clear()
         self._run_completion_message = None
+        self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.resume_button.set_sensitive(False)
@@ -7992,6 +8845,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
+        if not self._ensure_rt_ct_split_ready():
+            return
         end_step_id = self._selected_run_until_step()
         try:
             start_index = self._resume_start_index(root_dir, end_step_id)
@@ -8011,6 +8866,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.show_toast(f"Resuming at {label}.", "INFO")
         self._stop_event.clear()
         self._run_completion_message = None
+        self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.resume_button.set_sensitive(False)
@@ -8020,7 +8876,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._sync_pipeline_controls()
         threading.Thread(
             target=self._run_steps_from_index,
-            args=(start_index, root_dir, end_step_id),
+            args=(start_index, root_dir, end_step_id, True),
             daemon=True,
         ).start()
 
@@ -8045,10 +8901,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 else:
                     self.show_toast("Choose PDF files or select a saved case first.")
                 return
+        if not self._ensure_rt_ct_split_ready():
+            return
         start_index = step_ids.index(step_id)
         root_dir = self._resolve_case_root()
         self._stop_event.clear()
         self._run_completion_message = None
+        self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.resume_button.set_sensitive(False)
@@ -8071,8 +8930,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
             return
+        if not self._ensure_rt_ct_split_ready():
+            return
         self._stop_event.clear()
         self._run_completion_message = None
+        self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
         self.resume_button.set_sensitive(False)
@@ -8155,6 +9017,31 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if len(parents) != 1:
                 raise ValueError("Selected PDFs must be in the same folder.")
             base_dir = parents.pop()
+            root_dir = base_dir / "case_bundle"
+            pending_split = self._rt_ct_split_pending
+            pending_mode = self._rt_ct_split_mode_pending
+            split_page = (
+                pending_split
+                if pending_split is not None
+                else _read_rt_ct_split_page(root_dir)
+            )
+            split_mode = (
+                pending_mode
+                if pending_mode is not None
+                else _read_rt_ct_split_mode(root_dir)
+            )
+            reset_required = (
+                self._bundle_reset_required
+                or _bundle_inputs_changed(root_dir, self.selected_pdfs)
+            )
+            if reset_required:
+                GLib.idle_add(
+                    self._append_log_message,
+                    "New PDF selection detected; clearing the previous generated bundle.",
+                    "INFO",
+                )
+                _reset_generated_case_bundle(root_dir)
+                self._bundle_reset_required = False
             root_dir, text_dir, image_pages_dir = _ensure_case_bundle_dirs(base_dir)
             if len(self.selected_pdfs) > 1:
                 temp_dir = root_dir / "temp"
@@ -8163,6 +9050,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 pdf_path = _merge_pdfs(self.selected_pdfs, merged_path)
             else:
                 pdf_path = self.selected_pdfs[0]
+            _write_manifest(
+                root_dir,
+                self.selected_pdfs,
+                pipeline_info={"active_step": "create_files"},
+                rt_ct_split_page=split_page,
+                rt_ct_split_mode=split_mode,
+            )
             self._raise_if_stop_requested()
             text_source = load_text_source_setting()
             if text_source == TEXT_SOURCE_LOCAL_OCR:
@@ -8188,8 +9082,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_toast, _format_create_files_error(exc))
         else:
             success = True
-            pending_split = self._rt_ct_split_pending
-            pending_mode = self._rt_ct_split_mode_pending
             self._safe_update_manifest(
                 root_dir,
                 {
@@ -8494,6 +9386,34 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         self._launch_single_step(self.step_twelve_row, self._run_step_twelve)
 
+    def on_agent_refinement_step_clicked(
+        self,
+        step_id: str,
+        row: Adw.ActionRow,
+    ) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        handlers = {
+            "number_transcript_pages": self._run_step_number_transcript_pages,
+            "organize_hearing_summary": self._run_step_organize_hearing_summary,
+            "organize_report_summary": self._run_step_organize_report_summary,
+            "build_source_map": self._run_step_build_source_map,
+        }
+        handler = handlers.get(step_id)
+        if handler is None:
+            self.show_toast(f"Unknown Agent Refinement step: {step_id}")
+            return
+        self._launch_single_step(
+            row,
+            handler,
+            step_id,
+        )
+
     def _run_all_steps(self, end_step_id: str | None = None) -> None:
         root_dir = self._resolve_case_root()
         self._run_steps_from_index(0, root_dir, end_step_id=end_step_id)
@@ -8503,6 +9423,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         start_index: int,
         root_dir: Path | None,
         end_step_id: str | None = None,
+        skip_completed_steps: bool = False,
     ) -> None:
         steps = self._pipeline_steps()
         if start_index < 0 or start_index >= len(steps):
@@ -8520,6 +9441,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             offset
             for offset, (step_id, _row, _handler) in enumerate(steps_to_run)
             if step_id in VISION_CLASSIFICATION_STEP_IDS
+            and not (
+                skip_completed_steps
+                and root_dir is not None
+                and self._step_artifact_complete(
+                    step_id,
+                    root_dir,
+                    self.selected_pdfs,
+                )
+            )
         ]
         manage_local_vision = (
             bool(load_classifier_settings().get("local_vision_enabled", False))
@@ -8532,6 +9462,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         try:
             for offset, (step_id, row, handler) in enumerate(steps_to_run):
                 self._raise_if_stop_requested()
+                if (
+                    skip_completed_steps
+                    and root_dir is not None
+                    and self._step_artifact_complete(
+                        step_id,
+                        root_dir,
+                        self.selected_pdfs,
+                    )
+                ):
+                    GLib.idle_add(self._finish_step, row, "Skipped")
+                    continue
                 if manage_local_vision and offset == first_classify_offset:
                     local_server_started = self._ensure_local_vision_server_running()
                 GLib.idle_add(self._start_step, row)
@@ -8580,6 +9521,199 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.show_toast("Pipeline complete.")
         else:
             self.show_toast("Pipeline stopped. Fix the errors and try again.")
+
+    def _spawn_pi_skill_terminal(
+        self,
+        root_dir: Path,
+        command_argv: list[str],
+        step_id: str,
+        step_title: str,
+        done: threading.Event,
+    ) -> bool:
+        terminal = self._activity_terminal
+        if Vte is None or terminal is None:
+            self._pi_terminal_spawn_error = (
+                "Embedded terminal support requires GTK4 VTE "
+                "(gir1.2-vte-3.91 and libvte-2.91-gtk4-0)."
+            )
+            done.set()
+            return False
+        env = os.environ.copy()
+        env.update(
+            {
+                "RECORDPREP_CASE_BUNDLE": str(root_dir),
+                "RECORDPREP_PI_PROJECT_DIR": str(PI_PROJECT_DIR),
+                "RECORDPREP_PI_COMMAND_ARGC": str(len(command_argv)),
+            }
+        )
+        for index, arg in enumerate(command_argv):
+            env[f"RECORDPREP_PI_COMMAND_ARG_{index}"] = arg
+        executable = Path(command_argv[0]).expanduser()
+        if executable.is_absolute():
+            env["PATH"] = str(executable.parent) + os.pathsep + env.get("PATH", "")
+
+        self._pi_terminal_done = done
+        self._pi_terminal_exit_status = None
+        self._pi_terminal_spawn_error = None
+        self._pi_terminal_active = True
+        self._pi_terminal_pid = None
+        if not self._pi_terminal_sequence_started:
+            terminal.reset(False, False)
+            self._pi_terminal_sequence_started = True
+        terminal.set_input_enabled(False)
+        _apply_recordprep_terminal_theme(terminal)
+        if self._activity_status_label is not None:
+            self._activity_status_label.set_label(f"{step_title} running…")
+        try:
+            terminal.spawn_async(
+                Vte.PtyFlags.DEFAULT,
+                str(PROJECT_DIR),
+                [sys.executable, str(PI_SKILL_RUNNER), step_id],
+                [f"{key}={value}" for key, value in env.items()],
+                GLib.SpawnFlags.DEFAULT,
+                None,
+                None,
+                -1,
+                None,
+                self._on_pi_skill_terminal_spawned,
+                None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._pi_terminal_active = False
+            self._pi_terminal_spawn_error = str(exc)
+            done.set()
+        return False
+
+    def _on_pi_skill_terminal_spawned(
+        self,
+        _terminal: Any,
+        pid: int,
+        error: GLib.Error | None,
+        _user_data: object,
+    ) -> None:
+        if error is not None:
+            self._pi_terminal_active = False
+            self._pi_terminal_pid = None
+            self._pi_terminal_spawn_error = error.message
+            if self._pi_terminal_done is not None:
+                self._pi_terminal_done.set()
+            return
+        self._pi_terminal_pid = pid
+        if self._stop_event.is_set():
+            self._terminate_pi_terminal()
+
+    def _run_pi_skill_step(
+        self,
+        step_id: str,
+        row: Adw.ActionRow,
+    ) -> bool:
+        success: bool | None = False
+        step_title = (row.get_title() or step_id).strip() or step_id
+        try:
+            self._raise_if_stop_requested()
+            root_dir = self._resolve_case_root()
+            if root_dir is None:
+                raise ValueError("Choose a case bundle first.")
+            if Vte is None or self._activity_terminal is None:
+                raise ValueError(
+                    f"GTK4 VTE is required for {step_title} "
+                    "(gir1.2-vte-3.91 and libvte-2.91-gtk4-0)."
+                )
+            if not PI_SKILL_RUNNER.is_file():
+                raise ValueError(f"PI skill runner not found: {PI_SKILL_RUNNER}")
+
+            command = load_pi_agent_command_setting()
+            try:
+                command_argv = resolve_pi_agent_argv(
+                    command,
+                    path_env=os.environ.get("PATH"),
+                )
+            except ValueError as exc:
+                raise ValueError(f"Invalid PI command: {exc}") from exc
+            if not command_argv:
+                raise ValueError("PI command is empty.")
+            incompatible_flag = incompatible_pi_agent_flag(command_argv)
+            if incompatible_flag:
+                raise ValueError(
+                    f"PI option {incompatible_flag} is incompatible with RecordPrep."
+                )
+            executable = command_argv[0]
+            if os.path.sep in executable:
+                executable_path = Path(executable).expanduser()
+                if not executable_path.is_file() or not os.access(
+                    executable_path,
+                    os.X_OK,
+                ):
+                    raise ValueError(
+                        "PI executable not found. Install PI or set the PI command "
+                        "in Settings."
+                    )
+                command_argv[0] = str(executable_path)
+            elif shutil.which(executable) is None:
+                raise ValueError(
+                    "PI executable not found. Install PI or set the PI command in Settings."
+                )
+
+            done = threading.Event()
+            GLib.idle_add(
+                self._spawn_pi_skill_terminal,
+                root_dir,
+                command_argv,
+                step_id,
+                step_title,
+                done,
+            )
+            while not done.wait(0.1):
+                if self._stop_event.is_set():
+                    GLib.idle_add(self._terminate_pi_terminal)
+            self._raise_if_stop_requested()
+            if self._pi_terminal_spawn_error:
+                raise ValueError(
+                    f"Unable to start embedded PI: {self._pi_terminal_spawn_error}"
+                )
+            if self._pi_terminal_exit_status != 0:
+                raise ValueError(
+                    f"{step_title} failed with exit code "
+                    f"{self._pi_terminal_exit_status}."
+                )
+
+            success = True
+            GLib.idle_add(self.show_toast, f"{step_title} complete.")
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(self.show_toast, f"{step_title} failed: {exc}")
+        finally:
+            self._pi_terminal_done = None
+            GLib.idle_add(row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, row, success)
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
+
+    def _run_step_number_transcript_pages(self) -> bool:
+        return self._run_pi_skill_step(
+            "number_transcript_pages",
+            self.step_number_transcript_pages_row,
+        )
+
+    def _run_step_organize_hearing_summary(self) -> bool:
+        return self._run_pi_skill_step(
+            "organize_hearing_summary",
+            self.step_organize_hearing_summary_row,
+        )
+
+    def _run_step_organize_report_summary(self) -> bool:
+        return self._run_pi_skill_step(
+            "organize_report_summary",
+            self.step_organize_report_summary_row,
+        )
+
+    def _run_step_build_source_map(self) -> bool:
+        return self._run_pi_skill_step(
+            "build_source_map",
+            self.step_build_source_map_row,
+        )
 
     def _run_step_two(self) -> bool:
         success: bool | None = False

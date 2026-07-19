@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Run one RecordPrep PI skill and render PI's JSON event stream for VTE."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Sequence
+
+
+MINIMUM_PI_MINOR = 80
+
+
+@dataclass(frozen=True, slots=True)
+class SkillStage:
+    step_id: str
+    title: str
+    skill_name: str
+    tools: str
+
+
+STAGES = {
+    stage.step_id: stage
+    for stage in (
+        SkillStage(
+            "number_transcript_pages",
+            "Number transcript pages",
+            "recordprep-number-transcript-pages",
+            "read,bash,grep,find,ls,write,edit",
+        ),
+        SkillStage(
+            "organize_hearing_summary",
+            "Organize hearing summary",
+            "recordprep-organize-hearing-summary",
+            "read,bash,grep,find,ls,write,edit",
+        ),
+        SkillStage(
+            "organize_report_summary",
+            "Organize report summary",
+            "recordprep-organize-report-summary",
+            "read,bash,grep,find,ls,write,edit",
+        ),
+        SkillStage(
+            "build_source_map",
+            "Build source map",
+            "recordprep-build-source-map",
+            "read,bash,grep,find,ls",
+        ),
+    )
+}
+
+_active_process: subprocess.Popen[str] | None = None
+_stopped = False
+
+
+def _write(text: str) -> None:
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
+def _line(text: str = "") -> None:
+    _write(text.rstrip("\n") + "\n")
+
+
+def _project_dir() -> Path:
+    configured = str(os.environ.get("RECORDPREP_PI_PROJECT_DIR", "") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve(strict=False)
+    return Path(__file__).resolve().parents[1]
+
+
+def _case_bundle() -> Path:
+    configured = str(os.environ.get("RECORDPREP_CASE_BUNDLE", "") or "").strip()
+    if not configured:
+        raise ValueError("RECORDPREP_CASE_BUNDLE is not set.")
+    root = Path(configured).expanduser().resolve(strict=False)
+    if not (root / "text_pages").is_dir():
+        raise ValueError(f"RecordPrep case bundle is missing or invalid: {root}")
+    return root
+
+
+def _pi_command() -> list[str]:
+    raw_count = str(os.environ.get("RECORDPREP_PI_COMMAND_ARGC", "0") or "0")
+    try:
+        count = int(raw_count)
+    except ValueError:
+        count = 0
+    command = [
+        str(os.environ.get(f"RECORDPREP_PI_COMMAND_ARG_{index}", "") or "")
+        for index in range(max(0, count))
+    ]
+    command = [value for value in command if value]
+    return command or ["pi"]
+
+
+def _resource_issues(project_dir: Path) -> list[str]:
+    issues: list[str] = []
+    if not (project_dir / "settings.json").is_file():
+        issues.append("settings.json is missing.")
+    for stage in STAGES.values():
+        skill = project_dir / "skills" / stage.skill_name / "SKILL.md"
+        if not skill.is_file():
+            issues.append(f"{stage.skill_name}/SKILL.md is missing.")
+    for obsolete in ("agents", "workflows", "extensions"):
+        if (project_dir / obsolete).exists():
+            issues.append(f"obsolete .pi/{obsolete}/ resources are still present.")
+    return issues
+
+
+def _check_pi_version(command: Sequence[str]) -> None:
+    result = subprocess.run(
+        [*command, "--version"],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    version = (result.stdout or result.stderr).splitlines()
+    first_line = version[0].strip() if version else ""
+    match = re.match(r"^0\.(\d+)", first_line)
+    if result.returncode != 0 or match is None or int(match.group(1)) < MINIMUM_PI_MINOR:
+        raise ValueError(
+            f"RecordPrep requires PI 0.{MINIMUM_PI_MINOR} or newer; "
+            f"found {first_line or 'unknown'}."
+        )
+
+
+def _compact(value: object, limit: int = 500) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        text = str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _content_text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for item in value:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                parts.append(text)
+    return "\n".join(parts)
+
+
+class EventRenderer:
+    def __init__(self) -> None:
+        self._assistant_open = False
+        self._saw_text_delta = False
+
+    def _end_assistant_line(self) -> None:
+        if self._assistant_open:
+            _line()
+            self._assistant_open = False
+
+    def render(self, raw_line: str) -> None:
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            self._end_assistant_line()
+            _line(f"[pi] {raw_line}")
+            return
+        if not isinstance(event, dict):
+            return
+        event_type = str(event.get("type") or "")
+        if event_type == "message_start":
+            message = event.get("message")
+            if isinstance(message, dict) and message.get("role") not in {
+                None,
+                "assistant",
+            }:
+                return
+            self._end_assistant_line()
+            self._saw_text_delta = False
+            return
+        if event_type == "message_update":
+            update = event.get("assistantMessageEvent")
+            if isinstance(update, dict) and update.get("type") == "text_delta":
+                delta = update.get("delta")
+                if isinstance(delta, str) and delta:
+                    _write(delta)
+                    self._assistant_open = not delta.endswith("\n")
+                    self._saw_text_delta = True
+            return
+        if event_type == "message_end":
+            message = event.get("message")
+            if isinstance(message, dict) and message.get("role") not in {
+                None,
+                "assistant",
+            }:
+                return
+            if not self._saw_text_delta and isinstance(message, dict):
+                text = _content_text(message.get("content"))
+                if text:
+                    _write(text)
+                    self._assistant_open = not text.endswith("\n")
+            self._end_assistant_line()
+            return
+        if event_type == "tool_execution_start":
+            self._end_assistant_line()
+            name = str(event.get("toolName") or "tool")
+            args = _compact(event.get("args") or {})
+            _line(f"\033[2m[tool]\033[0m {name} {args}".rstrip())
+            return
+        if event_type == "tool_execution_end":
+            self._end_assistant_line()
+            name = str(event.get("toolName") or "tool")
+            failed = bool(event.get("isError"))
+            _line(
+                f"\033[{'31' if failed else '32'}m"
+                f"[{'failed' if failed else 'done'}]\033[0m {name}"
+            )
+            result = event.get("result")
+            if isinstance(result, dict):
+                text = _content_text(result.get("content")).strip()
+                if text:
+                    if len(text) > 2400:
+                        text = text[:2399] + "…"
+                    _line(text)
+            return
+        if event_type in {"auto_retry_start", "auto_retry_end"}:
+            self._end_assistant_line()
+            detail = event.get("error") or event.get("message") or event_type
+            _line(f"\033[33m[retry]\033[0m {_compact(detail)}")
+            return
+        if event_type in {"error", "agent_error"}:
+            self._end_assistant_line()
+            detail = event.get("error") or event.get("message") or event
+            _line(f"\033[31m[PI error]\033[0m {_compact(detail, 1200)}")
+
+    def finish(self) -> None:
+        self._end_assistant_line()
+
+
+def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
+    project_root = project_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from recordprep.pi_bundle import expected_organized_summary_path
+
+    instruction = (
+        f"/skill:{stage.skill_name}\n"
+        f"Run the loaded {stage.skill_name} skill now against the absolute case "
+        f"bundle in RECORDPREP_CASE_BUNDLE ({root}). Follow the skill completely, "
+        "validate its outputs, and exit with a concise result."
+    )
+    if stage.step_id == "organize_hearing_summary":
+        expected = expected_organized_summary_path(root, "hearings")
+        if expected is not None:
+            instruction += f"\nThe exact required output path is: {expected}"
+    elif stage.step_id == "organize_report_summary":
+        expected = expected_organized_summary_path(root, "reports")
+        if expected is not None:
+            instruction += f"\nThe exact required output path is: {expected}"
+    elif stage.step_id == "build_source_map":
+        instruction += (
+            "\nDo not proceed unless transcript numbering and both organized "
+            "summaries already validate. This is the final Agent Refinement step."
+        )
+    return instruction
+
+
+def _terminate_active_process() -> None:
+    process = _active_process
+    if process is None or process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        process.terminate()
+
+
+def _handle_stop(_signum: int, _frame: object) -> None:
+    global _stopped
+    _stopped = True
+    _terminate_active_process()
+
+
+def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[str]:
+    project_root = project_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from recordprep.pi_bundle import (
+        expected_organized_summary_path,
+        legacy_organized_summary_path,
+        validate_pi_step_outputs,
+    )
+
+    issues = validate_pi_step_outputs(stage.step_id, root)
+    if not issues and stage.step_id in {
+        "organize_hearing_summary",
+        "organize_report_summary",
+    }:
+        kind = "hearings" if stage.step_id == "organize_hearing_summary" else "reports"
+        legacy = legacy_organized_summary_path(root, kind)
+        expected = expected_organized_summary_path(root, kind)
+        if (
+            legacy is not None
+            and expected is not None
+            and legacy != expected
+            and legacy.is_file()
+        ):
+            legacy.unlink()
+            _line(f"Removed legacy misnamed output: {legacy.name}")
+    return issues
+
+
+def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
+    global _active_process
+
+    resource_issues = _resource_issues(project_dir)
+    if resource_issues:
+        raise ValueError(" ".join(resource_issues))
+    if stage.step_id == "build_source_map":
+        project_root = project_dir.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        from recordprep.pi_bundle import source_map_prerequisite_issues
+
+        preflight = source_map_prerequisite_issues(root)
+        if preflight:
+            raise ValueError(
+                "Build source map prerequisites failed: " + " ".join(preflight)
+            )
+
+    pi_command = _pi_command()
+    _check_pi_version(pi_command)
+    cache_root = Path(
+        os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    ).expanduser()
+    workspace_parent = cache_root / "recordprep-pi-workspaces"
+    workspace_parent.mkdir(parents=True, exist_ok=True)
+    workspace = Path(tempfile.mkdtemp(prefix="skill.", dir=workspace_parent))
+    try:
+        staged_pi = workspace / ".pi"
+        staged_skill = staged_pi / "skills" / stage.skill_name
+        staged_skill.parent.mkdir(parents=True)
+        shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
+        shutil.copytree(project_dir / "skills" / stage.skill_name, staged_skill)
+        (workspace / "tmp").mkdir()
+        env = os.environ.copy()
+        env["TMPDIR"] = str(workspace / "tmp")
+        env["PI_CODING_AGENT_SESSION_DIR"] = str(workspace / "sessions")
+        executable = Path(pi_command[0]).expanduser()
+        if executable.is_absolute():
+            env["PATH"] = str(executable.parent) + os.pathsep + env.get("PATH", "")
+        command = [
+            *pi_command,
+            "--approve",
+            "--mode",
+            "json",
+            "--no-session",
+            "--no-extensions",
+            "--no-skills",
+            "--skill",
+            str(staged_skill / "SKILL.md"),
+            "--no-prompt-templates",
+            "--no-themes",
+            "--no-context-files",
+            "--tools",
+            stage.tools,
+            _stage_prompt(stage, root, project_dir),
+        ]
+        _line()
+        _line(f"\033[1;36m{stage.title}\033[0m")
+        _line(f"Skill: {stage.skill_name}")
+        _line(f"Case bundle: {root}")
+        _line()
+        renderer = EventRenderer()
+        _active_process = subprocess.Popen(
+            command,
+            cwd=workspace,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        assert _active_process.stdout is not None
+        for line in _active_process.stdout:
+            renderer.render(line.rstrip("\r\n"))
+        renderer.finish()
+        return_code = _active_process.wait()
+        _active_process.stdout.close()
+        _active_process = None
+        if _stopped:
+            return 130
+        if return_code != 0:
+            _line(f"\033[31mPI exited with code {return_code}.\033[0m")
+            return return_code
+        issues = _validate_stage(stage, root, project_dir)
+        if issues:
+            for issue in issues:
+                _line(f"\033[31m[validation]\033[0m {issue}")
+            return 3
+        _line(f"\033[32m{stage.title} complete.\033[0m")
+        return 0
+    finally:
+        _active_process = None
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = list(argv if argv is not None else sys.argv[1:])
+    project_dir = _project_dir()
+    if args == ["--validate-resources"]:
+        issues = _resource_issues(project_dir)
+        if issues:
+            for issue in issues:
+                _line(f"PI resource validation failed: {issue}")
+            return 1
+        _line("RecordPrep sequential PI resources are valid.")
+        return 0
+    if len(args) != 1 or args[0] not in STAGES:
+        choices = ", ".join(STAGES)
+        _line(f"Usage: {Path(sys.argv[0]).name} <{choices}>")
+        return 2
+    try:
+        return _run_stage(STAGES[args[0]], _case_bundle(), project_dir)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        _line(f"\033[31mRecordPrep PI stage failed:\033[0m {exc}")
+        return 2
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _handle_stop)
+    signal.signal(signal.SIGINT, _handle_stop)
+    raise SystemExit(main())

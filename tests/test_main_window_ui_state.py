@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from recordprep.ui.main_window import (
     PIPELINE_PHASES,
@@ -6,12 +9,16 @@ from recordprep.ui.main_window import (
     SETTINGS_NAV_GROUPS,
     TEST_PROMPT_GROUPS,
     _first_incomplete_phase_id,
+    _pipeline_split_validation_message,
     _phase_progress_text,
     _run_action_label,
+    _sanitize_terminal_log_text,
     _settings_destination_keys,
+    _terminal_log_line,
     _test_prompt_input_kind,
     _test_prompt_options,
     _transcript_summary,
+    _write_manifest,
 )
 
 
@@ -23,11 +30,20 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 19)
+        self.assertEqual(len(grouped), 23)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
-        self.assertEqual(grouped[-1], "create_rag_index")
+        self.assertEqual(
+            grouped[-4:],
+            [
+                "number_transcript_pages",
+                "organize_hearing_summary",
+                "organize_report_summary",
+                "build_source_map",
+            ],
+        )
+        self.assertEqual(PIPELINE_PHASES[-1][1], "Agent Refinement")
 
     def test_phase_progress_reports_completion_and_activity(self) -> None:
         step_ids = ("one", "two", "three")
@@ -76,6 +92,15 @@ class MainWindowUiStateTests(unittest.TestCase):
             "Clerk's transcript only",
         )
 
+    def test_rt_ct_mode_requires_a_positive_split_page_before_launch(self) -> None:
+        message = "Enter the last RT page before starting the pipeline."
+
+        self.assertEqual(_pipeline_split_validation_message("split", None), message)
+        self.assertEqual(_pipeline_split_validation_message("split", 0), message)
+        self.assertIsNone(_pipeline_split_validation_message("split", 125))
+        self.assertIsNone(_pipeline_split_validation_message("rt_only", None))
+        self.assertIsNone(_pipeline_split_validation_message("ct_only", None))
+
     def test_settings_destinations_are_grouped_once(self) -> None:
         self.assertEqual(
             [(group_id, title) for group_id, title, _items in SETTINGS_NAV_GROUPS],
@@ -84,13 +109,14 @@ class MainWindowUiStateTests(unittest.TestCase):
                 ("classify", "Classify"),
                 ("summarize", "Summarize"),
                 ("index", "Index"),
+                ("agent", "Agent"),
             ],
         )
         destination_keys = _settings_destination_keys()
-        self.assertEqual(len(destination_keys), 11)
+        self.assertEqual(len(destination_keys), 12)
         self.assertEqual(len(destination_keys), len(set(destination_keys)))
         self.assertEqual(destination_keys[0], "text-source")
-        self.assertEqual(destination_keys[-1], "rag")
+        self.assertEqual(destination_keys[-1], "pi")
 
     def test_prompt_tests_are_grouped_and_use_adaptive_inputs(self) -> None:
         mode_ids = [
@@ -107,6 +133,54 @@ class MainWindowUiStateTests(unittest.TestCase):
         self.assertEqual(_test_prompt_input_kind("names_form"), "image")
         self.assertEqual(_test_prompt_input_kind("optimize_hearings"), "text")
         self.assertEqual(_test_prompt_input_kind("summarize_minutes"), "text")
+
+    def test_terminal_log_sanitizes_untrusted_controls(self) -> None:
+        self.assertEqual(
+            _sanitize_terminal_log_text("hello\x1b[2J world", preserve_newlines=False),
+            "hello[2J world",
+        )
+        line = _terminal_log_line("problem\x07", "ERROR")
+        self.assertIn("[ERROR]", line)
+        self.assertNotIn("\x07", line)
+
+    def test_manifest_refresh_preserves_pi_artifact_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "created_at": "original",
+                        "files": {
+                            "source_map": "artifacts/source_map.json",
+                            "organized_hearings": "summaries/h_organized.txt",
+                            "organized_reports": "summaries/r_organized.txt",
+                            "transcript_page_numbers": "artifacts/numbers.json",
+                            "transcript_page_number_series": "artifacts/series.md",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            _write_manifest(
+                root,
+                [],
+                pipeline_info={"last_completed_step": "build_source_map"},
+            )
+            payload = json.loads(
+                (root / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                payload["files"]["source_map"],
+                "artifacts/source_map.json",
+            )
+            self.assertEqual(
+                payload["files"]["organized_hearings"],
+                "summaries/h_organized.txt",
+            )
+            self.assertEqual(
+                payload["pipeline"]["last_completed_step"],
+                "build_source_map",
+            )
 
 
 if __name__ == "__main__":

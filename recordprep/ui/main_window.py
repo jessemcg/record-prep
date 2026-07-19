@@ -254,10 +254,6 @@ def _first_incomplete_phase_id(completed_step_ids: set[str]) -> str | None:
     return None
 
 
-def _run_action_label(endpoint_label: str | None) -> str:
-    return f"Run through {endpoint_label}" if endpoint_label else "Run all steps"
-
-
 def _transcript_summary(split_mode: str, split_page: int | None) -> str:
     if split_mode == "rt_only":
         return "Reporter's transcript only"
@@ -3848,18 +3844,42 @@ def _start_server(command: str) -> subprocess.Popen[str]:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
 
 
 def _stop_server(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
+    process_group_id = process.pid
     try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        if process.poll() is None:
+            process.terminate()
+
+    deadline = time.monotonic() + 10
+    if process.poll() is None:
+        try:
+            process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            pass
+
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    if process.poll() is None:
         process.kill()
         process.wait(timeout=10)
+    if process.stdout is not None:
+        process.stdout.close()
 
 
 def _ocr_image(image_path: Path, server_url: str, model_id: str) -> str:
@@ -3922,6 +3942,9 @@ def _generate_text_files_with_local_ocr(
     text_dir: Path,
     image_pages_dir: Path,
     stop_check: Callable[[], None] | None = None,
+    server_process_changed: (
+        Callable[[subprocess.Popen[str] | None], None] | None
+    ) = None,
     server_url: str = DEFAULT_SERVER_URL,
     start_command: str = START_SERVER_COMMAND,
     model_id: str = MODEL_ID,
@@ -3941,20 +3964,35 @@ def _generate_text_files_with_local_ocr(
     job_started_at = time.monotonic()
     server_process: subprocess.Popen[str] | None = None
 
+    def set_server_process(process: subprocess.Popen[str] | None) -> None:
+        if server_process_changed is not None:
+            server_process_changed(process)
+
+    def stop_server(process: subprocess.Popen[str]) -> None:
+        try:
+            _stop_server(process)
+        finally:
+            set_server_process(None)
+
     def start_server(server_slots: int) -> subprocess.Popen[str]:
         resolved_start_command = _resolve_local_ocr_start_command(
             start_command,
             server_slots,
         )
         process = _start_server(resolved_start_command)
-        if sleep_seconds > 0:
-            time.sleep(sleep_seconds)
-        _wait_for_endpoint_ready(
-            server_url,
-            process=process,
-            stop_check=stop_check,
-        )
-        _print_server_slot_report(server_url, server_slots)
+        set_server_process(process)
+        try:
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+            _wait_for_endpoint_ready(
+                server_url,
+                process=process,
+                stop_check=stop_check,
+            )
+            _print_server_slot_report(server_url, server_slots)
+        except Exception:
+            stop_server(process)
+            raise
         return process
 
     try:
@@ -3991,7 +4029,7 @@ def _generate_text_files_with_local_ocr(
                 "and retrying unfinished pages one at a time.",
                 file=sys.stderr,
             )
-            _stop_server(server_process)
+            stop_server(server_process)
             server_process = None
             if stop_check:
                 stop_check()
@@ -4026,7 +4064,7 @@ def _generate_text_files_with_local_ocr(
 
     finally:
         if server_process is not None:
-            _stop_server(server_process)
+            stop_server(server_process)
 
 @dataclass
 class ClassifySettingsWidgets:
@@ -6478,6 +6516,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_until_dropdown: Gtk.DropDown | None = None
         self._run_until_values: list[str | None] = [None]
         self._run_completion_message: str | None = None
+        self._local_ocr_server_process: subprocess.Popen[str] | None = None
+        self._local_ocr_server_lock = threading.Lock()
         self._local_vision_server_process: subprocess.Popen[str] | None = None
         self._local_vision_server_owned = False
         self._local_vision_server_log_thread: threading.Thread | None = None
@@ -6584,28 +6624,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
 
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.run_all_button = Adw.SplitButton()
-        self.run_all_button.set_label("Run all steps")
+        self.run_all_button = Gtk.Button(label="Run")
         self.run_all_button.set_halign(Gtk.Align.START)
         self.run_all_button.connect("clicked", self.on_run_all_clicked)
-
-        run_target_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        run_target_box.set_margin_top(12)
-        run_target_box.set_margin_bottom(12)
-        run_target_box.set_margin_start(12)
-        run_target_box.set_margin_end(12)
-        run_target_label = Gtk.Label(label="Run through", xalign=0)
-        run_target_label.add_css_class("heading")
-        run_target_box.append(run_target_label)
-        self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
-        self._run_until_dropdown.set_tooltip_text(
-            "Stop automatically after the selected step when running the pipeline."
-        )
-        self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
-        run_target_box.append(self._run_until_dropdown)
-        run_target_popover = Gtk.Popover()
-        run_target_popover.set_child(run_target_box)
-        self.run_all_button.set_popover(run_target_popover)
         action_box.append(self.run_all_button)
 
         self.resume_button = Gtk.Button(label="Resume")
@@ -6619,6 +6640,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(False)
         self.stop_button.connect("clicked", self.on_stop_clicked)
         action_box.append(self.stop_button)
+
+        run_target_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        run_target_box.set_hexpand(True)
+        run_target_label = Gtk.Label(label="Run through", xalign=0)
+        run_target_box.append(run_target_label)
+        self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
+        self._run_until_dropdown.set_hexpand(True)
+        self._run_until_dropdown.set_tooltip_text(
+            "Stop automatically after the selected step when running or resuming "
+            "the pipeline."
+        )
+        self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
+        run_target_box.append(self._run_until_dropdown)
+        action_box.append(run_target_box)
 
         self._edit_toc_button = Gtk.Button(label="Edit TOC")
         self._edit_toc_button.connect("clicked", self.on_edit_toc_clicked)
@@ -6643,7 +6678,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         terminal_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         terminal_frame.set_hexpand(True)
         terminal_frame.set_vexpand(False)
-        terminal_frame.set_size_request(-1, 220)
+        terminal_frame.set_size_request(-1, 440)
         terminal_frame.set_overflow(Gtk.Overflow.HIDDEN)
         terminal_frame.add_css_class("recordprep-terminal-surface")
         terminal_frame.append(log_scroller)
@@ -8449,8 +8484,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 stop_check=self._raise_if_stop_requested,
             )
         except Exception:
-            self._local_vision_server_process = None
-            self._local_vision_server_owned = False
+            self._stop_local_vision_server()
             raise
         return True
 
@@ -8496,6 +8530,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         _stop_server(process)
 
+    def _set_local_ocr_server_process(
+        self,
+        process: subprocess.Popen[str] | None,
+    ) -> None:
+        with self._local_ocr_server_lock:
+            self._local_ocr_server_process = process
+
+    def _stop_local_ocr_server(self) -> None:
+        with self._local_ocr_server_lock:
+            process = self._local_ocr_server_process
+            self._local_ocr_server_process = None
+        if process is not None:
+            _stop_server(process)
+
     def on_stop_clicked(self, _button: Gtk.Button) -> None:
         if self._stop_event.is_set():
             return
@@ -8503,11 +8551,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.stop_button.set_sensitive(False)
         self._sync_pipeline_controls()
         self.show_toast("Stop requested.")
+        self._stop_local_ocr_server()
+        self._stop_local_vision_server()
         if self._pi_terminal_active:
             self._terminate_pi_terminal()
 
     def _on_main_close_request(self, *_args: object) -> bool:
         self._stop_event.set()
+        self._stop_local_ocr_server()
+        self._stop_local_vision_server()
         self._terminate_pi_terminal()
         return False
 
@@ -8775,7 +8827,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if saved_value in self._run_until_values:
             selected_index = self._run_until_values.index(saved_value)
         dropdown.set_selected(selected_index)
-        self._update_run_action_label()
 
     def _selected_run_until_step(self) -> str | None:
         dropdown = self._run_until_dropdown
@@ -8794,11 +8845,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 return label
         return step_id
 
-    def _update_run_action_label(self) -> None:
-        step_id = self._selected_run_until_step()
-        endpoint_label = self._run_until_label(step_id) if step_id else None
-        self.run_all_button.set_label(_run_action_label(endpoint_label))
-
     def _on_run_until_changed(
         self, dropdown: Gtk.DropDown, _pspec: GObject.ParamSpec
     ) -> None:
@@ -8807,7 +8853,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if 0 <= selected < len(self._run_until_values):
             step_id = self._run_until_values[selected]
         save_run_until_step_setting(step_id)
-        self._update_run_action_label()
         self._sync_pipeline_controls()
 
     def _resolve_case_root(self) -> Path | None:
@@ -9102,6 +9147,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     text_dir,
                     image_pages_dir,
                     stop_check=self._raise_if_stop_requested,
+                    server_process_changed=self._set_local_ocr_server_process,
                     server_url=ocr_settings["server_url"],
                     start_command=ocr_settings["start_command"],
                     model_id=ocr_settings["model_id"],

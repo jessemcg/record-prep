@@ -37,6 +37,14 @@ Read and follow `references/subheading_style_rules.md`.
 - Base topic sentences solely on original facts in that section.
 - Do not add legal argument, facts, record citations, or unsupported
   characterization.
+- Report boundaries may be removed, but every source report date/title line
+  retained in the organized output is a hard entry boundary. Unless it is the
+  first physical line in the file, the physical line immediately before it
+  must be empty.
+- Never write a retained report date/title line directly after the final
+  sentence, paragraph, topic sentence, or subheading of the preceding section.
+  Join retained report entries with at least two newline characters so one
+  blank line remains before the next date/title line.
 
 Use limited local context only to resolve chronology or relatedness:
 `manifest.json`, TOC, report boundaries, raw/optimized reports, targeted text
@@ -55,6 +63,9 @@ Before publishing:
   the sources support grouping;
 - confirm subheadings follow the reference and topic sentences are derivative
   and uncited.
+- scan the temporary output line by line and confirm that the line immediately
+  before every retained source report date/title line is empty; fix every
+  violation before the atomic replace.
 
 Return the output path, source-section count, main organization changes, and any
 unresolved issue. Fail instead of publishing an output that loses or rewrites

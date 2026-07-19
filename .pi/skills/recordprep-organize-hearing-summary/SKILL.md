@@ -39,6 +39,14 @@ Read and follow `references/subheading_style_rules.md`.
 - Add only short bold Markdown subheadings besides Quick points. Add no facts,
   legal argument, transitions, citations, or commentary.
 - Separate structural lines and paragraphs with blank lines.
+- Treat every hearing date/link line as a hard entry boundary. Unless it is the
+  first physical line in the file, the physical line immediately before it
+  must be empty. This applies to the first hearing after the case header and to
+  every secondary hearing date.
+- Never write a new hearing date/link line directly after the final sentence,
+  paragraph, Quick point, or subheading of the preceding hearing. Join
+  consecutive hearing entries with at least two newline characters so one
+  blank line remains between them.
 
 ## Verification
 
@@ -52,6 +60,9 @@ confirm:
 - nothing moved between hearings;
 - every substantive hearing has one Quick point and date-only entries have none;
 - subheadings follow the reference rules.
+- scan the temporary output line by line and confirm that the line immediately
+  before every hearing date/link line is empty; fix every violation before the
+  atomic replace.
 
 Return the output path, hearing count, date-only count, and any unresolved
 verification issue. Fail rather than publishing an output that loses or rewrites

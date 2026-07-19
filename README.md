@@ -68,7 +68,8 @@ recordprep/
 ## Using the app
 1. Click the folder button to choose an existing `case_bundle` folder or its parent directory.
 2. Click the list-add button to select one or more PDFs from the same folder.
-3. Run individual steps or click "Run all steps".
+3. Run individual steps or click "Run". Use the always-visible "Run through"
+   selector to limit both Run and Resume to a specific pipeline step.
 4. Use Settings to configure API endpoints and prompts, plus the PI executable
    and project-wide PI model under Agent → PI.
 5. Use the menu button to open "Test Classification" for a single-image prompt run with a live preview.
@@ -127,6 +128,8 @@ terminal history. They overwrite only derived transcript-numbering,
 organized-summary, and source-map outputs; original summaries and record pages
 remain unchanged. Stop terminates the active PI process tree. Resume skips each
 fresh, valid Agent Refinement output and always keeps source-map generation last.
+Stop and application close also terminate any RecordPrep-owned local OCR or
+classification `llama-server` process group.
 
 ## Development
 ```bash

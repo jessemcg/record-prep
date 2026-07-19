@@ -11,7 +11,6 @@ from recordprep.ui.main_window import (
     _first_incomplete_phase_id,
     _pipeline_split_validation_message,
     _phase_progress_text,
-    _run_action_label,
     _sanitize_terminal_log_text,
     _settings_destination_keys,
     _terminal_log_line,
@@ -73,12 +72,7 @@ class MainWindowUiStateTests(unittest.TestCase):
         self.assertEqual(_first_incomplete_phase_id(prepare_steps), "classify")
         self.assertIsNone(_first_incomplete_phase_id(all_steps))
 
-    def test_run_and_transcript_summary_labels(self) -> None:
-        self.assertEqual(_run_action_label(None), "Run all steps")
-        self.assertEqual(
-            _run_action_label("Create summaries"),
-            "Run through Create summaries",
-        )
+    def test_transcript_summary_labels(self) -> None:
         self.assertEqual(
             _transcript_summary("split", 125),
             "RT + CT • RT through page 125",

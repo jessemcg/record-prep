@@ -70,6 +70,27 @@ class PiResourceTests(unittest.TestCase):
             ],
         )
 
+    def test_organized_summary_skills_require_blank_date_boundaries(self) -> None:
+        hearing_skill = " ".join(
+            (
+                PI_DIR / "skills/recordprep-organize-hearing-summary/SKILL.md"
+            ).read_text(encoding="utf-8").split()
+        )
+        report_skill = " ".join(
+            (
+                PI_DIR / "skills/recordprep-organize-report-summary/SKILL.md"
+            ).read_text(encoding="utf-8").split()
+        )
+
+        self.assertIn(
+            "the physical line immediately before it must be empty",
+            hearing_skill,
+        )
+        self.assertIn(
+            "the physical line immediately before it must be empty",
+            report_skill,
+        )
+
     def test_runner_stages_one_skill_in_native_interactive_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,14 @@ PI_STEP_IDS = (
     "organize_report_summary",
     "build_source_map",
 )
+_LONG_US_DATE = (
+    r"(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December) \d{1,2}, \d{4}"
+)
+_HEARING_DATE_LINE_RE = re.compile(
+    rf"^{_LONG_US_DATE}\b.*(?:\[Hearing\]|\[Minute Order\])\("
+)
+_REPORT_DATE_TITLE_LINE_RE = re.compile(rf"^{_LONG_US_DATE}\s+-\s+\S")
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -144,6 +153,33 @@ def validate_organized_summary_output(root: Path, kind: str) -> list[str]:
             return [f"the organized {label} summary is stale."]
     except OSError:
         return [f"unable to compare {label} summary freshness."]
+    try:
+        lines = organized.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [f"the organized {label} summary is unreadable."]
+    boundary_pattern = (
+        _HEARING_DATE_LINE_RE
+        if kind == "hearings"
+        else _REPORT_DATE_TITLE_LINE_RE
+    )
+    missing_blank_lines = [
+        line_number
+        for line_number, line in enumerate(lines, start=1)
+        if boundary_pattern.match(line)
+        and line_number > 1
+        and lines[line_number - 2].strip()
+    ]
+    if missing_blank_lines:
+        boundary_label = (
+            "hearing date/link line"
+            if kind == "hearings"
+            else "retained report date/title line"
+        )
+        line_list = ", ".join(str(value) for value in missing_blank_lines)
+        return [
+            f"the organized {label} summary must have a blank line immediately "
+            f"before every {boundary_label}; missing before line(s): {line_list}."
+        ]
     return []
 
 

@@ -120,6 +120,64 @@ class PiBundleTests(unittest.TestCase):
             self.assertIn("source_map.json is stale.", issues)
             self.assertFalse(prepare_bundle_complete(root))
 
+    def test_organized_summaries_require_blank_lines_before_date_boundaries(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._build_valid_bundle(root)
+            hearing = root / "summaries/hearings_sum_case_organized.txt"
+            reports = root / "summaries/reports_sum_case_organized.txt"
+            hearing.write_text(
+                "Hearings Summary\n\n"
+                "January 5, 2026 [Hearing](page:0001)\n\n"
+                "First hearing summary.\n"
+                "February 6, 2026 [Hearing](page:0002)\n",
+                encoding="utf-8",
+            )
+            reports.write_text(
+                "Reports Summary\n\n"
+                "January 5, 2026 - Detention Report\n\n"
+                "First report summary.\n"
+                "February 6, 2026 - Jurisdiction Report\n",
+                encoding="utf-8",
+            )
+            fresh_time = max(
+                (root / "summaries/hearings_sum_case.txt").stat().st_mtime,
+                (root / "summaries/reports_sum_case.txt").stat().st_mtime,
+            ) + 2
+            os.utime(hearing, (fresh_time, fresh_time))
+            os.utime(reports, (fresh_time, fresh_time))
+
+            self.assertIn(
+                "missing before line(s): 6",
+                validate_organized_summary_output(root, "hearings")[0],
+            )
+            self.assertIn(
+                "missing before line(s): 6",
+                validate_organized_summary_output(root, "reports")[0],
+            )
+
+            hearing.write_text(
+                hearing.read_text(encoding="utf-8").replace(
+                    "First hearing summary.\nFebruary",
+                    "First hearing summary.\n\nFebruary",
+                ),
+                encoding="utf-8",
+            )
+            reports.write_text(
+                reports.read_text(encoding="utf-8").replace(
+                    "First report summary.\nFebruary",
+                    "First report summary.\n\nFebruary",
+                ),
+                encoding="utf-8",
+            )
+            os.utime(hearing, (fresh_time, fresh_time))
+            os.utime(reports, (fresh_time, fresh_time))
+
+            self.assertEqual(validate_organized_summary_output(root, "hearings"), [])
+            self.assertEqual(validate_organized_summary_output(root, "reports"), [])
+
     def test_report_name_ending_in_period_has_only_one_period_before_organized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

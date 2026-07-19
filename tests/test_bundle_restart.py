@@ -1,5 +1,7 @@
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -12,12 +14,29 @@ from recordprep.ui.main_window import (
     _bundle_inputs_changed,
     _generate_text_files_with_local_ocr,
     _reset_generated_case_bundle,
+    _start_server,
+    _stop_server,
     _update_rt_ct_split_manifest,
     _write_manifest,
 )
 
 
 class BundleRestartTests(unittest.TestCase):
+    def test_server_stop_terminates_the_launched_process_group(self) -> None:
+        process = _start_server("sleep 30 & wait")
+        try:
+            time.sleep(0.1)
+            self.assertIsNone(process.poll())
+
+            _stop_server(process)
+
+            self.assertIsNotNone(process.poll())
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(process.pid, 0)
+        finally:
+            if process.poll() is None:
+                _stop_server(process)
+
     def test_split_update_preserves_manifest_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base_dir = Path(temporary)
@@ -131,6 +150,47 @@ class BundleRestartTests(unittest.TestCase):
             self.assertEqual(
                 stop_server.call_args_list,
                 [mock.call(first_process), mock.call(second_process)],
+            )
+
+    def test_local_ocr_cleans_up_when_server_startup_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            text_dir = root / "text_pages"
+            image_dir = root / "image_pages"
+            text_dir.mkdir()
+            image_dir.mkdir()
+            pdf_path = root / "source.pdf"
+            pdf_path.write_bytes(b"pdf")
+            process = mock.Mock(name="server_process")
+            process_changed = mock.Mock()
+
+            with (
+                mock.patch(
+                    "recordprep.ui.main_window._start_server",
+                    return_value=process,
+                ),
+                mock.patch(
+                    "recordprep.ui.main_window._wait_for_endpoint_ready",
+                    side_effect=RuntimeError("startup failed"),
+                ),
+                mock.patch(
+                    "recordprep.ui.main_window._stop_server"
+                ) as stop_server,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "startup failed"):
+                    _generate_text_files_with_local_ocr(
+                        pdf_path,
+                        text_dir,
+                        image_dir,
+                        server_process_changed=process_changed,
+                        start_command="llama-server --model test.gguf",
+                        sleep_seconds=0,
+                    )
+
+            stop_server.assert_called_once_with(process)
+            self.assertEqual(
+                process_changed.call_args_list,
+                [mock.call(process), mock.call(None)],
             )
 
 

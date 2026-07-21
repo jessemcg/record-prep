@@ -23,8 +23,6 @@ When a verification helper is useful, invoke `python3` (not `python`).
 - Write to a sibling temporary file, verify it, then atomically replace the
   final output.
 
-Read and follow `references/subheading_style_rules.md`.
-
 ## Organization rules
 
 - Preserve every original factual sentence exactly, including punctuation,
@@ -36,15 +34,15 @@ Read and follow `references/subheading_style_rules.md`.
 - Add exactly one uncited `Quick point:` sentence immediately after each
   substantive hearing date line. Do not add one to date-only or
   minute-order-only entries.
-- Add only short bold Markdown subheadings besides Quick points. Add no facts,
-  legal argument, transitions, citations, or commentary.
+- Do not create new subheadings. Add no facts, legal argument, transitions,
+  citations, or commentary besides the required Quick points.
 - Separate structural lines and paragraphs with blank lines.
 - Treat every hearing date/link line as a hard entry boundary. Unless it is the
   first physical line in the file, the physical line immediately before it
   must be empty. This applies to the first hearing after the case header and to
   every secondary hearing date.
 - Never write a new hearing date/link line directly after the final sentence,
-  paragraph, Quick point, or subheading of the preceding hearing. Join
+  paragraph, or Quick point of the preceding hearing. Join
   consecutive hearing entries with at least two newline characters so one
   blank line remains between them.
 
@@ -59,7 +57,7 @@ confirm:
   unchanged;
 - nothing moved between hearings;
 - every substantive hearing has one Quick point and date-only entries have none;
-- subheadings follow the reference rules.
+- no new subheadings were created;
 - scan the temporary output line by line and confirm that the line immediately
   before every hearing date/link line is empty; fix every violation before the
   atomic replace.

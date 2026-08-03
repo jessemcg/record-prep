@@ -46,6 +46,16 @@ class PiRuntimeTests(unittest.TestCase):
             incompatible_pi_agent_flag(["pi", "--model", "other"]),
             "--model",
         )
+        for flag in (
+            "--extension",
+            "--skill",
+            "--prompt-template",
+            "--theme",
+            "--system-prompt",
+            "--append-system-prompt",
+            "--no-context-files",
+        ):
+            self.assertEqual(incompatible_pi_agent_flag(["pi", flag]), flag)
         self.assertIsNone(incompatible_pi_agent_flag(["pi", "--verbose"]))
 
     def test_available_models_are_deduplicated_and_sorted(self) -> None:

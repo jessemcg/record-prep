@@ -137,9 +137,14 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             text = invocation.read_text(encoding="utf-8")
             self.assertNotIn("--mode", text)
             self.assertNotIn("--no-session", text)
-            self.assertNotIn("--no-themes", text)
-            self.assertNotIn("--no-context-files", text)
-            self.assertIn("--no-extensions", text)
+            for flag in (
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-themes",
+                "--no-context-files",
+            ):
+                self.assertIn(flag, text)
             self.assertIn("--extension", text)
             self.assertIn("recordprep-auto-exit.ts", text)
             self.assertIn("recordprep-number-transcript-pages/SKILL.md", text)

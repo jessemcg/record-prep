@@ -103,6 +103,13 @@ def _pi_command() -> list[str]:
 
 def _resource_issues(project_dir: Path) -> list[str]:
     issues: list[str] = []
+    system_prompt_path = project_dir / "SYSTEM.md"
+    try:
+        system_prompt = system_prompt_path.read_text(encoding="utf-8")
+    except OSError:
+        system_prompt = ""
+    if not system_prompt.strip():
+        issues.append("SYSTEM.md is missing or empty.")
     if not (project_dir / "settings.json").is_file():
         issues.append("settings.json is missing.")
     for stage in STAGES.values():
@@ -259,6 +266,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         staged_skill.parent.mkdir(parents=True)
         staged_extension.parent.mkdir(parents=True)
         shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
+        shutil.copy2(project_dir / "SYSTEM.md", staged_pi / "SYSTEM.md")
         shutil.copytree(project_dir / "skills" / stage.skill_name, staged_skill)
         shutil.copy2(
             project_dir / "extensions" / AUTO_EXIT_EXTENSION_NAME,
@@ -280,6 +288,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             "--no-prompt-templates",
             "--no-themes",
             "--no-context-files",
+            "--system-prompt",
+            str(staged_pi / "SYSTEM.md"),
             "--extension",
             str(staged_extension),
             "--skill",

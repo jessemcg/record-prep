@@ -21,7 +21,7 @@ Module outline:
 - `recordprep/prompts.py`: default prompt import surface.
 - `recordprep/pi_runtime.py`: PI executable/model discovery and project model settings.
 - `recordprep/pi_bundle.py`: per-skill Agent Refinement artifact validation.
-- `.pi/`: tracked PI settings, four project-local skills, and the sequential skill runner.
+- `.pi/`: tracked replacement knowledge-work `SYSTEM.md`, PI settings, four project-local skills, and the sequential skill runner.
 
 UI expectations:
 - Follow patterns from `example_python_GTK4_app/focus.py` when implementing new UI features.
@@ -55,6 +55,7 @@ Pipeline steps (current):
 
 PI workflow rules:
 - Keep every RecordPrep-specific PI resource under tracked `.pi/`.
+- Stage `.pi/SYSTEM.md` into each private workspace and pass it explicitly as PI's replacement system prompt.
 - Invoke one project-local skill per UI row with `.pi/scripts/run_recordprep_skill.py`.
 - Run PI's native interactive terminal UI directly inside VTE, with terminal
   input, its model indicator, ANSI colors, and diff rendering intact.

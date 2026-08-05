@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -48,6 +49,9 @@ class PiResourceTests(unittest.TestCase):
         self.assertTrue(settings["defaultProvider"])
         self.assertTrue(settings["defaultModel"])
         self.assertTrue(settings["enableSkillCommands"])
+        system_prompt = (PI_DIR / "SYSTEM.md").read_text(encoding="utf-8")
+        self.assertIn("appellate-record organization", system_prompt)
+        self.assertIn("not a coding assistant", system_prompt)
         self.assertFalse((PI_DIR / "agents").exists())
         self.assertFalse((PI_DIR / "workflows").exists())
         extensions = sorted(
@@ -146,6 +150,8 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             ):
                 self.assertIn(flag, text)
             self.assertIn("--extension", text)
+            self.assertIn("--system-prompt", text)
+            self.assertIn(".pi/SYSTEM.md", text)
             self.assertIn("recordprep-auto-exit.ts", text)
             self.assertIn("recordprep-number-transcript-pages/SKILL.md", text)
             self.assertNotIn("recordprep-organize-hearing-summary", text)
@@ -158,6 +164,38 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 line for line in text.splitlines() if line.startswith("session=")
             )
             self.assertIn("/sessions", session_line)
+
+    def test_resource_validator_rejects_missing_or_empty_system_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp_pi = Path(temporary) / ".pi"
+            shutil.copytree(PI_DIR, temp_pi)
+            system_prompt = temp_pi / "SYSTEM.md"
+            system_prompt.unlink()
+            env = os.environ.copy()
+            env["RECORDPREP_PI_PROJECT_DIR"] = str(temp_pi)
+
+            missing = subprocess.run(
+                ["python3", str(RUNNER), "--validate-resources"],
+                cwd=PROJECT_DIR,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn("SYSTEM.md is missing or empty", missing.stdout)
+
+            system_prompt.write_text(" \n", encoding="utf-8")
+            empty = subprocess.run(
+                ["python3", str(RUNNER), "--validate-resources"],
+                cwd=PROJECT_DIR,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(empty.returncode, 1)
+            self.assertIn("SYSTEM.md is missing or empty", empty.stdout)
 
     def test_build_source_map_requires_the_first_three_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

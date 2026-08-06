@@ -7,7 +7,6 @@ import concurrent.futures
 import sys
 import datetime
 import os
-import importlib
 import json
 import random
 import re
@@ -52,7 +51,7 @@ from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
-from recordprep.pi_bundle import pi_step_complete
+from recordprep.pi_bundle import pi_step_complete, validate_participant_index_output
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
     PiModel,
@@ -110,30 +109,24 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("build_toc", "correct_toc", "find_boundaries", "correct_boundaries"),
     ),
     (
+        "record_context",
+        "Record Context",
+        ("number_transcript_pages", "build_participant_index"),
+    ),
+    (
         "summarize",
         "Summarize",
         (
-            "create_raw",
-            "create_preoptimized",
-            "create_optimized",
             "create_summaries",
             "add_hearing_date_links",
-        ),
-    ),
-    (
-        "index",
-        "Index",
-        ("case_overview", "create_rag_index"),
-    ),
-    (
-        "agent_refinement",
-        "Agent Refinement",
-        (
-            "number_transcript_pages",
             "organize_hearing_summary",
             "organize_report_summary",
-            "build_source_map",
         ),
+    ),
+    (
+        "agent_search",
+        "Agent Search",
+        ("build_source_map",),
     ),
 )
 PIPELINE_STEP_PHASE = {
@@ -165,12 +158,7 @@ SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = 
     (
         "summarize",
         "Summarize",
-        (("optimize", "Optimize"), ("summarize", "Summarize")),
-    ),
-    (
-        "index",
-        "Index",
-        (("overview", "Case Overview"), ("rag", "RAG")),
+        (("summarize", "Summarize"),),
     ),
     (
         "agent",
@@ -194,15 +182,6 @@ TEST_PROMPT_GROUPS: tuple[
             ("dates_minute", "Dates — Minute order"),
             ("names_report", "Names — Report"),
             ("names_form", "Names — Form"),
-        ),
-    ),
-    (
-        "optimize",
-        "Optimize",
-        (
-            ("optimize_attorneys", "Counsel roles"),
-            ("optimize_hearings", "Hearings"),
-            ("optimize_reports", "Reports"),
         ),
     ),
     (
@@ -465,23 +444,6 @@ CONFIG_KEY_CLASSIFY_FORMS_API_URL = "classify_form_names_api_url"
 CONFIG_KEY_CLASSIFY_FORMS_MODEL_ID = "classify_form_names_model_id"
 CONFIG_KEY_CLASSIFY_FORMS_API_KEY = "classify_form_names_api_key"
 CONFIG_KEY_CLASSIFY_FORMS_PROMPT = "classify_form_names_prompt"
-CONFIG_KEY_OPTIMIZE_HEARING_API_URL = "optimize_hearing_api_url"
-CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID = "optimize_hearing_model_id"
-CONFIG_KEY_OPTIMIZE_HEARING_API_KEY = "optimize_hearing_api_key"
-CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING = "optimize_hearing_disable_reasoning"
-CONFIG_KEY_OPTIMIZE_REPORT_API_URL = "optimize_report_api_url"
-CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID = "optimize_report_model_id"
-CONFIG_KEY_OPTIMIZE_REPORT_API_KEY = "optimize_report_api_key"
-CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING = "optimize_report_disable_reasoning"
-CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL = "optimize_attorney_api_url"
-CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID = "optimize_attorney_model_id"
-CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY = "optimize_attorney_api_key"
-CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING = "optimize_attorney_disable_reasoning"
-CONFIG_KEY_OPTIMIZE_CHUNK_SIZE = "optimize_chunk_size"
-CONFIG_KEY_OPTIMIZE_MAX_TOKENS = "optimize_max_tokens"
-CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT = "optimize_attorneys_prompt"
-CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT = "optimize_hearings_prompt"
-CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT = "optimize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_API_URL = "summarize_api_url"
 CONFIG_KEY_SUMMARIZE_MODEL_ID = "summarize_model_id"
 CONFIG_KEY_SUMMARIZE_API_KEY = "summarize_api_key"
@@ -489,17 +451,8 @@ CONFIG_KEY_SUMMARIZE_DISABLE_REASONING = "summarize_disable_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
-CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
-CONFIG_KEY_OVERVIEW_API_URL = "overview_api_url"
-CONFIG_KEY_OVERVIEW_MODEL_ID = "overview_model_id"
-CONFIG_KEY_OVERVIEW_API_KEY = "overview_api_key"
-CONFIG_KEY_OVERVIEW_DISABLE_REASONING = "overview_disable_reasoning"
-CONFIG_KEY_OVERVIEW_PROMPT = "overview_prompt"
-CONFIG_KEY_RAG_PROVIDER = "rag_provider"
-CONFIG_KEY_RAG_VOYAGE_API_KEY = "rag_voyage_api_key"
-CONFIG_KEY_RAG_VOYAGE_MODEL = "rag_voyage_model"
-CONFIG_KEY_RAG_ISAACUS_API_KEY = "rag_isaacus_api_key"
-CONFIG_KEY_RAG_ISAACUS_MODEL = "rag_isaacus_model"
+CONFIG_KEY_SUMMARIZE_WINDOW_PAGES = "summarize_window_pages"
+LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_SELECTED_PDFS = "selected_pdfs"
 CONFIG_KEY_RT_CT_SPLIT_PAGE = "rt_ct_split_page"
 CONFIG_KEY_RUN_UNTIL_STEP = "run_until_step"
@@ -507,9 +460,6 @@ TEXT_SOURCE_EMBEDDED = "embedded"
 TEXT_SOURCE_LOCAL_OCR = "local_ocr"
 DEFAULT_TEXT_SOURCE = TEXT_SOURCE_EMBEDDED
 DEFAULT_LOCAL_VISION_START_COMMAND = ""
-RAG_PROVIDER_VOYAGE = "voyage"
-RAG_PROVIDER_ISAACUS = "isaacus"
-DEFAULT_RAG_PROVIDER = RAG_PROVIDER_VOYAGE
 DEFAULT_CLASSIFIER_PROMPT = (
     "You are labeling a single page of a legal transcript. "
     "Return JSON with keys: \"page_type\". "
@@ -585,80 +535,19 @@ DEFAULT_CASE_NAME_PROMPT = (
     "Social_Services_v_Breanna_F. "
     "If unknown, use an empty string."
 )
-DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT = (
-    "You are building a case-level counsel role map for a juvenile court case. "
-    "Return only valid JSON. Do not include markdown fences or any explanatory text. "
-    "Return an object with keys: roles, unknown_speaker_labels, notes. "
-    "roles must be an array of objects with keys: role, attorney_names, speaker_aliases, confidence. "
-    "role must be one of: MOTHER'S COUNSEL, FATHER'S COUNSEL, ALLEGED FATHER'S COUNSEL, "
-    "PRESUMED FATHER'S COUNSEL, PARENT'S COUNSEL, MINOR'S COUNSEL, COUNTY COUNSEL, "
-    "TRIBE'S COUNSEL, OTHER COUNSEL. "
-    "Normalize department or agency counsel to COUNTY COUNSEL. "
-    "Normalize child or children's counsel to MINOR'S COUNSEL. "
-    "attorney_names must be an array of full attorney names when known. "
-    "speaker_aliases must be an array of exact speaker labels or close label variants from the record. "
-    "confidence must be one of: high, medium, low. "
-    "unknown_speaker_labels must be an array of speaker labels or names that appear but whose role is unclear. "
-    "notes must be a short string and may be empty. "
-    "If no role can be identified, return {\"roles\":[],\"unknown_speaker_labels\":[],\"notes\":\"\"}."
-)
-DEFAULT_OPTIMIZE_HEARINGS_PROMPT = (
-    "TASK\n"
-    "Reformat the hearing transcript into chunks for retrieval with speaker labels.\n\n"
-    "CORE RULES\n"
-    "1. Preserve every statement exactly as written.\n"
-    "2. However, add speaker labels before each statement.\n"
-    "3. For any attorney or counsel speaker, insert a counsel-role label instead of an attorney-name label whenever the role is clear from the reference counsel-role JSON.\n"
-    "4. Use role labels such as 'MOTHER'S COUNSEL:', 'FATHER'S COUNSEL:', 'MINOR'S COUNSEL:', or 'COUNTY COUNSEL:' rather than labels such as 'MS. SMITH:' or 'MR. JONES:' when the speaker is counsel.\n"
-    "5. If the transcript already uses an attorney-name label for counsel and the role is clear, replace that attorney-name label with the correct counsel-role label while preserving the spoken words exactly.\n"
-    "6. Preserve non-counsel speaker labels such as 'THE COURT:' exactly as written.\n"
-    "7. If a counsel speaker's role is unclear, preserve the original speaker label rather than guessing.\n"
-    "8. If a statement lacks a speaker label, add the shortest accurate label you can from the transcript and reference JSON.\n"
-    "9. Treat any counsel-role reference section as context only. Never quote it, summarize it, or use it to rewrite the transcript wording.\n"
-    "10. Keep the original order of events.\n"
-    "11. Do not summarize, omit, generalize, or add commentary.\n\n"
-    "CLEANUP RULES\n"
-    "• Remove repeated headers and footers.\n"
-    "• Normalize spacing and sentence case.\n"
-    "• Ignore all tables, including ASCII tables.\n\n"
-    "OUTPUT FORMAT\n"
-    "• Organize the statements with speaker labels into paragraphs of about five sentences each.\n"
-    "• Each paragraph must appear on exactly one physical line of output.\n"
-    "• Replace every line break inside a paragraph with a space.\n"
-    "• Use line breaks only to separate paragraphs.\n"
-    "• Separate paragraphs with one blank line."
-)
-DEFAULT_OPTIMIZE_REPORTS_PROMPT = (
-    "TASK\n"
-    "Reformat the report into chunks for retrieval.\n\n"
-    "CORE RULES\n"
-    "1. Preserve every statement exactly as written.\n"
-    "2. Keep the original order of events.\n"
-    "3. Do not summarize, omit, generalize, or add commentary.\n\n"
-    "CLEANUP RULES\n"
-    "• Remove repeated headers and footers.\n"
-    "• Normalize spacing and sentence case.\n"
-    "• Ignore all tables, including ASCII tables.\n\n"
-    "OUTPUT FORMAT\n"
-    "• Organize the statements into paragraphs of about five sentences each.\n"
-    "• Each paragraph must appear on exactly one physical line of output.\n"
-    "• Replace every line break inside a paragraph with a space.\n"
-    "• Use line breaks only to separate paragraphs.\n"
-    "• Separate paragraphs with one blank line."
-)
-DEFAULT_OPTIMIZE_CHUNK_SIZE = 10000
-DEFAULT_OPTIMIZE_MAX_TOKENS = 8192
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
-    "Summarize the following court hearing in one very concise paragraph using plain "
-    "and simple English. Include short direct quotes (3-6 words) from the hearing to "
+    "Summarize the primary court-hearing source pages in one concise paragraph using plain "
+    "English while preserving every material event, argument, evidentiary point, and ruling "
+    "at a consistent level of detail. Include short direct quotes (3-6 words) from the hearing to "
     "highlight legally significant statements. Each quote must be in quotation marks "
     "and must be verbatim. Do not use ellipses. Do not add commentary or markdown. "
     "Do not begin with prefatory language. Do not include the hearing date in the summary. "
     "Here is the hearing:"
 )
 DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
-    "Summarize the following reports in one very concise paragraph using plain "
-    "and simple English. Include short direct quotes (5-10 words) from the reports to "
+    "Summarize the primary report source pages in one concise paragraph using plain English "
+    "while preserving every material fact, recommendation, and procedural development at a "
+    "consistent level of detail. Include short direct quotes (5-10 words) from the reports to "
     "highlight legally significant statements. Each quote must be in quotation marks "
     "and must be verbatim. Do not use ellipses. Do not add commentary or markdown. "
     "Do not begin with prefatory language. Here are the reports:"
@@ -679,99 +568,25 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "worker reports into evidence and heard testimony from mother. The juvenile court "
     "terminated parental rights.\n\nOkay, here is the minute order:"
 )
-DEFAULT_SUMMARIZE_CHUNK_SIZE = 15
-DEFAULT_OVERVIEW_PROMPT = (
-    "I will provide you with hearing summaries, report summaries, and minute order "
-    "summaries from a legal case. Produce output using exactly these three markdown "
-    "headings and no others. Use normal markdown heading syntax with the `## ` prefix "
-    "(for example, `## Parties`).\n\n"
-    "## Parties\n"
-    "Write one concise paragraph identifying the parties and specifying which attorney "
-    "represented each party. Identify each attorney by name rather than only by law "
-    "firm.\n\n"
-    "## Factual History\n"
-    "Write a chronological list from earliest to latest of the most significant "
-    "factual events (what happened out of court). Each list item must start with a "
-    "date in long-form U.S. style (Month D, YYYY, for example January 5, 2024) and "
-    "then one concise sentence describing the event. Include no more than 20 events. "
-    "If there are more than 20 significant events, include only the most significant "
-    "20.\n\n"
-    "## Procedural History\n"
-    "Write a chronological list from earliest to latest of the most significant "
-    "procedural events (what happened in court). Each list item must start with a "
-    "date in long-form U.S. style (Month D, YYYY, for example January 5, 2024) and "
-    "then one concise sentence describing the event. Include no more than 20 events. "
-    "If there are more than 20 significant events, include only the most significant "
-    "20.\n\n"
-    "Do not add any other headings, preface text, or commentary. Okay, here are the "
-    "summaries:"
+DEFAULT_SUMMARIZE_WINDOW_PAGES = 15
+DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS = 60000
+HEARING_SUMMARY_ATTRIBUTION_CONTRACT = (
+    "\n\nMANDATORY ATTRIBUTION CONTRACT:\n"
+    "Summarize every material event in the PRIMARY pages at a consistent level of detail. "
+    "The preceding page, if supplied, is context only and must not be summarized again. "
+    "Treat AUTHORITATIVE HEARING CONTEXT as controlling for roles and testimony. "
+    "Identify an attorney by party role on every material attribution; a name may follow "
+    "parenthetically but never replaces the role. Use testified/testimony only for a "
+    "verified witness within a mapped examination. Q/A formatting alone is not testimony. "
+    "Describe unsworn colloquy as stated, answered, confirmed, or advised. Attribute "
+    "questions to the examiner and answers to the mapped witness. If attribution is unclear, "
+    "use neutral wording rather than guessing. Return one concise prose paragraph only."
 )
-PREVIOUS_DEFAULT_OVERVIEW_PROMPT = (
-    "I will provide you with hearing summaries, report summaries, and minute order "
-    "summaries from a legal case. Produce output using exactly these two markdown "
-    "headings and no others.\n\n"
-    "## Parties\n"
-    "Write one concise paragraph identifying the parties and specifying which attorney "
-    "represented each party. Identify each attorney by name rather than only by law "
-    "firm.\n\n"
-    "## Case Chronology\n"
-    "Write a chronological list from earliest to latest. Each list item must start "
-    "with a date and then one concise sentence describing a significant event. Events "
-    "may be factual or procedural. Include no more than 20 events total. If there are "
-    "more than 20 significant events, include only the most significant 20.\n\n"
-    "Do not add any other headings, preface text, or commentary. Okay, here are the "
-    "summaries:"
+DOCUMENT_SUMMARY_WINDOW_CONTRACT = (
+    "\n\nSummarize every material detail in the PRIMARY pages. A preceding context-only "
+    "page must not be summarized again. Return one concise prose paragraph only."
 )
-LEGACY_DEFAULT_OVERVIEW_PROMPT = (
-    "I will provide you with summaries from a legal case. Please provide concise "
-    "details about the case in the form of three paragraphs. In the first paragraph, "
-    "identify the parties and specify which attorney represented them. Identify each "
-    "attorney by name rather than just their law firm. In the second paragraph, "
-    "provide a procedural history of the case. In the third paragraph, provide a "
-    "factual history of the case. Do not add any other commentary. Okay, here are the "
-    "summaries:"
-)
-DEFAULT_RAG_VOYAGE_MODEL = "voyage-law-2"
-DEFAULT_RAG_ISAACUS_MODEL = "kanon-2-embedder"
-COUNSEL_ROLE_ORDER = (
-    "MOTHER'S COUNSEL",
-    "FATHER'S COUNSEL",
-    "ALLEGED FATHER'S COUNSEL",
-    "PRESUMED FATHER'S COUNSEL",
-    "PARENT'S COUNSEL",
-    "MINOR'S COUNSEL",
-    "COUNTY COUNSEL",
-    "TRIBE'S COUNSEL",
-    "OTHER COUNSEL",
-)
-COUNSEL_ROLE_ALIASES = {
-    "mothers counsel": "MOTHER'S COUNSEL",
-    "mother counsel": "MOTHER'S COUNSEL",
-    "mothers attorney": "MOTHER'S COUNSEL",
-    "father counsel": "FATHER'S COUNSEL",
-    "fathers counsel": "FATHER'S COUNSEL",
-    "father attorney": "FATHER'S COUNSEL",
-    "alleged father counsel": "ALLEGED FATHER'S COUNSEL",
-    "alleged fathers counsel": "ALLEGED FATHER'S COUNSEL",
-    "presumed father counsel": "PRESUMED FATHER'S COUNSEL",
-    "presumed fathers counsel": "PRESUMED FATHER'S COUNSEL",
-    "parents counsel": "PARENT'S COUNSEL",
-    "parent counsel": "PARENT'S COUNSEL",
-    "minor counsel": "MINOR'S COUNSEL",
-    "minors counsel": "MINOR'S COUNSEL",
-    "child counsel": "MINOR'S COUNSEL",
-    "childrens counsel": "MINOR'S COUNSEL",
-    "children counsel": "MINOR'S COUNSEL",
-    "county counsel": "COUNTY COUNSEL",
-    "department counsel": "COUNTY COUNSEL",
-    "agency counsel": "COUNTY COUNSEL",
-    "tribe counsel": "TRIBE'S COUNSEL",
-    "tribes counsel": "TRIBE'S COUNSEL",
-    "other counsel": "OTHER COUNSEL",
-}
-COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE = 10000
 DEFAULT_DISABLE_REASONING = False
-ISAACUS_MAX_EMBED_BATCH = 128
 
 
 def _model_looks_kimi(model_id: str) -> bool:
@@ -817,48 +632,6 @@ def _extract_embedding_vectors(response: Any) -> list[list[float]]:
     return vectors
 
 
-class IsaacusEmbeddings:
-    def __init__(self, client: Any, model: str) -> None:
-        self._client = client
-        self._model = model
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        cleaned_texts: list[str] = []
-        for text in texts:
-            if text is None:
-                cleaned_texts.append("")
-            elif isinstance(text, str):
-                cleaned_texts.append(text)
-            else:
-                cleaned_texts.append(str(text))
-        vectors: list[list[float]] = []
-        for start in range(0, len(cleaned_texts), ISAACUS_MAX_EMBED_BATCH):
-            batch = cleaned_texts[start : start + ISAACUS_MAX_EMBED_BATCH]
-            response = self._client.embeddings.create(
-                model=self._model,
-                texts=batch,
-                task="retrieval/document",
-            )
-            batch_vectors = _extract_embedding_vectors(response)
-            if len(batch_vectors) != len(batch):
-                raise ValueError(
-                    "Isaacus returned a mismatched number of embedding vectors."
-                )
-            vectors.extend(batch_vectors)
-        return vectors
-
-    def embed_query(self, text: str) -> list[float]:
-        response = self._client.embeddings.create(
-            model=self._model,
-            texts=[text if isinstance(text, str) else str(text)],
-            task="retrieval/query",
-        )
-        vectors = _extract_embedding_vectors(response)
-        if not vectors:
-            raise ValueError("Isaacus returned no embedding vectors.")
-        return vectors[0]
 
 
 def _unique_in_order(items: list[str]) -> list[str]:
@@ -1380,341 +1153,233 @@ def _strip_nonstandard_characters(text: str) -> str:
     return "".join(cleaned_chars)
 
 
-@dataclass
-class RetrievalSection:
-    section_type: str
-    content: str
-    metadata: dict[str, Any]
 
 
-@dataclass
-class ChunkedSectionFiles:
-    section_type: str
-    label: str
-    directory: Path
-    chunk_paths: list[Path]
-    metadata: dict[str, Any]
 
 
-def _canonical_retrieval_metadata_key(label: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
-    aliases = {
-        "type": "type",
-        "hearing_date": "hearing_date",
-        "report_name": "report_name",
-        "report_date": "report_date",
-        "report_label": "report_label",
-        "report_id": "report_id",
-    }
-    return aliases.get(normalized, normalized)
 
 
-def _parse_retrieval_chunk(paragraph: str) -> tuple[dict[str, Any], str]:
-    stripped = paragraph.strip()
-    if not stripped:
-        return {}, ""
-
-    legacy_body, legacy_date = _strip_hearing_date_prefix(stripped)
-    if legacy_date:
-        return {
-            "type": "hearing",
-            "hearing_date": _format_long_us_date(legacy_date) or _normalize_hearing_date(legacy_date),
-        }, legacy_body
-    if re.match(r"^Reporting:\s*", stripped, re.IGNORECASE):
-        return {"type": "report"}, re.sub(r"^Reporting:\s*", "", stripped, flags=re.IGNORECASE)
-
-    metadata: dict[str, Any] = {}
-    content_lines: list[str] = []
-    content_started = False
-    for line in stripped.splitlines():
-        raw_line = line.strip()
-        if not raw_line:
-            continue
-        if content_started:
-            content_lines.append(raw_line)
-            continue
-        if raw_line.lower().startswith("content:"):
-            content_started = True
-            remainder = raw_line.split(":", 1)[1].strip()
-            if remainder:
-                content_lines.append(remainder)
-            continue
-        if ":" in raw_line:
-            label, value = raw_line.split(":", 1)
-            metadata[_canonical_retrieval_metadata_key(label)] = value.strip()
-            continue
-        content_lines.append(raw_line)
-        content_started = True
-
-    section_type = str(metadata.get("type", "")).strip().lower()
-    if section_type:
-        metadata["type"] = section_type
-    hearing_date = str(metadata.get("hearing_date", "")).strip()
-    if hearing_date:
-        metadata["hearing_date"] = _format_long_us_date(hearing_date) or _normalize_hearing_date(
-            hearing_date
-        )
-    report_date = str(metadata.get("report_date", "")).strip()
-    if report_date:
-        metadata["report_date"] = _format_long_us_date(report_date) or _normalize_hearing_date(
-            report_date
-        )
-    return metadata, "\n".join(content_lines).strip()
 
 
-def _clean_retrieval_chunk_content(metadata: dict[str, Any], content: str) -> str:
-    cleaned = content.strip()
-    chunk_type = str(metadata.get("type", "")).strip().lower()
-    if chunk_type == "hearing":
-        cleaned = re.sub(
-            r"^\s*Hearing date:\s*[^.\n]{1,100}\.?\s*",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        ).strip()
-    elif chunk_type == "report":
-        cleaned = re.sub(r"^\s*Reporting:\s*", "", cleaned, flags=re.IGNORECASE).strip()
-    return cleaned
 
 
-def _render_retrieval_chunk(metadata: dict[str, Any], content: str) -> str:
-    return _clean_retrieval_chunk_content(metadata, content)
 
 
-def _read_boundary_entry_text(entry: dict[str, Any], text_dir: Path) -> str:
-    start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-    end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
-    start_page = _page_number_from_label(start_label)
-    end_page = _page_number_from_label(end_label)
-    if start_page is None or end_page is None:
-        raise ValueError("Boundary entry missing start/end page.")
-    if end_page < start_page:
-        raise ValueError("Boundary entry has end page before start page.")
-
-    page_texts: list[str] = []
-    for page in range(start_page, end_page + 1):
-        page_path = text_dir / f"{page:04d}.txt"
-        if not page_path.exists():
-            raise FileNotFoundError(f"Missing text file {page_path.name}.")
-        page_texts.append(page_path.read_text(encoding="utf-8", errors="ignore").rstrip("\n"))
-    return "\n".join(page_texts).strip()
 
 
-def _build_hearing_sections(
-    hearing_entries: list[dict[str, Any]],
-    text_dir: Path,
-    minute_entries: list[dict[str, Any]] | None = None,
-) -> list[RetrievalSection]:
-    minute_page_by_date: dict[str, str] = {}
-    if minute_entries:
-        for entry in minute_entries:
-            date_value = _extract_entry_value(entry, "date").strip()
-            if not date_value:
-                continue
-            date_key = _hearing_date_key(date_value)
-            page_str = _extract_start_page_for_date_links(entry)
-            if date_key and page_str:
-                minute_page_by_date.setdefault(date_key, page_str)
-
-    sections: list[RetrievalSection] = []
-    for entry in hearing_entries:
-        date_value = _extract_entry_value(entry, "date").strip()
-        content = _read_boundary_entry_text(entry, text_dir)
-        if not content:
-            continue
-        normalized_date = _format_long_us_date(date_value) or _normalize_hearing_date(date_value)
-        metadata: dict[str, Any] = {
-            "type": "hearing",
-            "source": "hearing_transcript",
-            "hearing_date": normalized_date,
-        }
-        date_key = _hearing_date_key(date_value)
-        linked_minute_page = minute_page_by_date.get(date_key, "")
-        metadata["has_matching_minute_order"] = bool(linked_minute_page)
-        sections.append(RetrievalSection(section_type="hearing", content=content, metadata=metadata))
-    return sections
 
 
-def _build_report_sections(
-    report_entries: list[dict[str, Any]],
-    text_dir: Path,
-) -> list[RetrievalSection]:
-    sections: list[RetrievalSection] = []
-    for entry in report_entries:
-        report_name = _extract_entry_value(entry, "report_name", "report", "name").strip()
-        report_date = _extract_entry_value(entry, "report_date", "date").strip()
-        normalized_report_date = (
-            _format_long_us_date(report_date) or _normalize_hearing_date(report_date)
-        )
-        start_page = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-        end_page = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
-        report_label = _format_report_label(report_name, normalized_report_date)
-        report_id = _extract_entry_value(entry, "report_id", "id").strip()
-        if not report_id:
-            report_id = _report_id_from_start_page(start_page)
-        content = _read_boundary_entry_text(entry, text_dir)
-        if not content:
-            continue
-        metadata: dict[str, Any] = {
-            "type": "report",
-            "source": "report",
-            "report_name": report_name or "Unknown",
-            "report_date": normalized_report_date,
-            "report_label": report_label,
-            "report_id": report_id,
-            "start_page": start_page,
-            "end_page": end_page,
-        }
-        sections.append(RetrievalSection(section_type="report", content=content, metadata=metadata))
-    return sections
 
 
-def _split_tagged_sections(text: str) -> list[tuple[str, str]]:
-    sections: list[tuple[str, str]] = []
-    current_label: str | None = None
-    current_lines: list[str] = []
-    for line in text.splitlines():
-        match = re.match(r"\s*<<<\s*(.*?)\s*>>>\s*$", line)
-        if match:
-            if current_label is not None:
-                sections.append((current_label, "\n".join(current_lines).strip()))
-            current_label = match.group(1).strip() or "Unknown"
-            current_lines = []
-        else:
-            current_lines.append(line)
-    if current_label is not None:
-        sections.append((current_label, "\n".join(current_lines).strip()))
-    return sections
 
 
-def _split_into_sentences(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized:
-        return []
-    parts = re.split(r"(?<=[.!?])\s+", normalized)
-    return [part.strip() for part in parts if part.strip()]
 
 
-def _chunk_sentences(sentences: list[str], max_chars: int) -> list[str]:
-    chunks: list[str] = []
-    current = ""
-    for sentence in sentences:
-        candidate = f"{current} {sentence}".strip() if current else sentence
-        if current and len(candidate) > max_chars:
-            chunks.append(current)
-            current = sentence
-        else:
-            current = candidate
-    if current:
-        chunks.append(current)
-    return chunks
 
 
-def _chunk_lines_preserving_structure(lines: list[str], max_chars: int) -> list[str]:
-    chunks: list[str] = []
-    current_lines: list[str] = []
-    current_length = 0
-    for line in lines:
-        line_length = len(line)
-        separator_length = 1 if current_lines else 0
-        candidate_length = current_length + separator_length + line_length
-        if current_lines and candidate_length > max_chars:
-            chunks.append("\n".join(current_lines).strip())
-            current_lines = [line]
-            current_length = line_length
-        else:
-            current_lines.append(line)
-            current_length = candidate_length
-    if current_lines:
-        chunks.append("\n".join(current_lines).strip())
-    return [chunk for chunk in chunks if chunk]
 
 
-def _chunk_text_preserving_structure(text: str, max_chars: int) -> list[str]:
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not normalized:
-        return []
-
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", normalized) if block.strip()]
-    chunks: list[str] = []
-    current_blocks: list[str] = []
-    current_length = 0
-
-    def _flush_current() -> None:
-        nonlocal current_blocks, current_length
-        if current_blocks:
-            chunks.append("\n\n".join(current_blocks).strip())
-            current_blocks = []
-            current_length = 0
-
-    def _append_block(block: str) -> None:
-        nonlocal current_length
-        separator_length = 2 if current_blocks else 0
-        current_blocks.append(block)
-        current_length += separator_length + len(block)
-
-    for block in blocks:
-        block_length = len(block)
-        candidate_length = current_length + (2 if current_blocks else 0) + block_length
-        if block_length <= max_chars:
-            if current_blocks and candidate_length > max_chars:
-                _flush_current()
-            _append_block(block)
-            continue
-
-        _flush_current()
-        lines = [line.rstrip() for line in block.split("\n")]
-        line_chunks = _chunk_lines_preserving_structure(lines, max_chars)
-        for line_chunk in line_chunks:
-            if len(line_chunk) <= max_chars:
-                chunks.append(line_chunk)
-                continue
-            sentences = _split_into_sentences(line_chunk)
-            if sentences:
-                chunks.extend(_chunk_sentences(sentences, max_chars))
-            else:
-                chunks.append(line_chunk[:max_chars].strip())
-
-    _flush_current()
-    return [chunk for chunk in chunks if chunk.strip()]
 
 
 def _collapse_blank_lines(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
 
 
-def _split_paragraphs(text: str) -> list[str]:
-    chunks = re.split(r"\n\s*\n", text.strip())
-    return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
-def _flatten_paragraph_lines(text: str) -> str:
-    paragraphs = _split_paragraphs(text)
-    flattened: list[str] = []
-    for paragraph in paragraphs:
-        # Preserve paragraph breaks, but collapse all internal line breaks and spacing.
-        single_line = re.sub(r"\s*\n\s*", " ", paragraph)
-        single_line = re.sub(r"[ \t]{2,}", " ", single_line).strip()
-        if single_line:
-            flattened.append(single_line)
-    return "\n\n".join(flattened)
 
 
-def _chunk_paragraphs(paragraphs: list[str], max_count: int) -> list[str]:
-    grouped: list[str] = []
-    for index in range(0, len(paragraphs), max_count):
-        grouped.append("\n\n".join(paragraphs[index : index + max_count]))
-    return grouped
 
 
-def _expand_section_chunk_paragraphs(chunks: list[Any]) -> list[str]:
-    paragraphs: list[str] = []
-    for chunk in chunks:
-        raw_chunk = str(chunk or "").strip()
-        if not raw_chunk:
+def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
+    """Remove only obsolete, reproducible artifacts in the selected bundle."""
+    candidates = (
+        root / "artifacts" / "raw",
+        root / "artifacts" / "preoptimized",
+        root / "artifacts" / "optimized",
+        root / "artifacts" / "chunks",
+        root / "artifacts" / "chunk_metadata",
+        root / "artifacts" / "raw_hearings.txt",
+        root / "artifacts" / "raw_reports.txt",
+        root / "artifacts" / "optimized_hearings.txt",
+        root / "artifacts" / "optimized_reports.txt",
+        root / "rag",
+    )
+    removed: list[str] = []
+    for path in candidates:
+        if not path.exists():
             continue
-        paragraphs.extend(_split_paragraphs(raw_chunk))
-    return [paragraph.strip() for paragraph in paragraphs if paragraph.strip()]
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(path.relative_to(root).as_posix())
+    return removed
+
+
+def _summary_page_windows(
+    text_dir: Path,
+    start_page: int,
+    end_page: int,
+    *,
+    target_pages: int = DEFAULT_SUMMARIZE_WINDOW_PAGES,
+    max_chars: int = DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+    preferred_breaks: set[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Create nonpersisted, exactly-once primary-page windows."""
+    if start_page <= 0 or end_page < start_page:
+        raise ValueError("Invalid summary source page range.")
+    page_text: dict[int, str] = {}
+    for number in range(start_page, end_page + 1):
+        path = text_dir / f"{number:04d}.txt"
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing text file {path.name}.")
+        page_text[number] = path.read_text(encoding="utf-8", errors="ignore")
+    breaks = {value for value in (preferred_breaks or set()) if start_page < value <= end_page}
+    windows: list[dict[str, Any]] = []
+    current = start_page
+    while current <= end_page:
+        ideal_end = min(end_page, current + max(1, target_pages) - 1)
+        nearby = [value - 1 for value in breaks if current < value <= ideal_end + 2]
+        primary_end = max((value for value in nearby if value >= current), default=ideal_end)
+        primary_end = min(primary_end, end_page)
+        chars = 0
+        capped_end = current - 1
+        for number in range(current, primary_end + 1):
+            candidate = len(page_text[number])
+            if capped_end >= current and chars + candidate > max_chars:
+                break
+            chars += candidate
+            capped_end = number
+        if capped_end < current:
+            capped_end = current
+        primary_end = capped_end
+        windows.append(
+            {
+                "primary_start": current,
+                "primary_end": primary_end,
+                "primary_pages": list(range(current, primary_end + 1)),
+                "context_page": current - 1 if current > start_page else None,
+                "page_text": page_text,
+            }
+        )
+        current = primary_end + 1
+    return windows
+
+
+def _participant_role_label(role_id: str) -> str:
+    labels = {
+        "mothers_counsel": "Mother’s counsel",
+        "fathers_counsel": "Father’s counsel",
+        "alleged_fathers_counsel": "Alleged father’s counsel",
+        "presumed_fathers_counsel": "Presumed father’s counsel",
+        "parents_counsel": "Parent’s counsel",
+        "minors_counsel": "Minor’s counsel",
+        "county_counsel": "County counsel",
+        "tribes_counsel": "Tribe’s counsel",
+        "guardian_ad_litem": "Guardian ad litem",
+        "other_counsel": "Other counsel",
+        "unresolved_counsel": "Unresolved counsel",
+    }
+    return labels.get(role_id, role_id.replace("_", " ").title())
+
+
+def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
+    counsel_parts: list[str] = []
+    for counsel in hearing.get("counsel", []):
+        if not isinstance(counsel, dict):
+            continue
+        role_id = str(counsel.get("role_id") or "")
+        role = _participant_role_label(role_id) if role_id else str(counsel.get("role_label") or "").strip()
+        name = str(counsel.get("name") or "").strip() or "not identified"
+        counsel_parts.append(f"{role} — {name}")
+    counsel_line = "Counsel: " + ("; ".join(counsel_parts) if counsel_parts else "Not reliably identified.") + "."
+    status = str(hearing.get("witness_status") or "unknown")
+    witnesses = [item for item in hearing.get("witnesses", []) if isinstance(item, dict)]
+    if status == "none":
+        testimony_line = "Testimony: None."
+    elif status == "unknown":
+        testimony_line = "Testimony: Not reliably identified from the available witness index or sworn-examination evidence."
+    elif status == "conflict":
+        names = ", ".join(str(item.get("name") or "unnamed witness") for item in witnesses)
+        testimony_line = f"Testimony: Conflicting attribution evidence; supported witness entries: {names or 'none'}; review warnings."
+    else:
+        parts: list[str] = []
+        for witness in witnesses:
+            name = str(witness.get("name") or "unnamed witness")
+            description = str(witness.get("description") or "").strip()
+            exams: list[str] = []
+            start_labels: list[str] = []
+            end_labels: list[str] = []
+            for exam in witness.get("examinations", []):
+                if not isinstance(exam, dict):
+                    continue
+                exam_type = str(exam.get("type") or "examination").replace("_", " ")
+                examiner_role = _participant_role_label(str(exam.get("examiner_role_id") or ""))
+                exams.append(f"{exam_type} by {examiner_role}" if examiner_role else exam_type)
+                if exam.get("start_citation_label"):
+                    start_labels.append(str(exam["start_citation_label"]))
+                if exam.get("end_citation_label"):
+                    end_labels.append(str(exam["end_citation_label"]))
+            citation = ""
+            if start_labels:
+                citation_end = end_labels[-1] if end_labels else start_labels[-1]
+                citation = start_labels[0] if citation_end == start_labels[0] else f"{start_labels[0]}–{citation_end}"
+            detail = f" ({description})" if description else ""
+            suffix = "; ".join(exams)
+            if citation:
+                suffix = f"{suffix}; {citation}" if suffix else citation
+            parts.append(f"{name}{detail}" + (f" ({suffix})" if suffix else ""))
+        testimony_line = "Testimony: " + ("; ".join(parts) if parts else "Verified witness evidence was recorded without a resolved name") + "."
+    return counsel_line, testimony_line
+
+
+def _render_summary_window_payload(
+    window: dict[str, Any],
+    citation_by_page: dict[int, str],
+    *,
+    participant_context: str = "",
+) -> str:
+    page_text = window["page_text"]
+    sections: list[str] = []
+    if participant_context:
+        sections.extend(["AUTHORITATIVE HEARING CONTEXT", participant_context, ""])
+    context_page = window.get("context_page")
+    if isinstance(context_page, int):
+        citation = citation_by_page.get(context_page, "")
+        sections.extend([
+            f"CONTEXT ONLY — DO NOT SUMMARIZE [{citation or f'file page {context_page}'}]",
+            page_text[context_page].strip(),
+            "",
+        ])
+    sections.append("PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS")
+    for number in window["primary_pages"]:
+        citation = citation_by_page.get(number, "")
+        sections.append(f"[{citation or f'file page {number}'} | source text_pages/{number:04d}.txt]")
+        sections.append(page_text[number].strip())
+    return "\n".join(sections).strip()
+
+
+def _hearing_summary_validation_issue(text: str, hearing: dict[str, Any]) -> str | None:
+    status = str(hearing.get("witness_status") or "unknown")
+    if status in {"none", "unknown"} and re.search(r"\btestif(?:y|ied|ies|ying)\b|\btestimony\b", text, re.I):
+        return f"model used testimony language while witness status is {status}"
+    for counsel in hearing.get("counsel", []):
+        if not isinstance(counsel, dict):
+            continue
+        name = str(counsel.get("name") or "").strip()
+        identifiers = [name, *[str(value).strip() for value in (counsel.get("aliases") or [])]]
+        identifiers = [value for value in identifiers if value]
+        role_id = str(counsel.get("role_id") or "")
+        role = _participant_role_label(role_id) if role_id else str(counsel.get("role_label") or "").strip()
+        for identifier in identifiers:
+            if re.search(rf"\b{re.escape(identifier)}\b.{{0,80}}\btestif", text, re.I | re.S):
+                return f"model described counsel {identifier} as testifying"
+            if identifier.casefold() in text.casefold() and role and role.casefold() not in text.casefold():
+                return f"model named counsel {identifier} without the party role {role}"
+    return None
+
+
 
 
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
@@ -2034,32 +1699,8 @@ def _infer_case_name_from_text(text: str) -> str:
     return ""
 
 
-def _compile_raw_sections_text(sections: list[RetrievalSection]) -> str:
-    rendered_sections: list[str] = []
-    for section in sections:
-        content = str(section.content or "").strip()
-        if not content:
-            continue
-        if section.section_type == "hearing":
-            label = str(section.metadata.get("hearing_date", "")).strip() or "Unknown"
-        elif section.section_type == "report":
-            label = (
-                str(section.metadata.get("report_label", "")).strip()
-                or str(section.metadata.get("report_name", "")).strip()
-                or "Unknown"
-            )
-        else:
-            label = str(section.metadata.get("type", "")).strip() or "Unknown"
-        rendered_sections.append(f"<<<{label}>>>")
-        rendered_sections.append(content.rstrip("\n"))
-        rendered_sections.append("")
-    return "\n".join(rendered_sections).rstrip() + "\n"
 
 
-def _artifact_label_component(value: str, fallback: str) -> str:
-    normalized = re.sub(r"[^A-Za-z0-9]+", "_", value.strip()).strip("_")
-    normalized = re.sub(r"_+", "_", normalized)
-    return normalized or fallback
 
 
 def _strip_ascii_and_html_tables(text: str) -> str:
@@ -2102,688 +1743,54 @@ def _strip_ascii_and_html_tables(text: str) -> str:
     return "\n".join(cleaned_lines)
 
 
-def _chunk_text_for_artifacts(text: str, max_chars: int) -> list[str]:
-    if max_chars <= 0:
-        return []
-    if not text:
-        return []
-
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not normalized:
-        return []
-    chunks: list[str] = []
-    start = 0
-    boundary_pattern = re.compile(r"\.[ \t]*\n(?:\s*\n)?")
-
-    while start < len(normalized):
-        target = start + max_chars
-        if target >= len(normalized):
-            final_chunk = normalized[start:].strip()
-            if final_chunk:
-                chunks.append(final_chunk)
-            break
-
-        match = boundary_pattern.search(normalized, pos=target)
-        if match:
-            end = match.end()
-        else:
-            newline_index = normalized.find("\n", target)
-            end = newline_index + 1 if newline_index != -1 else len(normalized)
-
-        if end <= start:
-            end = min(start + max_chars, len(normalized))
-
-        chunk = normalized[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        start = end
-        while start < len(normalized) and normalized[start].isspace():
-            start += 1
-
-    return chunks
-
-
-def _prepare_directory(path: Path) -> None:
-    if path.exists():
-        shutil.rmtree(path)
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def _normalize_confidence(value: Any) -> str:
-    confidence = str(value or "").strip().lower()
-    return confidence if confidence in {"high", "medium", "low"} else "low"
-
-
-def _coerce_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
-
-
-def _counsel_role_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
-
-
-def _normalize_counsel_role(value: str) -> str:
-    stripped = str(value or "").strip()
-    if not stripped:
-        return ""
-    for canonical in COUNSEL_ROLE_ORDER:
-        if stripped.upper() == canonical:
-            return canonical
-    return COUNSEL_ROLE_ALIASES.get(_counsel_role_key(stripped), "")
-
-
-def _speaker_label_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
-
-
-def _extract_attorney_like_speaker_labels(text: str) -> list[str]:
-    cleaned = _strip_ascii_and_html_tables(text)
-    labels: list[str] = []
-    seen: set[str] = set()
-    for line in cleaned.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        match = re.match(r"^([A-Za-z][A-Za-z0-9 .,'()/&-]{1,80}):(?:\s|$)", stripped)
-        if not match:
-            continue
-        label = re.sub(r"\s+", " ", match.group(1)).strip()
-        upper_label = label.upper()
-        if not (
-            re.search(r"\b(MR|MS|MRS|MISS|COUNSEL|ATTORNEY|ESQ)\b", upper_label)
-            or _normalize_counsel_role(label)
-        ):
-            continue
-        if upper_label in seen:
-            continue
-        seen.add(upper_label)
-        labels.append(label)
-    return labels
-
-
-def _build_transcript_counsel_role_evidence(transcript: str) -> str:
-    cleaned = _strip_ascii_and_html_tables(transcript).strip()
-    if not cleaned:
-        return ""
-    lines = ["HEARING TRANSCRIPT", cleaned]
-    speaker_labels = _extract_attorney_like_speaker_labels(cleaned)
-    if speaker_labels:
-        lines.extend(["", "ATTORNEY-LIKE SPEAKER LABELS", *speaker_labels])
-    return "\n".join(lines).strip()
-
-
-def _read_boundary_entry_excerpt_text(
-    entry: dict[str, Any],
-    text_dir: Path,
-    max_pages: int,
-) -> str:
-    start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-    end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
-    start_page = _page_number_from_label(start_label)
-    end_page = _page_number_from_label(end_label)
-    if start_page is None or end_page is None:
-        raise ValueError("Boundary entry missing start/end page.")
-    if end_page < start_page:
-        raise ValueError("Boundary entry has end page before start page.")
-    excerpt_end_page = min(end_page, start_page + max(0, max_pages - 1))
-    page_texts: list[str] = []
-    for page in range(start_page, excerpt_end_page + 1):
-        page_path = text_dir / f"{page:04d}.txt"
-        if not page_path.exists():
-            raise FileNotFoundError(f"Missing text file {page_path.name}.")
-        page_texts.append(page_path.read_text(encoding="utf-8", errors="ignore").rstrip("\n"))
-    return "\n".join(page_texts).strip()
-
-
-def _build_case_counsel_role_evidence(
-    hearing_entries: list[dict[str, Any]],
-    text_dir: Path,
-) -> str:
-    if not hearing_entries:
-        return ""
-    lines: list[str] = ["CASE COUNSEL ROLE EVIDENCE", "", "FIRST TWO PAGES OF EACH HEARING"]
-    all_speaker_labels: list[str] = []
-    seen_speaker_labels: set[str] = set()
-    included_excerpt = False
-    for index, entry in enumerate(hearing_entries, start=1):
-        date_value = _extract_entry_value(entry, "date").strip() or f"Hearing {index}"
-        excerpt = _read_boundary_entry_excerpt_text(entry, text_dir, 2)
-        if excerpt:
-            lines.extend(["", f"HEARING: {date_value}", excerpt])
-            included_excerpt = True
-        for label in _extract_attorney_like_speaker_labels(excerpt):
-            label_key = label.upper()
-            if label_key in seen_speaker_labels:
-                continue
-            seen_speaker_labels.add(label_key)
-            all_speaker_labels.append(label)
-
-    if all_speaker_labels:
-        lines.extend(["", "UNIQUE ATTORNEY-LIKE SPEAKER LABELS", *all_speaker_labels])
-
-    return "\n".join(lines).strip() if included_excerpt or all_speaker_labels else ""
-
-
-def _build_optimize_hearing_payload(counsel_roles: str, transcript: str) -> str:
-    cleaned_counsel_roles = counsel_roles.strip() or '{"roles":[],"unknown_speaker_labels":[],"notes":"Unknown."}'
-    cleaned_transcript = transcript.strip()
-    return (
-        "REFERENCE COUNSEL ROLE JSON\n"
-        "Use this only to determine whether counsel is speaking for mother, father, minor, county, tribe, or another party. "
-        "Do not quote or rewrite the transcript from this section.\n"
-        f"{cleaned_counsel_roles}\n\n"
-        "TRANSCRIPT\n"
-        "Only this section may appear in the output. Preserve spoken text exactly as written.\n"
-        f"{cleaned_transcript}"
-    )
-
-
-def _build_attorney_request_settings(
-    optimize_settings: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "api_url": str(
-            optimize_settings.get("attorney_api_url")
-            or optimize_settings.get("api_url")
-            or ""
-        ).strip(),
-        "model_id": str(
-            optimize_settings.get("attorney_model_id")
-            or optimize_settings.get("model_id")
-            or ""
-        ).strip(),
-        "api_key": str(
-            optimize_settings.get("attorney_api_key")
-            or optimize_settings.get("api_key")
-            or ""
-        ).strip(),
-        "disable_reasoning": bool(
-            optimize_settings.get(
-                "attorney_disable_reasoning",
-                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
-            )
-        ),
-        "prompt": str(
-            optimize_settings.get("attorneys_prompt")
-            or optimize_settings.get("prompt")
-            or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
-        ).strip(),
-        "max_tokens": str(
-            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
-        ).strip(),
-    }
-
-
-def _build_optimize_hearing_request_settings(
-    optimize_settings: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "api_url": str(
-            optimize_settings.get("hearing_api_url")
-            or optimize_settings.get("api_url")
-            or ""
-        ).strip(),
-        "model_id": str(
-            optimize_settings.get("hearing_model_id")
-            or optimize_settings.get("model_id")
-            or ""
-        ).strip(),
-        "api_key": str(
-            optimize_settings.get("hearing_api_key")
-            or optimize_settings.get("api_key")
-            or ""
-        ).strip(),
-        "disable_reasoning": bool(
-            optimize_settings.get(
-                "hearing_disable_reasoning",
-                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
-            )
-        ),
-        "prompt": str(
-            optimize_settings.get("hearings_prompt")
-            or optimize_settings.get("prompt")
-            or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
-        ).strip(),
-        "max_tokens": str(
-            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
-        ).strip(),
-    }
-
-
-def _build_optimize_report_request_settings(
-    optimize_settings: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "api_url": str(
-            optimize_settings.get("report_api_url")
-            or optimize_settings.get("api_url")
-            or ""
-        ).strip(),
-        "model_id": str(
-            optimize_settings.get("report_model_id")
-            or optimize_settings.get("model_id")
-            or ""
-        ).strip(),
-        "api_key": str(
-            optimize_settings.get("report_api_key")
-            or optimize_settings.get("api_key")
-            or ""
-        ).strip(),
-        "disable_reasoning": bool(
-            optimize_settings.get(
-                "report_disable_reasoning",
-                optimize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING),
-            )
-        ),
-        "prompt": str(
-            optimize_settings.get("reports_prompt")
-            or optimize_settings.get("prompt")
-            or DEFAULT_OPTIMIZE_REPORTS_PROMPT
-        ).strip(),
-        "max_tokens": str(
-            optimize_settings.get("max_tokens") or DEFAULT_OPTIMIZE_MAX_TOKENS
-        ).strip(),
-    }
-
-
-def _normalize_counsel_role_json_payload(payload: Any) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "roles": [],
-        "unknown_speaker_labels": [],
-        "notes": "",
-    }
-    if not isinstance(payload, dict):
-        raise ValueError("Counsel role extraction must return a JSON object.")
-
-    role_items = payload.get("roles")
-    if role_items is None and isinstance(payload.get("attorneys"), list):
-        role_items = payload.get("attorneys")
-    if isinstance(role_items, list):
-        merged_roles: dict[str, dict[str, Any]] = {}
-        confidence_rank = {"low": 0, "medium": 1, "high": 2}
-        for item in role_items:
-            if not isinstance(item, dict):
-                continue
-            role = _normalize_counsel_role(item.get("role", "") or item.get("represents", ""))
-            if not role:
-                continue
-            merged_entry = merged_roles.setdefault(
-                role,
-                {
-                    "role": role,
-                    "attorney_names": [],
-                    "speaker_aliases": [],
-                    "confidence": "low",
-                },
-            )
-            attorney_names = _coerce_string_list(item.get("attorney_names"))
-            if not attorney_names:
-                legacy_name = str(item.get("name", "") or "").strip()
-                if legacy_name:
-                    attorney_names = [legacy_name]
-            speaker_aliases = _coerce_string_list(item.get("speaker_aliases"))
-            if not speaker_aliases:
-                legacy_alias = str(item.get("speaker_label", "") or "").strip()
-                if legacy_alias:
-                    speaker_aliases = [legacy_alias]
-            for name in attorney_names:
-                if name not in merged_entry["attorney_names"]:
-                    merged_entry["attorney_names"].append(name)
-            for alias in speaker_aliases:
-                if alias not in merged_entry["speaker_aliases"]:
-                    merged_entry["speaker_aliases"].append(alias)
-            confidence = _normalize_confidence(item.get("confidence"))
-            if confidence_rank[confidence] > confidence_rank[merged_entry["confidence"]]:
-                merged_entry["confidence"] = confidence
-        result["roles"] = [
-            merged_roles[role]
-            for role in COUNSEL_ROLE_ORDER
-            if role in merged_roles
-            and (
-                merged_roles[role]["attorney_names"]
-                or merged_roles[role]["speaker_aliases"]
-            )
-        ]
-
-    unknown_value = payload.get("unknown_speaker_labels")
-    if unknown_value is None:
-        unknown_value = payload.get("unknown_speakers", [])
-    if isinstance(unknown_value, list):
-        result["unknown_speaker_labels"] = [
-            str(item).strip() for item in unknown_value if str(item).strip()
-        ]
-
-    result["notes"] = str(payload.get("notes", "") or "").strip()
-    return result
-
-
-def _merge_counsel_role_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
-    merged_roles: dict[str, dict[str, Any]] = {}
-    name_roles: dict[str, set[str]] = {}
-    alias_roles: dict[str, set[str]] = {}
-    name_forms: dict[str, set[str]] = {}
-    alias_forms: dict[str, set[str]] = {}
-    unknown_labels: set[str] = set()
-    notes: list[str] = []
-    confidence_rank = {"low": 0, "medium": 1, "high": 2}
-
-    for payload in payloads:
-        normalized = _normalize_counsel_role_json_payload(payload)
-        for label in normalized["unknown_speaker_labels"]:
-            unknown_labels.add(label)
-        note = str(normalized.get("notes", "") or "").strip()
-        if note and note not in notes:
-            notes.append(note)
-        for role_item in normalized["roles"]:
-            role = str(role_item.get("role", "")).strip()
-            if not role:
-                continue
-            merged_entry = merged_roles.setdefault(
-                role,
-                {
-                    "role": role,
-                    "attorney_names": [],
-                    "speaker_aliases": [],
-                    "confidence": "low",
-                },
-            )
-            for name in role_item.get("attorney_names", []):
-                cleaned_name = str(name).strip()
-                if not cleaned_name:
-                    continue
-                name_key = cleaned_name.casefold()
-                name_roles.setdefault(name_key, set()).add(role)
-                name_forms.setdefault(name_key, set()).add(cleaned_name)
-                if cleaned_name not in merged_entry["attorney_names"]:
-                    merged_entry["attorney_names"].append(cleaned_name)
-            for alias in role_item.get("speaker_aliases", []):
-                cleaned_alias = str(alias).strip()
-                if not cleaned_alias:
-                    continue
-                alias_key = cleaned_alias.casefold()
-                alias_roles.setdefault(alias_key, set()).add(role)
-                alias_forms.setdefault(alias_key, set()).add(cleaned_alias)
-                if cleaned_alias not in merged_entry["speaker_aliases"]:
-                    merged_entry["speaker_aliases"].append(cleaned_alias)
-            confidence = _normalize_confidence(role_item.get("confidence"))
-            if confidence_rank[confidence] > confidence_rank[merged_entry["confidence"]]:
-                merged_entry["confidence"] = confidence
-
-    for name_key, roles in name_roles.items():
-        if len(roles) <= 1:
-            continue
-        for role in roles:
-            merged_entry = merged_roles.get(role)
-            if merged_entry:
-                merged_entry["attorney_names"] = [
-                    item for item in merged_entry["attorney_names"] if item.casefold() != name_key
-                ]
-        unknown_labels.update(name_forms.get(name_key, set()))
-
-    for alias_key, roles in alias_roles.items():
-        if len(roles) <= 1:
-            continue
-        for role in roles:
-            merged_entry = merged_roles.get(role)
-            if merged_entry:
-                merged_entry["speaker_aliases"] = [
-                    item
-                    for item in merged_entry["speaker_aliases"]
-                    if item.casefold() != alias_key
-                ]
-        unknown_labels.update(alias_forms.get(alias_key, set()))
-
-    result = {
-        "roles": [
-            merged_roles[role]
-            for role in COUNSEL_ROLE_ORDER
-            if role in merged_roles
-            and (
-                merged_roles[role]["attorney_names"]
-                or merged_roles[role]["speaker_aliases"]
-            )
-        ],
-        "unknown_speaker_labels": sorted(unknown_labels, key=str.casefold),
-        "notes": " ".join(notes).strip(),
-    }
-    return _normalize_counsel_role_json_payload(result)
-
-
-def _render_counsel_role_json(counsel_roles: dict[str, Any]) -> str:
-    normalized = _normalize_counsel_role_json_payload(counsel_roles)
-    return json.dumps(normalized, indent=2, ensure_ascii=True)
-
-
-def _build_counsel_role_speaker_label_map(
-    counsel_roles: dict[str, Any],
-) -> dict[str, str]:
-    normalized = _normalize_counsel_role_json_payload(counsel_roles)
-    labels_by_key: dict[str, set[str]] = {}
-
-    for role_item in normalized["roles"]:
-        role = str(role_item.get("role", "")).strip()
-        if not role:
-            continue
-        label_values = [role]
-        label_values.extend(_coerce_string_list(role_item.get("speaker_aliases")))
-        label_values.extend(_coerce_string_list(role_item.get("attorney_names")))
-        for label in label_values:
-            cleaned_label = str(label or "").strip().rstrip(":")
-            if not cleaned_label:
-                continue
-            key = _speaker_label_key(cleaned_label)
-            if not key:
-                continue
-            labels_by_key.setdefault(key, set()).add(role)
-
-    return {
-        key: next(iter(roles))
-        for key, roles in labels_by_key.items()
-        if len(roles) == 1
-    }
-
-
-def _normalize_hearing_speaker_labels(
-    content: str,
-    counsel_roles: dict[str, Any],
-) -> str:
-    label_map = _build_counsel_role_speaker_label_map(counsel_roles)
-    if not label_map:
-        return content
-
-    pattern = re.compile(
-        r"(^|\s)([A-Za-z][A-Za-z0-9 .,'()/&-]{1,80}?):(?=\s|$)",
-        re.MULTILINE,
-    )
-
-    def _replace(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        label = re.sub(r"\s+", " ", match.group(2)).strip()
-        normalized_role = label_map.get(_speaker_label_key(label))
-        if not normalized_role:
-            return match.group(0)
-        return f"{prefix}{normalized_role}:"
-
-    return pattern.sub(_replace, content)
-
-
-def _write_chunked_section_files(
-    base_dir: Path,
-    sections: list[RetrievalSection],
-    label_key: str,
-    chunk_size: int,
-) -> list[ChunkedSectionFiles]:
-    written_sections: list[ChunkedSectionFiles] = []
-    for section_index, section in enumerate(sections, start=1):
-        content = _strip_ascii_and_html_tables(str(section.content or ""))
-        if not content.strip():
-            continue
-        label = str(section.metadata.get(label_key, "")).strip() or f"{section.section_type.title()} {section_index}"
-        section_dir = base_dir / (
-            f"{section_index:04d}_{_artifact_label_component(label, section.section_type)}"
-        )
-        section_dir.mkdir(parents=True, exist_ok=True)
-        (section_dir / "label.txt").write_text(label + "\n", encoding="utf-8")
-        (section_dir / "metadata.json").write_text(
-            json.dumps(section.metadata, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
-        chunk_paths: list[Path] = []
-        for chunk_index, chunk in enumerate(_chunk_text_for_artifacts(content, chunk_size), start=1):
-            chunk_path = section_dir / f"{chunk_index:04d}.txt"
-            chunk_path.write_text(chunk, encoding="utf-8")
-            chunk_paths.append(chunk_path)
-
-        written_sections.append(
-            ChunkedSectionFiles(
-                section_type=section.section_type,
-                label=label,
-                directory=section_dir,
-                chunk_paths=chunk_paths,
-                metadata=dict(section.metadata),
-            )
-        )
-    return written_sections
-
-
-def _create_preoptimized_chunks(
-    root_dir: Path,
-    hearing_sections: list[RetrievalSection],
-    report_sections: list[RetrievalSection],
-    chunk_size: int,
-    counsel_role_evidence: str,
-    counsel_roles: dict[str, Any],
-) -> tuple[list[ChunkedSectionFiles], list[ChunkedSectionFiles]]:
-    artifacts_dir = root_dir / "artifacts"
-    preoptimized_dir = artifacts_dir / "preoptimized"
-    hearings_dir = preoptimized_dir / "hearings"
-    reports_dir = preoptimized_dir / "reports"
-    _prepare_directory(preoptimized_dir)
-    (preoptimized_dir / "counsel_role_evidence.txt").write_text(
-        counsel_role_evidence.strip(),
-        encoding="utf-8",
-    )
-    (preoptimized_dir / "counsel_roles.json").write_text(
-        _render_counsel_role_json(counsel_roles),
-        encoding="utf-8",
-    )
-    hearings_dir.mkdir(parents=True, exist_ok=True)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    hearing_files = _write_chunked_section_files(
-        hearings_dir,
-        hearing_sections,
-        "hearing_date",
-        chunk_size,
-    )
-    report_files = _write_chunked_section_files(
-        reports_dir,
-        report_sections,
-        "report_name",
-        chunk_size,
-    )
-    return hearing_files, report_files
-
-
-def _create_optimized_output_dirs(root_dir: Path) -> tuple[Path, Path]:
-    artifacts_dir = root_dir / "artifacts"
-    optimized_dir = artifacts_dir / "optimized"
-    hearings_dir = optimized_dir / "hearings"
-    reports_dir = optimized_dir / "reports"
-    _prepare_directory(optimized_dir)
-    hearings_dir.mkdir(parents=True, exist_ok=True)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    return hearings_dir, reports_dir
-
-
-def _load_chunked_section_files(
-    base_dir: Path,
-    section_type: str,
-    label_key: str,
-) -> list[ChunkedSectionFiles]:
-    loaded_sections: list[ChunkedSectionFiles] = []
-    if not base_dir.exists():
-        return loaded_sections
-    for section_dir in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=_natural_sort_key):
-        label_path = section_dir / "label.txt"
-        if label_path.exists():
-            label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
-        else:
-            label = section_dir.name
-        metadata_path = section_dir / "metadata.json"
-        metadata: dict[str, Any] = {"type": section_type, label_key: label}
-        if metadata_path.exists():
-            try:
-                loaded_metadata = json.loads(
-                    metadata_path.read_text(encoding="utf-8", errors="ignore")
-                )
-            except json.JSONDecodeError:
-                loaded_metadata = None
-            if isinstance(loaded_metadata, dict):
-                metadata.update(loaded_metadata)
-        if label_key not in metadata or not str(metadata.get(label_key) or "").strip():
-            metadata[label_key] = label
-        if "type" not in metadata or not str(metadata.get("type") or "").strip():
-            metadata["type"] = section_type
-        chunk_paths = sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key)
-        loaded_sections.append(
-            ChunkedSectionFiles(
-                section_type=section_type,
-                label=label,
-                directory=section_dir,
-                chunk_paths=chunk_paths,
-                metadata=metadata,
-            )
-        )
-    return loaded_sections
-
-
-def _load_labeled_chunk_directories(
-    base_dir: Path,
-    section_type: str,
-    label_key: str,
-) -> list[dict[str, Any]]:
-    sections: list[dict[str, Any]] = []
-    if not base_dir.exists():
-        return sections
-    for section_dir in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=_natural_sort_key):
-        label_path = section_dir / "label.txt"
-        if label_path.exists():
-            label = label_path.read_text(encoding="utf-8", errors="ignore").strip()
-        else:
-            label = section_dir.name
-        metadata_path = section_dir / "metadata.json"
-        metadata: dict[str, Any] = {"type": section_type, label_key: label}
-        if metadata_path.exists():
-            try:
-                loaded_metadata = json.loads(
-                    metadata_path.read_text(encoding="utf-8", errors="ignore")
-                )
-            except json.JSONDecodeError:
-                loaded_metadata = None
-            if isinstance(loaded_metadata, dict):
-                metadata.update(loaded_metadata)
-        if label_key not in metadata or not str(metadata.get(label_key) or "").strip():
-            metadata[label_key] = label
-        if "type" not in metadata or not str(metadata.get("type") or "").strip():
-            metadata["type"] = section_type
-        chunks: list[str] = []
-        for chunk_path in sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=_natural_sort_key):
-            content = chunk_path.read_text(encoding="utf-8", errors="ignore").strip()
-            if content:
-                chunks.append(content)
-        sections.append(
-            {
-                "label": label,
-                "metadata": metadata,
-                "chunks": chunks,
-            }
-        )
-    return sections
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _load_classify_basic_entries(classify_path: Path) -> list[tuple[str, str, int]]:
@@ -3041,7 +2048,6 @@ def _write_manifest(
     classification_dir = root_dir / "classification"
     artifacts_dir = root_dir / "artifacts"
     summaries_dir = root_dir / "summaries"
-    rag_dir = root_dir / "rag"
     temp_dir = root_dir / "temp"
     summarized_hearings_path, summarized_reports_path = _summary_output_paths(root_dir)
     summarized_minutes_path = _minutes_summary_output_path(root_dir)
@@ -3087,6 +2093,12 @@ def _write_manifest(
         if isinstance(existing.get("files"), dict)
         else {}
     )
+    for obsolete_key in (
+        "raw_hearings", "raw_reports", "preoptimized_hearings", "preoptimized_reports",
+        "optimized_hearings", "optimized_reports", "optimized_hearing_sections",
+        "optimized_report_sections", "chunk_metadata", "case_overview", "vector_database",
+    ):
+        files_payload.pop(obsolete_key, None)
     files_payload.update(
         {
             "merged_pdf": _relpath(temp_dir / "merged.pdf"),
@@ -3100,27 +2112,22 @@ def _write_manifest(
             "minutes_boundaries": _relpath(
                 artifacts_dir / "minutes_boundaries.json"
             ),
-            "raw_hearings": _relpath(artifacts_dir / "raw_hearings.txt"),
-            "raw_reports": _relpath(artifacts_dir / "raw_reports.txt"),
-            "optimized_hearings": _relpath(
-                artifacts_dir / "optimized_hearings.txt"
-            ),
-            "optimized_reports": _relpath(
-                artifacts_dir / "optimized_reports.txt"
-            ),
+            "transcript_page_numbers": _relpath(artifacts_dir / "transcript_page_numbers.json"),
+            "transcript_page_number_series": _relpath(artifacts_dir / "transcript_page_number_series.md"),
+            "participant_index": _relpath(artifacts_dir / "participant_index.json"),
+            "source_map": _relpath(artifacts_dir / "source_map.json"),
             "summarized_hearings": _relpath(summarized_hearings_path),
             "summarized_reports": _relpath(summarized_reports_path),
             "summarized_minutes": _relpath(summarized_minutes_path),
-            "case_overview": _relpath(rag_dir / "case_overview.txt"),
         }
     )
 
     payload: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "input_identity_version": INPUT_IDENTITY_VERSION,
         "created_at": created_at,
         "updated_at": now,
-        "root_dir": _root_path(root_dir),
+        "root_dir": ".",
         "rt_ct_split_page": split_page_value,
         "rt_ct_split_mode": split_mode_value,
         "input_pdfs": input_pdfs,
@@ -3129,10 +2136,7 @@ def _write_manifest(
             "image_pages": _relpath(image_pages_dir),
             "classification": _relpath(classification_dir),
             "artifacts": _relpath(artifacts_dir),
-            "preoptimized": _relpath(artifacts_dir / "preoptimized"),
-            "optimized_dir": _relpath(artifacts_dir / "optimized"),
             "summaries": _relpath(summaries_dir),
-            "rag": _relpath(rag_dir),
             "temp": _relpath(temp_dir),
         },
         "files": files_payload,
@@ -3175,9 +2179,6 @@ def _write_manifest(
             "relevant_reports": _relpath(classification_dir / "relevant_reports.jsonl"),
             "form_names": _relpath(classification_dir / "form_names.jsonl"),
         },
-        "rag": {
-            "vector_database": _relpath(rag_dir / "vector_database"),
-        },
         "pipeline": pipeline,
     }
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -3207,6 +2208,19 @@ def _bundle_inputs_changed(root_dir: Path, selected_pdfs: Sequence[Path]) -> boo
     return manifest.get("input_identity_version") != INPUT_IDENTITY_VERSION
 
 
+OBSOLETE_PIPELINE_CONFIG_KEYS = {
+    "optimize_hearing_api_url", "optimize_hearing_model_id", "optimize_hearing_api_key",
+    "optimize_hearing_disable_reasoning", "optimize_report_api_url", "optimize_report_model_id",
+    "optimize_report_api_key", "optimize_report_disable_reasoning", "optimize_attorney_api_url",
+    "optimize_attorney_model_id", "optimize_attorney_api_key", "optimize_attorney_disable_reasoning",
+    "optimize_chunk_size", "optimize_max_tokens", "optimize_attorneys_prompt",
+    "optimize_hearings_prompt", "optimize_reports_prompt", "overview_api_url",
+    "overview_model_id", "overview_api_key", "overview_disable_reasoning", "overview_prompt",
+    "rag_provider", "rag_voyage_api_key", "rag_voyage_model", "rag_isaacus_api_key",
+    "rag_isaacus_model",
+}
+
+
 def _read_config() -> dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {}
@@ -3214,7 +2228,13 @@ def _read_config() -> dict[str, Any]:
         raw = CONFIG_FILE.read_text(encoding="utf-8")
         data = json.loads(raw)
         if isinstance(data, dict):
-            return data
+            cleaned = {
+                key: value for key, value in data.items()
+                if key not in OBSOLETE_PIPELINE_CONFIG_KEYS
+            }
+            if cleaned != data:
+                CONFIG_FILE.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
+            return cleaned
     except (OSError, json.JSONDecodeError):
         pass
     return {}
@@ -3223,7 +2243,7 @@ def _read_config() -> dict[str, Any]:
 def _write_config(config: dict[str, Any]) -> None:
     serializable: dict[str, Any] = {}
     for key, value in config.items():
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key in OBSOLETE_PIPELINE_CONFIG_KEYS:
             continue
         serializable[key] = value
     try:
@@ -3268,7 +2288,17 @@ def load_run_until_step_setting() -> str | None:
     if not isinstance(value, str):
         return None
     normalized = value.strip()
-    return normalized or None
+    migrated = {
+        "create_raw": "create_summaries",
+        "create_preoptimized": "create_summaries",
+        "create_optimized": "create_summaries",
+        "case_overview": "build_source_map",
+        "create_rag_index": "build_source_map",
+    }.get(normalized, normalized)
+    if migrated != normalized:
+        config[CONFIG_KEY_RUN_UNTIL_STEP] = migrated
+        _write_config(config)
+    return migrated or None
 
 
 def save_run_until_step_setting(step_id: str | None) -> None:
@@ -3731,11 +2761,6 @@ def _convert_html_tables(content: str) -> str:
     return soup.get_text(separator="\n\n", strip=True)
 
 
-def _normalize_optimized_text(content: str) -> str:
-    normalized = content
-    if "<table" in normalized.lower():
-        normalized = _convert_html_tables(normalized)
-    return _flatten_paragraph_lines(normalized).strip()
 
 
 def _strip_markdown(content: str) -> str:
@@ -4108,25 +3133,6 @@ class AdvancedClassificationSettingsWidgets:
     form_prompt_buffer: Gtk.TextBuffer
 
 
-@dataclass
-class OptimizeSettingsWidgets:
-    hearing_api_url_row: Adw.EntryRow
-    hearing_model_row: Adw.EntryRow
-    hearing_api_key_row: Adw.EntryRow
-    hearing_disable_reasoning_row: Adw.SwitchRow
-    report_api_url_row: Adw.EntryRow
-    report_model_row: Adw.EntryRow
-    report_api_key_row: Adw.EntryRow
-    report_disable_reasoning_row: Adw.SwitchRow
-    attorney_api_url_row: Adw.EntryRow
-    attorney_model_row: Adw.EntryRow
-    attorney_api_key_row: Adw.EntryRow
-    attorney_disable_reasoning_row: Adw.SwitchRow
-    chunk_size_row: Adw.EntryRow
-    max_tokens_row: Adw.EntryRow
-    attorneys_prompt_buffer: Gtk.TextBuffer
-    hearings_prompt_buffer: Gtk.TextBuffer
-    reports_prompt_buffer: Gtk.TextBuffer
 
 
 @dataclass
@@ -4135,29 +3141,14 @@ class SummarizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
-    chunk_size_row: Adw.EntryRow
+    window_pages_row: Adw.EntryRow
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
     minutes_prompt_buffer: Gtk.TextBuffer
 
 
-@dataclass
-class OverviewSettingsWidgets:
-    api_url_row: Adw.EntryRow
-    model_row: Adw.EntryRow
-    api_key_row: Adw.EntryRow
-    disable_reasoning_row: Adw.SwitchRow
-    prompt_buffer: Gtk.TextBuffer
 
 
-@dataclass
-class RagSettingsWidgets:
-    provider_row: Adw.ComboRow
-    provider_values: list[str]
-    voyage_model_row: Adw.EntryRow
-    voyage_key_row: Adw.EntryRow
-    isaacus_model_row: Adw.EntryRow
-    isaacus_key_row: Adw.EntryRow
 
 
 @dataclass
@@ -4165,138 +3156,8 @@ class AgentSettingsWidgets:
     pi_agent_command_row: Adw.EntryRow
 
 
-def load_optimize_settings() -> dict[str, Any]:
-    config = _read_config()
-    hearing_api_url = str(
-        config.get(CONFIG_KEY_OPTIMIZE_HEARING_API_URL, "") or ""
-    ).strip()
-    hearing_model_id = str(
-        config.get(CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID, "") or ""
-    ).strip()
-    hearing_api_key = str(
-        config.get(CONFIG_KEY_OPTIMIZE_HEARING_API_KEY, "") or ""
-    ).strip()
-    hearing_disable_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING,
-        DEFAULT_DISABLE_REASONING,
-    )
-    report_api_url = str(
-        config.get(CONFIG_KEY_OPTIMIZE_REPORT_API_URL, "") or ""
-    ).strip()
-    report_model_id = str(
-        config.get(CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID, "") or ""
-    ).strip()
-    report_api_key = str(
-        config.get(CONFIG_KEY_OPTIMIZE_REPORT_API_KEY, "") or ""
-    ).strip()
-    report_disable_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING,
-        DEFAULT_DISABLE_REASONING,
-    )
-    attorney_api_url = str(
-        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL, "") or ""
-    ).strip()
-    attorney_model_id = str(
-        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID, "") or ""
-    ).strip()
-    attorney_api_key = str(
-        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY, "") or ""
-    ).strip()
-    attorney_disable_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING,
-        DEFAULT_DISABLE_REASONING,
-    )
-    chunk_size_raw = str(config.get(CONFIG_KEY_OPTIMIZE_CHUNK_SIZE, "") or "").strip()
-    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-    if chunk_size_raw:
-        try:
-            chunk_size = max(1, int(chunk_size_raw))
-        except ValueError:
-            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-    max_tokens_raw = str(config.get(CONFIG_KEY_OPTIMIZE_MAX_TOKENS, "") or "").strip()
-    max_tokens = DEFAULT_OPTIMIZE_MAX_TOKENS
-    if max_tokens_raw:
-        try:
-            max_tokens = max(1, int(max_tokens_raw))
-        except ValueError:
-            max_tokens = DEFAULT_OPTIMIZE_MAX_TOKENS
-    attorneys_prompt = str(
-        config.get(CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT, DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT) or ""
-    ).strip()
-    hearings_prompt = str(
-        config.get(CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT, DEFAULT_OPTIMIZE_HEARINGS_PROMPT) or ""
-    ).strip()
-    reports_prompt = str(
-        config.get(CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT, DEFAULT_OPTIMIZE_REPORTS_PROMPT) or ""
-    ).strip()
-    return {
-        "hearing_api_url": hearing_api_url,
-        "hearing_model_id": hearing_model_id,
-        "hearing_api_key": hearing_api_key,
-        "hearing_disable_reasoning": hearing_disable_reasoning,
-        "report_api_url": report_api_url,
-        "report_model_id": report_model_id,
-        "report_api_key": report_api_key,
-        "report_disable_reasoning": report_disable_reasoning,
-        "attorney_api_url": attorney_api_url,
-        "attorney_model_id": attorney_model_id,
-        "attorney_api_key": attorney_api_key,
-        "attorney_disable_reasoning": attorney_disable_reasoning,
-        "chunk_size": str(chunk_size),
-        "max_tokens": str(max_tokens),
-        "attorneys_prompt": attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT,
-        "hearings_prompt": hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT,
-        "reports_prompt": reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT,
-    }
 
 
-def save_optimize_settings(
-    hearing_api_url: str,
-    hearing_model_id: str,
-    hearing_api_key: str,
-    hearing_disable_reasoning: bool,
-    report_api_url: str,
-    report_model_id: str,
-    report_api_key: str,
-    report_disable_reasoning: bool,
-    attorney_api_url: str,
-    attorney_model_id: str,
-    attorney_api_key: str,
-    attorney_disable_reasoning: bool,
-    chunk_size: str,
-    max_tokens: str,
-    attorneys_prompt: str,
-    hearings_prompt: str,
-    reports_prompt: str,
-) -> None:
-    config = _read_config()
-    config[CONFIG_KEY_OPTIMIZE_HEARING_API_URL] = hearing_api_url
-    config[CONFIG_KEY_OPTIMIZE_HEARING_MODEL_ID] = hearing_model_id
-    config[CONFIG_KEY_OPTIMIZE_HEARING_API_KEY] = hearing_api_key
-    config[CONFIG_KEY_OPTIMIZE_HEARING_DISABLE_REASONING] = bool(
-        hearing_disable_reasoning
-    )
-    config[CONFIG_KEY_OPTIMIZE_REPORT_API_URL] = report_api_url
-    config[CONFIG_KEY_OPTIMIZE_REPORT_MODEL_ID] = report_model_id
-    config[CONFIG_KEY_OPTIMIZE_REPORT_API_KEY] = report_api_key
-    config[CONFIG_KEY_OPTIMIZE_REPORT_DISABLE_REASONING] = bool(
-        report_disable_reasoning
-    )
-    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_URL] = attorney_api_url
-    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_MODEL_ID] = attorney_model_id
-    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_API_KEY] = attorney_api_key
-    config[CONFIG_KEY_OPTIMIZE_ATTORNEY_DISABLE_REASONING] = bool(
-        attorney_disable_reasoning
-    )
-    config[CONFIG_KEY_OPTIMIZE_CHUNK_SIZE] = chunk_size
-    config[CONFIG_KEY_OPTIMIZE_MAX_TOKENS] = max_tokens
-    config[CONFIG_KEY_OPTIMIZE_ATTORNEYS_PROMPT] = attorneys_prompt or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
-    config[CONFIG_KEY_OPTIMIZE_HEARINGS_PROMPT] = hearings_prompt or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
-    config[CONFIG_KEY_OPTIMIZE_REPORTS_PROMPT] = reports_prompt or DEFAULT_OPTIMIZE_REPORTS_PROMPT
-    _write_config(config)
 
 
 def load_summarize_settings() -> dict[str, Any]:
@@ -4309,19 +3170,29 @@ def load_summarize_settings() -> dict[str, Any]:
         CONFIG_KEY_SUMMARIZE_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
-    chunk_size_raw = str(config.get(CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, "") or "").strip()
-    chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-    if chunk_size_raw:
+    window_pages_raw = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_WINDOW_PAGES,
+            config.get(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, ""),
+        )
+        or ""
+    ).strip()
+    window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
+    if window_pages_raw:
         try:
-            chunk_size = max(1, int(chunk_size_raw))
+            window_pages = max(1, int(window_pages_raw))
         except ValueError:
-            chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+            window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
     hearings_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT, DEFAULT_SUMMARIZE_HEARINGS_PROMPT) or ""
     ).strip()
     reports_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, DEFAULT_SUMMARIZE_REPORTS_PROMPT) or ""
     ).strip()
+    if hearings_prompt.startswith("Summarize the following court hearing in one very concise paragraph"):
+        hearings_prompt = DEFAULT_SUMMARIZE_HEARINGS_PROMPT
+    if reports_prompt.startswith("Summarize the following reports in one very concise paragraph"):
+        reports_prompt = DEFAULT_SUMMARIZE_REPORTS_PROMPT
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
     ).strip()
@@ -4330,7 +3201,7 @@ def load_summarize_settings() -> dict[str, Any]:
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
-        "chunk_size": str(chunk_size),
+        "window_pages": str(window_pages),
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         "minutes_prompt": minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT,
@@ -4342,7 +3213,7 @@ def save_summarize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
-    chunk_size: str,
+    window_pages: str,
     hearings_prompt: str,
     reports_prompt: str,
     minutes_prompt: str,
@@ -4352,7 +3223,8 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
     config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_CHUNK_SIZE] = chunk_size
+    config[CONFIG_KEY_SUMMARIZE_WINDOW_PAGES] = window_pages
+    config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, None)
     config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = (
         hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
     )
@@ -4365,83 +3237,12 @@ def save_summarize_settings(
     _write_config(config)
 
 
-def load_overview_settings() -> dict[str, Any]:
-    config = _read_config()
-    api_url = str(config.get(CONFIG_KEY_OVERVIEW_API_URL, "") or "").strip()
-    model_id = str(config.get(CONFIG_KEY_OVERVIEW_MODEL_ID, "") or "").strip()
-    api_key = str(config.get(CONFIG_KEY_OVERVIEW_API_KEY, "") or "").strip()
-    disable_reasoning = _read_config_bool(
-        config,
-        CONFIG_KEY_OVERVIEW_DISABLE_REASONING,
-        DEFAULT_DISABLE_REASONING,
-    )
-    prompt = str(config.get(CONFIG_KEY_OVERVIEW_PROMPT, DEFAULT_OVERVIEW_PROMPT) or "").strip()
-    if prompt in {LEGACY_DEFAULT_OVERVIEW_PROMPT, PREVIOUS_DEFAULT_OVERVIEW_PROMPT}:
-        prompt = DEFAULT_OVERVIEW_PROMPT
-    return {
-        "api_url": api_url,
-        "model_id": model_id,
-        "api_key": api_key,
-        "disable_reasoning": disable_reasoning,
-        "prompt": prompt or DEFAULT_OVERVIEW_PROMPT,
-    }
 
 
-def save_overview_settings(
-    api_url: str,
-    model_id: str,
-    api_key: str,
-    disable_reasoning: bool,
-    prompt: str,
-) -> None:
-    config = _read_config()
-    config[CONFIG_KEY_OVERVIEW_API_URL] = api_url
-    config[CONFIG_KEY_OVERVIEW_MODEL_ID] = model_id
-    config[CONFIG_KEY_OVERVIEW_API_KEY] = api_key
-    config[CONFIG_KEY_OVERVIEW_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_OVERVIEW_PROMPT] = prompt or DEFAULT_OVERVIEW_PROMPT
-    _write_config(config)
 
 
-def load_rag_settings() -> dict[str, str]:
-    config = _read_config()
-    provider = str(config.get(CONFIG_KEY_RAG_PROVIDER, DEFAULT_RAG_PROVIDER) or "").strip().lower()
-    if provider not in {RAG_PROVIDER_VOYAGE, RAG_PROVIDER_ISAACUS}:
-        provider = DEFAULT_RAG_PROVIDER
-    voyage_key = str(config.get(CONFIG_KEY_RAG_VOYAGE_API_KEY, "") or "").strip()
-    voyage_model = str(
-        config.get(CONFIG_KEY_RAG_VOYAGE_MODEL, DEFAULT_RAG_VOYAGE_MODEL) or ""
-    ).strip()
-    isaacus_key = str(config.get(CONFIG_KEY_RAG_ISAACUS_API_KEY, "") or "").strip()
-    isaacus_model = str(
-        config.get(CONFIG_KEY_RAG_ISAACUS_MODEL, DEFAULT_RAG_ISAACUS_MODEL) or ""
-    ).strip()
-    return {
-        "provider": provider,
-        "voyage_api_key": voyage_key,
-        "voyage_model": voyage_model or DEFAULT_RAG_VOYAGE_MODEL,
-        "isaacus_api_key": isaacus_key,
-        "isaacus_model": isaacus_model or DEFAULT_RAG_ISAACUS_MODEL,
-    }
 
 
-def save_rag_settings(
-    provider: str,
-    voyage_api_key: str,
-    voyage_model: str,
-    isaacus_api_key: str,
-    isaacus_model: str,
-) -> None:
-    config = _read_config()
-    normalized_provider = provider.strip().lower()
-    if normalized_provider not in {RAG_PROVIDER_VOYAGE, RAG_PROVIDER_ISAACUS}:
-        normalized_provider = DEFAULT_RAG_PROVIDER
-    config[CONFIG_KEY_RAG_PROVIDER] = normalized_provider
-    config[CONFIG_KEY_RAG_VOYAGE_API_KEY] = voyage_api_key
-    config[CONFIG_KEY_RAG_VOYAGE_MODEL] = voyage_model or DEFAULT_RAG_VOYAGE_MODEL
-    config[CONFIG_KEY_RAG_ISAACUS_API_KEY] = isaacus_api_key
-    config[CONFIG_KEY_RAG_ISAACUS_MODEL] = isaacus_model or DEFAULT_RAG_ISAACUS_MODEL
-    _write_config(config)
 
 
 def load_pi_agent_command_setting() -> str:
@@ -4611,21 +3412,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         classify_names_page = self._build_classify_names_prompt_page()
         prompt_stack.add_named(classify_names_page, "classify-names")
 
-        self._add_settings_destination("summarize", "optimize", "Optimize")
-        optimize_page = self._build_optimize_prompt_page(load_optimize_settings())
-        prompt_stack.add_named(optimize_page, "optimize")
-
         self._add_settings_destination("summarize", "summarize", "Summarize")
         summarize_page = self._build_summarize_prompt_page(load_summarize_settings())
         prompt_stack.add_named(summarize_page, "summarize")
-
-        self._add_settings_destination("index", "overview", "Case Overview")
-        overview_page = self._build_overview_prompt_page(load_overview_settings())
-        prompt_stack.add_named(overview_page, "overview")
-
-        self._add_settings_destination("index", "rag", "RAG")
-        rag_page = self._build_rag_prompt_page(load_rag_settings())
-        prompt_stack.add_named(rag_page, "rag")
 
         self._add_settings_destination("agent", "pi", "PI")
         pi_page = self._build_pi_settings_page()
@@ -5140,189 +3929,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         return page
 
-    def _build_optimize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Optimize", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        hearing_credentials_group = self._build_disclosure(
-            "Hearing credentials",
-            expanded=True,
-        )
-        page_box.append(hearing_credentials_group)
-
-        hearing_api_url_row = Adw.EntryRow(title="Hearing API URL")
-        hearing_api_url_row.set_text(settings.get("hearing_api_url", ""))
-        hearing_credentials_group.add_row(hearing_api_url_row)
-
-        hearing_model_row = Adw.EntryRow(title="Hearing Model ID")
-        hearing_model_row.set_text(settings.get("hearing_model_id", ""))
-        hearing_credentials_group.add_row(hearing_model_row)
-
-        hearing_api_key_row = self._build_password_row("Hearing API Key")
-        hearing_api_key_row.set_text(settings.get("hearing_api_key", ""))
-        hearing_credentials_group.add_row(hearing_api_key_row)
-
-        hearing_disable_reasoning_row = Adw.SwitchRow(
-            title="Disable hearing reasoning",
-            subtitle="Used only for hearing optimization requests.",
-        )
-        hearing_disable_reasoning_row.set_active(
-            bool(
-                settings.get(
-                    "hearing_disable_reasoning",
-                    DEFAULT_DISABLE_REASONING,
-                )
-            )
-        )
-        hearing_credentials_group.add_row(hearing_disable_reasoning_row)
-
-        report_credentials_group = self._build_disclosure("Report credentials")
-        page_box.append(report_credentials_group)
-
-        report_api_url_row = Adw.EntryRow(title="Report API URL")
-        report_api_url_row.set_text(settings.get("report_api_url", ""))
-        report_credentials_group.add_row(report_api_url_row)
-
-        report_model_row = Adw.EntryRow(title="Report Model ID")
-        report_model_row.set_text(settings.get("report_model_id", ""))
-        report_credentials_group.add_row(report_model_row)
-
-        report_api_key_row = self._build_password_row("Report API Key")
-        report_api_key_row.set_text(settings.get("report_api_key", ""))
-        report_credentials_group.add_row(report_api_key_row)
-
-        report_disable_reasoning_row = Adw.SwitchRow(
-            title="Disable report reasoning",
-            subtitle="Used only for report optimization requests.",
-        )
-        report_disable_reasoning_row.set_active(
-            bool(
-                settings.get(
-                    "report_disable_reasoning",
-                    DEFAULT_DISABLE_REASONING,
-                )
-            )
-        )
-        report_credentials_group.add_row(report_disable_reasoning_row)
-
-        attorney_credentials_group = self._build_disclosure(
-            "Counsel role credentials"
-        )
-        page_box.append(attorney_credentials_group)
-
-        attorney_api_url_row = Adw.EntryRow(title="Counsel Role API URL")
-        attorney_api_url_row.set_text(settings.get("attorney_api_url", ""))
-        attorney_credentials_group.add_row(attorney_api_url_row)
-
-        attorney_model_row = Adw.EntryRow(title="Counsel Role Model ID")
-        attorney_model_row.set_text(settings.get("attorney_model_id", ""))
-        attorney_credentials_group.add_row(attorney_model_row)
-
-        attorney_api_key_row = self._build_password_row("Counsel Role API Key")
-        attorney_api_key_row.set_text(settings.get("attorney_api_key", ""))
-        attorney_credentials_group.add_row(attorney_api_key_row)
-
-        attorney_disable_reasoning_row = Adw.SwitchRow(
-            title="Disable counsel role reasoning",
-            subtitle="Used only for counsel role extraction requests.",
-        )
-        attorney_disable_reasoning_row.set_active(
-            bool(
-                settings.get(
-                    "attorney_disable_reasoning",
-                    DEFAULT_DISABLE_REASONING,
-                )
-            )
-        )
-        attorney_credentials_group.add_row(attorney_disable_reasoning_row)
-
-        processing_group = Adw.PreferencesGroup(title="Processing")
-        processing_group.add_css_class("list-stack")
-        processing_group.set_hexpand(True)
-        page_box.append(processing_group)
-
-        chunk_size_row = Adw.EntryRow(title="Chunk Size (characters)")
-        chunk_size_row.set_text(
-            settings.get("chunk_size", str(DEFAULT_OPTIMIZE_CHUNK_SIZE))
-        )
-        processing_group.add(chunk_size_row)
-
-        max_tokens_row = Adw.EntryRow(title="Max Output Tokens")
-        max_tokens_row.set_text(
-            settings.get("max_tokens", str(DEFAULT_OPTIMIZE_MAX_TOKENS))
-        )
-        processing_group.add(max_tokens_row)
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-
-        attorneys_scroller, attorneys_buffer = self._build_prompt_editor(
-            settings.get("attorneys_prompt") or DEFAULT_OPTIMIZE_ATTORNEYS_PROMPT
-        )
-        self._set_prompt_editor_height(attorneys_scroller, 220)
-        prompt_section.append(
-            self._build_disclosure("Counsel role prompt", attorneys_scroller)
-        )
-
-        hearings_scroller, hearings_buffer = self._build_prompt_editor(
-            settings.get("hearings_prompt") or DEFAULT_OPTIMIZE_HEARINGS_PROMPT
-        )
-        self._set_prompt_editor_height(hearings_scroller, 260)
-        prompt_section.append(
-            self._build_disclosure("Optimize hearings prompt", hearings_scroller)
-        )
-
-        reports_scroller, reports_buffer = self._build_prompt_editor(
-            settings.get("reports_prompt") or DEFAULT_OPTIMIZE_REPORTS_PROMPT
-        )
-        self._set_prompt_editor_height(reports_scroller, 260)
-        prompt_section.append(
-            self._build_disclosure("Optimize reports prompt", reports_scroller)
-        )
-
-        page_box.append(
-            self._build_disclosure(
-                "Prompts",
-                prompt_section,
-                subtitle="Counsel roles, hearings, and reports",
-            )
-        )
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._optimize_widgets = OptimizeSettingsWidgets(
-            hearing_api_url_row=hearing_api_url_row,
-            hearing_model_row=hearing_model_row,
-            hearing_api_key_row=hearing_api_key_row,
-            hearing_disable_reasoning_row=hearing_disable_reasoning_row,
-            report_api_url_row=report_api_url_row,
-            report_model_row=report_model_row,
-            report_api_key_row=report_api_key_row,
-            report_disable_reasoning_row=report_disable_reasoning_row,
-            attorney_api_url_row=attorney_api_url_row,
-            attorney_model_row=attorney_model_row,
-            attorney_api_key_row=attorney_api_key_row,
-            attorney_disable_reasoning_row=attorney_disable_reasoning_row,
-            chunk_size_row=chunk_size_row,
-            max_tokens_row=max_tokens_row,
-            attorneys_prompt_buffer=attorneys_buffer,
-            hearings_prompt_buffer=hearings_buffer,
-            reports_prompt_buffer=reports_buffer,
-        )
-        return page
 
     def _build_summarize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5362,9 +3968,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         credentials_group.add(disable_reasoning_row)
 
-        chunk_size_row = Adw.EntryRow(title="Chunk Size (paragraphs)")
-        chunk_size_row.set_text(settings.get("chunk_size", str(DEFAULT_SUMMARIZE_CHUNK_SIZE)))
-        credentials_group.add(chunk_size_row)
+        window_pages_row = Adw.EntryRow(title="Summary window size (source pages)")
+        window_pages_row.set_text(
+            settings.get("window_pages", str(DEFAULT_SUMMARIZE_WINDOW_PAGES))
+        )
+        credentials_group.add(window_pages_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -5413,160 +4021,14 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
-            chunk_size_row=chunk_size_row,
+            window_pages_row=window_pages_row,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
             minutes_prompt_buffer=minutes_buffer,
         )
         return page
 
-    def _build_overview_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
 
-        title_label = Gtk.Label(label="Case Overview", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        credentials_group = Adw.PreferencesGroup(title="Credentials")
-        credentials_group.add_css_class("list-stack")
-        credentials_group.set_hexpand(True)
-        page_box.append(credentials_group)
-
-        api_url_row = Adw.EntryRow(title="API URL")
-        api_url_row.set_text(settings.get("api_url", ""))
-        credentials_group.add(api_url_row)
-
-        model_row = Adw.EntryRow(title="Model ID")
-        model_row.set_text(settings.get("model_id", ""))
-        credentials_group.add(model_row)
-
-        api_key_row = self._build_password_row("API Key")
-        api_key_row.set_text(settings.get("api_key", ""))
-        credentials_group.add(api_key_row)
-
-        disable_reasoning_row = Adw.SwitchRow(
-            title="Disable reasoning",
-            subtitle="Leave off to use the model's default behavior.",
-        )
-        disable_reasoning_row.set_active(
-            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
-        )
-        credentials_group.add(disable_reasoning_row)
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-        prompt_scroller, buffer = self._build_prompt_editor(
-            settings.get("prompt") or DEFAULT_OVERVIEW_PROMPT
-        )
-        self._set_prompt_editor_height(prompt_scroller, 320)
-        prompt_section.append(prompt_scroller)
-        page_box.append(self._build_disclosure("Prompt", prompt_section))
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._overview_widgets = OverviewSettingsWidgets(
-            api_url_row=api_url_row,
-            model_row=model_row,
-            api_key_row=api_key_row,
-            disable_reasoning_row=disable_reasoning_row,
-            prompt_buffer=buffer,
-        )
-        return page
-
-    def _build_rag_prompt_page(self, settings: dict[str, str]) -> Gtk.Widget:
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="RAG", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        provider_group = Adw.PreferencesGroup(title="Embedding Provider")
-        provider_group.add_css_class("list-stack")
-        provider_group.set_hexpand(True)
-        page_box.append(provider_group)
-
-        provider_values = [RAG_PROVIDER_VOYAGE, RAG_PROVIDER_ISAACUS]
-        provider_labels = ["VoyageAI", "Isaacus"]
-        provider_row = Adw.ComboRow(title="Provider")
-        provider_row.set_model(Gtk.StringList.new(provider_labels))
-        provider = (settings.get("provider") or DEFAULT_RAG_PROVIDER).strip().lower()
-        if provider in provider_values:
-            provider_row.set_selected(provider_values.index(provider))
-        else:
-            provider_row.set_selected(0)
-        provider_group.add(provider_row)
-
-        voyage_group = Adw.PreferencesGroup(title="Voyage RAG")
-        voyage_group.add_css_class("list-stack")
-        voyage_group.set_hexpand(True)
-
-        voyage_model_row = Adw.EntryRow(title="Voyage Model")
-        voyage_model_row.set_text(settings.get("voyage_model", DEFAULT_RAG_VOYAGE_MODEL))
-        voyage_group.add(voyage_model_row)
-
-        voyage_key_row = self._build_password_row("Voyage API Key")
-        voyage_key_row.set_text(settings.get("voyage_api_key", ""))
-        voyage_group.add(voyage_key_row)
-
-        isaacus_group = Adw.PreferencesGroup(title="Isaacus RAG")
-        isaacus_group.add_css_class("list-stack")
-        isaacus_group.set_hexpand(True)
-
-        isaacus_model_row = Adw.EntryRow(title="Isaacus Model")
-        isaacus_model_row.set_text(settings.get("isaacus_model", DEFAULT_RAG_ISAACUS_MODEL))
-        isaacus_group.add(isaacus_model_row)
-
-        isaacus_key_row = self._build_password_row("Isaacus API Key")
-        isaacus_key_row.set_text(settings.get("isaacus_api_key", ""))
-        isaacus_group.add(isaacus_key_row)
-
-        provider_stack = Gtk.Stack()
-        provider_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        provider_stack.add_named(voyage_group, RAG_PROVIDER_VOYAGE)
-        provider_stack.add_named(isaacus_group, RAG_PROVIDER_ISAACUS)
-        provider_stack.set_visible_child_name(provider_values[provider_row.get_selected()])
-
-        def _on_provider_changed(
-            row: Adw.ComboRow,
-            _pspec: GObject.ParamSpec,
-        ) -> None:
-            selected = row.get_selected()
-            if 0 <= selected < len(provider_values):
-                provider_stack.set_visible_child_name(provider_values[selected])
-
-        provider_row.connect("notify::selected", _on_provider_changed)
-        page_box.append(provider_stack)
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._rag_widgets = RagSettingsWidgets(
-            provider_row=provider_row,
-            provider_values=provider_values,
-            voyage_model_row=voyage_model_row,
-            voyage_key_row=voyage_key_row,
-            isaacus_model_row=isaacus_model_row,
-            isaacus_key_row=isaacus_key_row,
-        )
-        return page
 
     def _build_pi_settings_page(self) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5915,10 +4377,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         classify_dates_widgets = self._classify_dates_widgets
         classify_names_widgets = self._classify_names_widgets
         local_ocr_widgets = self._local_ocr_widgets
-        optimize_widgets = getattr(self, "_optimize_widgets", None)
         summarize_widgets = getattr(self, "_summarize_widgets", None)
-        overview_widgets = getattr(self, "_overview_widgets", None)
-        rag_widgets = getattr(self, "_rag_widgets", None)
         agent_widgets = self._agent_widgets
         if self._text_source_row:
             selected = self._text_source_row.get_selected()
@@ -5996,56 +4455,16 @@ class SettingsWindow(Adw.ApplicationWindow):
                 local_ocr_widgets.workers_row.get_text().strip(),
                 local_ocr_widgets.slots_row.get_text().strip(),
             )
-        if optimize_widgets:
-            save_optimize_settings(
-                optimize_widgets.hearing_api_url_row.get_text().strip(),
-                optimize_widgets.hearing_model_row.get_text().strip(),
-                optimize_widgets.hearing_api_key_row.get_text().strip(),
-                bool(optimize_widgets.hearing_disable_reasoning_row.get_active()),
-                optimize_widgets.report_api_url_row.get_text().strip(),
-                optimize_widgets.report_model_row.get_text().strip(),
-                optimize_widgets.report_api_key_row.get_text().strip(),
-                bool(optimize_widgets.report_disable_reasoning_row.get_active()),
-                optimize_widgets.attorney_api_url_row.get_text().strip(),
-                optimize_widgets.attorney_model_row.get_text().strip(),
-                optimize_widgets.attorney_api_key_row.get_text().strip(),
-                bool(optimize_widgets.attorney_disable_reasoning_row.get_active()),
-                optimize_widgets.chunk_size_row.get_text().strip(),
-                optimize_widgets.max_tokens_row.get_text().strip(),
-                self._prompt_text(optimize_widgets.attorneys_prompt_buffer).strip(),
-                self._prompt_text(optimize_widgets.hearings_prompt_buffer).strip(),
-                self._prompt_text(optimize_widgets.reports_prompt_buffer).strip(),
-            )
         if summarize_widgets:
             save_summarize_settings(
                 summarize_widgets.api_url_row.get_text().strip(),
                 summarize_widgets.model_row.get_text().strip(),
                 summarize_widgets.api_key_row.get_text().strip(),
                 bool(summarize_widgets.disable_reasoning_row.get_active()),
-                summarize_widgets.chunk_size_row.get_text().strip(),
+                summarize_widgets.window_pages_row.get_text().strip(),
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
-            )
-        if overview_widgets:
-            save_overview_settings(
-                overview_widgets.api_url_row.get_text().strip(),
-                overview_widgets.model_row.get_text().strip(),
-                overview_widgets.api_key_row.get_text().strip(),
-                bool(overview_widgets.disable_reasoning_row.get_active()),
-                self._prompt_text(overview_widgets.prompt_buffer).strip(),
-            )
-        if rag_widgets:
-            selected = rag_widgets.provider_row.get_selected()
-            provider = DEFAULT_RAG_PROVIDER
-            if 0 <= selected < len(rag_widgets.provider_values):
-                provider = rag_widgets.provider_values[selected]
-            save_rag_settings(
-                provider,
-                rag_widgets.voyage_key_row.get_text().strip(),
-                rag_widgets.voyage_model_row.get_text().strip(),
-                rag_widgets.isaacus_key_row.get_text().strip(),
-                rag_widgets.isaacus_model_row.get_text().strip(),
             )
         if agent_widgets:
             pi_command = agent_widgets.pi_agent_command_row.get_text().strip()
@@ -6327,19 +4746,10 @@ class TestPromptsWindow(Adw.ApplicationWindow):
     def _mode_details(self, mode_id: str) -> str:
         if _test_prompt_input_kind(mode_id) == "image":
             return "Choose a page image; the test uses the saved classification prompt."
-        if mode_id == "optimize_attorneys":
-            return "Paste hearing text; uses the saved counsel role prompt and credentials."
-        if mode_id == "optimize_hearings":
-            return (
-                "Paste hearing text; uses saved hearing settings and the selected case's "
-                "counsel_roles.json."
-            )
-        if mode_id == "optimize_reports":
-            return "Paste raw report text; uses the saved report optimization prompt."
         if mode_id == "summarize_hearings":
-            return "Paste optimized hearing text; uses the saved hearing summary prompt."
+            return "Paste direct hearing source text; separate simulated source pages with form feeds if needed."
         if mode_id == "summarize_reports":
-            return "Paste optimized report text; uses the saved report summary prompt."
+            return "Paste direct report source text; uses the production summary-window path."
         if mode_id == "summarize_minutes":
             return "Paste minute-order text; uses the saved minute summary prompt."
         return "Uses the saved prompt for the selected mode."
@@ -6470,7 +4880,7 @@ class TestPromptsWindow(Adw.ApplicationWindow):
             self._set_running(False)
             self._set_status("Enter raw text first.", False)
             return
-        self._parent.run_test_optimize_summarize(mode_id, raw_text, {}, _on_done)
+        self._parent.run_test_summarize(mode_id, raw_text, {}, _on_done)
 
 
 class RecordPrepWindow(Adw.ApplicationWindow):
@@ -6838,42 +5248,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_correct_boundaries_row)
 
-        self.step_eight_row = Adw.ActionRow(
-            title="Create raw",
-            subtitle="Create raw hearing and report text files.",
-        )
-        self.step_eight_row.set_activatable(False)
-        self._attach_step_controls(
-            "create_raw",
-            self.step_eight_row,
-            lambda _btn: self.on_step_eight_clicked(self.step_eight_row),
-        )
-        self._attach_step_status(self.step_eight_row)
-
-        self.step_preoptimized_row = Adw.ActionRow(
-            title="Create pre-optimized",
-            subtitle="Create exact pre-optimization chunk files for hearings and reports.",
-        )
-        self.step_preoptimized_row.set_activatable(False)
-        self._attach_step_controls(
-            "create_preoptimized",
-            self.step_preoptimized_row,
-            lambda _btn: self.on_step_preoptimized_clicked(self.step_preoptimized_row),
-        )
-        self._attach_step_status(self.step_preoptimized_row)
-
-        self.step_nine_row = Adw.ActionRow(
-            title="Create optimized",
-            subtitle="Run optimization using the saved pre-optimization chunk files.",
-        )
-        self.step_nine_row.set_activatable(False)
-        self._attach_step_controls(
-            "create_optimized",
-            self.step_nine_row,
-            lambda _btn: self.on_step_nine_clicked(self.step_nine_row),
-        )
-        self._attach_step_status(self.step_nine_row)
-
         self.step_ten_row = Adw.ActionRow(
             title="Create summaries",
             subtitle="Summarize hearings, reports, and minute orders into concise paragraphs.",
@@ -6900,33 +5274,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_add_hearing_date_links_row)
 
-        self.step_eleven_row = Adw.ActionRow(
-            title="Case overview",
-            subtitle="Create parties plus factual/procedural dated histories for RAG context.",
-        )
-        self.step_eleven_row.set_activatable(False)
-        self._attach_step_controls(
-            "case_overview",
-            self.step_eleven_row,
-            lambda _btn: self.on_step_eleven_clicked(self.step_eleven_row),
-        )
-        self._attach_step_status(self.step_eleven_row)
-
-        self.step_twelve_row = Adw.ActionRow(
-            title="Create RAG index",
-            subtitle="Build a VoyageAI or Isaacus Chroma vector store from optimized text.",
-        )
-        self.step_twelve_row.set_activatable(False)
-        self._attach_step_controls(
-            "create_rag_index",
-            self.step_twelve_row,
-            lambda _btn: self.on_step_twelve_clicked(self.step_twelve_row),
-        )
-        self._attach_step_status(self.step_twelve_row)
-
         self.step_number_transcript_pages_row = Adw.ActionRow(
             title="Number transcript pages",
             subtitle="Identify official RT/CT page numbers and citation series with PI.",
+        )
+        self.step_build_participant_index_row = Adw.ActionRow(
+            title="Build participant and witness index",
+            subtitle="Verify hearing-scoped counsel, witnesses, and examinations with PI.",
         )
         self.step_organize_hearing_summary_row = Adw.ActionRow(
             title="Organize hearing summary",
@@ -6938,12 +5292,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self.step_build_source_map_row = Adw.ActionRow(
             title="Build source map",
-            subtitle="Validate Agent Refinement outputs and publish source_map.json.",
+            subtitle="Publish direct-source Agent search metadata and source_map.json.",
         )
-        agent_refinement_rows = (
+        agent_stage_rows = (
             (
                 "number_transcript_pages",
                 self.step_number_transcript_pages_row,
+            ),
+            (
+                "build_participant_index",
+                self.step_build_participant_index_row,
             ),
             (
                 "organize_hearing_summary",
@@ -6958,7 +5316,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.step_build_source_map_row,
             ),
         )
-        for step_id, row in agent_refinement_rows:
+        for step_id, row in agent_stage_rows:
             row.set_activatable(False)
             self._attach_step_controls(
                 step_id,
@@ -7155,40 +5513,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             }
         raise ValueError(f"Unknown classification mode: {mode_id}")
 
-    def _build_test_optimize_summarize_settings(self, mode_id: str) -> dict[str, Any]:
-        if mode_id.startswith("optimize_"):
-            settings = load_optimize_settings()
-            request_settings = _build_optimize_report_request_settings(settings)
-            if mode_id == "optimize_attorneys":
-                request_settings = _build_attorney_request_settings(settings)
-            elif mode_id == "optimize_hearings":
-                request_settings = _build_optimize_hearing_request_settings(settings)
-            elif mode_id == "optimize_reports":
-                request_settings = _build_optimize_report_request_settings(settings)
-            else:
-                raise ValueError(f"Unknown optimize test mode: {mode_id}")
-            return request_settings
-        if mode_id.startswith("summarize_"):
-            settings = load_summarize_settings()
-            prompt = settings["reports_prompt"]
-            if mode_id == "summarize_hearings":
-                prompt = settings["hearings_prompt"]
-            elif mode_id == "summarize_reports":
-                prompt = settings["reports_prompt"]
-            elif mode_id == "summarize_minutes":
-                prompt = settings["minutes_prompt"]
-            else:
-                raise ValueError(f"Unknown summarize test mode: {mode_id}")
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "disable_reasoning": bool(
-                    settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                ),
-                "prompt": prompt,
-            }
-        raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
+    def _build_test_summarize_settings(self, mode_id: str) -> dict[str, Any]:
+        if mode_id not in {"summarize_hearings", "summarize_reports", "summarize_minutes"}:
+            raise ValueError(f"Unknown summarize test mode: {mode_id}")
+        settings = load_summarize_settings()
+        prompt_key = {
+            "summarize_hearings": "hearings_prompt",
+            "summarize_reports": "reports_prompt",
+            "summarize_minutes": "minutes_prompt",
+        }[mode_id]
+        contract = (
+            HEARING_SUMMARY_ATTRIBUTION_CONTRACT
+            if mode_id == "summarize_hearings"
+            else DOCUMENT_SUMMARY_WINDOW_CONTRACT
+        )
+        return {**settings, "prompt": settings[prompt_key] + contract}
 
     def run_test_classification(
         self,
@@ -7218,214 +5557,38 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _parse_optimize_hearing_test_input(self, raw_text: str) -> tuple[str, str]:
-        cleaned = raw_text.strip()
-        if not cleaned:
-            return "TEST DATE", ""
-        lines = cleaned.splitlines()
-        first_line = lines[0].strip() if lines else ""
-        if first_line.lower().startswith("hearing date:"):
-            date_value = first_line.split(":", 1)[1].strip() or "TEST DATE"
-            transcript = "\n".join(lines[1:]).strip()
-            return date_value, transcript or cleaned
-        return "TEST DATE", cleaned
 
-    def _summarize_hearing_test_text(
+    def _test_summary_payloads(
         self,
-        settings: dict[str, Any],
         raw_text: str,
-    ) -> str:
-        chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-        chunk_size_raw = settings.get("chunk_size", "")
-        if chunk_size_raw:
+        settings: dict[str, Any],
+        *,
+        participant_context: str = "",
+    ) -> list[str]:
+        source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
+        with tempfile.TemporaryDirectory(prefix="recordprep-summary-test.") as temporary:
+            text_dir = Path(temporary) / "text_pages"
+            text_dir.mkdir()
+            for index, text in enumerate(source_pages, start=1):
+                (text_dir / f"{index:04d}.txt").write_text(text, encoding="utf-8")
             try:
-                chunk_size = max(1, int(chunk_size_raw))
-            except ValueError:
-                chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-
-        hearing_paragraphs = _split_paragraphs(raw_text)
-        hearing_groups: list[tuple[str, list[str]]] = []
-        current_date: str | None = None
-        for paragraph in hearing_paragraphs:
-            metadata, cleaned = _parse_retrieval_chunk(paragraph)
-            date_value = str(metadata.get("hearing_date", "")).strip()
-            if date_value:
-                date_value = _normalize_hearing_date(date_value)
-                if current_date != date_value:
-                    hearing_groups.append((date_value, []))
-                    current_date = date_value
-            if not hearing_groups:
-                hearing_groups.append(("HEARING", []))
-            hearing_groups[-1][1].append(
-                _remove_standalone_date_lines(_remove_hearing_date_mentions(cleaned))
+                window_pages = max(1, int(settings.get("window_pages") or DEFAULT_SUMMARIZE_WINDOW_PAGES))
+            except (TypeError, ValueError):
+                window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
+            windows = _summary_page_windows(
+                text_dir, 1, len(source_pages), target_pages=window_pages,
+                max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
             )
-
-        output_lines: list[str] = []
-        first_section = True
-        for date_value, paragraphs in hearing_groups:
-            self._raise_if_stop_requested()
-            if not first_section:
-                output_lines.append("")
-            output_lines.append(date_value or "HEARING")
-            output_lines.append("")
-            first_section = False
-            for chunk in _chunk_paragraphs(paragraphs, chunk_size):
-                self._raise_if_stop_requested()
-                response = self._request_plain_text(
-                    {
-                        "api_url": settings["api_url"],
-                        "model_id": settings["model_id"],
-                        "api_key": settings["api_key"],
-                        "disable_reasoning": bool(
-                            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                        ),
-                        "prompt": settings["hearings_prompt"],
-                    },
-                    chunk,
+            return [
+                _render_summary_window_payload(
+                    window,
+                    {page: f"TEST {page}" for page in range(1, len(source_pages) + 1)},
+                    participant_context=participant_context,
                 )
-                cleaned_response = response.strip() if response else ""
-                if cleaned_response:
-                    cleaned_response = _remove_hearing_date_mentions(cleaned_response)
-                    output_lines.append(
-                        _remove_standalone_date_lines(cleaned_response)
-                    )
-                    output_lines.append("")
-        return _collapse_blank_lines("\n".join(output_lines)).strip()
+                for window in windows
+            ]
 
-    def _summarize_report_test_text(
-        self,
-        settings: dict[str, Any],
-        raw_text: str,
-    ) -> str:
-        chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-        chunk_size_raw = settings.get("chunk_size", "")
-        if chunk_size_raw:
-            try:
-                chunk_size = max(1, int(chunk_size_raw))
-            except ValueError:
-                chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-
-        report_paragraphs = _split_paragraphs(raw_text)
-        cleaned_reports: list[str] = []
-        for paragraph in report_paragraphs:
-            _metadata, cleaned = _parse_retrieval_chunk(paragraph)
-            if cleaned:
-                cleaned_reports.append(cleaned)
-        report_paragraphs = cleaned_reports
-        output_lines: list[str] = []
-        for chunk in _chunk_paragraphs(report_paragraphs, chunk_size):
-            self._raise_if_stop_requested()
-            response = self._request_plain_text(
-                {
-                    "api_url": settings["api_url"],
-                    "model_id": settings["model_id"],
-                    "api_key": settings["api_key"],
-                    "disable_reasoning": bool(
-                        settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                    ),
-                    "prompt": settings["reports_prompt"],
-                },
-                chunk,
-            )
-            cleaned_response = response.strip() if response else ""
-            if cleaned_response:
-                output_lines.append(cleaned_response)
-                output_lines.append("")
-        return _collapse_blank_lines("\n".join(output_lines)).strip()
-
-    def _optimize_hearing_test_text(
-        self,
-        settings: dict[str, Any],
-        date_value: str,
-        transcript: str,
-    ) -> str:
-        transcript = transcript.strip()
-        if not transcript:
-            return ""
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            raise ValueError(
-                "Choose a saved case or select PDFs first so the hearing test can load "
-                "`artifacts/preoptimized/counsel_roles.json`."
-            )
-        counsel_roles_path = root_dir / "artifacts" / "preoptimized" / "counsel_roles.json"
-        if not counsel_roles_path.exists():
-            raise FileNotFoundError(
-                "Run Create pre-optimized first so the hearing test can use "
-                "`artifacts/preoptimized/counsel_roles.json`."
-            )
-        try:
-            counsel_roles = _normalize_counsel_role_json_payload(
-                json.loads(
-                    counsel_roles_path.read_text(
-                        encoding="utf-8",
-                        errors="ignore",
-                    )
-                )
-            )
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid counsel_roles.json: {exc}") from exc
-        hearing_metadata = {
-            "type": "hearing",
-            "hearing_date": _format_long_us_date(date_value)
-            or _normalize_hearing_date(date_value),
-        }
-        section_paragraphs: list[str] = []
-        self._raise_if_stop_requested()
-        payload = _build_optimize_hearing_payload(
-            _render_counsel_role_json(counsel_roles),
-            transcript,
-        )
-        response = self._request_plain_text(settings, payload)
-        if response:
-            normalized_response = _normalize_hearing_speaker_labels(
-                _normalize_optimized_text(response),
-                counsel_roles,
-            )
-            section_paragraphs.extend(_split_paragraphs(normalized_response))
-        if not section_paragraphs:
-            return ""
-        rendered: list[str] = []
-        total_paragraphs = len(section_paragraphs)
-        for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
-            paragraph_metadata = dict(hearing_metadata)
-            paragraph_metadata["chunk_index"] = chunk_index
-            paragraph_metadata["chunk_total"] = total_paragraphs
-            rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
-        return "\n\n".join(rendered)
-
-    def _optimize_report_test_text(
-        self,
-        settings: dict[str, Any],
-        raw_text: str,
-    ) -> str:
-        raw_text = raw_text.strip()
-        if not raw_text:
-            return ""
-        report_metadata = {
-            "type": "report",
-            "report_name": "TEST REPORT",
-        }
-        section_paragraphs: list[str] = []
-        self._raise_if_stop_requested()
-        response = self._optimize_report_chunk(
-            settings,
-            raw_text,
-        )
-        if response:
-            section_paragraphs.extend(_split_paragraphs(_normalize_optimized_text(response)))
-        if not section_paragraphs:
-            return ""
-        rendered: list[str] = []
-        total_paragraphs = len(section_paragraphs)
-        for chunk_index, paragraph in enumerate(section_paragraphs, start=1):
-            paragraph_metadata = dict(report_metadata)
-            paragraph_metadata["chunk_index"] = chunk_index
-            paragraph_metadata["chunk_total"] = total_paragraphs
-            rendered.append(_render_retrieval_chunk(paragraph_metadata, paragraph))
-        return "\n\n".join(rendered)
-
-    def run_test_optimize_summarize(
+    def run_test_summarize(
         self,
         mode_id: str,
         raw_text: str,
@@ -7434,56 +5597,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     ) -> None:
         def _worker() -> None:
             try:
-                settings = self._build_test_optimize_summarize_settings(mode_id)
-                for key in ("api_url", "model_id", "api_key", "prompt"):
-                    override_value = overrides.get(key)
-                    if isinstance(override_value, str) and override_value.strip():
-                        settings[key] = override_value.strip()
-                if "disable_reasoning" in overrides:
-                    settings["disable_reasoning"] = bool(overrides["disable_reasoning"])
+                settings = self._build_test_summarize_settings(mode_id)
+                settings.update({key: value for key, value in overrides.items() if value not in (None, "")})
                 if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                     raise ValueError("Enter API URL, model ID, and API key.")
-                if not settings.get("prompt"):
-                    raise ValueError("Prompt is empty in Settings.")
-
-                output = ""
-                if mode_id == "optimize_attorneys":
-                    optimize_settings = load_optimize_settings()
-                    counsel_roles = self._extract_counsel_roles(
-                        optimize_settings,
-                        _build_transcript_counsel_role_evidence(raw_text),
+                participant_context = ""
+                if mode_id == "summarize_hearings":
+                    participant_context = "\n".join(
+                        _hearing_context_lines({"counsel": [], "witness_status": "unknown", "witnesses": []})
                     )
-                    output = _render_counsel_role_json(counsel_roles)
-                elif mode_id == "optimize_hearings":
-                    date_value, transcript = self._parse_optimize_hearing_test_input(raw_text)
-                    if not transcript:
-                        raise ValueError("Enter transcript text for optimize hearing testing.")
-                    output = self._optimize_hearing_test_text(
-                        settings,
-                        date_value,
-                        transcript,
-                    )
-                elif mode_id == "optimize_reports":
-                    output = self._optimize_report_test_text(settings, raw_text)
-                elif mode_id == "summarize_hearings":
-                    summarize_settings = load_summarize_settings()
-                    summarize_settings.update(overrides)
-                    output = self._summarize_hearing_test_text(
-                        summarize_settings,
-                        raw_text,
-                    )
-                elif mode_id == "summarize_reports":
-                    summarize_settings = load_summarize_settings()
-                    summarize_settings.update(overrides)
-                    output = self._summarize_report_test_text(
-                        summarize_settings,
-                        raw_text,
-                    )
-                elif mode_id == "summarize_minutes":
-                    output = self._request_plain_text(settings, raw_text)
-                else:
-                    raise ValueError(f"Unknown optimize/summarize mode: {mode_id}")
-                GLib.idle_add(on_done, output.strip(), None)
+                payloads = self._test_summary_payloads(
+                    raw_text,
+                    settings,
+                    participant_context=participant_context,
+                )
+                responses: list[str] = []
+                for payload in payloads:
+                    self._raise_if_stop_requested()
+                    response = self._request_plain_text(settings, payload)
+                    if response:
+                        responses.append(" ".join(response.split()))
+                GLib.idle_add(on_done, "\n\n".join(responses).strip(), None)
             except StopRequested:
                 GLib.idle_add(on_done, "", "Stopped.")
             except Exception as exc:
@@ -7924,7 +6058,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         image_dir = root_dir / "image_pages"
         classification_dir = root_dir / "classification"
         artifacts_dir = root_dir / "artifacts"
-        rag_dir = root_dir / "rag"
         summaries_path, reports_path = _summary_output_paths(root_dir)
         minutes_path = _minutes_summary_output_path(root_dir)
 
@@ -8000,35 +6133,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 (artifacts_dir / "hearing_boundaries.json").exists()
                 and (artifacts_dir / "report_boundaries.json").exists()
             )
-        if step_id == "create_raw":
-            return (
-                (artifacts_dir / "raw_hearings.txt").exists()
-                and (artifacts_dir / "raw_reports.txt").exists()
-            )
-        if step_id == "create_preoptimized":
-            return (
-                (artifacts_dir / "preoptimized" / "hearings").exists()
-                and (artifacts_dir / "preoptimized" / "reports").exists()
-            )
-        if step_id == "create_optimized":
-            return (
-                (artifacts_dir / "optimized_hearings.txt").exists()
-                and (artifacts_dir / "optimized_reports.txt").exists()
-            )
         if step_id == "create_summaries":
             return summaries_path.exists() and reports_path.exists() and minutes_path.exists()
         if step_id == "add_hearing_date_links":
             return _has_page_markdown_links(summaries_path)
-        if step_id == "case_overview":
-            return (rag_dir / "case_overview.txt").exists()
-        if step_id == "create_rag_index":
-            return (
-                rag_dir.exists()
-                and (rag_dir / "vector_database").exists()
-                and _dir_has_files(rag_dir / "vector_database", "*")
-            )
         if step_id in {
             "number_transcript_pages",
+            "build_participant_index",
             "organize_hearing_summary",
             "organize_report_summary",
             "build_source_map",
@@ -8774,21 +6885,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.step_correct_boundaries_row,
                 self._run_step_correct_boundaries,
             ),
-            ("create_raw", self.step_eight_row, self._run_step_eight),
-            ("create_preoptimized", self.step_preoptimized_row, self._run_step_preoptimized),
-            ("create_optimized", self.step_nine_row, self._run_step_nine),
+            (
+                "number_transcript_pages",
+                self.step_number_transcript_pages_row,
+                self._run_step_number_transcript_pages,
+            ),
+            (
+                "build_participant_index",
+                self.step_build_participant_index_row,
+                self._run_step_build_participant_index,
+            ),
             ("create_summaries", self.step_ten_row, self._run_step_ten),
             (
                 "add_hearing_date_links",
                 self.step_add_hearing_date_links_row,
                 self._run_step_add_hearing_date_links,
-            ),
-            ("case_overview", self.step_eleven_row, self._run_step_eleven),
-            ("create_rag_index", self.step_twelve_row, self._run_step_twelve),
-            (
-                "number_transcript_pages",
-                self.step_number_transcript_pages_row,
-                self._run_step_number_transcript_pages,
             ),
             (
                 "organize_hearing_summary",
@@ -9395,35 +7506,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.step_correct_boundaries_row, self._run_step_correct_boundaries
         )
 
-    def on_step_eight_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(self.step_eight_row, self._run_step_eight)
 
-    def on_step_preoptimized_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(self.step_preoptimized_row, self._run_step_preoptimized)
 
-    def on_step_nine_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(self.step_nine_row, self._run_step_nine)
 
     def on_step_ten_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -9448,25 +7532,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._run_step_add_hearing_date_links,
         )
 
-    def on_step_eleven_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(self.step_eleven_row, self._run_step_eleven)
 
-    def on_step_twelve_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(self.step_twelve_row, self._run_step_twelve)
 
     def on_agent_refinement_step_clicked(
         self,
@@ -9779,6 +7845,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return self._run_pi_skill_step(
             "number_transcript_pages",
             self.step_number_transcript_pages_row,
+        )
+
+    def _run_step_build_participant_index(self) -> bool:
+        return self._run_pi_skill_step(
+            "build_participant_index",
+            self.step_build_participant_index_row,
         )
 
     def _run_step_organize_hearing_summary(self) -> bool:
@@ -11304,865 +9376,202 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_button_if_idle)
         return success is True or success == "Skipped"
 
-    def _run_step_eight(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            derived_dir = root_dir / "artifacts"
-            text_dir = root_dir / "text_pages"
-            if not text_dir.exists():
-                raise FileNotFoundError("Run Create files to generate text files first.")
-            hearing_path = derived_dir / "hearing_boundaries.json"
-            report_path = derived_dir / "report_boundaries.json"
-            if not hearing_path.exists() or not report_path.exists():
-                raise FileNotFoundError("Run Find boundaries to generate boundary JSON files first.")
-            artifacts_dir = root_dir / "artifacts"
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
-            hearing_entries = _load_json_entries(hearing_path)
-            report_entries = _load_json_entries(report_path)
-            minutes_path = derived_dir / "minutes_boundaries.json"
-            minute_entries = (
-                _load_json_entries(minutes_path)
-                if minutes_path.exists()
-                else []
-            )
-            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
-            report_sections = _build_report_sections(report_entries, text_dir)
-            raw_hearings = _compile_raw_sections_text(hearing_sections)
-            raw_reports = _compile_raw_sections_text(report_sections)
-            (artifacts_dir / "raw_hearings.txt").write_text(raw_hearings, encoding="utf-8")
-            (artifacts_dir / "raw_reports.txt").write_text(raw_reports, encoding="utf-8")
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create raw failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_raw",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            if not hearing_entries and not report_entries:
-                GLib.idle_add(
-                    self.show_toast,
-                    "No hearing/report boundaries found. Created empty raw files and continued.",
-                    "WARN",
-                )
-            else:
-                GLib.idle_add(self.show_toast, "Create raw complete.")
-        finally:
-            GLib.idle_add(self.step_eight_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_eight_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
 
-    def _run_step_preoptimized(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            artifacts_dir = root_dir / "artifacts"
-            text_dir = root_dir / "text_pages"
-            hearing_path = artifacts_dir / "hearing_boundaries.json"
-            report_path = artifacts_dir / "report_boundaries.json"
-            if not text_dir.exists():
-                raise FileNotFoundError("Run Create files to generate text files first.")
-            if not hearing_path.exists() or not report_path.exists():
-                raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing/report boundaries first."
-                )
-            optimize_settings = load_optimize_settings()
-            chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-            chunk_size_raw = optimize_settings.get("chunk_size", "")
-            if chunk_size_raw:
-                try:
-                    chunk_size = max(1, int(chunk_size_raw))
-                except ValueError:
-                    chunk_size = DEFAULT_OPTIMIZE_CHUNK_SIZE
-            hearing_entries = _load_json_entries(hearing_path)
-            report_entries = _load_json_entries(report_path)
-            minutes_path = artifacts_dir / "minutes_boundaries.json"
-            minute_entries = (
-                _load_json_entries(minutes_path)
-                if minutes_path.exists()
-                else []
-            )
-            hearing_sections = _build_hearing_sections(hearing_entries, text_dir, minute_entries)
-            report_sections = _build_report_sections(report_entries, text_dir)
-            GLib.idle_add(
-                self._append_log_message,
-                (
-                    "Create pre-optimized: extracting counsel roles from the first two "
-                    "pages of each hearing."
-                ),
-                "INFO",
-            )
-            counsel_role_evidence = _build_case_counsel_role_evidence(
-                hearing_entries,
-                text_dir,
-            )
-            counsel_role_chunks = _chunk_text_for_artifacts(
-                counsel_role_evidence,
-                COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE,
-            )
-            GLib.idle_add(
-                self._append_log_message,
-                (
-                    "Create pre-optimized: counsel role evidence built from "
-                    f"{len(hearing_entries)} hearing(s), "
-                    f"{len(counsel_role_evidence):,} characters, "
-                    f"{len(counsel_role_chunks)} extraction chunk(s)."
-                ),
-                "INFO",
-            )
-            counsel_roles = self._extract_counsel_roles(
-                optimize_settings,
-                counsel_role_evidence,
-            )
-            _create_preoptimized_chunks(
-                root_dir,
-                hearing_sections,
-                report_sections,
-                chunk_size,
-                counsel_role_evidence=counsel_role_evidence,
-                counsel_roles=counsel_roles,
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create pre-optimized failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_preoptimized",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create pre-optimized complete.")
-        finally:
-            GLib.idle_add(self.step_preoptimized_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_preoptimized_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
 
-    def _optimize_report_chunk(
-        self,
-        settings: dict[str, Any],
-        chunk: str,
-    ) -> str:
-        request_settings = _build_optimize_report_request_settings(settings)
-        response = self._request_plain_text(request_settings, chunk)
-        return _normalize_optimized_text(response) if response else ""
 
-    def _extract_counsel_roles(
-        self,
-        optimize_settings: dict[str, Any],
-        evidence_text: str,
-    ) -> dict[str, Any]:
-        cleaned_evidence = evidence_text.strip()
-        empty_roles = {"roles": [], "unknown_speaker_labels": [], "notes": ""}
-        if not cleaned_evidence:
-            GLib.idle_add(
-                self._append_log_message,
-                "Counsel role extraction skipped: no evidence text was available.",
-                "WARN",
-            )
-            return empty_roles
-        attorney_settings = _build_attorney_request_settings(optimize_settings)
-        if (
-            not attorney_settings["api_url"]
-            or not attorney_settings["model_id"]
-            or not attorney_settings["api_key"]
-        ):
-            raise ValueError(
-                "Configure counsel role extraction API URL, model ID, and API key in Settings."
-            )
-        evidence_chunks = _chunk_text_for_artifacts(
-            cleaned_evidence,
-            COUNSEL_ROLE_EXTRACTION_CHUNK_SIZE,
-        )
-        total_chunks = len(evidence_chunks)
-        GLib.idle_add(
-            self._append_log_message,
-            (
-                "Counsel role extraction: "
-                f"{len(cleaned_evidence):,} characters of evidence across "
-                f"{total_chunks} request chunk(s)."
-            ),
-            "INFO",
-        )
-        payloads: list[dict[str, Any]] = []
-        for chunk_index, chunk in enumerate(evidence_chunks, start=1):
-            GLib.idle_add(
-                self._append_log_message,
-                (
-                    "Counsel role extraction: "
-                    f"starting chunk {chunk_index}/{total_chunks} "
-                    f"({len(chunk):,} characters)."
-                ),
-                "INFO",
-            )
-            attorney_response = self._request_plain_text(attorney_settings, chunk)
-            try:
-                attorney_payload = json.loads(self._extract_json_payload(attorney_response))
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"Counsel role extraction returned invalid JSON: {exc}"
-                ) from exc
-            normalized_payload = _normalize_counsel_role_json_payload(attorney_payload)
-            GLib.idle_add(
-                self._append_log_message,
-                (
-                    "Counsel role extraction: "
-                    f"finished chunk {chunk_index}/{total_chunks} with "
-                    f"{len(normalized_payload['roles'])} role(s) and "
-                    f"{len(normalized_payload['unknown_speaker_labels'])} "
-                    "unresolved label(s)."
-                ),
-                "INFO",
-            )
-            payloads.append(normalized_payload)
-        merged_payload = _merge_counsel_role_payloads(payloads) if payloads else empty_roles
-        GLib.idle_add(
-            self._append_log_message,
-            (
-                "Counsel role extraction complete: "
-                f"{len(merged_payload['roles'])} final role(s) and "
-                f"{len(merged_payload['unknown_speaker_labels'])} unresolved label(s)."
-            ),
-            "INFO",
-        )
-        return merged_payload
 
-    def _run_step_nine(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            artifacts_dir = root_dir / "artifacts"
-            preoptimized_dir = artifacts_dir / "preoptimized"
-            preoptimized_hearings_dir = preoptimized_dir / "hearings"
-            preoptimized_reports_dir = preoptimized_dir / "reports"
-            if not preoptimized_hearings_dir.exists() or not preoptimized_reports_dir.exists():
-                raise FileNotFoundError(
-                    "Run Create pre-optimized to generate hearing/report chunk files first."
-                )
-            settings = load_optimize_settings()
-            hearing_request_settings = _build_optimize_hearing_request_settings(settings)
-            report_request_settings = _build_optimize_report_request_settings(settings)
-            counsel_roles_path = preoptimized_dir / "counsel_roles.json"
-            if not counsel_roles_path.exists():
-                raise FileNotFoundError(
-                    "Run Create pre-optimized to generate counsel_roles.json first."
-                )
-            raw_counsel_roles = counsel_roles_path.read_text(
-                encoding="utf-8",
-                errors="ignore",
-            )
-            try:
-                counsel_roles_payload = _normalize_counsel_role_json_payload(
-                    json.loads(raw_counsel_roles)
-                )
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"Invalid counsel_roles.json: {exc}"
-                ) from exc
-            hearing_files = _load_chunked_section_files(
-                preoptimized_hearings_dir,
-                "hearing",
-                "hearing_date",
-            )
-            report_files = _load_chunked_section_files(
-                preoptimized_reports_dir,
-                "report",
-                "report_name",
-            )
-            if hearing_files and (
-                not hearing_request_settings["api_url"]
-                or not hearing_request_settings["model_id"]
-                or not hearing_request_settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure hearing optimize API URL, model ID, and API key in Settings."
-                )
-            if report_files and (
-                not report_request_settings["api_url"]
-                or not report_request_settings["model_id"]
-                or not report_request_settings["api_key"]
-            ):
-                raise ValueError(
-                    "Configure report optimize API URL, model ID, and API key in Settings."
-                )
-            if not hearing_files and not report_files:
-                (artifacts_dir / "optimized_hearings.txt").write_text("", encoding="utf-8")
-                (artifacts_dir / "optimized_reports.txt").write_text("", encoding="utf-8")
-                _create_optimized_output_dirs(root_dir)
-                self._safe_update_manifest(
-                    root_dir,
-                    {
-                        "last_completed_step": "create_optimized",
-                        "last_failed_step": None,
-                        "last_failed_at": None,
-                    },
-                )
-                GLib.idle_add(
-                    self.show_toast,
-                    "No hearing/report boundary content found. Created empty optimized files and continued.",
-                    "WARN",
-                )
-                success = "Skipped"
-                return True
 
-            optimized_hearings_dir, optimized_reports_dir = _create_optimized_output_dirs(root_dir)
-            optimized_hearings: list[str] = []
-            total_hearing_sections = len(hearing_files)
-            for section_index, section in enumerate(hearing_files, start=1):
-                self._raise_if_stop_requested()
-                if not section.chunk_paths:
-                    continue
-                hearing_date = str(section.metadata.get("hearing_date", "")).strip() or section.label or "Unknown date"
-                GLib.idle_add(
-                    self._append_log_message,
-                    (
-                        f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
-                        f"({hearing_date}), loading counsel roles."
-                    ),
-                    "INFO",
-                )
-                section_paragraphs: list[str] = []
-                output_section_dir = optimized_hearings_dir / section.directory.name
-                output_section_dir.mkdir(parents=True, exist_ok=True)
-                (output_section_dir / "label.txt").write_text(hearing_date + "\n", encoding="utf-8")
-                (output_section_dir / "metadata.json").write_text(
-                    json.dumps(section.metadata, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8",
-                )
-                total_chunks = len(section.chunk_paths)
-                for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
-                    self._raise_if_stop_requested()
-                    chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
-                    GLib.idle_add(
-                        self._append_log_message,
-                        (
-                            f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
-                            f"({hearing_date}), chunk {chunk_index}/{total_chunks}."
-                        ),
-                        "INFO",
-                    )
-                    payload = _build_optimize_hearing_payload(
-                        _render_counsel_role_json(counsel_roles_payload),
-                        chunk,
-                    )
-                    response = self._request_plain_text(
-                        hearing_request_settings,
-                        payload,
-                    )
-                    if response:
-                        normalized_response = _normalize_optimized_text(response)
-                        if normalized_response:
-                            normalized_response = _normalize_hearing_speaker_labels(
-                                normalized_response,
-                                counsel_roles_payload,
-                            )
-                            (output_section_dir / f"{chunk_index:04d}.txt").write_text(
-                                normalized_response,
-                                encoding="utf-8",
-                            )
-                            section_paragraphs.extend(_split_paragraphs(normalized_response))
-                if section_paragraphs:
-                    total_paragraphs = len(section_paragraphs)
-                    GLib.idle_add(
-                        self._append_log_message,
-                        (
-                            f"Create optimized: hearing section {section_index}/{total_hearing_sections} "
-                            f"({hearing_date}) complete with {total_paragraphs} output chunk(s)."
-                        ),
-                        "INFO",
-                    )
-                    optimized_hearings.extend(section_paragraphs)
-
-            optimized_reports: list[str] = []
-            total_report_sections = len(report_files)
-            for section_index, section in enumerate(report_files, start=1):
-                self._raise_if_stop_requested()
-                if not section.chunk_paths:
-                    continue
-                report_name = str(section.metadata.get("report_name", "")).strip() or section.label or "Unknown report"
-                report_label = (
-                    str(section.metadata.get("report_label", "")).strip()
-                    or _format_report_label(
-                        report_name,
-                        str(section.metadata.get("report_date", "")).strip(),
-                    )
-                )
-                section_paragraphs: list[str] = []
-                output_section_dir = optimized_reports_dir / section.directory.name
-                output_section_dir.mkdir(parents=True, exist_ok=True)
-                (output_section_dir / "label.txt").write_text(report_label + "\n", encoding="utf-8")
-                optimized_metadata = dict(section.metadata)
-                optimized_metadata["report_label"] = report_label
-                (output_section_dir / "metadata.json").write_text(
-                    json.dumps(optimized_metadata, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8",
-                )
-                total_chunks = len(section.chunk_paths)
-                for chunk_index, chunk_path in enumerate(section.chunk_paths, start=1):
-                    self._raise_if_stop_requested()
-                    chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
-                    GLib.idle_add(
-                        self._append_log_message,
-                        (
-                            f"Create optimized: report section {section_index}/{total_report_sections} "
-                            f"({report_name}), chunk {chunk_index}/{total_chunks}."
-                        ),
-                        "INFO",
-                    )
-                    response = self._optimize_report_chunk(
-                        settings,
-                        chunk,
-                    )
-                    if response:
-                        normalized_response = _normalize_optimized_text(response)
-                        if normalized_response:
-                            (output_section_dir / f"{chunk_index:04d}.txt").write_text(
-                                normalized_response,
-                                encoding="utf-8",
-                            )
-                            section_paragraphs.extend(_split_paragraphs(normalized_response))
-                if section_paragraphs:
-                    total_paragraphs = len(section_paragraphs)
-                    GLib.idle_add(
-                        self._append_log_message,
-                        (
-                            f"Create optimized: report section {section_index}/{total_report_sections} "
-                            f"({report_name}) complete with {total_paragraphs} output chunk(s)."
-                        ),
-                        "INFO",
-                    )
-                    optimized_reports.extend(section_paragraphs)
-
-            (artifacts_dir / "optimized_hearings.txt").write_text(
-                _collapse_blank_lines("\n\n".join(optimized_hearings)) if optimized_hearings else "",
-                encoding="utf-8",
-            )
-            (artifacts_dir / "optimized_reports.txt").write_text(
-                _collapse_blank_lines("\n\n".join(optimized_reports)) if optimized_reports else "",
-                encoding="utf-8",
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create optimized failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_optimized",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create optimized complete.")
-        finally:
-            GLib.idle_add(self.step_nine_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_nine_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True or success == "Skipped"
 
     def _run_step_ten(self) -> bool:
+        """Create direct-source summaries through nonpersisted page windows."""
         success: bool | None = False
+        root_dir: Path | None = None
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
             if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             artifacts_dir = root_dir / "artifacts"
+            _cleanup_legacy_generated_artifacts(root_dir)
+            text_dir = root_dir / "text_pages"
             summaries_dir = root_dir / "summaries"
             summaries_path, reports_path = _summary_output_paths(root_dir)
             minutes_path = _minutes_summary_output_path(root_dir)
-            text_dir = root_dir / "text_pages"
-            optimized_hearings_path = artifacts_dir / "optimized_hearings.txt"
-            optimized_reports_path = artifacts_dir / "optimized_reports.txt"
-            if not optimized_hearings_path.exists() or not optimized_reports_path.exists():
-                raise FileNotFoundError("Run Create optimized to generate optimized files first.")
-            if not text_dir.exists():
-                raise FileNotFoundError("Run Create files to generate text files first.")
-            report_boundaries_path = artifacts_dir / "report_boundaries.json"
-            minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"
-            if not minutes_boundaries_path.exists() or not report_boundaries_path.exists():
-                raise FileNotFoundError(
-                    "Run Find boundaries to generate minute order and report boundaries first."
-                )
+            if not text_dir.is_dir():
+                raise FileNotFoundError("Run Create files to generate text pages first.")
+            hearing_boundaries = _load_json_entries(artifacts_dir / "hearing_boundaries.json")
+            report_boundaries = _load_json_entries(artifacts_dir / "report_boundaries.json")
+            minute_boundaries = _load_json_entries(artifacts_dir / "minutes_boundaries.json")
+            participant_issues = validate_participant_index_output(root_dir)
+            if participant_issues:
+                raise ValueError("Participant index validation failed: " + " ".join(participant_issues))
+            participant_payload = json.loads(
+                (artifacts_dir / "participant_index.json").read_text(encoding="utf-8")
+            )
+            participant_hearings = [
+                item for item in participant_payload.get("hearings", []) if isinstance(item, dict)
+            ]
+            participant_by_range = {
+                (int(item.get("start_page") or 0), int(item.get("end_page") or 0)): item
+                for item in participant_hearings
+            }
+            transcript_payload = json.loads(
+                (artifacts_dir / "transcript_page_numbers.json").read_text(encoding="utf-8")
+            )
+            citation_by_page = {
+                int(item.get("file_page") or _page_number_from_label(str(item.get("file_name") or "")) or 0): str(item.get("citation_label") or "")
+                for item in transcript_payload.get("entries", []) if isinstance(item, dict)
+            }
             settings = load_summarize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError(
-                    "Configure Summarize API URL, model ID, and API key in Settings."
-                )
-            chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
-            chunk_size_raw = settings.get("chunk_size", "")
-            if chunk_size_raw:
-                try:
-                    chunk_size = max(1, int(chunk_size_raw))
-                except ValueError:
-                    chunk_size = DEFAULT_SUMMARIZE_CHUNK_SIZE
+                raise ValueError("Configure Summarize API URL, model ID, and API key in Settings.")
+            window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
+            try:
+                window_pages = max(1, int(settings.get("window_pages") or window_pages))
+            except (TypeError, ValueError):
+                pass
+            request_base = {
+                "api_url": settings["api_url"],
+                "model_id": settings["model_id"],
+                "api_key": settings["api_key"],
+                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+            }
+            def request_window(prompt: str, payload: str, hearing: dict[str, Any] | None = None) -> str:
+                correction = ""
+                for attempt in range(2):
+                    response = self._request_plain_text(
+                        {**request_base, "prompt": prompt + correction}, payload
+                    )
+                    cleaned = " ".join((response or "").split())
+                    if not cleaned:
+                        return ""
+                    issue = _hearing_summary_validation_issue(cleaned, hearing) if hearing else None
+                    if issue is None:
+                        return cleaned
+                    correction = (
+                        f"\n\nYour prior answer was rejected because it {issue}. Correct that error, "
+                        "obey the authoritative participant context, and return the paragraph again."
+                    )
+                raise ValueError(f"Summary attribution validation failed: {issue}.")
 
-            case_name, _root_dir = load_case_context()
+            case_name, _ = load_case_context()
             display_case_name = case_name.replace("_", " ") if case_name else ""
-            summary_hearings: list[str] = []
-            summary_reports: list[str] = []
-
-            if display_case_name:
-                summary_hearings.extend(["Hearings Summary", display_case_name, ""])
-            else:
-                summary_hearings.append("Hearings Summary")
-
-            hearing_groups: list[tuple[str, list[str]]] = []
-            hearing_sections = _load_labeled_chunk_directories(
-                artifacts_dir / "optimized" / "hearings",
-                "hearing",
-                "hearing_date",
-            )
-            for section in hearing_sections:
+            hearing_output = ["Hearings Summary", *([display_case_name] if display_case_name else []), ""]
+            total_hearings = len(hearing_boundaries)
+            for hearing_number, boundary in enumerate(hearing_boundaries, start=1):
                 self._raise_if_stop_requested()
-                metadata = section.get("metadata")
-                metadata = metadata if isinstance(metadata, dict) else {}
+                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
+                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
+                if start is None or end is None:
+                    raise ValueError("Hearing boundary is missing a page range.")
+                participant = participant_by_range.get((start, end))
+                if participant is None:
+                    raise ValueError(f"Participant index has no hearing for source pages {start}-{end}.")
                 date_value = _normalize_hearing_date(
-                    str(metadata.get("hearing_date", "")).strip() or "HEARING"
+                    _extract_entry_value(boundary, "date", "hearing_date") or str(participant.get("date") or "HEARING")
                 )
-                paragraphs = [
-                    _remove_standalone_date_lines(_remove_hearing_date_mentions(paragraph))
-                    for paragraph in _expand_section_chunk_paragraphs(
-                        list(section.get("chunks", []))
-                    )
-                    if str(paragraph).strip()
-                ]
-                if paragraphs:
-                    hearing_groups.append((date_value, paragraphs))
-
-            report_groups: list[tuple[str, list[str]]] = []
-            report_sections = _load_labeled_chunk_directories(
-                artifacts_dir / "optimized" / "reports",
-                "report",
-                "report_name",
-            )
-            for section in report_sections:
-                metadata = section.get("metadata")
-                metadata = metadata if isinstance(metadata, dict) else {}
-                report_name = str(metadata.get("report_name", "")).strip() or "Report"
-                report_label = (
-                    str(metadata.get("report_label", "")).strip()
-                    or _format_report_label(
-                        report_name,
-                        str(metadata.get("report_date", "")).strip(),
-                    )
+                counsel_line, testimony_line = _hearing_context_lines(participant)
+                context = counsel_line + "\n" + testimony_line
+                preferred_breaks: set[int] = set()
+                for witness in participant.get("witnesses", []):
+                    if not isinstance(witness, dict):
+                        continue
+                    for exam in witness.get("examinations", []):
+                        if isinstance(exam, dict):
+                            try:
+                                value = int(exam.get("start_file_page") or 0)
+                            except (TypeError, ValueError):
+                                value = 0
+                            if value:
+                                preferred_breaks.add(value)
+                windows = _summary_page_windows(
+                    text_dir, start, end, target_pages=window_pages,
+                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+                    preferred_breaks=preferred_breaks,
                 )
-                paragraphs = _expand_section_chunk_paragraphs(
-                    list(section.get("chunks", []))
-                )
-                if paragraphs:
-                    report_groups.append((report_label, paragraphs))
-
-            minute_entries = _load_json_entries(minutes_boundaries_path)
-            self._report_step_progress(
-                self.step_ten_row,
-                "Preparing summaries",
-                (
-                    "Create summaries: "
-                    f"{len(hearing_groups)} hearing(s), "
-                    f"{len(report_groups)} report(s), and "
-                    f"{len(minute_entries)} minute order(s) queued."
-                ),
-            )
-            hearing_responses: list[str] = []
-            total_hearing_groups = len(hearing_groups)
-            for hearing_index, (date_value, paragraphs) in enumerate(hearing_groups, start=1):
-                self._raise_if_stop_requested()
-                hearing_chunks = _chunk_paragraphs(paragraphs, chunk_size)
-                total_hearing_chunks = len(hearing_chunks)
-                for chunk_index, chunk in enumerate(hearing_chunks, start=1):
+                hearing_output.extend([date_value or "HEARING", "", counsel_line, testimony_line])
+                for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
-                    progress_status = (
-                        f"Hearing {hearing_index}/{total_hearing_groups} "
-                        f"chunk {chunk_index}/{total_hearing_chunks}"
-                    )
-                    progress_message = (
-                        "Create summaries: summarizing hearing "
-                        f"{hearing_index}/{total_hearing_groups} "
-                        f"({date_value or 'HEARING'}), "
-                        f"chunk {chunk_index}/{total_hearing_chunks}."
-                    )
                     self._report_step_progress(
                         self.step_ten_row,
-                        progress_status,
-                        progress_message,
+                        f"Hearing {hearing_number}/{total_hearings} window {window_number}/{len(windows)}",
+                        f"Create summaries: direct-source hearing pages {window['primary_start']}-{window['primary_end']}.",
                     )
-                    response = self._request_plain_text(
-                        {
-                            "api_url": settings["api_url"],
-                            "model_id": settings["model_id"],
-                            "api_key": settings["api_key"],
-                            "disable_reasoning": bool(
-                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                            ),
-                            "prompt": settings["hearings_prompt"],
-                        },
-                        chunk,
+                    payload = _render_summary_window_payload(
+                        window, citation_by_page, participant_context=context
                     )
-                    cleaned_response = response.strip() if response else ""
-                    hearing_responses.append(cleaned_response)
-                    self._report_step_progress(
-                        self.step_ten_row,
-                        progress_status,
-                        (
-                            "Create summaries: completed hearing "
-                            f"{hearing_index}/{total_hearing_groups} "
-                            f"({date_value or 'HEARING'}), "
-                            f"chunk {chunk_index}/{total_hearing_chunks}."
-                        ),
+                    response = request_window(
+                        settings["hearings_prompt"] + HEARING_SUMMARY_ATTRIBUTION_CONTRACT,
+                        payload,
+                        participant,
                     )
-
-            first_section = True
-            hearing_chunk_index = 0
-            for date_value, paragraphs in hearing_groups:
-                self._raise_if_stop_requested()
-                if not first_section:
-                    summary_hearings.append("")
-                summary_hearings.append(date_value or "HEARING")
-                summary_hearings.append("")
-                first_section = False
-                for chunk in _chunk_paragraphs(paragraphs, chunk_size):
-                    self._raise_if_stop_requested()
-                    response = hearing_responses[hearing_chunk_index] if hearing_chunk_index < len(hearing_responses) else ""
-                    hearing_chunk_index += 1
                     if response:
-                        cleaned_response = _remove_hearing_date_mentions(response.strip())
-                        summary_hearings.append(_remove_standalone_date_lines(cleaned_response))
-                        summary_hearings.append("")
+                        hearing_output.append(response)
+                hearing_output.append("")
 
-            if display_case_name:
-                summary_reports.extend(["Reports Summary", display_case_name, "", ""])
-            else:
-                summary_reports.extend(["Reports Summary", ""])
-
-            report_responses: list[str] = []
-            report_group_chunk_counts: list[int] = []
-            total_report_groups = len(report_groups)
-            if total_report_groups:
-                self._report_step_progress(
-                    self.step_ten_row,
-                    "Summarizing reports",
-                    f"Create summaries: {total_report_groups} report(s) queued.",
-                )
-            for report_index, (report_name, paragraphs) in enumerate(report_groups, start=1):
-                group_chunk_count = 0
-                report_chunks = _chunk_paragraphs(paragraphs, chunk_size)
-                total_report_chunks = len(report_chunks)
-                for chunk_index, chunk in enumerate(report_chunks, start=1):
+            report_output = ["Reports Summary", *([display_case_name] if display_case_name else []), ""]
+            total_reports = len(report_boundaries)
+            for report_number, boundary in enumerate(report_boundaries, start=1):
+                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
+                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
+                if start is None or end is None:
+                    raise ValueError("Report boundary is missing a page range.")
+                label = _extract_entry_value(boundary, "report_label", "report_name") or f"Report {report_number}"
+                report_output.extend([label, ""])
+                windows = _summary_page_windows(text_dir, start, end, target_pages=window_pages)
+                for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
-                    progress_status = (
-                        f"Report {report_index}/{total_report_groups} "
-                        f"chunk {chunk_index}/{total_report_chunks}"
-                    )
-                    progress_message = (
-                        "Create summaries: summarizing report "
-                        f"{report_index}/{total_report_groups} "
-                        f"({report_name or 'Report'}), "
-                        f"chunk {chunk_index}/{total_report_chunks}."
-                    )
                     self._report_step_progress(
                         self.step_ten_row,
-                        progress_status,
-                        progress_message,
+                        f"Report {report_number}/{total_reports} window {window_number}/{len(windows)}",
+                        f"Create summaries: direct-source report pages {window['primary_start']}-{window['primary_end']}.",
                     )
-                    response = self._request_plain_text(
-                        {
-                            "api_url": settings["api_url"],
-                            "model_id": settings["model_id"],
-                            "api_key": settings["api_key"],
-                            "disable_reasoning": bool(
-                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                            ),
-                            "prompt": settings["reports_prompt"],
-                        },
-                        chunk,
+                    response = request_window(
+                        settings["reports_prompt"] + DOCUMENT_SUMMARY_WINDOW_CONTRACT,
+                        _render_summary_window_payload(window, citation_by_page),
                     )
-                    cleaned_response = response.strip() if response else ""
-                    report_responses.append(cleaned_response)
-                    group_chunk_count += 1
-                    self._report_step_progress(
-                        self.step_ten_row,
-                        progress_status,
-                        (
-                            "Create summaries: completed report "
-                            f"{report_index}/{total_report_groups} "
-                            f"({report_name or 'Report'}), "
-                            f"chunk {chunk_index}/{total_report_chunks}."
-                        ),
-                    )
-                report_group_chunk_counts.append(group_chunk_count)
-
-            report_chunk_index = 0
-            for group_index, (report_name, paragraphs) in enumerate(report_groups):
-                self._raise_if_stop_requested()
-                heading = report_name or "Report"
-                if summary_reports and summary_reports[-1].strip():
-                    summary_reports.append("")
-                summary_reports.append(heading)
-                summary_reports.append("")
-                expected_chunks = (
-                    report_group_chunk_counts[group_index]
-                    if group_index < len(report_group_chunk_counts)
-                    else 0
-                )
-                emitted_chunks = 0
-                for _chunk in _chunk_paragraphs(paragraphs, chunk_size):
-                    self._raise_if_stop_requested()
-                    if expected_chunks and emitted_chunks >= expected_chunks:
-                        break
-                    response = (
-                        report_responses[report_chunk_index]
-                        if report_chunk_index < len(report_responses)
-                        else ""
-                    )
-                    report_chunk_index += 1
-                    emitted_chunks += 1
                     if response:
-                        summary_reports.append(response.strip())
-                        summary_reports.append("")
+                        report_output.append(response)
+                report_output.append("")
 
-            minutes_outline: list[str] = []
-            if display_case_name:
-                minutes_outline.extend(["Minutes Summary", display_case_name, ""])
-            else:
-                minutes_outline.append("Minutes Summary")
-
-            minutes_index = 0
-            total_minute_entries = len(minute_entries)
-            if total_minute_entries:
-                self._report_step_progress(
-                    self.step_ten_row,
-                    "Summarizing minutes",
-                    f"Create summaries: {total_minute_entries} minute order(s) queued.",
-                )
-            for minute_entry_index, entry in enumerate(minute_entries, start=1):
-                self._raise_if_stop_requested()
-                date_value = _extract_entry_value(entry, "date").strip()
-                start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-                end_label = _extract_entry_value(entry, "end_page", "end", "endpage").strip()
-                start_page = _page_number_from_label(start_label)
-                end_page = _page_number_from_label(end_label)
-                if start_page is None or end_page is None:
-                    raise ValueError("Minute order boundary entry missing start/end page.")
-                if end_page < start_page:
-                    raise ValueError("Minute order boundary entry has end page before start page.")
-                minutes_outline.append(date_value or "Minute Order")
-                minutes_outline.append("")
-                page_texts: list[str] = []
-                for page in range(start_page, end_page + 1):
+            minute_output = ["Minutes Summary", *([display_case_name] if display_case_name else []), ""]
+            total_minutes = len(minute_boundaries)
+            for minute_number, boundary in enumerate(minute_boundaries, start=1):
+                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
+                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
+                if start is None or end is None:
+                    raise ValueError("Minute-order boundary is missing a page range.")
+                label = _extract_entry_value(boundary, "date") or f"Minute Order {minute_number}"
+                minute_output.extend([label, ""])
+                windows = _summary_page_windows(text_dir, start, end, target_pages=window_pages)
+                for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
-                    page_path = text_dir / f"{page:04d}.txt"
-                    if not page_path.exists():
-                        raise FileNotFoundError(f"Missing text file {page_path.name}.")
-                    page_texts.append(page_path.read_text(encoding="utf-8", errors="ignore"))
-                minutes_payload = "\n".join(page_texts).strip()
-                response = ""
-                if minutes_payload:
-                    progress_status = f"Minutes {minute_entry_index}/{total_minute_entries}"
-                    progress_message = (
-                        "Create summaries: summarizing minute order "
-                        f"{minute_entry_index}/{total_minute_entries} "
-                        f"({date_value or 'Minute Order'}), pages "
-                        f"{start_label or start_page}-{end_label or end_page}."
-                    )
                     self._report_step_progress(
                         self.step_ten_row,
-                        progress_status,
-                        progress_message,
+                        f"Minutes {minute_number}/{total_minutes} window {window_number}/{len(windows)}",
+                        f"Create summaries: direct-source minute-order pages {window['primary_start']}-{window['primary_end']}.",
                     )
-                    response = self._request_plain_text(
-                        {
-                            "api_url": settings["api_url"],
-                            "model_id": settings["model_id"],
-                            "api_key": settings["api_key"],
-                            "disable_reasoning": bool(
-                                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                            ),
-                            "prompt": settings["minutes_prompt"],
-                        },
-                        minutes_payload,
+                    response = request_window(
+                        settings["minutes_prompt"] + DOCUMENT_SUMMARY_WINDOW_CONTRACT,
+                        _render_summary_window_payload(window, citation_by_page),
                     )
-                    self._report_step_progress(
-                        self.step_ten_row,
-                        progress_status,
-                        (
-                            "Create summaries: completed minute order "
-                            f"{minute_entry_index}/{total_minute_entries} "
-                            f"({date_value or 'Minute Order'}), pages "
-                            f"{start_label or start_page}-{end_label or end_page}."
-                        ),
-                    )
-                response = response.strip() if response else ""
-                if response:
-                    minutes_outline.append(" ".join(response.split()))
-                else:
-                    minutes_outline.append("")
-                minutes_outline.append("")
-                minutes_index += 1
+                    if response:
+                        minute_output.append(response)
+                minute_output.append("")
 
             summaries_dir.mkdir(parents=True, exist_ok=True)
-            summaries_path.write_text(
-                _collapse_blank_lines("\n".join(summary_hearings)),
-                encoding="utf-8",
-            )
-            reports_path.write_text(
-                _collapse_blank_lines("\n".join(summary_reports)),
-                encoding="utf-8",
-            )
-            minutes_path.write_text(
-                _collapse_blank_lines("\n".join(minutes_outline)),
-                encoding="utf-8",
-            )
+            summaries_path.write_text(_collapse_blank_lines("\n".join(hearing_output)), encoding="utf-8")
+            reports_path.write_text(_collapse_blank_lines("\n".join(report_output)), encoding="utf-8")
+            minutes_path.write_text(_collapse_blank_lines("\n".join(minute_output)), encoding="utf-8")
         except StopRequested:
             success = None
         except Exception as exc:
             GLib.idle_add(self.show_toast, f"Create summaries failed: {exc}")
         else:
             success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_summaries",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create summaries complete.")
+            assert root_dir is not None
+            self._safe_update_manifest(root_dir, {"last_completed_step": "create_summaries", "last_failed_step": None, "last_failed_at": None})
+            GLib.idle_add(self.show_toast, "Create direct-source summaries complete.")
         finally:
             GLib.idle_add(self.step_ten_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_ten_row, success)
@@ -12251,275 +9660,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_button_if_idle)
         return success is True or success == "Skipped"
 
-    def _run_step_eleven(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            summaries_path, reports_path = _summary_output_paths(root_dir)
-            minutes_path = _minutes_summary_output_path(root_dir)
-            if (
-                not summaries_path.exists()
-                or not reports_path.exists()
-                or not minutes_path.exists()
-            ):
-                raise FileNotFoundError(
-                    "Run Create summaries to generate hearing, report, and minute summaries first."
-                )
-            settings = load_overview_settings()
-            if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure overview API URL, model ID, and API key in Settings.")
-            hearings_text = summaries_path.read_text(encoding="utf-8", errors="ignore")
-            reports_text = reports_path.read_text(encoding="utf-8", errors="ignore")
-            minutes_text = minutes_path.read_text(encoding="utf-8", errors="ignore")
-            generic_lines = {
-                "hearings summary",
-                "reports summary",
-                "minutes summary",
-            }
-            case_name, _root_dir = load_case_context()
-            display_case_name = case_name.replace("_", " ").strip() if case_name else ""
 
-            def _has_meaningful_summary_content(text: str) -> bool:
-                for line in text.splitlines():
-                    cleaned = " ".join(line.split()).strip()
-                    if not cleaned:
-                        continue
-                    if cleaned.lower() in generic_lines:
-                        continue
-                    if display_case_name and cleaned == display_case_name:
-                        continue
-                    return True
-                return False
-
-            if not any(
-                _has_meaningful_summary_content(text)
-                for text in (hearings_text, reports_text, minutes_text)
-            ):
-                GLib.idle_add(
-                    self.show_toast,
-                    "No summary content available for Case overview. Skipping.",
-                    "WARN",
-                )
-                success = "Skipped"
-                return True
-            combined = "\n\n".join(
-                [
-                    "Summarized Hearings:",
-                    hearings_text.strip(),
-                    "",
-                    "Summarized Reports:",
-                    reports_text.strip(),
-                    "",
-                    "Summarized Minute Orders:",
-                    minutes_text.strip(),
-                ]
-            ).strip()
-            overview = self._request_plain_text(
-                {
-                    "api_url": settings["api_url"],
-                    "model_id": settings["model_id"],
-                    "api_key": settings["api_key"],
-                    "disable_reasoning": bool(
-                        settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-                    ),
-                    "prompt": settings["prompt"],
-                },
-                combined,
-            )
-            if not overview:
-                raise ValueError("Overview response was empty.")
-            rag_dir = root_dir / "rag"
-            rag_dir.mkdir(parents=True, exist_ok=True)
-            (rag_dir / "case_overview.txt").write_text(
-                _collapse_blank_lines(overview),
-                encoding="utf-8",
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Case overview failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "case_overview",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Case overview complete.")
-        finally:
-            GLib.idle_add(self.step_eleven_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_eleven_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True or success == "Skipped"
-
-    def _run_step_twelve(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            artifacts_dir = root_dir / "artifacts"
-            optimized_hearings_path = artifacts_dir / "optimized_hearings.txt"
-            optimized_reports_path = artifacts_dir / "optimized_reports.txt"
-            if not optimized_hearings_path.exists() or not optimized_reports_path.exists():
-                raise FileNotFoundError(
-                    "Run Create optimized to generate optimized files first."
-                )
-            settings = load_rag_settings()
-            provider = settings.get("provider", DEFAULT_RAG_PROVIDER)
-            try:
-                from langchain_chroma import Chroma  # type: ignore
-                from langchain_core.documents import Document  # type: ignore
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(
-                    "Missing langchain/chroma dependencies. See uv add instructions."
-                ) from exc
-
-            rag_dir = root_dir / "rag"
-            vector_dir = rag_dir / "vector_database"
-            _prepare_directory(vector_dir)
-
-            if provider == RAG_PROVIDER_VOYAGE:
-                if not settings["voyage_api_key"] or not settings["voyage_model"]:
-                    raise ValueError("Configure Voyage credentials in Settings.")
-                try:
-                    voyage_module = importlib.import_module("langchain_voyageai")
-                    rag_embedder_class = getattr(
-                        voyage_module,
-                        "VoyageAI" + "Emb" + "eddings",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    raise RuntimeError(
-                        "Missing Voyage embedding dependencies. Run `uv add langchain-voyageai voyageai`."
-                    ) from exc
-                rag_embedder = rag_embedder_class(
-                    voyage_api_key=settings["voyage_api_key"],
-                    model=settings["voyage_model"],
-                )
-            elif provider == RAG_PROVIDER_ISAACUS:
-                if not settings["isaacus_api_key"] or not settings["isaacus_model"]:
-                    raise ValueError("Configure Isaacus credentials in Settings.")
-                try:
-                    isaacus_module = importlib.import_module("isaacus")
-                    isaacus_client_class = getattr(isaacus_module, "Isaacus")
-                except Exception as exc:  # noqa: BLE001
-                    raise RuntimeError(
-                        "Missing Isaacus SDK dependency. Run `uv add isaacus`."
-                    ) from exc
-                isaacus_client = isaacus_client_class(api_key=settings["isaacus_api_key"])
-                rag_embedder = IsaacusEmbeddings(
-                    client=isaacus_client,
-                    model=settings["isaacus_model"],
-                )
-            else:
-                raise ValueError(f"Unsupported RAG embedding provider: {provider}")
-
-            vectorstore = Chroma(
-                persist_directory=str(vector_dir),
-                embedding_function=rag_embedder,
-            )
-
-            hearing_sections = _load_labeled_chunk_directories(
-                artifacts_dir / "optimized" / "hearings",
-                "hearing",
-                "hearing_date",
-            )
-            report_sections = _load_labeled_chunk_directories(
-                artifacts_dir / "optimized" / "reports",
-                "report",
-                "report_name",
-            )
-            if not hearing_sections and not report_sections:
-                GLib.idle_add(
-                    self.show_toast,
-                    "No optimized content available for RAG index. Skipping.",
-                    "WARN",
-                )
-                success = "Skipped"
-                return True
-
-            documents: list[Document] = []
-            for section in hearing_sections:
-                self._raise_if_stop_requested()
-                metadata = section.get("metadata")
-                metadata = metadata if isinstance(metadata, dict) else {}
-                section_paragraphs = _expand_section_chunk_paragraphs(
-                    list(section.get("chunks", []))
-                )
-                total_paragraphs = len(section_paragraphs)
-                for paragraph_index, content in enumerate(section_paragraphs, start=1):
-                    cleaned = str(content or "").strip()
-                    if not cleaned:
-                        continue
-                    document_metadata = {"source": optimized_hearings_path.name}
-                    document_metadata.update(metadata)
-                    document_metadata["chunk_index"] = paragraph_index
-                    document_metadata["chunk_total"] = total_paragraphs
-                    documents.append(
-                        Document(
-                            page_content=cleaned,
-                            metadata=document_metadata,
-                        )
-                    )
-            for section in report_sections:
-                self._raise_if_stop_requested()
-                metadata = section.get("metadata")
-                metadata = metadata if isinstance(metadata, dict) else {}
-                section_paragraphs = _expand_section_chunk_paragraphs(
-                    list(section.get("chunks", []))
-                )
-                total_paragraphs = len(section_paragraphs)
-                for paragraph_index, content in enumerate(section_paragraphs, start=1):
-                    cleaned = str(content or "").strip()
-                    if not cleaned:
-                        continue
-                    document_metadata = {"source": optimized_reports_path.name}
-                    document_metadata.update(metadata)
-                    document_metadata["chunk_index"] = paragraph_index
-                    document_metadata["chunk_total"] = total_paragraphs
-                    documents.append(
-                        Document(
-                            page_content=cleaned,
-                            metadata=document_metadata,
-                        )
-                    )
-            if not documents:
-                raise ValueError("No paragraphs found to embed.")
-            vectorstore.add_documents(documents)
-
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create RAG index failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_rag_index",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create RAG index complete.")
-        finally:
-            GLib.idle_add(self.step_twelve_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_twelve_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True or success == "Skipped"
 
     def _append_boundary_entry(
         self,

@@ -29,20 +29,23 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 23)
+        self.assertEqual(len(grouped), 19)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
         self.assertEqual(
-            grouped[-4:],
+            grouped[-7:],
             [
                 "number_transcript_pages",
+                "build_participant_index",
+                "create_summaries",
+                "add_hearing_date_links",
                 "organize_hearing_summary",
                 "organize_report_summary",
                 "build_source_map",
             ],
         )
-        self.assertEqual(PIPELINE_PHASES[-1][1], "Agent Refinement")
+        self.assertEqual(PIPELINE_PHASES[-1][1], "Agent Search")
 
     def test_phase_progress_reports_completion_and_activity(self) -> None:
         step_ids = ("one", "two", "three")
@@ -102,12 +105,11 @@ class MainWindowUiStateTests(unittest.TestCase):
                 ("prepare", "Prepare"),
                 ("classify", "Classify"),
                 ("summarize", "Summarize"),
-                ("index", "Index"),
                 ("agent", "Agent"),
             ],
         )
         destination_keys = _settings_destination_keys()
-        self.assertEqual(len(destination_keys), 12)
+        self.assertEqual(len(destination_keys), 9)
         self.assertEqual(len(destination_keys), len(set(destination_keys)))
         self.assertEqual(destination_keys[0], "text-source")
         self.assertEqual(destination_keys[-1], "pi")
@@ -118,14 +120,13 @@ class MainWindowUiStateTests(unittest.TestCase):
             for _group_id, _title, options in TEST_PROMPT_GROUPS
             for mode_id, _label in options
         ]
-        self.assertEqual(len(mode_ids), 15)
+        self.assertEqual(len(mode_ids), 12)
         self.assertEqual(len(mode_ids), len(set(mode_ids)))
         self.assertEqual(len(_test_prompt_options("classification")), 9)
-        self.assertEqual(len(_test_prompt_options("optimize")), 3)
         self.assertEqual(len(_test_prompt_options("summarize")), 3)
         self.assertEqual(_test_prompt_input_kind("basic_rt"), "image")
         self.assertEqual(_test_prompt_input_kind("names_form"), "image")
-        self.assertEqual(_test_prompt_input_kind("optimize_hearings"), "text")
+        self.assertEqual(_test_prompt_input_kind("summarize_hearings"), "text")
         self.assertEqual(_test_prompt_input_kind("summarize_minutes"), "text")
 
     def test_terminal_log_sanitizes_untrusted_controls(self) -> None:
@@ -150,6 +151,7 @@ class MainWindowUiStateTests(unittest.TestCase):
                             "organized_reports": "summaries/r_organized.txt",
                             "transcript_page_numbers": "artifacts/numbers.json",
                             "transcript_page_number_series": "artifacts/series.md",
+                            "participant_index": "artifacts/participants.json",
                         },
                     }
                 ),

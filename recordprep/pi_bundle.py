@@ -9,10 +9,12 @@ from typing import Any
 PREPARE_BUNDLE_MANIFEST_KEYS = {
     "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
     "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
+    "participant_index": "artifacts/participant_index.json",
     "source_map": "artifacts/source_map.json",
 }
 PI_STEP_IDS = (
     "number_transcript_pages",
+    "build_participant_index",
     "organize_hearing_summary",
     "organize_report_summary",
     "build_source_map",
@@ -138,6 +140,107 @@ def validate_transcript_numbering_outputs(root: Path) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
+def validate_participant_index_output(root: Path) -> list[str]:
+    root = root.resolve(strict=False)
+    path = root / "artifacts" / "participant_index.json"
+    payload = _read_json(path)
+    if payload is None:
+        return ["artifacts/participant_index.json is missing or invalid."]
+    issues: list[str] = []
+    if payload.get("schema_version") != 1:
+        issues.append("participant index must use schema version 1.")
+    if payload.get("source") != "record-participant-index":
+        issues.append("participant index has an invalid source.")
+    hearings = payload.get("hearings")
+    if not isinstance(hearings, list) or not hearings:
+        return [*issues, "participant index hearings must be a nonempty list."]
+    valid_statuses = {"verified", "none", "unknown", "conflict"}
+    valid_roles = {
+        "mothers_counsel", "fathers_counsel", "alleged_fathers_counsel",
+        "presumed_fathers_counsel", "parents_counsel", "minors_counsel",
+        "county_counsel", "tribes_counsel", "guardian_ad_litem",
+        "other_counsel", "unresolved_counsel",
+    }
+    seen: set[str] = set()
+    for index, hearing in enumerate(hearings, start=1):
+        label = f"participant index hearing {index}"
+        if not isinstance(hearing, dict):
+            issues.append(f"{label} must be an object.")
+            continue
+        hearing_id = str(hearing.get("id") or "").strip()
+        if not hearing_id or hearing_id in seen:
+            issues.append(f"{label} id must be nonempty and unique.")
+        seen.add(hearing_id)
+        try:
+            start = int(hearing.get("start_page") or 0)
+            end = int(hearing.get("end_page") or 0)
+        except (TypeError, ValueError):
+            start = end = 0
+        if not start or end < start:
+            issues.append(f"{label} has an invalid page range.")
+        status = str(hearing.get("witness_status") or "")
+        if status not in valid_statuses:
+            issues.append(f"{label} has an invalid witness_status.")
+        witness_evidence = hearing.get("witness_evidence")
+        if not isinstance(witness_evidence, list):
+            issues.append(f"{label} witness_evidence must be a list.")
+            witness_evidence = []
+        witnesses = hearing.get("witnesses")
+        if not isinstance(witnesses, list):
+            issues.append(f"{label} witnesses must be a list.")
+            witnesses = []
+        if status in {"none", "unknown"} and witnesses:
+            issues.append(f"{label} cannot list witnesses when status is {status}.")
+        if status == "none" and not witness_evidence:
+            issues.append(f"{label} must cite witness_evidence when status is none.")
+        if status == "verified" and not witnesses:
+            issues.append(f"{label} must list a witness when status is verified.")
+        if status == "conflict" and not hearing.get("warnings"):
+            issues.append(f"{label} must explain conflict status in warnings.")
+        counsel = hearing.get("counsel")
+        if not isinstance(counsel, list):
+            issues.append(f"{label} counsel must be a list.")
+            counsel = []
+        counsel_names: set[str] = set()
+        for person in counsel:
+            if not isinstance(person, dict):
+                issues.append(f"{label} has a malformed counsel entry.")
+                continue
+            if str(person.get("role_id") or "") not in valid_roles:
+                issues.append(f"{label} has an invalid counsel role_id.")
+            name = str(person.get("name") or "").strip()
+            if not name:
+                issues.append(f"{label} has counsel without a name.")
+            counsel_names.add(name.casefold())
+        for witness in witnesses:
+            if not isinstance(witness, dict):
+                issues.append(f"{label} has a malformed witness entry.")
+                continue
+            name = str(witness.get("name") or "").strip()
+            if not name:
+                issues.append(f"{label} has a witness without a name.")
+            if name.casefold() in counsel_names and status != "conflict":
+                issues.append(f"{label} lists counsel as a witness without conflict status.")
+            exams = witness.get("examinations")
+            if not isinstance(exams, list) or not exams:
+                issues.append(f"{label} witness {name or '(unnamed)'} has no examinations.")
+                continue
+            for exam in exams:
+                if not isinstance(exam, dict):
+                    issues.append(f"{label} has a malformed examination.")
+                    continue
+                try:
+                    exam_start = int(exam.get("start_file_page") or 0)
+                    exam_end = int(exam.get("end_file_page") or 0)
+                except (TypeError, ValueError):
+                    exam_start = exam_end = 0
+                if exam_start and not start <= exam_start <= end:
+                    issues.append(f"{label} has an examination outside its page range.")
+                if exam_end and (not exam_start or exam_end < exam_start or exam_end > end):
+                    issues.append(f"{label} has an invalid examination end page.")
+    return list(dict.fromkeys(issues))
+
+
 def validate_organized_summary_output(root: Path, kind: str) -> list[str]:
     root = root.resolve(strict=False)
     manifest = _read_json(root / "manifest.json") or {}
@@ -185,6 +288,7 @@ def validate_organized_summary_output(root: Path, kind: str) -> list[str]:
 
 def source_map_prerequisite_issues(root: Path) -> list[str]:
     issues = validate_transcript_numbering_outputs(root)
+    issues.extend(validate_participant_index_output(root))
     issues.extend(validate_organized_summary_output(root, "hearings"))
     issues.extend(validate_organized_summary_output(root, "reports"))
     return list(dict.fromkeys(issues))
@@ -204,6 +308,7 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     paths = expected_prepare_bundle_paths(root)
     transcript_path = paths["transcript_page_numbers"]
     series_path = paths["transcript_page_number_series"]
+    participant_index_path = paths["participant_index"]
     source_map_path = paths["source_map"]
     organized_hearings = paths.get("organized_hearings")
     organized_reports = paths.get("organized_reports")
@@ -221,6 +326,7 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
 
     if not series_path.is_file():
         issues.append("artifacts/transcript_page_number_series.md is missing.")
+    issues.extend(validate_participant_index_output(root))
     if organized_hearings is None or not organized_hearings.is_file():
         issues.append("the organized hearing summary is missing.")
     if organized_reports is None or not organized_reports.is_file():
@@ -230,8 +336,8 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     if source_map is None:
         issues.append("artifacts/source_map.json is missing or invalid.")
     else:
-        if int(source_map.get("schema_version") or 0) < 1:
-            issues.append("source_map.json has an unsupported schema version.")
+        if int(source_map.get("schema_version") or 0) < 2:
+            issues.append("source_map.json must use schema version 2 or newer.")
         if not isinstance(source_map.get("pages"), list):
             issues.append("source_map.json pages must be a list.")
         if not isinstance(source_map.get("citation_series"), list):
@@ -263,6 +369,7 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     for prerequisite in (
         transcript_path,
         series_path,
+        participant_index_path,
         organized_hearings,
         organized_reports,
     ):
@@ -287,6 +394,10 @@ def prepare_bundle_complete(root: Path) -> bool:
 def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
     if step_id == "number_transcript_pages":
         return validate_transcript_numbering_outputs(root)
+    if step_id == "build_participant_index":
+        issues = validate_transcript_numbering_outputs(root)
+        issues.extend(validate_participant_index_output(root))
+        return list(dict.fromkeys(issues))
     if step_id == "organize_hearing_summary":
         return validate_organized_summary_output(root, "hearings")
     if step_id == "organize_report_summary":

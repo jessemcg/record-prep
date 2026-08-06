@@ -12,6 +12,7 @@ from recordprep.pi_bundle import (
     prepare_bundle_complete,
     source_map_prerequisite_issues,
     validate_organized_summary_output,
+    validate_participant_index_output,
     validate_pi_step_outputs,
     validate_prepare_bundle_outputs,
     validate_transcript_numbering_outputs,
@@ -45,11 +46,36 @@ class PiBundleTests(unittest.TestCase):
         )
         series = root / "artifacts/transcript_page_number_series.md"
         series.write_text("# Series\n", encoding="utf-8")
+        participant_index = root / "artifacts/participant_index.json"
+        participant_index.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source": "record-participant-index",
+                    "hearings": [
+                        {
+                            "id": "hearing:0001",
+                            "start_page": 1,
+                            "end_page": 1,
+                            "witness_status": "none",
+                            "witness_evidence": [
+                                {"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "", "citation_key": "", "note": "Explicit no-witness index."}
+                            ],
+                            "counsel": [],
+                            "witnesses": [],
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+            ),
+            encoding="utf-8",
+        )
         source_map = root / "artifacts/source_map.json"
         source_map.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "pages": [],
                     "citation_series": [],
                 }
@@ -64,6 +90,7 @@ class PiBundleTests(unittest.TestCase):
                 "organized_reports": "summaries/reports_sum_case_organized.txt",
                 "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
                 "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
+                "participant_index": "artifacts/participant_index.json",
                 "source_map": "artifacts/source_map.json",
             }
         }
@@ -73,6 +100,7 @@ class PiBundleTests(unittest.TestCase):
             reports.stat().st_mtime,
             transcript.stat().st_mtime,
             series.stat().st_mtime,
+            participant_index.stat().st_mtime,
         )
         os.utime(hearing_organized, (newest + 1, newest + 1))
         os.utime(reports_organized, (newest + 1, newest + 1))
@@ -91,6 +119,7 @@ class PiBundleTests(unittest.TestCase):
             )
             for step_id in (
                 "number_transcript_pages",
+                "build_participant_index",
                 "organize_hearing_summary",
                 "organize_report_summary",
                 "build_source_map",
@@ -177,6 +206,36 @@ class PiBundleTests(unittest.TestCase):
 
             self.assertEqual(validate_organized_summary_output(root, "hearings"), [])
             self.assertEqual(validate_organized_summary_output(root, "reports"), [])
+
+    def test_participant_index_rejects_inferred_witnesses_and_counsel_confusion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "artifacts").mkdir()
+            payload = {
+                "schema_version": 1,
+                "source": "record-participant-index",
+                "hearings": [{
+                    "id": "hearing:0001",
+                    "start_page": 10,
+                    "end_page": 20,
+                    "witness_status": "none",
+                    "counsel": [{"role_id": "mothers_counsel", "name": "Jane Smith"}],
+                    "witnesses": [{
+                        "id": "witness:1",
+                        "name": "Jane Smith",
+                        "examinations": [{"start_file_page": 21, "end_file_page": 22}],
+                    }],
+                }],
+            }
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+
+            issues = validate_participant_index_output(root)
+
+            self.assertTrue(any("cannot list witnesses when status is none" in issue for issue in issues))
+            self.assertTrue(any("lists counsel as a witness" in issue for issue in issues))
+            self.assertTrue(any("outside its page range" in issue for issue in issues))
 
     def test_report_name_ending_in_period_has_only_one_period_before_organized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

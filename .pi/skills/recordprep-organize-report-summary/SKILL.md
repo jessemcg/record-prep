@@ -47,8 +47,8 @@ Read and follow `references/subheading_style_rules.md`.
   blank line remains before the next date/title line.
 
 Use limited local context only to resolve chronology or relatedness:
-`manifest.json`, TOC, report boundaries, raw/optimized reports, targeted text
-pages, and images when OCR/layout is unclear. Never import new facts from that
+`manifest.json`, TOC, report boundaries, targeted source text pages, and images
+when OCR/layout is unclear. Never import new facts from that
 review into the organized summary.
 
 ## Verification

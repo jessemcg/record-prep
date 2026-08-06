@@ -1,12 +1,12 @@
 ---
 name: recordprep-build-source-map
-description: Build and validate artifacts/source_map.json for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript numbering and both organized summaries have completed. Use only as the final Agent Refinement step.
+description: Build and validate direct-source artifacts/source_map.json schema v2 for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript numbering, participant indexing, and organized summaries complete. Use only as the final Agent Search stage.
 ---
 
 # Build RecordPrep Source Map
 
-Use `RECORDPREP_CASE_BUNDLE`. This stage must run only after the transcript-page,
-hearing-summary, and report-summary skills all succeed.
+Use `RECORDPREP_CASE_BUNDLE`. This stage must run only after transcript numbering, participant indexing,
+and both summary-organizer skills succeed.
 
 Require:
 
@@ -14,6 +14,8 @@ Require:
 - `text_pages/NNNN.txt`
 - `artifacts/transcript_page_numbers.json` using schema version 2 or newer
 - `artifacts/transcript_page_number_series.md`
+- `artifacts/participant_index.json` using schema version 1
+- hearing, report, and minute boundary JSON
 - the organized hearing summary
 - the organized reports summary
 
@@ -32,12 +34,19 @@ atomically writes `artifacts/source_map.json`, then atomically publishes:
 
 - `files.transcript_page_numbers`
 - `files.transcript_page_number_series`
+- `files.participant_index`
 - `files.organized_hearings`
 - `files.organized_reports`
 - `files.source_map`
 
-Verify page counts against `text_pages`, a nonempty citation-series list when
-record citations were selected, valid lookup references, and freshness relative
+It also upgrades the manifest to schema version 2 and removes legacy optimization,
+chunk, overview, and vector-path entries. The source map must build document ranges
+directly from boundaries and `text_pages`, embed normalized participant metadata,
+and contain only case-root-relative paths.
+
+Verify page counts against `text_pages`, direct document ranges, participant
+page annotations, a nonempty citation-series list when record citations were
+selected, valid lookup references, and freshness relative
 to every prerequisite. Report the output path, page/document/series counts, and
 warnings. Fail on missing prerequisites or invalid JSON rather than producing a
 non-citation-aware map.

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Build a citation-aware source map for a RecordPrep case_bundle."""
+"""Build citation-aware source-map v2 directly from RecordPrep source pages."""
 
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
+import datetime as dt
 import json
 import os
 import re
@@ -12,20 +12,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
-SOURCE_MAP_SCHEMA_VERSION = 1
+SOURCE_MAP_SCHEMA_VERSION = 2
+LEGACY_FILE_KEYS = {
+    "raw_hearings", "raw_reports", "preoptimized_hearings", "preoptimized_reports",
+    "optimized_hearings", "optimized_reports", "optimized_hearing_sections",
+    "optimized_report_sections", "chunk_metadata", "case_overview", "vector_database",
+}
 
 
 def natural_key(value: str | Path) -> list[object]:
     name = value.name if isinstance(value, Path) else Path(str(value)).name
-    key: list[object] = []
-    for part in re.split(r"(\d+)", name):
-        key.append(int(part) if part.isdigit() else part.lower())
-    return key
+    return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
 
 
 def utc_now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
 def read_json(path: Path) -> Any:
@@ -33,616 +34,348 @@ def read_json(path: Path) -> Any:
 
 
 def read_json_list(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
     try:
-        payload = read_json(path)
+        value = read_json(path)
     except (OSError, json.JSONDecodeError):
         return []
-    if not isinstance(payload, list):
-        return []
-    return [item for item in payload if isinstance(item, dict)]
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
 def relpath(root: Path, path: Path) -> str:
-    try:
-        return path.resolve(strict=False).relative_to(root.resolve(strict=False)).as_posix()
-    except ValueError:
-        return os.path.relpath(str(path), str(root))
+    return path.resolve(strict=False).relative_to(root.resolve(strict=False)).as_posix()
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        temporary.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
-def prepare_output_paths(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
-    files = manifest.get("files")
-    files = files if isinstance(files, dict) else {}
-    result = {
-        "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
-        "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
-        "source_map": "artifacts/source_map.json",
-    }
-    summaries_dir = root / "summaries"
-    for kind in ("hearings", "reports"):
-        source_key = f"summarized_{kind}"
-        raw_source = files.get(source_key)
-        source = None
-        if isinstance(raw_source, str) and raw_source.strip():
-            candidate = Path(raw_source)
-            source = candidate if candidate.is_absolute() else root / candidate
-        if source is not None:
-            organized = source.with_name(f"{source.stem}_organized{source.suffix}")
-        else:
-            candidates = sorted(
-                summaries_dir.glob(f"*{kind}*_organized.txt"),
-                key=natural_key,
-            )
-            organized = candidates[0] if len(candidates) == 1 else None
-        if organized is None or not organized.is_file():
-            raise FileNotFoundError(f"Organized {kind} summary not found.")
-        result[f"organized_{kind}"] = relpath(root, organized)
-    return result
-
-
-def resolve_manifest_path(root: Path, manifest: dict[str, Any], section: str, key: str, fallback: Path) -> Path:
-    section_value = manifest.get(section)
-    if isinstance(section_value, dict):
-        raw = section_value.get(key)
-        if isinstance(raw, str) and raw.strip():
-            path = Path(raw)
-            return path if path.is_absolute() else root / path
-    return fallback
-
-
-def page_label(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    match = re.search(r"(\d+)", text)
-    if not match:
-        return text
-    return f"{int(match.group(1)):04d}"
-
-
-def file_name_for_page(value: Any) -> str:
-    label = page_label(value)
-    return f"{label}.txt" if label else ""
+def page_number(value: Any) -> int:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group()) if match else 0
 
 
 def date_key(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
 
 
-def safe_char_count(path: Path) -> int:
+def citation_range(start: str, end: str) -> str:
+    return start if start and (not end or start == end) else f"{start}-{end}" if start else ""
+
+
+def load_object(path: Path, label: str) -> dict[str, Any]:
     try:
-        return len(path.read_text(encoding="utf-8", errors="ignore"))
-    except OSError:
-        return 0
-
-
-def load_case_name(root: Path) -> str:
-    path = root / "case_name.txt"
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="ignore").strip()
-
-
-def load_manifest(root: Path) -> dict[str, Any]:
-    path = root / "manifest.json"
-    if not path.exists():
-        raise FileNotFoundError("manifest.json not found. Run this skill from a RecordPrep case_bundle.")
-    payload = read_json(path)
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} is missing or invalid: {exc}") from exc
     if not isinstance(payload, dict):
-        raise ValueError("manifest.json must contain a JSON object.")
+        raise ValueError(f"{label} must be an object.")
     return payload
 
 
-def load_transcript_artifact(root: Path, manifest: dict[str, Any]) -> tuple[Path, Path, dict[str, Any]]:
-    numbers_path = resolve_manifest_path(
-        root,
-        manifest,
-        "files",
-        "transcript_page_numbers",
-        root / "artifacts" / "transcript_page_numbers.json",
-    )
-    series_path = resolve_manifest_path(
-        root,
-        manifest,
-        "files",
-        "transcript_page_number_series",
-        root / "artifacts" / "transcript_page_number_series.md",
-    )
-    missing = [str(path) for path in (numbers_path, series_path) if not path.exists()]
-    if missing:
-        joined = "\n".join(f"- {item}" for item in missing)
-        raise FileNotFoundError(
-            "Transcript citation artifacts are missing. Run transcript-page-numbering first:\n"
-            f"{joined}"
-        )
-    payload = read_json(numbers_path)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{numbers_path} must contain a JSON object.")
-    if int(payload.get("schema_version") or 0) < 2:
-        raise ValueError(
-            f"{numbers_path} must be transcript-page-numbering schema_version 2 or newer."
-        )
-    return numbers_path, series_path, payload
+def summary_paths(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
+    files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
+    result: dict[str, str] = {}
+    for kind in ("hearings", "reports", "minutes"):
+        configured = files.get(f"summarized_{kind}")
+        source = root / configured if isinstance(configured, str) and configured else None
+        if source is None or not source.is_file():
+            matches = sorted(
+                (path for path in (root / "summaries").glob(f"*{kind}*.txt") if "_organized" not in path.stem),
+                key=natural_key,
+            )
+            source = matches[0] if len(matches) == 1 else None
+        if source and source.is_file():
+            result[f"summarized_{kind}"] = relpath(root, source)
+            organized = source.with_name(f"{source.stem}_organized{source.suffix}")
+            if organized.is_file():
+                result[f"organized_{kind}"] = relpath(root, organized)
+    for required in ("organized_hearings", "organized_reports"):
+        if required not in result:
+            raise FileNotFoundError(f"{required.replace('_', ' ')} not found.")
+    return result
 
 
-def build_pages(root: Path, transcript_payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
-    text_dir = root / "text_pages"
-    image_dir = root / "image_pages"
-    if not text_dir.is_dir():
-        raise FileNotFoundError("text_pages/ not found. Run this skill from a RecordPrep case_bundle.")
-
-    entries = transcript_payload.get("entries")
-    entry_list = entries if isinstance(entries, list) else []
-    citation_by_file: dict[str, dict[str, Any]] = {}
-    warnings: list[str] = []
-    for item in entry_list:
-        if not isinstance(item, dict):
-            continue
-        file_name = str(item.get("file_name") or "").strip()
-        if file_name:
-            citation_by_file[file_name] = item
-
+def build_pages(root: Path, transcript: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]], list[str]]:
+    entries = transcript.get("entries") if isinstance(transcript.get("entries"), list) else []
+    by_name = {
+        str(item.get("file_name") or ""): item
+        for item in entries if isinstance(item, dict) and str(item.get("file_name") or "")
+    }
     pages: list[dict[str, Any]] = []
-    for path in sorted(text_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=natural_key):
-        citation = citation_by_file.get(path.name, {})
-        file_page = citation.get("file_page")
-        if file_page is None:
-            try:
-                file_page = int(path.stem)
-            except ValueError:
-                file_page = None
-        image_path = image_dir / f"{path.stem}.png"
-        page: dict[str, Any] = {
+    warnings: list[str] = []
+    for path in sorted((root / "text_pages").glob("[0-9][0-9][0-9][0-9].txt"), key=natural_key):
+        entry = by_name.get(path.name, {})
+        number = page_number(entry.get("file_page") or path.stem)
+        image = root / "image_pages" / f"{path.stem}.png"
+        page = {
             "file_name": path.name,
-            "file_page": file_page,
+            "file_page": number,
             "text_path": relpath(root, path),
-            "image_path": relpath(root, image_path) if image_path.exists() else "",
-            "record_type": str(citation.get("record_type") or "").strip(),
-            "page_type": str(citation.get("page_type") or "").strip(),
-            "transcript_page_number": citation.get("transcript_page_number"),
-            "transcript_page_label": str(citation.get("transcript_page_label") or "").strip(),
-            "citation_series_id": str(citation.get("citation_series_id") or "").strip(),
-            "citation_prefix": str(citation.get("citation_prefix") or "").strip(),
-            "citation_label": str(citation.get("citation_label") or "").strip(),
-            "citation_key": str(citation.get("citation_key") or "").strip(),
-            "status": str(citation.get("status") or "").strip(),
-            "confidence": str(citation.get("confidence") or "").strip(),
-            "method": str(citation.get("method") or "").strip(),
-            "start_offset": citation.get("start_offset"),
-            "end_offset": citation.get("end_offset"),
-            "line_index": citation.get("line_index"),
+            "image_path": relpath(root, image) if image.is_file() else "",
+            "record_type": str(entry.get("record_type") or ""),
+            "page_type": str(entry.get("page_type") or ""),
+            "transcript_page_number": entry.get("transcript_page_number"),
+            "transcript_page_label": str(entry.get("transcript_page_label") or ""),
+            "citation_series_id": str(entry.get("citation_series_id") or ""),
+            "citation_prefix": str(entry.get("citation_prefix") or ""),
+            "citation_label": str(entry.get("citation_label") or ""),
+            "citation_key": str(entry.get("citation_key") or ""),
+            "status": str(entry.get("status") or ""),
+            "confidence": str(entry.get("confidence") or ""),
+            "method": str(entry.get("method") or ""),
+            "document_ids": [],
+            "hearing_id": "",
+            "counsel_roles": [],
+            "witnesses": [],
+            "examinations": [],
         }
         if not page["citation_key"]:
             warnings.append(f"No citation key for {path.name}.")
         pages.append(page)
-    return pages, {str(page["file_name"]): page for page in pages}, warnings
+    return pages, {int(page["file_page"]): page for page in pages}, warnings
 
 
-def load_boundary_indexes(root: Path) -> dict[str, dict[str, dict[str, Any]]]:
-    artifacts = root / "artifacts"
-    indexes = {
-        "hearing_by_date": {},
-        "report_by_id": {},
-        "report_by_label": {},
-        "minute_by_date": {},
-    }
-    for entry in read_json_list(artifacts / "hearing_boundaries.json"):
-        key = date_key(entry.get("date"))
-        if key:
-            indexes["hearing_by_date"].setdefault(key, entry)
-    for entry in read_json_list(artifacts / "report_boundaries.json"):
-        report_id = str(entry.get("report_id") or "").strip()
-        if report_id:
-            indexes["report_by_id"].setdefault(report_id, entry)
-        label = str(entry.get("report_label") or "").strip()
-        if label:
-            indexes["report_by_label"].setdefault(label.lower(), entry)
-    for entry in read_json_list(artifacts / "minutes_boundaries.json"):
-        key = date_key(entry.get("date"))
-        if key:
-            indexes["minute_by_date"].setdefault(key, entry)
-    return indexes
-
-
-def chunk_entries(root: Path, section_dir: Path) -> list[dict[str, Any]]:
-    chunks: list[dict[str, Any]] = []
-    for index, path in enumerate(sorted(section_dir.glob("[0-9][0-9][0-9][0-9].txt"), key=natural_key), start=1):
-        chunks.append(
-            {
-                "index": index,
-                "path": relpath(root, path),
-                "char_count": safe_char_count(path),
-            }
-        )
-    return chunks
-
-
-def page_range(start_page: str, end_page: str) -> list[str]:
-    if not start_page or not end_page:
-        return []
-    try:
-        start = int(start_page)
-        end = int(end_page)
-    except ValueError:
-        return []
-    if end < start:
-        return []
-    return [f"{page:04d}" for page in range(start, end + 1)]
-
-
-def citation_range(start: dict[str, Any] | None, end: dict[str, Any] | None) -> str:
-    start_label = str((start or {}).get("citation_label") or "").strip()
-    end_label = str((end or {}).get("citation_label") or "").strip()
-    if not start_label:
-        return ""
-    if not end_label or end_label == start_label:
-        return start_label
-    return f"{start_label}-{end_label}"
-
-
-def build_document(
-    *,
-    root: Path,
-    doc_id: str,
-    doc_type: str,
-    label: str,
-    start_page: str,
-    end_page: str,
-    pages_by_file: dict[str, dict[str, Any]],
-    metadata: dict[str, Any] | None = None,
-    section_dir: Path | None = None,
-) -> dict[str, Any]:
-    normalized_start = page_label(start_page)
-    normalized_end = page_label(end_page)
-    start_file = file_name_for_page(normalized_start)
-    end_file = file_name_for_page(normalized_end)
-    start_page_entry = pages_by_file.get(start_file)
-    end_page_entry = pages_by_file.get(end_file)
-    raw_metadata = metadata if isinstance(metadata, dict) else {}
-    display_date = str(
-        raw_metadata.get("hearing_date")
-        or raw_metadata.get("date")
-        or raw_metadata.get("report_date")
-        or ""
-    ).strip()
-    document: dict[str, Any] = {
-        "id": doc_id,
-        "type": doc_type,
-        "label": label,
-        "date": display_date,
-        "date_key": date_key(display_date),
-        "report_name": str(raw_metadata.get("report_name") or "").strip(),
-        "report_date": str(raw_metadata.get("report_date") or "").strip(),
-        "report_label": str(raw_metadata.get("report_label") or "").strip(),
-        "report_id": str(raw_metadata.get("report_id") or "").strip(),
-        "start_page": normalized_start,
-        "end_page": normalized_end,
-        "start_file": start_file,
-        "end_file": end_file,
-        "start_citation_label": str((start_page_entry or {}).get("citation_label") or "").strip(),
-        "end_citation_label": str((end_page_entry or {}).get("citation_label") or "").strip(),
-        "citation_range": citation_range(start_page_entry, end_page_entry),
-        "start_citation_key": str((start_page_entry or {}).get("citation_key") or "").strip(),
-        "end_citation_key": str((end_page_entry or {}).get("citation_key") or "").strip(),
-        "page_labels": page_range(normalized_start, normalized_end),
-        "metadata": raw_metadata,
-        "optimized_dir": relpath(root, section_dir) if section_dir else "",
-        "metadata_path": relpath(root, section_dir / "metadata.json") if section_dir else "",
-        "chunks": chunk_entries(root, section_dir) if section_dir else [],
-        "aliases": [],
-    }
-    aliases = {
-        document["label"],
-        document["date"],
-        document["report_name"],
-        document["report_date"],
-        document["report_label"],
-        document["report_id"],
-        document["citation_range"],
-    }
-    document["aliases"] = sorted(str(alias).strip() for alias in aliases if str(alias).strip())
-    return document
-
-
-def load_optimized_documents(
-    root: Path,
-    pages_by_file: dict[str, dict[str, Any]],
-    boundary_indexes: dict[str, dict[str, dict[str, Any]]],
-) -> tuple[list[dict[str, Any]], list[str]]:
+def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    specifications = (
+        ("hearing", "hearing_boundaries.json"),
+        ("report", "report_boundaries.json"),
+        ("minute_order", "minutes_boundaries.json"),
+    )
     documents: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    specs = [
-        ("hearing", root / "artifacts" / "optimized" / "hearings", "hearing_date"),
-        ("report", root / "artifacts" / "optimized" / "reports", "report_name"),
-    ]
-    for doc_type, base_dir, label_key in specs:
-        if not base_dir.exists():
-            warnings.append(f"Optimized {doc_type} directory not found: {relpath(root, base_dir)}")
-            continue
-        for index, section_dir in enumerate(sorted((p for p in base_dir.iterdir() if p.is_dir()), key=natural_key), start=1):
-            metadata_path = section_dir / "metadata.json"
-            metadata: dict[str, Any] = {}
-            if metadata_path.exists():
-                try:
-                    payload = read_json(metadata_path)
-                    if isinstance(payload, dict):
-                        metadata = payload
-                except (OSError, json.JSONDecodeError):
-                    warnings.append(f"Could not read metadata for {relpath(root, section_dir)}.")
-            label_path = section_dir / "label.txt"
-            label = (
-                label_path.read_text(encoding="utf-8", errors="ignore").strip()
-                if label_path.exists()
-                else str(metadata.get(label_key) or section_dir.name).strip()
-            )
-            start_page = str(metadata.get("start_page") or "").strip()
-            end_page = str(metadata.get("end_page") or "").strip()
-            if doc_type == "hearing":
-                boundary = boundary_indexes["hearing_by_date"].get(date_key(metadata.get("hearing_date")), {})
-                start_page = start_page or str(boundary.get("start_page") or "").strip()
-                end_page = end_page or str(boundary.get("end_page") or "").strip()
-                if "date" not in metadata and metadata.get("hearing_date"):
-                    metadata["date"] = metadata["hearing_date"]
-            else:
-                boundary = {}
-                report_id = str(metadata.get("report_id") or "").strip()
-                report_label = str(metadata.get("report_label") or "").strip().lower()
-                if report_id:
-                    boundary = boundary_indexes["report_by_id"].get(report_id, {})
-                if not boundary and report_label:
-                    boundary = boundary_indexes["report_by_label"].get(report_label, {})
-                start_page = start_page or str(boundary.get("start_page") or "").strip()
-                end_page = end_page or str(boundary.get("end_page") or "").strip()
-            if not start_page or not end_page:
-                warnings.append(f"No page range for {relpath(root, section_dir)}.")
-            documents.append(
-                build_document(
-                    root=root,
-                    doc_id=f"{doc_type}:{index:04d}",
-                    doc_type=doc_type,
-                    label=label,
-                    start_page=start_page,
-                    end_page=end_page,
-                    pages_by_file=pages_by_file,
-                    metadata=metadata,
-                    section_dir=section_dir,
-                )
-            )
-    return documents, warnings
-
-
-def load_minute_documents(root: Path, pages_by_file: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-    for index, entry in enumerate(read_json_list(root / "artifacts" / "minutes_boundaries.json"), start=1):
-        date_value = str(entry.get("date") or "").strip()
-        metadata = {
-            "type": "minute_order",
-            "date": date_value,
-            "start_page": str(entry.get("start_page") or "").strip(),
-            "end_page": str(entry.get("end_page") or "").strip(),
-        }
-        documents.append(
-            build_document(
-                root=root,
-                doc_id=f"minute_order:{index:04d}",
-                doc_type="minute_order",
-                label=date_value or f"Minute Order {index}",
-                start_page=metadata["start_page"],
-                end_page=metadata["end_page"],
-                pages_by_file=pages_by_file,
-                metadata=metadata,
-                section_dir=None,
-            )
-        )
+    for doc_type, file_name in specifications:
+        for index, item in enumerate(read_json_list(root / "artifacts" / file_name), start=1):
+            start = page_number(item.get("start_page"))
+            end = page_number(item.get("end_page"))
+            start_page = pages_by_number.get(start, {})
+            end_page = pages_by_number.get(end, {})
+            date = str(item.get("date") or item.get("hearing_date") or item.get("report_date") or "").strip()
+            report_id = str(item.get("report_id") or "").strip()
+            label = str(
+                item.get("report_label") or item.get("report_name") or date
+                or f"{doc_type.replace('_', ' ').title()} {index}"
+            ).strip()
+            doc_id = str(item.get("id") or report_id or f"{doc_type}:{index:04d}")
+            documents.append({
+                "id": doc_id,
+                "type": doc_type,
+                "label": label,
+                "date": date,
+                "date_key": date_key(date),
+                "report_name": str(item.get("report_name") or ""),
+                "report_date": str(item.get("report_date") or ""),
+                "report_label": str(item.get("report_label") or ""),
+                "report_id": report_id,
+                "start_page": start,
+                "end_page": end,
+                "start_file": f"{start:04d}.txt" if start else "",
+                "end_file": f"{end:04d}.txt" if end else "",
+                "start_citation_label": str(start_page.get("citation_label") or ""),
+                "end_citation_label": str(end_page.get("citation_label") or ""),
+                "citation_range": citation_range(
+                    str(start_page.get("citation_label") or ""),
+                    str(end_page.get("citation_label") or ""),
+                ),
+                "page_labels": [f"{number:04d}" for number in range(start, end + 1)] if start and end >= start else [],
+                "aliases": sorted({value for value in (label, date, report_id, str(item.get("report_name") or ""), str(item.get("report_label") or "")) if value}),
+                "metadata": item,
+            })
     return documents
 
 
-def path_if_exists(root: Path, path: Path) -> str:
-    return relpath(root, path) if path.exists() else ""
+def annotate_pages(
+    pages_by_number: dict[int, dict[str, Any]],
+    documents: list[dict[str, Any]],
+    participants: dict[str, Any],
+) -> None:
+    for document in documents:
+        for number in range(int(document.get("start_page") or 0), int(document.get("end_page") or -1) + 1):
+            page = pages_by_number.get(number)
+            if page is not None:
+                page["document_ids"].append(document["id"])
+                if document["type"] == "hearing":
+                    page["hearing_id"] = document["id"]
+    hearings = participants.get("hearings") if isinstance(participants.get("hearings"), list) else []
+    for hearing in hearings:
+        if not isinstance(hearing, dict):
+            continue
+        start = page_number(hearing.get("start_page"))
+        end = page_number(hearing.get("end_page"))
+        roles = sorted({str(item.get("role_id") or "") for item in hearing.get("counsel", []) if isinstance(item, dict) and item.get("role_id")})
+        for number in range(start, end + 1):
+            page = pages_by_number.get(number)
+            if page is not None:
+                page["hearing_id"] = str(hearing.get("id") or page["hearing_id"])
+                page["counsel_roles"] = roles
+        for witness in hearing.get("witnesses", []):
+            if not isinstance(witness, dict):
+                continue
+            witness_payload = {
+                "id": str(witness.get("id") or ""),
+                "name": str(witness.get("name") or ""),
+                "description": str(witness.get("description") or ""),
+            }
+            for examination in witness.get("examinations", []):
+                if not isinstance(examination, dict):
+                    continue
+                exam_start = page_number(examination.get("start_file_page"))
+                exam_end = page_number(examination.get("end_file_page")) or exam_start
+                for number in range(exam_start, exam_end + 1):
+                    page = pages_by_number.get(number)
+                    if page is None:
+                        continue
+                    if witness_payload not in page["witnesses"]:
+                        page["witnesses"].append(witness_payload)
+                    page["examinations"].append({
+                        "witness_id": witness_payload["id"],
+                        "witness_name": witness_payload["name"],
+                        "type": str(examination.get("type") or ""),
+                        "examiner_name": str(examination.get("examiner_name") or ""),
+                        "examiner_role_id": str(examination.get("examiner_role_id") or ""),
+                    })
 
 
-def build_paths(root: Path, manifest: dict[str, Any], numbers_path: Path, series_path: Path) -> dict[str, Any]:
-    summaries_dir = root / "summaries"
-    summary_paths = []
-    if summaries_dir.exists():
-        summary_paths = [
-            relpath(root, path)
-            for path in sorted(summaries_dir.glob("*.txt"), key=natural_key)
-        ]
-    return {
-        "manifest": "manifest.json",
-        "source_map": "artifacts/source_map.json",
-        "text_pages": path_if_exists(root, root / "text_pages"),
-        "image_pages": path_if_exists(root, root / "image_pages"),
-        "toc": path_if_exists(root, root / "artifacts" / "toc.txt"),
-        "hearing_boundaries": path_if_exists(root, root / "artifacts" / "hearing_boundaries.json"),
-        "report_boundaries": path_if_exists(root, root / "artifacts" / "report_boundaries.json"),
-        "minutes_boundaries": path_if_exists(root, root / "artifacts" / "minutes_boundaries.json"),
-        "optimized_hearings": path_if_exists(root, root / "artifacts" / "optimized_hearings.txt"),
-        "optimized_reports": path_if_exists(root, root / "artifacts" / "optimized_reports.txt"),
-        "optimized_hearing_sections": path_if_exists(root, root / "artifacts" / "optimized" / "hearings"),
-        "optimized_report_sections": path_if_exists(root, root / "artifacts" / "optimized" / "reports"),
-        "case_overview": path_if_exists(root, root / "rag" / "case_overview.txt"),
-        "vector_database": path_if_exists(root, root / "rag" / "vector_database"),
-        "transcript_page_numbers": relpath(root, numbers_path),
-        "transcript_page_number_series": relpath(root, series_path),
-        "summaries": summary_paths,
-        "manifest_files": manifest.get("files") if isinstance(manifest.get("files"), dict) else {},
-    }
-
-
-def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]]) -> dict[str, Any]:
+def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], participants: dict[str, Any]) -> dict[str, Any]:
     by_file: dict[str, dict[str, Any]] = {}
-    by_citation_key: dict[str, list[str]] = {}
+    by_citation: dict[str, list[str]] = {}
     by_type: dict[str, list[str]] = {}
     by_date: dict[str, list[str]] = {}
-    by_report_id: dict[str, list[str]] = {}
-    by_page: dict[str, dict[str, Any]] = {}
-
+    by_report: dict[str, list[str]] = {}
+    by_counsel: dict[str, list[dict[str, str]]] = {}
+    by_witness: dict[str, list[dict[str, Any]]] = {}
     for page in pages:
-        file_name = str(page.get("file_name") or "")
-        page_label_value = page_label(page.get("file_page"))
-        by_file[file_name] = {
-            "file_page": page.get("file_page"),
-            "citation_label": page.get("citation_label"),
-            "citation_key": page.get("citation_key"),
-            "record_type": page.get("record_type"),
-            "page_type": page.get("page_type"),
-            "status": page.get("status"),
+        by_file[page["file_name"]] = {
+            "file_page": page["file_page"], "citation_label": page["citation_label"],
+            "citation_key": page["citation_key"], "record_type": page["record_type"],
+            "page_type": page["page_type"], "documents": page["document_ids"],
+            "hearing_id": page["hearing_id"],
         }
-        citation_key = str(page.get("citation_key") or "").strip()
-        if citation_key:
-            by_citation_key.setdefault(citation_key, []).append(file_name)
-        if page_label_value:
-            by_page.setdefault(
-                page_label_value,
-                {
-                    "file_name": file_name,
-                    "citation_label": page.get("citation_label"),
-                    "citation_key": page.get("citation_key"),
-                    "documents": [],
-                },
-            )
-
+        if page["citation_key"]:
+            by_citation.setdefault(page["citation_key"], []).append(page["file_name"])
     for document in documents:
-        doc_id = str(document.get("id") or "").strip()
-        doc_type = str(document.get("type") or "").strip()
-        if doc_type and doc_id:
-            by_type.setdefault(doc_type, []).append(doc_id)
-        doc_date_key = str(document.get("date_key") or "").strip()
-        if doc_date_key and doc_id:
-            by_date.setdefault(doc_date_key, []).append(doc_id)
-        report_id = str(document.get("report_id") or "").strip()
-        if report_id and doc_id:
-            by_report_id.setdefault(report_id, []).append(doc_id)
-        for label in document.get("page_labels") or []:
-            if label in by_page and doc_id:
-                by_page[label].setdefault("documents", []).append(doc_id)
+        by_type.setdefault(document["type"], []).append(document["id"])
+        if document["date_key"]:
+            by_date.setdefault(document["date_key"], []).append(document["id"])
+        if document["report_id"]:
+            by_report.setdefault(document["report_id"], []).append(document["id"])
+    for hearing in participants.get("hearings", []):
+        if not isinstance(hearing, dict):
+            continue
+        hearing_id = str(hearing.get("id") or "")
+        for counsel in hearing.get("counsel", []):
+            if not isinstance(counsel, dict):
+                continue
+            value = {"hearing_id": hearing_id, "name": str(counsel.get("name") or ""), "role_label": str(counsel.get("role_label") or "")}
+            keys = [str(counsel.get("role_id") or ""), str(counsel.get("name") or ""), *[str(alias) for alias in counsel.get("aliases", [])]]
+            for key in keys:
+                if key:
+                    by_counsel.setdefault(key.casefold(), []).append(value)
+        for witness in hearing.get("witnesses", []):
+            if not isinstance(witness, dict):
+                continue
+            value = {"hearing_id": hearing_id, "witness_id": str(witness.get("id") or ""), "name": str(witness.get("name") or ""), "description": str(witness.get("description") or ""), "examinations": witness.get("examinations", [])}
+            for key in [value["name"], *[str(alias) for alias in witness.get("aliases", [])]]:
+                if key:
+                    by_witness.setdefault(key.casefold(), []).append(value)
+    return {"by_file": by_file, "by_citation_key": by_citation, "by_type": by_type, "by_date": by_date, "by_report_id": by_report, "by_counsel": by_counsel, "by_witness": by_witness}
 
-    return {
-        "by_file": by_file,
-        "by_citation_key": by_citation_key,
-        "by_type": by_type,
-        "by_date": by_date,
-        "by_report_id": by_report_id,
-        "by_page": by_page,
-    }
 
-
-def build_source_map(root: Path) -> dict[str, Any]:
+def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     root = root.resolve(strict=False)
-    manifest = load_manifest(root)
-    files = manifest.get("files")
-    files = dict(files) if isinstance(files, dict) else {}
-    files.update(prepare_output_paths(root, manifest))
-    manifest["files"] = files
-    numbers_path, series_path, transcript_payload = load_transcript_artifact(root, manifest)
-    pages, pages_by_file, warnings = build_pages(root, transcript_payload)
-    boundary_indexes = load_boundary_indexes(root)
-    optimized_documents, optimized_warnings = load_optimized_documents(root, pages_by_file, boundary_indexes)
-    warnings.extend(optimized_warnings)
-    minute_documents = load_minute_documents(root, pages_by_file)
-    documents = optimized_documents + minute_documents
-    citation_series = transcript_payload.get("citation_series")
-    if not isinstance(citation_series, list):
-        citation_series = []
-        warnings.append("No citation_series list found in transcript_page_numbers.json.")
-    anomalies = transcript_payload.get("anomalies")
-    if not isinstance(anomalies, list):
-        anomalies = []
-    counts = {
-        "pages": len(pages),
-        "documents": len(documents),
-        "hearings": sum(1 for item in documents if item.get("type") == "hearing"),
-        "reports": sum(1 for item in documents if item.get("type") == "report"),
-        "minute_orders": sum(1 for item in documents if item.get("type") == "minute_order"),
-        "optimized_chunks": sum(len(item.get("chunks") or []) for item in documents),
-        "citation_series": len(citation_series),
-        "citation_anomalies": len(anomalies),
+    manifest = load_object(root / "manifest.json", "manifest.json")
+    transcript = load_object(root / "artifacts" / "transcript_page_numbers.json", "transcript_page_numbers.json")
+    if int(transcript.get("schema_version") or 0) < 2:
+        raise ValueError("Transcript numbering schema version 2 or newer is required.")
+    participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
+    if participants.get("schema_version") != 1:
+        raise ValueError("Participant index schema version 1 is required.")
+    summaries = summary_paths(root, manifest)
+    pages, pages_by_number, warnings = build_pages(root, transcript)
+    documents = boundary_documents(root, pages_by_number)
+    annotate_pages(pages_by_number, documents, participants)
+    participant_warnings = participants.get("warnings") if isinstance(participants.get("warnings"), list) else []
+    warnings.extend(str(item) for item in participant_warnings if str(item).strip())
+    citation_series = transcript.get("citation_series") if isinstance(transcript.get("citation_series"), list) else []
+    anomalies = transcript.get("anomalies") if isinstance(transcript.get("anomalies"), list) else []
+    paths = {
+        "manifest": "manifest.json", "source_map": "artifacts/source_map.json",
+        "text_pages": "text_pages", "image_pages": "image_pages" if (root / "image_pages").is_dir() else "",
+        "toc": "artifacts/toc.txt" if (root / "artifacts" / "toc.txt").is_file() else "",
+        "hearing_boundaries": "artifacts/hearing_boundaries.json",
+        "report_boundaries": "artifacts/report_boundaries.json",
+        "minutes_boundaries": "artifacts/minutes_boundaries.json",
+        "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
+        "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
+        "participant_index": "artifacts/participant_index.json",
+        "summaries": summaries,
     }
-    return {
+    payload = {
         "schema_version": SOURCE_MAP_SCHEMA_VERSION,
-        "generated_at": utc_now(),
-        "source": "record-source-map",
-        "case_name": load_case_name(root),
-        "root_dir": str(root),
-        "paths": build_paths(root, manifest, numbers_path, series_path),
-        "counts": counts,
-        "citation_series": citation_series,
-        "citation_anomalies": anomalies,
-        "pages": pages,
-        "documents": documents,
-        "lookup": build_lookup(pages, documents),
+        "generated_at": utc_now(), "source": "record-source-map",
+        "case_name": (root / "case_name.txt").read_text(encoding="utf-8", errors="ignore").strip() if (root / "case_name.txt").is_file() else "",
+        "root_dir": ".", "paths": paths,
+        "counts": {
+            "pages": len(pages), "documents": len(documents),
+            "hearings": sum(item["type"] == "hearing" for item in documents),
+            "reports": sum(item["type"] == "report" for item in documents),
+            "minute_orders": sum(item["type"] == "minute_order" for item in documents),
+            "participants": sum(len(item.get("counsel", [])) + len(item.get("witnesses", [])) for item in participants.get("hearings", []) if isinstance(item, dict)),
+            "citation_series": len(citation_series), "citation_anomalies": len(anomalies),
+        },
+        "citation_series": citation_series, "citation_anomalies": anomalies,
+        "participant_index": participants, "pages": pages, "documents": documents,
+        "lookup": build_lookup(pages, documents, participants),
         "warnings": sorted(set(warnings)),
     }
-
-
-def update_manifest(root: Path) -> None:
-    manifest_path = root / "manifest.json"
-    manifest = load_manifest(root)
-    files = manifest.get("files")
-    if not isinstance(files, dict):
-        files = {}
-    files.update(prepare_output_paths(root, manifest))
+    files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
+    for key in LEGACY_FILE_KEYS:
+        files.pop(key, None)
+    files.update({
+        "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
+        "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
+        "participant_index": "artifacts/participant_index.json",
+        "source_map": "artifacts/source_map.json",
+        **summaries,
+    })
+    manifest["schema_version"] = max(2, int(manifest.get("schema_version") or 0))
     manifest["files"] = files
+    manifest.pop("rag", None)
+    directories = manifest.get("directories") if isinstance(manifest.get("directories"), dict) else {}
+    for key in ("raw", "preoptimized", "optimized", "rag"):
+        directories.pop(key, None)
+    manifest["directories"] = directories
     manifest["updated_at"] = utc_now()
-    atomic_write_json(manifest_path, manifest)
+    return payload, manifest
 
 
 def write_source_map(root: Path) -> tuple[Path, dict[str, Any]]:
-    payload = build_source_map(root)
-    output_path = root / "artifacts" / "source_map.json"
-    atomic_write_json(output_path, payload)
-    update_manifest(root)
-    return output_path, payload
-
-
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Build artifacts/source_map.json for a RecordPrep case_bundle."
-    )
-    parser.add_argument(
-        "case_bundle",
-        nargs="?",
-        default=".",
-        help="Path to the RecordPrep case_bundle root. Defaults to current directory.",
-    )
-    return parser.parse_args(argv)
+    root = root.resolve(strict=False)
+    payload, manifest = build_source_map(root)
+    output = root / "artifacts" / "source_map.json"
+    atomic_write_json(output, payload)
+    atomic_write_json(root / "manifest.json", manifest)
+    return output, payload
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(sys.argv[1:] if argv is None else argv)
-    root = Path(args.case_bundle)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("case_bundle", nargs="?", default=".")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        output_path, payload = write_source_map(root)
+        output, payload = write_source_map(Path(args.case_bundle))
     except Exception as exc:  # noqa: BLE001
         print(f"record-source-map failed: {exc}", file=sys.stderr)
         return 1
-
-    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
-    print(f"Wrote {output_path}")
-    print(f"Pages: {counts.get('pages', 0)}")
-    print(f"Documents: {counts.get('documents', 0)}")
-    print(f"Citation series: {counts.get('citation_series', 0)}")
-    warnings = payload.get("warnings")
-    if isinstance(warnings, list) and warnings:
-        print("Warnings:")
-        for warning in warnings:
-            print(f"- {warning}")
+    print(f"Wrote {output}")
+    print(f"Pages: {payload['counts']['pages']}")
+    print(f"Documents: {payload['counts']['documents']}")
+    for warning in payload.get("warnings", []):
+        print(f"Warning: {warning}")
     return 0
 
 

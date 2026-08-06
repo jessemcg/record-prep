@@ -1,144 +1,130 @@
-# Record Prep
+# RecordPrep
 
-<img src="recordprep_icon.png" alt="Record Prep icon" width="128" align="left">
+RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable legal-record PDFs into a citation-aware case bundle for Focus. It preserves original page text/images, classifies pages, finds document boundaries, numbers official transcript pages, verifies counsel and witnesses, creates detailed summaries from source pages, and publishes source-map v2 for PI Agent search.
 
-Record Prep is a GTK4/Libadwaita desktop app that turns OCR'd legal transcript PDFs into a structured
-case bundle with classifications, summaries, and retrieval-ready artifacts for appellate workflows.
-
-- Functional GTK4/Libadwaita desktop UI with the full pipeline exposed as step-by-step actions.
-- Modular Python package under `recordprep/`, with the GTK orchestration in `recordprep/ui/main_window.py`.
-- Settings are stored in the ignored root-level `config.json` and cover API URLs, model IDs, keys, and prompts.
-- Local OCR defaults to a llama.cpp server, while remote steps use configurable API providers.
-- RAG output targets VoyageAI or Isaacus embeddings with a Chroma vector store.
-- Activity is always visible in a fixed-height, embedded GTK4 VTE terminal.
-- RT + CT pipelines require the last RT page before any pipeline action can start.
-- The final Agent Refinement phase runs four project-local PI skills in order
-  using PI's native interactive terminal interface.
-
-## What it does
-- Imports one or more PDFs, merged in natural sort order when needed.
-- Extracts per-page text and grayscale page images.
-- Classifies pages, adds dates/names, and builds a table of contents.
-- Finds hearing/report/minute order boundaries.
-- Generates raw and optimized text, summaries, and a case overview.
-- Stores chunk metadata separately from optimized chunk text and writes per-chunk JSONL artifacts.
-- Optionally builds a VoyageAI/Chroma or Isaacus/Chroma RAG index from optimized hearing/report content, with similarity search filters driven by chunk metadata such as hearing date and report name.
+RecordPrep does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or a case-overview retrieval artifact.
 
 ## Requirements
-- Python 3.13+
-- GTK4/Libadwaita via `pygobject`
-- GTK4 VTE 3.91 (`gir1.2-vte-3.91` and `libvte-2.91-gtk4-0` on Debian/Ubuntu)
-- [PI](https://pi.dev/docs/latest) 0.80+ with Node.js 20+ and an authenticated model
-- `pdftotext` Python bindings, PyMuPDF, PyPDF, LangChain + Chroma + VoyageAI/Isaacus for RAG
 
-## Quick start
+- Python 3.13+
+- GTK4, Libadwaita, and GTK4 VTE
+- [uv](https://docs.astral.sh/uv/)
+- PI 0.80+ and Node.js 20+ for the project-local knowledge-work stages
+- `pdftotext`, PyMuPDF, and PyPDF for extraction/rendering
+- An OpenAI-compatible vision endpoint for page classification and case-name inference
+- An OpenAI-compatible text endpoint for source-page summaries
+
+Install:
+
+```bash
+uv sync
+```
+
+Run:
+
 ```bash
 uv run python -m recordprep app
 ```
 
-The package parser can also be inspected directly:
+## Direct-source pipeline
 
-```bash
-python -m recordprep app
-```
+### Prepare
 
-## Package layout
-```text
-recordprep/
-  cli.py                  # recordprep command
-  __main__.py             # python -m recordprep entry
-  app.py                  # GTK app launcher
-  classification.py       # reusable classifier worker helper
-  config.py               # settings import surface
-  documents.py            # PDF/text/image helper import surface
-  manifest.py             # manifest helper import surface
-  optimization.py         # optimization helper import surface
-  prompts.py              # default prompt import surface
-  rag.py                  # RAG helper import surface
-  summaries.py            # summary path/link helper import surface
-  pi_runtime.py           # PI discovery, model RPC, and project settings
-  pi_bundle.py            # per-skill Agent Refinement artifact validation
-  ui/main_window.py       # main GTK UI and pipeline orchestration
-.pi/
-  settings.json           # tracked project-wide PI model selection
-  skills/                 # four project-local RecordPrep skills and helpers
-  scripts/                # sequential skill runner and resource validator
-```
+1. **Create files** — create `text_pages/NNNN.txt` and 300-DPI grayscale `image_pages/NNNN.png`; merge selected PDFs in natural order when needed.
+2. **Strip characters** — remove nonprinting extraction artifacts.
+3. **Infer case** — write `case_name.txt`.
 
-## Using the app
-1. Click the folder button to choose an existing `case_bundle` folder or its parent directory.
-2. Click the list-add button to select one or more PDFs from the same folder.
-3. Run individual steps or click "Run". Use the always-visible "Run through"
-   selector to limit both Run and Resume to a specific pipeline step.
-4. Use Settings to configure API endpoints and prompts, plus the PI executable
-   and project-wide PI model under Agent → PI.
-5. Use the menu button to open "Test Classification" for a single-image prompt run with a live preview.
+### Classify and organize
 
-Choosing a different PDF set in the same folder makes the next Create files run
-clear the previous generated bundle before rebuilding it. If parallel local OCR
-drops its connection, RecordPrep restarts the server and retries unfinished pages
-one at a time.
+4. Classify RT/CT pages.
+5. Add advanced first/last markers, dates, report/form names, and corrections.
+6. Build/correct the TOC.
+7. Find/correct hearing, report, and minute-order boundaries.
 
-PI provider credentials remain in PI's global configuration. RecordPrep stores
-only the executable command in ignored `config.json` and the selected
-provider/model in tracked `.pi/settings.json`.
+### Record context
 
-## Output layout
-A `case_bundle/` folder is created next to the selected PDFs or reused if already present:
+8. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
+9. **Build participant and witness index** — PI inspects `RT_index` witness/examination pages, appearances, and actual sworn/examination evidence and writes `artifacts/participant_index.json`.
+
+Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`. Q/A formatting alone never establishes testimony, and counsel aliases are hearing-scoped.
+
+### Summarize
+
+10. **Create summaries** — the configured Summarize API reads boundary-scoped source pages directly.
+11. **Add links** — add hearing/minute page links.
+12. **Organize hearing summary** — PI preserves deterministic `Counsel:`/`Testimony:` lines and every unique summary-window sentence.
+13. **Organize report summary** — PI organizes sourced report-summary sentences without rewriting them.
+
+Summary inputs are bounded **ephemeral windows** (default: 15 primary source pages, with an additional input-size cap). The preceding page may be sent as context-only. Every primary window is summarized independently; no final compression pass discards unique detail, and no window text or metadata is written to disk.
+
+Hearing requests repeat validated participant/examination context. Summary prose must identify counsel by party role, reserve “testified” for mapped witnesses within verified examinations, and describe unsworn colloquy as stated/answered/confirmed/advised. Known-bad attribution causes retry and then a specific step failure rather than publication.
+
+### Agent Search
+
+14. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
+
+Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary paths are nonauthoritative leads; source pages remain the evidence.
+
+## Case bundle layout
+
 ```text
 case_bundle/
-  case_name.txt
   manifest.json
-  text_pages/           # 0001.txt, 0002.txt, ...
-  image_pages/          # 0001.png, 0002.png, ... (300 DPI grayscale)
-  classification/       # RT/CT classification JSONL files
-  artifacts/            # toc.txt, boundary JSON, raw/optimized text, optimized chunk data
-  summaries/            # source summaries plus derived _organized summaries
-  rag/                  # case_overview.txt, vector_database/
-  temp/                 # merged.pdf when multiple PDFs are selected
+  case_name.txt
+  text_pages/
+  image_pages/
+  classification/
+  artifacts/
+    toc.txt
+    hearing_boundaries.json
+    report_boundaries.json
+    minutes_boundaries.json
+    transcript_page_numbers.json
+    transcript_page_number_series.md
+    participant_index.json
+    source_map.json
+  summaries/
+    hearings_sum_<case>.txt
+    hearings_sum_<case>_organized.txt
+    reports_sum_<case>.txt
+    reports_sum_<case>_organized.txt
+    minutes_sum_<case>.txt
+  temp/
 ```
 
-## Pipeline steps
-- Create files: generate `text_pages/` and `image_pages/` and merge PDFs when needed.
-- Strip characters: remove non-printing characters, normalize tables, and convert LaTeX.
-- Infer case: derive the case name from the first pages and save `case_name.txt`.
-- Classification basic: classify every page into major page types.
-- Advanced classification: mark hearing, minute, and form first pages.
-- Correct advanced classification: convert consecutive RT first-page markers to RT body pages.
-- Classification dates: add hearing and minute order dates.
-- Classification names: add report and form names.
-- Build TOC and Correct TOC.
-- Find and correct boundaries for hearings, reports, and minute orders.
-- Create raw, pre-optimized, and optimized text artifacts.
-- Create summaries and add hearing/minute page links to the hearings summary.
-- Case overview: create parties plus factual/procedural dated histories for RAG context.
-- Create RAG index: build a VoyageAI or Isaacus Chroma vector store.
-- Agent Refinement:
-  - Number transcript pages.
-  - Organize hearing summary.
-  - Organize report summary.
-  - Build source map, only after the preceding three outputs validate.
+When a selected bundle is rerun, RecordPrep removes only known obsolete generated paths from the retired artifact pipeline. It does not scan or mutate unrelated case bundles.
 
-Each row launches one project-local skill in PI's native interactive terminal
-interface, including PI's model indicator, tool and diff rendering, colors, and
-keyboard controls. A small project-local lifecycle extension gracefully closes
-PI after its response settles so RecordPrep can validate that step and continue
-to the next row automatically. The four rows run sequentially and retain their
-terminal history. They overwrite only derived transcript-numbering,
-organized-summary, and source-map outputs; original summaries and record pages
-remain unchanged. Stop terminates the active PI process tree. Resume skips each
-fresh, valid Agent Refinement output and always keeps source-map generation last.
-Stop and application close also terminate any RecordPrep-owned local OCR or
-classification `llama-server` process group.
+## PI stages
 
-## Development
+Tracked PI resources live under `.pi/`:
+
+- `SYSTEM.md`
+- `settings.json`
+- `extensions/recordprep-auto-exit.ts`
+- `skills/recordprep-number-transcript-pages/`
+- `skills/recordprep-build-participant-index/`
+- `skills/recordprep-organize-hearing-summary/`
+- `skills/recordprep-organize-report-summary/`
+- `skills/recordprep-build-source-map/`
+- `scripts/run_recordprep_skill.py`
+
+Each row launches one explicitly loaded Agent Skill in PI's native VTE UI. Only the final source-map stage updates the manifest. Skills validate outputs before the pipeline advances.
+
+## Settings
+
+Settings include source extraction, local OCR, classification/case inference, the Summarize API/prompts, 15-page summary-window preference, and PI command/model selection. Retired artifact-pipeline credentials and prompts are removed when local config is loaded or saved. The old summary paragraph-count preference migrates to `summarize_window_pages`.
+
+Saved run-until targets migrate as follows:
+
+- retired raw/transform stages → `create_summaries`
+- retired overview/vector stages → `build_source_map`
+
+## Validation
+
 ```bash
 uv run python -m unittest discover -s tests
 uv run python -m py_compile recordprep/*.py recordprep/ui/*.py tests/*.py
 python3 .pi/scripts/run_recordprep_skill.py --validate-resources
 ```
 
-Keep `pyproject.toml` and `uv.lock` synchronized when adding dependencies.
-
-## License
-GPL-3.0-or-later. See `LICENSE`.
+Validate each new/changed Agent Skill with the Agent Skill validator. Keep real case material, local credentials, and generated case bundles out of Git.

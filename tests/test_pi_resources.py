@@ -67,6 +67,7 @@ class PiResourceTests(unittest.TestCase):
         self.assertEqual(
             skills,
             [
+                "recordprep-build-participant-index",
                 "recordprep-build-source-map",
                 "recordprep-number-transcript-pages",
                 "recordprep-organize-hearing-summary",
@@ -90,6 +91,7 @@ class PiResourceTests(unittest.TestCase):
             "the physical line immediately before it must be empty",
             hearing_skill,
         )
+        self.assertIn("Preserve the deterministic `Counsel:` and `Testimony:` lines", hearing_skill)
         self.assertIn(
             "the physical line immediately before it must be empty",
             report_skill,
@@ -278,6 +280,27 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 json.dumps(transcript),
                 encoding="utf-8",
             )
+            (root / "artifacts/hearing_boundaries.json").write_text(
+                json.dumps([{"id": "hearing:0001", "date": "January 2, 2025", "start_page": "0001", "end_page": "0001"}]),
+                encoding="utf-8",
+            )
+            (root / "artifacts/report_boundaries.json").write_text("[]", encoding="utf-8")
+            (root / "artifacts/minutes_boundaries.json").write_text("[]", encoding="utf-8")
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "source": "record-participant-index",
+                    "hearings": [{
+                        "id": "hearing:0001", "date": "January 2, 2025",
+                        "start_page": 1, "end_page": 1,
+                        "witness_status": "none",
+                        "witness_evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "CT 1", "citation_key": "CT:1", "note": "No witness listed."}],
+                        "counsel": [], "witnesses": [], "warnings": [],
+                    }],
+                    "warnings": [],
+                }),
+                encoding="utf-8",
+            )
             manifest = {
                 "files": {
                     "summarized_hearings": "summaries/hearings_sum_case.txt",
@@ -315,8 +338,13 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             source_map = json.loads(
                 (root / "artifacts/source_map.json").read_text(encoding="utf-8")
             )
+            self.assertEqual(source_map["schema_version"], 2)
             self.assertEqual(source_map["counts"]["pages"], 1)
             self.assertEqual(source_map["citation_series"][0]["citation_prefix"], "CT")
+            self.assertEqual(source_map["pages"][0]["hearing_id"], "hearing:0001")
+            serialized = json.dumps(source_map)
+            for obsolete in ("optimized", "vector_database", "case_overview", "chunks"):
+                self.assertNotIn(obsolete, serialized)
 
     def test_runner_termination_cleans_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,18 +1,12 @@
 [project]
 name = "recordprep"
 version = "0.1.0"
-description = "GTK4/Libadwaita app that converts OCR'd legal transcript PDFs into case bundles, classifications, summaries, and RAG artifacts."
+description = "GTK4/Libadwaita app that converts OCR'd legal transcript PDFs into direct-source case bundles, role-aware summaries, and Agent search metadata."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "beautifulsoup4>=4.14.3",
-    "chromadb>=1.4.1",
     "cryptography>=46.0.7",
-    "isaacus>=0.19.0",
-    "langchain>=1.2.6",
-    "langchain-chroma>=1.1.0",
-    "langchain-text-splitters>=1.1.0",
-    "langchain-voyageai>=0.3.2",
     "pdftotext>=3.0.0",
     "pygobject>=3.54.5",
     "pylatexenc>=2.10",
@@ -20,7 +14,6 @@ dependencies = [
     "pypdf>=6.6.0",
     "requests>=2.32.5",
     "tabulate>=0.9.0",
-    "voyageai>=0.3.7",
 ]
 
 [project.scripts]

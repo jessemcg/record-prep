@@ -37,6 +37,12 @@ STAGES = {
             "read,bash,grep,find,ls,write,edit",
         ),
         SkillStage(
+            "build_participant_index",
+            "Build participant and witness index",
+            "recordprep-build-participant-index",
+            "read,bash,grep,find,ls,write,edit",
+        ),
+        SkillStage(
             "organize_hearing_summary",
             "Organize hearing summary",
             "recordprep-organize-hearing-summary",
@@ -162,7 +168,12 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
         f"bundle in RECORDPREP_CASE_BUNDLE ({root}). Follow the skill completely, "
         "validate its outputs, and finish with a concise result."
     )
-    if stage.step_id == "organize_hearing_summary":
+    if stage.step_id == "build_participant_index":
+        instruction += (
+            "\nInspect RT_index pages, appearances, and actual sworn/examination "
+            "evidence. Preserve uncertainty and never infer testimony from Q/A alone."
+        )
+    elif stage.step_id == "organize_hearing_summary":
         expected = expected_organized_summary_path(root, "hearings")
         if expected is not None:
             instruction += f"\nThe exact required output path is: {expected}"
@@ -172,8 +183,9 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
             instruction += f"\nThe exact required output path is: {expected}"
     elif stage.step_id == "build_source_map":
         instruction += (
-            "\nDo not proceed unless transcript numbering and both organized "
-            "summaries already validate. This is the final Agent Refinement step."
+            "\nDo not proceed unless transcript numbering, participant indexing, "
+            "and both organized summaries already validate. This is the final "
+            "Agent Search preparation step."
         )
     return instruction
 

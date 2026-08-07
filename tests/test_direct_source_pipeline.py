@@ -6,10 +6,10 @@ from unittest.mock import patch
 from recordprep.ui.main_window import (
     DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     _append_summary_paragraph,
     _cleanup_legacy_generated_artifacts,
     _hearing_participant_context,
-    _hearing_summary_validation_issue,
     _render_summary_window_payload,
     load_summarize_settings,
     _summary_page_windows,
@@ -199,12 +199,14 @@ class DirectSourcePipelineTests(unittest.TestCase):
         ):
             self.assertIn("with no internal line breaks", prompt)
             self.assertIn("inserts a blank line", prompt)
-        self.assertIn(
-            "unsworn participant Janette McKinley",
-            _hearing_summary_validation_issue(
-                "The maternal great-aunt Janette McKinley testified.", hearing
-            ) or "",
-        )
+
+    def test_summary_pipeline_has_no_model_output_content_validator(self) -> None:
+        project = Path(__file__).resolve().parents[1]
+        source = (project / "recordprep/ui/main_window.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("_hearing_summary_validation_issue", source)
+        self.assertNotIn("Summary validation failed", source)
+        self.assertNotIn("repair attempts", source)
 
     def test_summary_paragraphs_have_one_blank_line_between_windows(self) -> None:
         lines = ["January 2, 2025", ""]
@@ -217,42 +219,27 @@ class DirectSourcePipelineTests(unittest.TestCase):
             "January 2, 2025\n\nFirst window. Still first window.\n\nSecond window.\n",
         )
 
-    def test_summary_validation_rejects_false_testimony_and_bare_counsel_name(self) -> None:
-        hearing = {
-            "witness_status": "none",
-            "witnesses": [],
-            "counsel": [
-                {
-                    "role_id": "mothers_counsel",
-                    "role_label": "Mother’s counsel",
-                    "name": "Jane Smith",
-                    "aliases": ["Ms. Smith"],
-                }
-            ],
-        }
+    def test_previous_integrated_prompt_migrates_but_custom_prompt_is_preserved(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_hearings_prompt": PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+                "summarize_reports_prompt": DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            },
+        ):
+            migrated = load_summarize_settings()
+        self.assertEqual(migrated["hearings_prompt"], DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
 
-        self.assertIn(
-            "witness status is none",
-            _hearing_summary_validation_issue("The father testified.", hearing) or "",
-        )
-        self.assertIn(
-            "without the party role",
-            _hearing_summary_validation_issue("Jane Smith objected.", hearing) or "",
-        )
-        self.assertIn(
-            "without the party role",
-            _hearing_summary_validation_issue("Ms. Smith objected.", hearing) or "",
-        )
-        self.assertIn(
-            "counsel Ms. Smith as testifying",
-            _hearing_summary_validation_issue(
-                "After testifying before the court, Ms. Smith objected.",
-                {**hearing, "witness_status": "verified"},
-            ) or "",
-        )
-        self.assertIsNone(
-            _hearing_summary_validation_issue("Mother’s counsel (Jane Smith) objected.", hearing)
-        )
+        custom_prompt = "My genuinely customized hearing prompt."
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_hearings_prompt": custom_prompt,
+                "summarize_reports_prompt": DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            },
+        ):
+            preserved = load_summarize_settings()
+        self.assertEqual(preserved["hearings_prompt"], custom_prompt)
 
     def test_cleanup_removes_only_known_legacy_generated_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

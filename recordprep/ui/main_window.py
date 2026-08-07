@@ -534,7 +534,7 @@ DEFAULT_CASE_NAME_PROMPT = (
     "Social_Services_v_Breanna_F. "
     "If unknown, use an empty string."
 )
-DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
+PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "You are summarizing one window of source pages from a juvenile dependency court "
     "hearing. The user message is organized into these labeled sections:\n\n"
     "1. PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY. This is validated metadata "
@@ -561,6 +561,16 @@ DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "quoted text or use ellipses. Do not begin with prefatory language, include the hearing "
     "date, add commentary, use Markdown, list appearances, recite the participant context, "
     "or add a standalone statement about whether testimony occurred."
+)
+DEFAULT_SUMMARIZE_HEARINGS_PROMPT = PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT.replace(
+    "Use testified or testimony only for a verified witness within a mapped "
+    "examination. Q/A formatting alone does not establish testimony. Describe unsworn ",
+    "Use testified or testimony to describe testimony occurring at the current hearing "
+    "only for a verified witness within a mapped examination. A clearly qualified "
+    "reference to prior, future, proposed, anticipated, stipulated, conditional, "
+    "excluded, or absent testimony is permitted only when the wording unmistakably "
+    "does not claim that testimony occurred at the current hearing. Q/A formatting "
+    "alone does not establish testimony. Describe unsworn ",
 )
 DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "You are summarizing one window of source pages from a report in a juvenile dependency "
@@ -1454,40 +1464,6 @@ def _render_summary_window_payload(
         sections.append(f"[{citation or f'file page {number}'} | source text_pages/{number:04d}.txt]")
         sections.append(page_text[number].strip())
     return "\n".join(sections).strip()
-
-
-def _hearing_summary_validation_issue(text: str, hearing: dict[str, Any]) -> str | None:
-    status = str(hearing.get("witness_status") or "unknown")
-    if status in {"none", "unknown"} and re.search(r"\btestif(?:y|ied|ies|ying)\b|\btestimony\b", text, re.I):
-        return f"model used testimony language while witness status is {status}"
-    for counsel in hearing.get("counsel", []):
-        if not isinstance(counsel, dict):
-            continue
-        name = str(counsel.get("name") or "").strip()
-        identifiers = [name, *[str(value).strip() for value in (counsel.get("aliases") or [])]]
-        identifiers = [value for value in identifiers if value]
-        role_id = str(counsel.get("role_id") or "")
-        role = _participant_role_label(role_id) if role_id else str(counsel.get("role_label") or "").strip()
-        for identifier in identifiers:
-            testimony_pattern = rf"(?:\b{re.escape(identifier)}\b.{{0,80}}\btestif|\btestif\w*\b.{{0,80}}\b{re.escape(identifier)}\b)"
-            if re.search(testimony_pattern, text, re.I | re.S):
-                return f"model described counsel {identifier} as testifying"
-            if identifier.casefold() in text.casefold() and role and role.casefold() not in text.casefold():
-                return f"model named counsel {identifier} without the party role {role}"
-    for participant in hearing.get("participants", []):
-        if not isinstance(participant, dict) or str(participant.get("sworn_status") or "") == "sworn":
-            continue
-        identifiers = [
-            str(participant.get("name") or "").strip(),
-            *[str(value).strip() for value in (participant.get("aliases") or [])],
-        ]
-        for identifier in (value for value in identifiers if value):
-            testimony_pattern = rf"(?:\b{re.escape(identifier)}\b.{{0,80}}\btestif|\btestif\w*\b.{{0,80}}\b{re.escape(identifier)}\b)"
-            if re.search(testimony_pattern, text, re.I | re.S):
-                return f"model described unsworn participant {identifier} as testifying"
-    return None
-
-
 
 
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
@@ -3305,7 +3281,7 @@ def load_summarize_settings() -> dict[str, Any]:
     reports_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, DEFAULT_SUMMARIZE_REPORTS_PROMPT) or ""
     ).strip()
-    if hearings_prompt.startswith(
+    if hearings_prompt == PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT or hearings_prompt.startswith(
         (
             "Summarize the following court hearing in one very concise paragraph",
             "Summarize the primary court-hearing source pages in one concise paragraph",
@@ -9559,24 +9535,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "api_key": settings["api_key"],
                 "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
             }
-            def request_window(prompt: str, payload: str, hearing: dict[str, Any] | None = None) -> str:
-                correction = ""
-                for attempt in range(2):
-                    response = self._request_plain_text(
-                        {**request_base, "prompt": prompt + correction}, payload
-                    )
-                    cleaned = " ".join((response or "").split())
-                    if not cleaned:
-                        return ""
-                    issue = _hearing_summary_validation_issue(cleaned, hearing) if hearing else None
-                    if issue is None:
-                        return cleaned
-                    correction = (
-                        f"\n\nYour prior answer was rejected because it {issue}. Correct that error, "
-                        "follow the participant-index attribution guidance, and return the "
-                        "paragraph again."
-                    )
-                raise ValueError(f"Summary attribution validation failed: {issue}.")
+            def request_window(prompt: str, payload: str) -> str:
+                response = self._request_plain_text(
+                    {**request_base, "prompt": prompt}, payload
+                )
+                return " ".join((response or "").split())
 
             case_name, _ = load_case_context()
             display_case_name = case_name.replace("_", " ") if case_name else ""
@@ -9627,11 +9590,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     payload = _render_summary_window_payload(
                         window, citation_by_page, participant_context=context
                     )
-                    response = request_window(
-                        settings["hearings_prompt"],
-                        payload,
-                        participant,
-                    )
+                    response = request_window(settings["hearings_prompt"], payload)
                     if response:
                         _append_summary_paragraph(hearing_output, response)
                 hearing_output.append("")

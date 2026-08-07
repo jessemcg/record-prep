@@ -43,15 +43,9 @@ STAGES = {
             "read,bash,grep,find,ls,write,edit",
         ),
         SkillStage(
-            "organize_hearing_summary",
-            "Organize hearing summary",
-            "recordprep-organize-hearing-summary",
-            "read,bash,grep,find,ls,write,edit",
-        ),
-        SkillStage(
-            "organize_report_summary",
-            "Organize report summary",
-            "recordprep-organize-report-summary",
+            "create_case_overview",
+            "Create case overview",
+            "recordprep-create-case-overview",
             "read,bash,grep,find,ls,write,edit",
         ),
         SkillStage(
@@ -160,8 +154,6 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
     project_root = project_dir.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    from recordprep.pi_bundle import expected_organized_summary_path
-
     instruction = (
         f"/skill:{stage.skill_name}\n"
         f"Run the loaded {stage.skill_name} skill now against the absolute case "
@@ -173,19 +165,17 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
             "\nInspect RT_index pages, appearances, and actual sworn/examination "
             "evidence. Preserve uncertainty and never infer testimony from Q/A alone."
         )
-    elif stage.step_id == "organize_hearing_summary":
-        expected = expected_organized_summary_path(root, "hearings")
-        if expected is not None:
-            instruction += f"\nThe exact required output path is: {expected}"
-    elif stage.step_id == "organize_report_summary":
-        expected = expected_organized_summary_path(root, "reports")
-        if expected is not None:
-            instruction += f"\nThe exact required output path is: {expected}"
+    elif stage.step_id == "create_case_overview":
+        instruction += (
+            f"\nThe exact required output path is: {root / 'artifacts' / 'case_overview.md'}"
+            "\nCreate only a concise nonauthoritative orientation aid. Do not "
+            "modify manifest.json."
+        )
     elif stage.step_id == "build_source_map":
         instruction += (
             "\nDo not proceed unless transcript numbering, participant indexing, "
-            "and both organized summaries already validate. This is the final "
-            "Agent Search preparation step."
+            "the source summaries, and the case overview already validate. This is "
+            "the final Agent Search preparation step."
         )
     return instruction
 
@@ -220,29 +210,9 @@ def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[st
     project_root = project_dir.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    from recordprep.pi_bundle import (
-        expected_organized_summary_path,
-        legacy_organized_summary_path,
-        validate_pi_step_outputs,
-    )
+    from recordprep.pi_bundle import validate_pi_step_outputs
 
-    issues = validate_pi_step_outputs(stage.step_id, root)
-    if not issues and stage.step_id in {
-        "organize_hearing_summary",
-        "organize_report_summary",
-    }:
-        kind = "hearings" if stage.step_id == "organize_hearing_summary" else "reports"
-        legacy = legacy_organized_summary_path(root, kind)
-        expected = expected_organized_summary_path(root, kind)
-        if (
-            legacy is not None
-            and expected is not None
-            and legacy != expected
-            and legacy.is_file()
-        ):
-            legacy.unlink()
-            _line(f"Removed legacy misnamed output: {legacy.name}")
-    return issues
+    return validate_pi_step_outputs(stage.step_id, root)
 
 
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
@@ -251,17 +221,23 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     resource_issues = _resource_issues(project_dir)
     if resource_issues:
         raise ValueError(" ".join(resource_issues))
-    if stage.step_id == "build_source_map":
+    if stage.step_id in {"create_case_overview", "build_source_map"}:
         project_root = project_dir.parent
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
-        from recordprep.pi_bundle import source_map_prerequisite_issues
+        from recordprep.pi_bundle import (
+            case_overview_prerequisite_issues,
+            source_map_prerequisite_issues,
+        )
 
-        preflight = source_map_prerequisite_issues(root)
+        if stage.step_id == "create_case_overview":
+            preflight = case_overview_prerequisite_issues(root)
+            failure_label = "Create case overview prerequisites failed: "
+        else:
+            preflight = source_map_prerequisite_issues(root)
+            failure_label = "Build source map prerequisites failed: "
         if preflight:
-            raise ValueError(
-                "Build source map prerequisites failed: " + " ".join(preflight)
-            )
+            raise ValueError(failure_label + " ".join(preflight))
 
     pi_command = _pi_command()
     _check_pi_version(pi_command)

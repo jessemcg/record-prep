@@ -10,23 +10,15 @@ PREPARE_BUNDLE_MANIFEST_KEYS = {
     "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
     "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
     "participant_index": "artifacts/participant_index.json",
+    "case_overview": "artifacts/case_overview.md",
     "source_map": "artifacts/source_map.json",
 }
 PI_STEP_IDS = (
     "number_transcript_pages",
     "build_participant_index",
-    "organize_hearing_summary",
-    "organize_report_summary",
+    "create_case_overview",
     "build_source_map",
 )
-_LONG_US_DATE = (
-    r"(?:January|February|March|April|May|June|July|August|September|"
-    r"October|November|December) \d{1,2}, \d{4}"
-)
-_HEARING_DATE_LINE_RE = re.compile(
-    rf"^{_LONG_US_DATE}\b.*(?:\[Hearing\]|\[Minute Order\])\("
-)
-_REPORT_DATE_TITLE_LINE_RE = re.compile(rf"^{_LONG_US_DATE}\s+-\s+\S")
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -74,38 +66,14 @@ def _summary_source(root: Path, manifest: dict[str, Any], kind: str) -> Path | N
 
 
 def expected_prepare_bundle_paths(root: Path) -> dict[str, Path]:
-    manifest = _read_json(root / "manifest.json") or {}
-    paths = {
+    return {
         key: root / relative
         for key, relative in PREPARE_BUNDLE_MANIFEST_KEYS.items()
     }
-    for kind in ("hearings", "reports"):
-        source = _summary_source(root, manifest, kind)
-        if source is not None:
-            paths[f"organized_{kind}"] = source.with_name(
-                f"{source.stem}_organized{source.suffix}"
-            )
-    return paths
 
 
-def expected_organized_summary_path(root: Path, kind: str) -> Path | None:
-    if kind not in {"hearings", "reports"}:
-        raise ValueError(f"Unknown summary kind: {kind}")
-    manifest = _read_json(root / "manifest.json") or {}
-    source = _summary_source(root, manifest, kind)
-    if source is None:
-        return None
-    return source.with_name(f"{source.stem}_organized{source.suffix}")
-
-
-def legacy_organized_summary_path(root: Path, kind: str) -> Path | None:
-    if kind not in {"hearings", "reports"}:
-        raise ValueError(f"Unknown summary kind: {kind}")
-    manifest = _read_json(root / "manifest.json") or {}
-    source = _summary_source(root, manifest, kind)
-    if source is None:
-        return None
-    return source.with_name(f"{source.stem}._organized{source.suffix}")
+def case_overview_path(root: Path) -> Path:
+    return root.resolve(strict=False) / "artifacts" / "case_overview.md"
 
 
 def validate_transcript_numbering_outputs(root: Path) -> list[str]:
@@ -285,56 +253,91 @@ def validate_participant_index_output(root: Path) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def validate_organized_summary_output(root: Path, kind: str) -> list[str]:
+def validate_summary_source_outputs(root: Path) -> list[str]:
     root = root.resolve(strict=False)
     manifest = _read_json(root / "manifest.json") or {}
-    source = _summary_source(root, manifest, kind)
-    label = "hearing" if kind == "hearings" else "report"
-    if source is None:
-        return [f"the source {label} summary is missing or ambiguous."]
-    organized = source.with_name(f"{source.stem}_organized{source.suffix}")
-    if not organized.is_file():
-        return [f"the organized {label} summary is missing: {organized.name}."]
+    issues: list[str] = []
+    for kind, label in (("hearings", "hearing"), ("reports", "report")):
+        source = _summary_source(root, manifest, kind)
+        if source is None:
+            issues.append(f"the source {label} summary is missing or ambiguous.")
+            continue
+        try:
+            if not source.read_text(encoding="utf-8").strip():
+                issues.append(f"the source {label} summary is empty.")
+        except OSError:
+            issues.append(f"the source {label} summary is unreadable.")
+    return issues
+
+
+def case_overview_prerequisite_issues(root: Path) -> list[str]:
+    issues = validate_participant_index_output(root)
+    issues.extend(validate_summary_source_outputs(root))
+    return list(dict.fromkeys(issues))
+
+
+def validate_case_overview_output(root: Path) -> list[str]:
+    root = root.resolve(strict=False)
+    issues = case_overview_prerequisite_issues(root)
+    path = case_overview_path(root)
     try:
-        if organized.stat().st_mtime < source.stat().st_mtime:
-            return [f"the organized {label} summary is stale."]
+        text = path.read_text(encoding="utf-8")
     except OSError:
-        return [f"unable to compare {label} summary freshness."]
-    try:
-        lines = organized.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return [f"the organized {label} summary is unreadable."]
-    boundary_pattern = (
-        _HEARING_DATE_LINE_RE
-        if kind == "hearings"
-        else _REPORT_DATE_TITLE_LINE_RE
+        return [*issues, "artifacts/case_overview.md is missing or unreadable."]
+
+    required_fragments = (
+        "---\nartifact: recordprep-case-overview\n"
+        "schema_version: 1\nstatus: nonauthoritative-orientation\n---",
+        "# Case Overview",
+        "> Orientation aid only. Verify every factual claim against mapped source "
+        "pages before relying on or citing it.",
+        "## Parties and Roles",
+        "## Procedural Posture",
+        "## Key Events",
+        "## Principal Issues",
+        "## Record Scope",
     )
-    missing_blank_lines = [
-        line_number
-        for line_number, line in enumerate(lines, start=1)
-        if boundary_pattern.match(line)
-        and line_number > 1
-        and lines[line_number - 2].strip()
-    ]
-    if missing_blank_lines:
-        boundary_label = (
-            "hearing date/link line"
-            if kind == "hearings"
-            else "retained report date/title line"
-        )
-        line_list = ", ".join(str(value) for value in missing_blank_lines)
-        return [
-            f"the organized {label} summary must have a blank line immediately "
-            f"before every {boundary_label}; missing before line(s): {line_list}."
-        ]
-    return []
+    for fragment in required_fragments:
+        if fragment not in text:
+            issues.append(
+                "artifacts/case_overview.md is missing required versioning, "
+                "disclaimer, or section structure."
+            )
+            break
+
+    prose = text.split("---", 2)[-1]
+    word_count = len(re.findall(r"\b[\w’'-]+\b", prose, flags=re.UNICODE))
+    if word_count < 150:
+        issues.append("artifacts/case_overview.md must contain at least 150 prose words.")
+    if word_count > 900:
+        issues.append("artifacts/case_overview.md must not exceed 900 prose words.")
+
+    manifest = _read_json(root / "manifest.json") or {}
+    prerequisites = [root / "artifacts" / "participant_index.json"]
+    for kind in ("hearings", "reports"):
+        source = _summary_source(root, manifest, kind)
+        if source is not None:
+            prerequisites.append(source)
+    minutes = _summary_source(root, manifest, "minutes")
+    if minutes is not None:
+        prerequisites.append(minutes)
+    case_name = root / "case_name.txt"
+    if case_name.is_file():
+        prerequisites.append(case_name)
+    try:
+        if path.is_file() and any(
+            source.is_file() and path.stat().st_mtime < source.stat().st_mtime
+            for source in prerequisites
+        ):
+            issues.append("artifacts/case_overview.md is stale.")
+    except OSError:
+        issues.append("unable to compare case overview freshness.")
+    return list(dict.fromkeys(issues))
 
 
 def source_map_prerequisite_issues(root: Path) -> list[str]:
     issues = validate_transcript_numbering_outputs(root)
-    issues.extend(validate_participant_index_output(root))
-    issues.extend(validate_organized_summary_output(root, "hearings"))
-    issues.extend(validate_organized_summary_output(root, "reports"))
+    issues.extend(validate_case_overview_output(root))
     return list(dict.fromkeys(issues))
 
 
@@ -353,10 +356,8 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     transcript_path = paths["transcript_page_numbers"]
     series_path = paths["transcript_page_number_series"]
     participant_index_path = paths["participant_index"]
+    overview_path = paths["case_overview"]
     source_map_path = paths["source_map"]
-    organized_hearings = paths.get("organized_hearings")
-    organized_reports = paths.get("organized_reports")
-
     transcript = _read_json(transcript_path)
     if transcript is None:
         issues.append("artifacts/transcript_page_numbers.json is missing or invalid.")
@@ -371,10 +372,8 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     if not series_path.is_file():
         issues.append("artifacts/transcript_page_number_series.md is missing.")
     issues.extend(validate_participant_index_output(root))
-    if organized_hearings is None or not organized_hearings.is_file():
-        issues.append("the organized hearing summary is missing.")
-    if organized_reports is None or not organized_reports.is_file():
-        issues.append("the organized report summary is missing.")
+    issues.extend(validate_summary_source_outputs(root))
+    issues.extend(validate_case_overview_output(root))
 
     source_map = _read_json(source_map_path)
     if source_map is None:
@@ -386,41 +385,38 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
             issues.append("source_map.json pages must be a list.")
         if not isinstance(source_map.get("citation_series"), list):
             issues.append("source_map.json citation_series must be a list.")
+        source_paths = (
+            source_map.get("paths")
+            if isinstance(source_map.get("paths"), dict)
+            else {}
+        )
+        if source_paths.get("case_overview") != "artifacts/case_overview.md":
+            issues.append(
+                "source_map.json paths.case_overview must be "
+                "artifacts/case_overview.md."
+            )
 
     expected_manifest_paths = dict(PREPARE_BUNDLE_MANIFEST_KEYS)
-    if organized_hearings is not None:
-        expected_manifest_paths["organized_hearings"] = organized_hearings.relative_to(
-            root
-        ).as_posix()
-    if organized_reports is not None:
-        expected_manifest_paths["organized_reports"] = organized_reports.relative_to(
-            root
-        ).as_posix()
     for key, expected in expected_manifest_paths.items():
         if files.get(key) != expected:
             issues.append(f"manifest.json files.{key} must be {expected}.")
 
     freshness_pairs: list[tuple[Path, Path, str]] = []
-    for kind, organized in (
-        ("hearings", organized_hearings),
-        ("reports", organized_reports),
-    ):
-        source = _summary_source(root, manifest, kind)
-        if source is not None and organized is not None:
-            freshness_pairs.append(
-                (organized, source, f"the organized {kind} summary is stale.")
-            )
+    summary_sources = [
+        source
+        for kind in ("hearings", "reports", "minutes")
+        if (source := _summary_source(root, manifest, kind)) is not None
+    ]
     for prerequisite in (
         transcript_path,
         series_path,
         participant_index_path,
-        organized_hearings,
-        organized_reports,
+        overview_path,
+        *summary_sources,
     ):
-        if prerequisite is not None:
-            freshness_pairs.append(
-                (source_map_path, prerequisite, "source_map.json is stale.")
-            )
+        freshness_pairs.append(
+            (source_map_path, prerequisite, "source_map.json is stale.")
+        )
     for output, source, message in freshness_pairs:
         try:
             if output.is_file() and source.is_file() and output.stat().st_mtime < source.stat().st_mtime:
@@ -442,10 +438,8 @@ def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
         issues = validate_transcript_numbering_outputs(root)
         issues.extend(validate_participant_index_output(root))
         return list(dict.fromkeys(issues))
-    if step_id == "organize_hearing_summary":
-        return validate_organized_summary_output(root, "hearings")
-    if step_id == "organize_report_summary":
-        return validate_organized_summary_output(root, "reports")
+    if step_id == "create_case_overview":
+        return validate_case_overview_output(root)
     if step_id == "build_source_map":
         return validate_prepare_bundle_outputs(root)
     return [f"Unknown PI step: {step_id}"]

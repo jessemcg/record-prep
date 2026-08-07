@@ -2,7 +2,7 @@
 
 RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable legal-record PDFs into a citation-aware case bundle for Focus. It preserves original page text/images, classifies pages, finds document boundaries, numbers official transcript pages, verifies counsel and witnesses, creates detailed summaries from source pages, and publishes source-map v2 for PI Agent search.
 
-RecordPrep does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or a case-overview retrieval artifact.
+RecordPrep creates one concise, versioned, nonauthoritative case-orientation overview. It does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or any case-overview retrieval index.
 
 ## Requirements
 
@@ -52,18 +52,21 @@ Counsel, non-counsel participants, and witnesses are separate hearing-scoped rec
 
 10. **Create summaries** — the configured Summarize API reads boundary-scoped source pages directly.
 11. **Add links** — add hearing/minute page links.
-12. **Organize hearing summary** — PI preserves every unique summary-window sentence without adding an appearance roster or testimony-status boilerplate.
-13. **Organize report summary** — PI organizes sourced report-summary sentences without rewriting them.
 
-Summary inputs are bounded **ephemeral windows** (default: 15 primary source pages, with an additional input-size cap). The preceding page may be sent as context-only. Every primary window is summarized independently; no final compression pass discards unique detail, and no window text or metadata is written to disk.
+Summary inputs are adaptive, page-aligned **ephemeral windows**. RecordPrep adds complete source pages toward a 6,000-character target, stops at six primary pages or the 12,000-character safety limit, and prefers a break before a mapped witness examination. A single oversized page remains intact. The preceding page may be sent as context-only. Every primary page is summarized exactly once; no final compression pass discards unique detail, and no window text or metadata is written to disk.
 
-Hearing requests privately repeat validated counsel/participant/examination context. Summary prose uses that metadata only for accurate attribution: it identifies counsel by party role when describing a material act, reserves “testified” for mapped witnesses within verified examinations, and describes unsworn colloquy as stated/answered/confirmed/advised. It does not publish a counsel/participant roster or a standalone statement about whether testimony occurred. Known-bad attribution causes retry and then a specific step failure rather than publication.
+Hearing requests privately repeat validated counsel/participant/examination context under `PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY`. The complete hearing prompt explains that this metadata comes from the earlier participant-index stage, is supplied only for attribution, and does not replace the transcript as the factual source. Summary prose identifies counsel by party role when describing a material act, reserves “testified” for mapped witnesses within verified examinations, and describes unsworn colloquy as stated/answered/confirmed/advised. It does not publish a counsel/participant roster or a standalone statement about whether testimony occurred. Known-bad attribution causes retry and then a specific step failure rather than publication.
+
+The hearing and report prompt editors contain the complete instructions actually sent as the system message; RecordPrep does not append a hidden “attribution contract.” Both prompts explain the optional preceding context page and the primary pages that must be summarized. Each page window produces one prose paragraph, and RecordPrep deterministically places one blank line between adjacent hearing or report paragraphs.
 
 ### Agent Search
 
-14. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
+12. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
+13. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
 
-Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary paths are nonauthoritative leads; source pages remain the evidence.
+The case overview supplies parties, procedural posture, key events, principal issues, and record scope so a Focus Agent can orient before inspecting structural metadata. It is explicitly nonauthoritative, is freshness-checked against its inputs, and cannot support a final factual claim or citation.
+
+Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.
 
 ## Case bundle layout
 
@@ -82,17 +85,16 @@ case_bundle/
     transcript_page_numbers.json
     transcript_page_number_series.md
     participant_index.json
+    case_overview.md
     source_map.json
   summaries/
     hearings_sum_<case>.txt
-    hearings_sum_<case>_organized.txt
     reports_sum_<case>.txt
-    reports_sum_<case>_organized.txt
     minutes_sum_<case>.txt
   temp/
 ```
 
-When a selected bundle is rerun, RecordPrep removes only known obsolete generated paths from the retired artifact pipeline. It does not scan or mutate unrelated case bundles.
+When a selected bundle is rerun, RecordPrep removes only known obsolete generated paths from retired pipelines, including legacy `_organized` summaries. It does not scan or mutate unrelated case bundles.
 
 ## PI stages
 
@@ -103,8 +105,7 @@ Tracked PI resources live under `.pi/`:
 - `extensions/recordprep-auto-exit.ts`
 - `skills/recordprep-number-transcript-pages/`
 - `skills/recordprep-build-participant-index/`
-- `skills/recordprep-organize-hearing-summary/`
-- `skills/recordprep-organize-report-summary/`
+- `skills/recordprep-create-case-overview/`
 - `skills/recordprep-build-source-map/`
 - `scripts/run_recordprep_skill.py`
 
@@ -112,12 +113,13 @@ Each row launches one explicitly loaded Agent Skill in PI's native VTE UI. Only 
 
 ## Settings
 
-Settings include source extraction, local OCR, classification/case inference, the Summarize API/prompts, 15-page summary-window preference, and PI command/model selection. Retired artifact-pipeline credentials and prompts are removed when local config is loaded or saved. The old summary paragraph-count preference migrates to `summarize_window_pages`.
+Settings include source extraction, local OCR, classification/case inference, the Summarize API/prompts, summary-window character target and maximum page count, and PI command/model selection. Retired artifact-pipeline credentials and prompts are removed when local config is loaded or saved. The obsolete paragraph-count setting is not reinterpreted as a page count; adaptive defaults apply until the new settings are saved.
 
 Saved run-until targets migrate as follows:
 
 - retired raw/transform stages → `create_summaries`
-- retired overview/vector stages → `build_source_map`
+- retired overview stage → `create_case_overview`
+- retired vector stage → `build_source_map`
 
 ## Validation
 

@@ -29,19 +29,18 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 19)
+        self.assertEqual(len(grouped), 18)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
         self.assertEqual(
-            grouped[-7:],
+            grouped[-6:],
             [
                 "number_transcript_pages",
                 "build_participant_index",
                 "create_summaries",
                 "add_hearing_date_links",
-                "organize_hearing_summary",
-                "organize_report_summary",
+                "create_case_overview",
                 "build_source_map",
             ],
         )
@@ -147,11 +146,10 @@ class MainWindowUiStateTests(unittest.TestCase):
                         "created_at": "original",
                         "files": {
                             "source_map": "artifacts/source_map.json",
-                            "organized_hearings": "summaries/h_organized.txt",
-                            "organized_reports": "summaries/r_organized.txt",
                             "transcript_page_numbers": "artifacts/numbers.json",
                             "transcript_page_number_series": "artifacts/series.md",
                             "participant_index": "artifacts/participants.json",
+                            "case_overview": "artifacts/case_overview.md",
                         },
                     }
                 ),
@@ -169,9 +167,11 @@ class MainWindowUiStateTests(unittest.TestCase):
                 payload["files"]["source_map"],
                 "artifacts/source_map.json",
             )
+            self.assertNotIn("organized_hearings", payload["files"])
+            self.assertNotIn("organized_reports", payload["files"])
             self.assertEqual(
-                payload["files"]["organized_hearings"],
-                "summaries/h_organized.txt",
+                payload["files"]["case_overview"],
+                "artifacts/case_overview.md",
             )
             self.assertEqual(
                 payload["pipeline"]["last_completed_step"],

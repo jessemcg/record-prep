@@ -13,6 +13,42 @@ PI_DIR = PROJECT_DIR / ".pi"
 RUNNER = PI_DIR / "scripts/run_recordprep_skill.py"
 
 
+def _case_overview_text() -> str:
+    return """---
+artifact: recordprep-case-overview
+schema_version: 1
+status: nonauthoritative-orientation
+---
+
+# Case Overview
+
+> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.
+
+## Parties and Roles
+
+The synthetic record concerns one child and two parents. The summaries distinguish those central parties from relatives, agency personnel, and service providers without listing every person who appeared.
+
+## Procedural Posture
+
+The matter includes an initial hearing, a later review, and a final summarized order. This short overview reports only the posture represented in the generated summaries and does not resolve any factual or legal dispute.
+
+## Key Events
+
+- January 2, 2025: The first summarized hearing occurred.
+- February 3, 2025: A report added family and service information.
+- March 4, 2025: The court reviewed progress and made another order.
+- April 5, 2025: The summaries describe the last included proceeding.
+
+## Principal Issues
+
+The apparent issues involve placement, services, contact, and the orders reflected in the summarized proceedings. Matters omitted from a summary may still appear in an underlying source page.
+
+## Record Scope
+
+The available material includes hearing, report, and minute-order summaries from January through April 2025. The overview does not establish completeness. Every detail must be verified against mapped source pages before use.
+"""
+
+
 def _runner_environment(
     case_bundle: Path,
     fake_pi: Path,
@@ -69,32 +105,9 @@ class PiResourceTests(unittest.TestCase):
             [
                 "recordprep-build-participant-index",
                 "recordprep-build-source-map",
+                "recordprep-create-case-overview",
                 "recordprep-number-transcript-pages",
-                "recordprep-organize-hearing-summary",
-                "recordprep-organize-report-summary",
             ],
-        )
-
-    def test_organized_summary_skills_require_blank_date_boundaries(self) -> None:
-        hearing_skill = " ".join(
-            (
-                PI_DIR / "skills/recordprep-organize-hearing-summary/SKILL.md"
-            ).read_text(encoding="utf-8").split()
-        )
-        report_skill = " ".join(
-            (
-                PI_DIR / "skills/recordprep-organize-report-summary/SKILL.md"
-            ).read_text(encoding="utf-8").split()
-        )
-
-        self.assertIn(
-            "the physical line immediately before it must be empty",
-            hearing_skill,
-        )
-        self.assertIn("Do not add a counsel-appearance roster", hearing_skill)
-        self.assertIn(
-            "the physical line immediately before it must be empty",
-            report_skill,
         )
 
     def test_runner_stages_one_skill_in_native_interactive_mode(self) -> None:
@@ -199,7 +212,7 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             self.assertEqual(empty.returncode, 1)
             self.assertIn("SYSTEM.md is missing or empty", empty.stdout)
 
-    def test_build_source_map_requires_the_first_three_outputs(self) -> None:
+    def test_build_source_map_requires_upstream_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             case_bundle = temp / "case_bundle"
@@ -237,16 +250,14 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 "report source",
                 encoding="utf-8",
             )
-            (root / "summaries/hearings_sum_case_organized.txt").write_text(
-                "hearing organized",
-                encoding="utf-8",
-            )
-            (root / "summaries/reports_sum_case_organized.txt").write_text(
-                "report organized",
-                encoding="utf-8",
-            )
+            legacy_organized = root / "summaries/hearings_sum_case_organized.txt"
+            legacy_organized.write_text("retired derivative", encoding="utf-8")
             (root / "artifacts/transcript_page_number_series.md").write_text(
                 "# CT\n",
+                encoding="utf-8",
+            )
+            (root / "artifacts/case_overview.md").write_text(
+                _case_overview_text(),
                 encoding="utf-8",
             )
             transcript = {
@@ -335,13 +346,10 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             updated = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            self.assertFalse(legacy_organized.exists())
             self.assertEqual(
-                updated["files"]["organized_hearings"],
-                "summaries/hearings_sum_case_organized.txt",
-            )
-            self.assertEqual(
-                updated["files"]["organized_reports"],
-                "summaries/reports_sum_case_organized.txt",
+                updated["files"]["case_overview"],
+                "artifacts/case_overview.md",
             )
             self.assertEqual(
                 updated["files"]["source_map"],
@@ -351,6 +359,10 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 (root / "artifacts/source_map.json").read_text(encoding="utf-8")
             )
             self.assertEqual(source_map["schema_version"], 2)
+            self.assertEqual(
+                source_map["paths"]["case_overview"],
+                "artifacts/case_overview.md",
+            )
             self.assertEqual(source_map["counts"]["pages"], 1)
             self.assertEqual(source_map["citation_series"][0]["citation_prefix"], "CT")
             self.assertEqual(source_map["pages"][0]["hearing_id"], "hearing:0001")
@@ -363,8 +375,15 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 "relative",
             )
             serialized = json.dumps(source_map)
-            for obsolete in ("optimized", "vector_database", "case_overview", "chunks"):
+            for obsolete in (
+                "optimized",
+                "organized_hearings",
+                "organized_reports",
+                "vector_database",
+                "chunks",
+            ):
                 self.assertNotIn(obsolete, serialized)
+            self.assertIn("case_overview", serialized)
 
     def test_runner_termination_cleans_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

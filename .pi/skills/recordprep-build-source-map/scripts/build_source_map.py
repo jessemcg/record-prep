@@ -16,7 +16,8 @@ SOURCE_MAP_SCHEMA_VERSION = 2
 LEGACY_FILE_KEYS = {
     "raw_hearings", "raw_reports", "preoptimized_hearings", "preoptimized_reports",
     "optimized_hearings", "optimized_reports", "optimized_hearing_sections",
-    "optimized_report_sections", "chunk_metadata", "case_overview", "vector_database",
+    "optimized_report_sections", "chunk_metadata", "organized_hearings",
+    "organized_reports", "vector_database",
 }
 
 
@@ -78,6 +79,24 @@ def load_object(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
+def validated_case_overview_path(root: Path) -> str:
+    path = root / "artifacts" / "case_overview.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise FileNotFoundError("artifacts/case_overview.md is missing or unreadable.") from exc
+    required = (
+        "artifact: recordprep-case-overview",
+        "schema_version: 1",
+        "status: nonauthoritative-orientation",
+        "# Case Overview",
+        "> Orientation aid only.",
+    )
+    if any(fragment not in text for fragment in required):
+        raise ValueError("artifacts/case_overview.md is malformed.")
+    return relpath(root, path)
+
+
 def summary_paths(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
     files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
     result: dict[str, str] = {}
@@ -92,10 +111,7 @@ def summary_paths(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
             source = matches[0] if len(matches) == 1 else None
         if source and source.is_file():
             result[f"summarized_{kind}"] = relpath(root, source)
-            organized = source.with_name(f"{source.stem}_organized{source.suffix}")
-            if organized.is_file():
-                result[f"organized_{kind}"] = relpath(root, organized)
-    for required in ("organized_hearings", "organized_reports"):
+    for required in ("summarized_hearings", "summarized_reports"):
         if required not in result:
             raise FileNotFoundError(f"{required.replace('_', ' ')} not found.")
     return result
@@ -326,6 +342,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if participants.get("schema_version") != 2:
         raise ValueError("Participant index schema version 2 is required.")
     summaries = summary_paths(root, manifest)
+    case_overview = validated_case_overview_path(root)
     pages, pages_by_number, warnings = build_pages(root, transcript)
     documents = boundary_documents(root, pages_by_number)
     annotate_pages(pages_by_number, documents, participants)
@@ -343,6 +360,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
         "participant_index": "artifacts/participant_index.json",
+        "case_overview": case_overview,
         "summaries": summaries,
     }
     payload = {
@@ -370,6 +388,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
         "participant_index": "artifacts/participant_index.json",
+        "case_overview": case_overview,
         "source_map": "artifacts/source_map.json",
         **summaries,
     })
@@ -384,12 +403,22 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     return payload, manifest
 
 
+def remove_legacy_organized_summaries(root: Path) -> list[Path]:
+    removed: list[Path] = []
+    for path in sorted((root / "summaries").glob("*_organized.txt")):
+        if path.is_file():
+            path.unlink()
+            removed.append(path)
+    return removed
+
+
 def write_source_map(root: Path) -> tuple[Path, dict[str, Any]]:
     root = root.resolve(strict=False)
     payload, manifest = build_source_map(root)
     output = root / "artifacts" / "source_map.json"
     atomic_write_json(output, payload)
     atomic_write_json(root / "manifest.json", manifest)
+    remove_legacy_organized_summaries(root)
     return output, payload
 
 

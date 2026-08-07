@@ -1,13 +1,17 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from recordprep.ui.main_window import (
-    HEARING_SUMMARY_ATTRIBUTION_CONTRACT,
+    DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+    DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    _append_summary_paragraph,
     _cleanup_legacy_generated_artifacts,
     _hearing_participant_context,
     _hearing_summary_validation_issue,
     _render_summary_window_payload,
+    load_summarize_settings,
     _summary_page_windows,
 )
 
@@ -22,7 +26,6 @@ class DirectSourcePipelineTests(unittest.TestCase):
             'title="Create raw"',
             'title="Create pre-optimized"',
             'title="Create optimized"',
-            'title="Case overview"',
             'title="Create RAG index"',
             "def _run_step_eight",
             "def _run_step_preoptimized",
@@ -31,8 +34,42 @@ class DirectSourcePipelineTests(unittest.TestCase):
             "def _run_step_twelve",
         ):
             self.assertNotIn(obsolete, source)
+        self.assertIn('title="Create case overview"', source)
+        self.assertIn('"create_case_overview"', source)
         for dependency in ("chromadb", "langchain", "voyageai", "isaacus"):
             self.assertNotIn(dependency, dependencies.casefold())
+
+    def test_legacy_saved_prompts_migrate_to_integrated_prompts(self) -> None:
+        legacy_config = {
+            "summarize_chunk_size": "15",
+            "summarize_hearings_prompt": (
+                "I need to understand the factual and procedural history of this juvenile "
+                "dependency case. Therefore, summarize the following court hearing in one "
+                "very concise paragraph. Here is the hearing:"
+            ),
+            "summarize_reports_prompt": (
+                "I need to understand the factual and procedural history of this juvenile "
+                "dependency case. Therefore, summarize the following report in one very "
+                "concise paragraph. Here is the report:"
+            ),
+        }
+
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value=legacy_config,
+        ):
+            settings = load_summarize_settings()
+
+        self.assertEqual(
+            settings["hearings_prompt"],
+            DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+        )
+        self.assertEqual(
+            settings["reports_prompt"],
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertEqual(settings["target_chars"], "6000")
+        self.assertEqual(settings["max_pages"], "6")
 
     def test_summary_windows_cover_every_primary_page_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -47,7 +84,8 @@ class DirectSourcePipelineTests(unittest.TestCase):
                 text_dir,
                 1,
                 7,
-                target_pages=3,
+                max_pages=3,
+                target_chars=10_000,
                 preferred_breaks={4, 6},
             )
 
@@ -59,8 +97,36 @@ class DirectSourcePipelineTests(unittest.TestCase):
             payload = _render_summary_window_payload(
                 windows[1], {page: f"2RT {page}" for page in range(1, 8)}
             )
-            self.assertIn("CONTEXT ONLY — DO NOT SUMMARIZE", payload)
+            self.assertIn(
+                "OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE",
+                payload,
+            )
             self.assertIn("PRIMARY SOURCE PAGES", payload)
+
+    def test_summary_windows_adapt_by_characters_without_splitting_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            text_dir = Path(temporary) / "text_pages"
+            text_dir.mkdir()
+            page_sizes = (1800, 1900, 2100, 3500, 1200, 1300)
+            for page, size in enumerate(page_sizes, start=1):
+                (text_dir / f"{page:04d}.txt").write_text("x" * size, encoding="utf-8")
+
+            windows = _summary_page_windows(
+                text_dir,
+                1,
+                len(page_sizes),
+                max_pages=4,
+                target_chars=6000,
+                max_chars=12_000,
+            )
+
+            self.assertEqual(
+                [window["primary_pages"] for window in windows],
+                [[1, 2, 3], [4, 5, 6]],
+            )
+            self.assertEqual(windows[1]["context_page"], 3)
+            primary = [page for window in windows for page in window["primary_pages"]]
+            self.assertEqual(primary, list(range(1, 7)))
 
     def test_private_context_distinguishes_counsel_participants_and_testimony(self) -> None:
         hearing = {
@@ -111,12 +177,44 @@ class DirectSourcePipelineTests(unittest.TestCase):
         self.assertIn("Father (presumed father)", context)
         self.assertIn("direct by Father’s counsel", context)
         self.assertIn("2RT 101–2RT 118", context)
-        self.assertIn("do not list appearances", HEARING_SUMMARY_ATTRIBUTION_CONTRACT)
+        self.assertIn(
+            "PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY",
+            DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+        )
+        self.assertIn("do not reproduce it as an appearance", DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
+        self.assertNotIn("MANDATORY ATTRIBUTION CONTRACT", DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
+        self.assertNotIn("AUTHORITATIVE HEARING CONTEXT", DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
+        self.assertNotIn("Preserve every material event", DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
+        self.assertIn(
+            "OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertIn(
+            "PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        for prompt in (
+            DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        ):
+            self.assertIn("with no internal line breaks", prompt)
+            self.assertIn("inserts a blank line", prompt)
         self.assertIn(
             "unsworn participant Janette McKinley",
             _hearing_summary_validation_issue(
                 "The maternal great-aunt Janette McKinley testified.", hearing
             ) or "",
+        )
+
+    def test_summary_paragraphs_have_one_blank_line_between_windows(self) -> None:
+        lines = ["January 2, 2025", ""]
+
+        _append_summary_paragraph(lines, "First window.\nStill first window.")
+        _append_summary_paragraph(lines, "Second window.")
+
+        self.assertEqual(
+            "\n".join(lines),
+            "January 2, 2025\n\nFirst window. Still first window.\n\nSecond window.\n",
         )
 
     def test_summary_validation_rejects_false_testimony_and_bare_counsel_name(self) -> None:
@@ -162,6 +260,9 @@ class DirectSourcePipelineTests(unittest.TestCase):
             (root / "artifacts" / "optimized").mkdir(parents=True)
             (root / "artifacts" / "optimized" / "0001.txt").write_text("old")
             (root / "rag" / "vector_database").mkdir(parents=True)
+            (root / "summaries").mkdir()
+            organized = root / "summaries/hearings_sum_case_organized.txt"
+            organized.write_text("retired derived summary")
             source = root / "text_pages" / "0001.txt"
             source.parent.mkdir()
             source.write_text("source")
@@ -172,6 +273,8 @@ class DirectSourcePipelineTests(unittest.TestCase):
 
             self.assertIn("artifacts/optimized", removed)
             self.assertIn("rag", removed)
+            self.assertIn("summaries/hearings_sum_case_organized.txt", removed)
+            self.assertFalse(organized.exists())
             self.assertTrue(source.is_file())
             self.assertTrue(unrelated.is_file())
 

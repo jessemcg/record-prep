@@ -119,14 +119,12 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         (
             "create_summaries",
             "add_hearing_date_links",
-            "organize_hearing_summary",
-            "organize_report_summary",
         ),
     ),
     (
         "agent_search",
         "Agent Search",
-        ("build_source_map",),
+        ("create_case_overview", "build_source_map"),
     ),
 )
 PIPELINE_STEP_PHASE = {
@@ -451,7 +449,8 @@ CONFIG_KEY_SUMMARIZE_DISABLE_REASONING = "summarize_disable_reasoning"
 CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT = "summarize_hearings_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT = "summarize_reports_prompt"
 CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT = "summarize_minutes_prompt"
-CONFIG_KEY_SUMMARIZE_WINDOW_PAGES = "summarize_window_pages"
+CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS = "summarize_window_target_chars"
+CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES = "summarize_window_max_pages"
 LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_SELECTED_PDFS = "selected_pdfs"
 CONFIG_KEY_RT_CT_SPLIT_PAGE = "rt_ct_split_page"
@@ -536,21 +535,48 @@ DEFAULT_CASE_NAME_PROMPT = (
     "If unknown, use an empty string."
 )
 DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
-    "Summarize the primary court-hearing source pages in one concise paragraph using plain "
-    "English while preserving every material event, argument, evidentiary point, and ruling "
-    "at a consistent level of detail. Include short direct quotes (3-6 words) from the hearing to "
-    "highlight legally significant statements. Each quote must be in quotation marks "
-    "and must be verbatim. Do not use ellipses. Do not add commentary or markdown. "
-    "Do not begin with prefatory language. Do not include the hearing date in the summary. "
-    "Here is the hearing:"
+    "You are summarizing one window of source pages from a juvenile dependency court "
+    "hearing. The user message is organized into these labeled sections:\n\n"
+    "1. PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY. This is validated metadata "
+    "created in an earlier RecordPrep step. It identifies counsel roles, non-counsel "
+    "participants, witness status, and mapped examinations. Use it only to attribute "
+    "statements and classify sworn testimony; do not reproduce it as an appearance or "
+    "participant roster. The transcript pages remain the factual source. If the metadata "
+    "is unknown, conflicting, or inconsistent with the transcript, use neutral wording "
+    "rather than guessing.\n"
+    "2. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
+    "only to understand a sentence or exchange that continues into the primary pages.\n"
+    "3. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages.\n\n"
+    "Attribution rules: identify attorneys and non-counsel participants by hearing role "
+    "on every material attribution; a name may follow parenthetically but never replaces "
+    "the role. Use testified or testimony only for a verified witness within a mapped "
+    "examination. Q/A formatting alone does not establish testimony. Describe unsworn "
+    "colloquy with terms such as stated, answered, confirmed, or advised. Attribute "
+    "questions to the examiner and answers to the mapped witness.\n\n"
+    "Output requirements: return exactly one concise prose paragraph in plain English, "
+    "with no internal line breaks. RecordPrep inserts a blank line between this paragraph "
+    "and each adjacent summary-window paragraph. Include several legally significant "
+    "verbatim quotes, "
+    "each an uninterrupted two-to-five-word sequence in quotation marks. Do not alter "
+    "quoted text or use ellipses. Do not begin with prefatory language, include the hearing "
+    "date, add commentary, use Markdown, list appearances, recite the participant context, "
+    "or add a standalone statement about whether testimony occurred."
 )
 DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
-    "Summarize the primary report source pages in one concise paragraph using plain English "
-    "while preserving every material fact, recommendation, and procedural development at a "
-    "consistent level of detail. Include short direct quotes (5-10 words) from the reports to "
-    "highlight legally significant statements. Each quote must be in quotation marks "
-    "and must be verbatim. Do not use ellipses. Do not add commentary or markdown. "
-    "Do not begin with prefatory language. Here are the reports:"
+    "You are summarizing one window of source pages from a report in a juvenile dependency "
+    "case. The user message is organized into these labeled sections:\n\n"
+    "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
+    "only to understand a sentence or passage that continues into the primary pages.\n"
+    "2. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages. "
+    "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n\n"
+    "Output requirements: return exactly one concise prose paragraph in plain English, "
+    "with no internal line breaks. RecordPrep inserts a blank line between this paragraph "
+    "and each adjacent summary-window paragraph. Preserve every material fact, recommendation, "
+    "and procedural development in the primary pages "
+    "at a consistent level of detail. Include several legally significant verbatim quotes, "
+    "each an uninterrupted two-to-five-word sequence in quotation marks. Do not alter "
+    "quoted text or use ellipses. Do not begin with prefatory language, add commentary, or "
+    "use Markdown. Do not summarize the optional preceding context page again."
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "I will provide you with the pages of a minute order. Based on this information, "
@@ -568,26 +594,14 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "worker reports into evidence and heard testimony from mother. The juvenile court "
     "terminated parental rights.\n\nOkay, here is the minute order:"
 )
-DEFAULT_SUMMARIZE_WINDOW_PAGES = 15
-DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS = 60000
-HEARING_SUMMARY_ATTRIBUTION_CONTRACT = (
-    "\n\nMANDATORY ATTRIBUTION CONTRACT:\n"
-    "Summarize every material event in the PRIMARY pages at a consistent level of detail. "
-    "The preceding page, if supplied, is context only and must not be summarized again. "
-    "Treat AUTHORITATIVE HEARING CONTEXT as controlling for roles and testimony. "
-    "Identify attorneys and non-counsel participants by hearing role on every material "
-    "attribution; a name may follow parenthetically but never replaces the role. Use "
-    "testified/testimony only for a verified witness within a mapped examination. Q/A "
-    "formatting alone is not testimony. "
-    "Describe unsworn colloquy as stated, answered, confirmed, or advised. Attribute "
-    "questions to the examiner and answers to the mapped witness. Use the context only to "
-    "make those attributions accurate: do not list appearances, recite the participant roster, "
-    "or add a standalone statement about whether testimony occurred. If attribution is unclear, "
-    "use neutral wording rather than guessing. Return one concise prose paragraph only."
-)
-DOCUMENT_SUMMARY_WINDOW_CONTRACT = (
-    "\n\nSummarize every material detail in the PRIMARY pages. A preceding context-only "
-    "page must not be summarized again. Return one concise prose paragraph only."
+DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES = 6
+DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS = 6000
+DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS = 12000
+MINUTE_SUMMARY_WINDOW_GUIDANCE = (
+    "\n\nThe user message labels any preceding page as optional context only and labels "
+    "the pages to summarize as primary source pages. Do not summarize the optional "
+    "preceding context page again. Summarize every material detail in the primary pages "
+    "and return one concise prose paragraph only."
 )
 DEFAULT_DISABLE_REASONING = False
 
@@ -1188,6 +1202,16 @@ def _collapse_blank_lines(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
 
 
+def _append_summary_paragraph(lines: list[str], paragraph: str) -> None:
+    """Append one normalized paragraph with a deterministic blank-line separator."""
+    normalized = " ".join(paragraph.split()).strip()
+    if not normalized:
+        return
+    if lines and lines[-1]:
+        lines.append("")
+    lines.extend((normalized, ""))
+
+
 
 
 
@@ -1207,6 +1231,7 @@ def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
         root / "artifacts" / "optimized_hearings.txt",
         root / "artifacts" / "optimized_reports.txt",
         root / "rag",
+        *sorted((root / "summaries").glob("*_organized.txt")),
     )
     removed: list[str] = []
     for path in candidates:
@@ -1225,11 +1250,12 @@ def _summary_page_windows(
     start_page: int,
     end_page: int,
     *,
-    target_pages: int = DEFAULT_SUMMARIZE_WINDOW_PAGES,
+    max_pages: int = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
+    target_chars: int = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS,
     max_chars: int = DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
     preferred_breaks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Create nonpersisted, exactly-once primary-page windows."""
+    """Create adaptive, page-aligned, exactly-once primary-page windows."""
     if start_page <= 0 or end_page < start_page:
         raise ValueError("Invalid summary source page range.")
     page_text: dict[int, str] = {}
@@ -1238,25 +1264,40 @@ def _summary_page_windows(
         if not path.is_file():
             raise FileNotFoundError(f"Missing text file {path.name}.")
         page_text[number] = path.read_text(encoding="utf-8", errors="ignore")
-    breaks = {value for value in (preferred_breaks or set()) if start_page < value <= end_page}
+    breaks = sorted(
+        value
+        for value in (preferred_breaks or set())
+        if start_page < value <= end_page
+    )
+    page_limit = max(1, max_pages)
+    character_limit = max(1, max_chars)
+    character_target = min(max(1, target_chars), character_limit)
     windows: list[dict[str, Any]] = []
     current = start_page
     while current <= end_page:
-        ideal_end = min(end_page, current + max(1, target_pages) - 1)
-        nearby = [value - 1 for value in breaks if current < value <= ideal_end + 2]
-        primary_end = max((value for value in nearby if value >= current), default=ideal_end)
-        primary_end = min(primary_end, end_page)
+        candidate_end = min(end_page, current + page_limit - 1)
         chars = 0
-        capped_end = current - 1
-        for number in range(current, primary_end + 1):
-            candidate = len(page_text[number])
-            if capped_end >= current and chars + candidate > max_chars:
-                break
-            chars += candidate
-            capped_end = number
-        if capped_end < current:
-            capped_end = current
-        primary_end = capped_end
+        primary_end = current - 1
+        for number in range(current, candidate_end + 1):
+            page_chars = len(page_text[number])
+            combined = chars + page_chars
+            if primary_end >= current:
+                if combined > character_limit:
+                    break
+                if combined > character_target:
+                    under_distance = character_target - chars
+                    over_distance = combined - character_target
+                    if over_distance > under_distance:
+                        break
+            chars = combined
+            primary_end = number
+        if primary_end < current:
+            primary_end = current
+        examination_breaks = [
+            value for value in breaks if current < value <= primary_end
+        ]
+        if examination_breaks:
+            primary_end = examination_breaks[0] - 1
         windows.append(
             {
                 "primary_start": current,
@@ -1268,6 +1309,20 @@ def _summary_page_windows(
         )
         current = primary_end + 1
     return windows
+
+
+def _summary_window_limits(settings: dict[str, Any]) -> tuple[int, int]:
+    target_chars = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS
+    max_pages = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES
+    try:
+        target_chars = max(1, int(settings.get("target_chars") or target_chars))
+    except (TypeError, ValueError):
+        pass
+    try:
+        max_pages = max(1, int(settings.get("max_pages") or max_pages))
+    except (TypeError, ValueError):
+        pass
+    return target_chars, max_pages
 
 
 def _participant_role_label(role_id: str) -> str:
@@ -1349,7 +1404,7 @@ def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
 
 
 def _hearing_participant_context(hearing: dict[str, Any]) -> str:
-    """Render private model context; this text is never added to the summary."""
+    """Render participant-index guidance; this text is never added to the summary."""
     counsel_line, testimony_line = _hearing_context_lines(hearing)
     participant_parts: list[str] = []
     for participant in hearing.get("participants", []):
@@ -1379,12 +1434,17 @@ def _render_summary_window_payload(
     page_text = window["page_text"]
     sections: list[str] = []
     if participant_context:
-        sections.extend(["AUTHORITATIVE HEARING CONTEXT", participant_context, ""])
+        sections.extend([
+            "PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY",
+            participant_context,
+            "",
+        ])
     context_page = window.get("context_page")
     if isinstance(context_page, int):
         citation = citation_by_page.get(context_page, "")
         sections.extend([
-            f"CONTEXT ONLY — DO NOT SUMMARIZE [{citation or f'file page {context_page}'}]",
+            f"OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE "
+            f"[{citation or f'file page {context_page}'}]",
             page_text[context_page].strip(),
             "",
         ])
@@ -2144,7 +2204,8 @@ def _write_manifest(
     for obsolete_key in (
         "raw_hearings", "raw_reports", "preoptimized_hearings", "preoptimized_reports",
         "optimized_hearings", "optimized_reports", "optimized_hearing_sections",
-        "optimized_report_sections", "chunk_metadata", "case_overview", "vector_database",
+        "optimized_report_sections", "chunk_metadata", "organized_hearings",
+        "organized_reports", "vector_database",
     ):
         files_payload.pop(obsolete_key, None)
     files_payload.update(
@@ -2262,8 +2323,9 @@ OBSOLETE_PIPELINE_CONFIG_KEYS = {
     "optimize_report_api_key", "optimize_report_disable_reasoning", "optimize_attorney_api_url",
     "optimize_attorney_model_id", "optimize_attorney_api_key", "optimize_attorney_disable_reasoning",
     "optimize_chunk_size", "optimize_max_tokens", "optimize_attorneys_prompt",
-    "optimize_hearings_prompt", "optimize_reports_prompt", "overview_api_url",
-    "overview_model_id", "overview_api_key", "overview_disable_reasoning", "overview_prompt",
+    "optimize_hearings_prompt", "optimize_reports_prompt", "summarize_chunk_size",
+    "summarize_window_pages", "overview_api_url", "overview_model_id", "overview_api_key",
+    "overview_disable_reasoning", "overview_prompt",
     "rag_provider", "rag_voyage_api_key", "rag_voyage_model", "rag_isaacus_api_key",
     "rag_isaacus_model",
 }
@@ -2340,7 +2402,7 @@ def load_run_until_step_setting() -> str | None:
         "create_raw": "create_summaries",
         "create_preoptimized": "create_summaries",
         "create_optimized": "create_summaries",
-        "case_overview": "build_source_map",
+        "case_overview": "create_case_overview",
         "create_rag_index": "build_source_map",
     }.get(normalized, normalized)
     if migrated != normalized:
@@ -3189,7 +3251,8 @@ class SummarizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
-    window_pages_row: Adw.EntryRow
+    window_target_chars_row: Adw.EntryRow
+    window_max_pages_row: Adw.EntryRow
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
     minutes_prompt_buffer: Gtk.TextBuffer
@@ -3218,28 +3281,47 @@ def load_summarize_settings() -> dict[str, Any]:
         CONFIG_KEY_SUMMARIZE_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
-    window_pages_raw = str(
-        config.get(
-            CONFIG_KEY_SUMMARIZE_WINDOW_PAGES,
-            config.get(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, ""),
-        )
-        or ""
+    target_chars_raw = str(
+        config.get(CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS, "") or ""
     ).strip()
-    window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
-    if window_pages_raw:
+    target_chars = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS
+    if target_chars_raw:
         try:
-            window_pages = max(1, int(window_pages_raw))
+            target_chars = max(1, int(target_chars_raw))
         except ValueError:
-            window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
+            target_chars = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS
+    max_pages_raw = str(
+        config.get(CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES, "") or ""
+    ).strip()
+    max_pages = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES
+    if max_pages_raw:
+        try:
+            max_pages = max(1, int(max_pages_raw))
+        except ValueError:
+            max_pages = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES
     hearings_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT, DEFAULT_SUMMARIZE_HEARINGS_PROMPT) or ""
     ).strip()
     reports_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, DEFAULT_SUMMARIZE_REPORTS_PROMPT) or ""
     ).strip()
-    if hearings_prompt.startswith("Summarize the following court hearing in one very concise paragraph"):
+    if hearings_prompt.startswith(
+        (
+            "Summarize the following court hearing in one very concise paragraph",
+            "Summarize the primary court-hearing source pages in one concise paragraph",
+            "I need to understand the factual and procedural history of this juvenile "
+            "dependency case. Therefore, summarize the following court hearing",
+        )
+    ):
         hearings_prompt = DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    if reports_prompt.startswith("Summarize the following reports in one very concise paragraph"):
+    if reports_prompt.startswith(
+        (
+            "Summarize the following reports in one very concise paragraph",
+            "Summarize the primary report source pages in one concise paragraph",
+            "I need to understand the factual and procedural history of this juvenile "
+            "dependency case. Therefore, summarize the following report",
+        )
+    ):
         reports_prompt = DEFAULT_SUMMARIZE_REPORTS_PROMPT
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
@@ -3249,7 +3331,8 @@ def load_summarize_settings() -> dict[str, Any]:
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
-        "window_pages": str(window_pages),
+        "target_chars": str(target_chars),
+        "max_pages": str(max_pages),
         "hearings_prompt": hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
         "reports_prompt": reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         "minutes_prompt": minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT,
@@ -3261,7 +3344,8 @@ def save_summarize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
-    window_pages: str,
+    target_chars: str,
+    max_pages: str,
     hearings_prompt: str,
     reports_prompt: str,
     minutes_prompt: str,
@@ -3271,7 +3355,8 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
     config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_WINDOW_PAGES] = window_pages
+    config[CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS] = target_chars
+    config[CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES] = max_pages
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, None)
     config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = (
         hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
@@ -4016,11 +4101,24 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         credentials_group.add(disable_reasoning_row)
 
-        window_pages_row = Adw.EntryRow(title="Summary window size (source pages)")
-        window_pages_row.set_text(
-            settings.get("window_pages", str(DEFAULT_SUMMARIZE_WINDOW_PAGES))
+        window_target_chars_row = Adw.EntryRow(
+            title="Summary window target (source characters)"
         )
-        credentials_group.add(window_pages_row)
+        window_target_chars_row.set_text(
+            settings.get(
+                "target_chars",
+                str(DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS),
+            )
+        )
+        credentials_group.add(window_target_chars_row)
+
+        window_max_pages_row = Adw.EntryRow(
+            title="Maximum source pages per summary window"
+        )
+        window_max_pages_row.set_text(
+            settings.get("max_pages", str(DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES))
+        )
+        credentials_group.add(window_max_pages_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -4069,7 +4167,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
-            window_pages_row=window_pages_row,
+            window_target_chars_row=window_target_chars_row,
+            window_max_pages_row=window_max_pages_row,
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
             minutes_prompt_buffer=minutes_buffer,
@@ -4509,7 +4608,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 summarize_widgets.model_row.get_text().strip(),
                 summarize_widgets.api_key_row.get_text().strip(),
                 bool(summarize_widgets.disable_reasoning_row.get_active()),
-                summarize_widgets.window_pages_row.get_text().strip(),
+                summarize_widgets.window_target_chars_row.get_text().strip(),
+                summarize_widgets.window_max_pages_row.get_text().strip(),
                 self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
                 self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
@@ -5330,13 +5430,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             title="Build participant and witness index",
             subtitle="Verify hearing-scoped counsel, witnesses, and examinations with PI.",
         )
-        self.step_organize_hearing_summary_row = Adw.ActionRow(
-            title="Organize hearing summary",
-            subtitle="Organize hearing entries without rewriting sourced text.",
-        )
-        self.step_organize_report_summary_row = Adw.ActionRow(
-            title="Organize report summary",
-            subtitle="Create a coherent chronological report summary with PI.",
+        self.step_create_case_overview_row = Adw.ActionRow(
+            title="Create case overview",
+            subtitle="Create a concise nonauthoritative orientation aid with PI.",
         )
         self.step_build_source_map_row = Adw.ActionRow(
             title="Build source map",
@@ -5352,12 +5448,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.step_build_participant_index_row,
             ),
             (
-                "organize_hearing_summary",
-                self.step_organize_hearing_summary_row,
-            ),
-            (
-                "organize_report_summary",
-                self.step_organize_report_summary_row,
+                "create_case_overview",
+                self.step_create_case_overview_row,
             ),
             (
                 "build_source_map",
@@ -5570,12 +5662,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "summarize_reports": "reports_prompt",
             "summarize_minutes": "minutes_prompt",
         }[mode_id]
-        contract = (
-            HEARING_SUMMARY_ATTRIBUTION_CONTRACT
-            if mode_id == "summarize_hearings"
-            else DOCUMENT_SUMMARY_WINDOW_CONTRACT
-        )
-        return {**settings, "prompt": settings[prompt_key] + contract}
+        prompt = settings[prompt_key]
+        if mode_id == "summarize_minutes":
+            prompt += MINUTE_SUMMARY_WINDOW_GUIDANCE
+        return {**settings, "prompt": prompt}
 
     def run_test_classification(
         self,
@@ -5619,12 +5709,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             text_dir.mkdir()
             for index, text in enumerate(source_pages, start=1):
                 (text_dir / f"{index:04d}.txt").write_text(text, encoding="utf-8")
-            try:
-                window_pages = max(1, int(settings.get("window_pages") or DEFAULT_SUMMARIZE_WINDOW_PAGES))
-            except (TypeError, ValueError):
-                window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
+            target_chars, max_pages = _summary_window_limits(settings)
             windows = _summary_page_windows(
-                text_dir, 1, len(source_pages), target_pages=window_pages,
+                text_dir,
+                1,
+                len(source_pages),
+                max_pages=max_pages,
+                target_chars=target_chars,
                 max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
             )
             return [
@@ -6188,8 +6279,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id in {
             "number_transcript_pages",
             "build_participant_index",
-            "organize_hearing_summary",
-            "organize_report_summary",
+            "create_case_overview",
             "build_source_map",
         }:
             return pi_step_complete(step_id, root_dir)
@@ -6950,14 +7040,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._run_step_add_hearing_date_links,
             ),
             (
-                "organize_hearing_summary",
-                self.step_organize_hearing_summary_row,
-                self._run_step_organize_hearing_summary,
-            ),
-            (
-                "organize_report_summary",
-                self.step_organize_report_summary_row,
-                self._run_step_organize_report_summary,
+                "create_case_overview",
+                self.step_create_case_overview_row,
+                self._run_step_create_case_overview,
             ),
             (
                 "build_source_map",
@@ -7596,8 +7681,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         handlers = {
             "number_transcript_pages": self._run_step_number_transcript_pages,
-            "organize_hearing_summary": self._run_step_organize_hearing_summary,
-            "organize_report_summary": self._run_step_organize_report_summary,
+            "build_participant_index": self._run_step_build_participant_index,
+            "create_case_overview": self._run_step_create_case_overview,
             "build_source_map": self._run_step_build_source_map,
         }
         handler = handlers.get(step_id)
@@ -7901,16 +7986,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.step_build_participant_index_row,
         )
 
-    def _run_step_organize_hearing_summary(self) -> bool:
+    def _run_step_create_case_overview(self) -> bool:
         return self._run_pi_skill_step(
-            "organize_hearing_summary",
-            self.step_organize_hearing_summary_row,
-        )
-
-    def _run_step_organize_report_summary(self) -> bool:
-        return self._run_pi_skill_step(
-            "organize_report_summary",
-            self.step_organize_report_summary_row,
+            "create_case_overview",
+            self.step_create_case_overview_row,
         )
 
     def _run_step_build_source_map(self) -> bool:
@@ -9473,11 +9552,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             settings = load_summarize_settings()
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure Summarize API URL, model ID, and API key in Settings.")
-            window_pages = DEFAULT_SUMMARIZE_WINDOW_PAGES
-            try:
-                window_pages = max(1, int(settings.get("window_pages") or window_pages))
-            except (TypeError, ValueError):
-                pass
+            target_chars, max_pages = _summary_window_limits(settings)
             request_base = {
                 "api_url": settings["api_url"],
                 "model_id": settings["model_id"],
@@ -9498,7 +9573,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         return cleaned
                     correction = (
                         f"\n\nYour prior answer was rejected because it {issue}. Correct that error, "
-                        "obey the authoritative participant context, and return the paragraph again."
+                        "follow the participant-index attribution guidance, and return the "
+                        "paragraph again."
                     )
                 raise ValueError(f"Summary attribution validation failed: {issue}.")
 
@@ -9532,7 +9608,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             if value:
                                 preferred_breaks.add(value)
                 windows = _summary_page_windows(
-                    text_dir, start, end, target_pages=window_pages,
+                    text_dir,
+                    start,
+                    end,
+                    max_pages=max_pages,
+                    target_chars=target_chars,
                     max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
                     preferred_breaks=preferred_breaks,
                 )
@@ -9548,12 +9628,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         window, citation_by_page, participant_context=context
                     )
                     response = request_window(
-                        settings["hearings_prompt"] + HEARING_SUMMARY_ATTRIBUTION_CONTRACT,
+                        settings["hearings_prompt"],
                         payload,
                         participant,
                     )
                     if response:
-                        hearing_output.append(response)
+                        _append_summary_paragraph(hearing_output, response)
                 hearing_output.append("")
 
             report_output = ["Reports Summary", *([display_case_name] if display_case_name else []), ""]
@@ -9565,7 +9645,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Report boundary is missing a page range.")
                 label = _extract_entry_value(boundary, "report_label", "report_name") or f"Report {report_number}"
                 report_output.extend([label, ""])
-                windows = _summary_page_windows(text_dir, start, end, target_pages=window_pages)
+                windows = _summary_page_windows(
+                    text_dir,
+                    start,
+                    end,
+                    max_pages=max_pages,
+                    target_chars=target_chars,
+                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+                )
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(
@@ -9574,11 +9661,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Create summaries: direct-source report pages {window['primary_start']}-{window['primary_end']}.",
                     )
                     response = request_window(
-                        settings["reports_prompt"] + DOCUMENT_SUMMARY_WINDOW_CONTRACT,
+                        settings["reports_prompt"],
                         _render_summary_window_payload(window, citation_by_page),
                     )
                     if response:
-                        report_output.append(response)
+                        _append_summary_paragraph(report_output, response)
                 report_output.append("")
 
             minute_output = ["Minutes Summary", *([display_case_name] if display_case_name else []), ""]
@@ -9590,7 +9677,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Minute-order boundary is missing a page range.")
                 label = _extract_entry_value(boundary, "date") or f"Minute Order {minute_number}"
                 minute_output.extend([label, ""])
-                windows = _summary_page_windows(text_dir, start, end, target_pages=window_pages)
+                windows = _summary_page_windows(
+                    text_dir,
+                    start,
+                    end,
+                    max_pages=max_pages,
+                    target_chars=target_chars,
+                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+                )
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(
@@ -9599,7 +9693,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Create summaries: direct-source minute-order pages {window['primary_start']}-{window['primary_end']}.",
                     )
                     response = request_window(
-                        settings["minutes_prompt"] + DOCUMENT_SUMMARY_WINDOW_CONTRACT,
+                        settings["minutes_prompt"] + MINUTE_SUMMARY_WINDOW_GUIDANCE,
                         _render_summary_window_payload(window, citation_by_page),
                     )
                     if response:

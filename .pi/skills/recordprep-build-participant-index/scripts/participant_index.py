@@ -20,6 +20,15 @@ ROLE_IDS = {
     "other_counsel", "unresolved_counsel",
 }
 EXAM_TYPES = {"direct", "cross", "redirect", "recross", "court", "continued", "other"}
+PARTICIPANT_ROLE_IDS = {
+    "mother", "father", "alleged_father", "presumed_father", "minor",
+    "relative", "caregiver", "social_worker", "agency_representative",
+    "judicial_officer", "interpreter", "audience_member",
+    "other_participant", "unresolved_participant",
+}
+ATTENDANCE_STATUSES = {"present", "remote", "absent", "unknown"}
+SPEAKING_STATUSES = {"spoke", "did_not_speak", "unknown"}
+SWORN_STATUSES = {"sworn", "unsworn", "not_applicable", "unknown"}
 
 
 def read_json(path: Path) -> Any:
@@ -123,6 +132,7 @@ def prepare(root: Path) -> Path:
             ),
             "candidate_index_pages": index_pages,
             "counsel": [],
+            "participants": [],
             "witness_status": "unknown",
             "witness_evidence": [],
             "witnesses": [],
@@ -130,7 +140,7 @@ def prepare(root: Path) -> Path:
         })
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "record-participant-index",
         "hearings": hearings,
@@ -158,8 +168,8 @@ def validate_payload(payload: Any) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["participant_index.json must be an object."]
-    if payload.get("schema_version") != 1:
-        issues.append("schema_version must be 1.")
+    if payload.get("schema_version") != 2:
+        issues.append("schema_version must be 2.")
     if payload.get("source") != "record-participant-index":
         issues.append("source must be record-participant-index.")
     hearings = payload.get("hearings")
@@ -198,7 +208,44 @@ def validate_payload(payload: Any) -> list[str]:
                 issues.append(f"{person_label}.name is required.")
             if not isinstance(person.get("aliases"), list):
                 issues.append(f"{person_label}.aliases must be a list.")
+            if not isinstance(person.get("organization"), str):
+                issues.append(f"{person_label}.organization must be a string.")
+            if str(person.get("appearance_status") or "") not in {"present", "remote", "unknown"}:
+                issues.append(f"{person_label}.appearance_status is invalid.")
             _validate_evidence(person.get("evidence"), person_label, issues)
+            if not person.get("evidence"):
+                issues.append(f"{person_label}.evidence must not be empty.")
+        participants = hearing.get("participants")
+        if not isinstance(participants, list):
+            issues.append(f"{label}.participants must be a list.")
+            participants = []
+        participant_ids: set[str] = set()
+        for participant_number, person in enumerate(participants, start=1):
+            person_label = f"{label}.participants[{participant_number}]"
+            if not isinstance(person, dict):
+                issues.append(f"{person_label} must be an object.")
+                continue
+            participant_id = str(person.get("id") or "").strip()
+            if not participant_id or participant_id in participant_ids:
+                issues.append(f"{person_label}.id must be nonempty and unique within the hearing.")
+            participant_ids.add(participant_id)
+            if str(person.get("role_id") or "") not in PARTICIPANT_ROLE_IDS:
+                issues.append(f"{person_label}.role_id is invalid.")
+            if not str(person.get("role_label") or "").strip():
+                issues.append(f"{person_label}.role_label is required.")
+            if not isinstance(person.get("name"), str):
+                issues.append(f"{person_label}.name must be a string.")
+            if not isinstance(person.get("aliases"), list):
+                issues.append(f"{person_label}.aliases must be a list.")
+            if str(person.get("attendance_status") or "") not in ATTENDANCE_STATUSES:
+                issues.append(f"{person_label}.attendance_status is invalid.")
+            if str(person.get("speaking_status") or "") not in SPEAKING_STATUSES:
+                issues.append(f"{person_label}.speaking_status is invalid.")
+            if str(person.get("sworn_status") or "") not in SWORN_STATUSES:
+                issues.append(f"{person_label}.sworn_status is invalid.")
+            _validate_evidence(person.get("evidence"), person_label, issues)
+            if not person.get("evidence"):
+                issues.append(f"{person_label}.evidence must not be empty.")
         witness_evidence = hearing.get("witness_evidence")
         _validate_evidence(witness_evidence, f"{label}.witness", issues)
         witnesses = hearing.get("witnesses")

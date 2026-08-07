@@ -575,11 +575,14 @@ HEARING_SUMMARY_ATTRIBUTION_CONTRACT = (
     "Summarize every material event in the PRIMARY pages at a consistent level of detail. "
     "The preceding page, if supplied, is context only and must not be summarized again. "
     "Treat AUTHORITATIVE HEARING CONTEXT as controlling for roles and testimony. "
-    "Identify an attorney by party role on every material attribution; a name may follow "
-    "parenthetically but never replaces the role. Use testified/testimony only for a "
-    "verified witness within a mapped examination. Q/A formatting alone is not testimony. "
+    "Identify attorneys and non-counsel participants by hearing role on every material "
+    "attribution; a name may follow parenthetically but never replaces the role. Use "
+    "testified/testimony only for a verified witness within a mapped examination. Q/A "
+    "formatting alone is not testimony. "
     "Describe unsworn colloquy as stated, answered, confirmed, or advised. Attribute "
-    "questions to the examiner and answers to the mapped witness. If attribution is unclear, "
+    "questions to the examiner and answers to the mapped witness. Use the context only to "
+    "make those attributions accurate: do not list appearances, recite the participant roster, "
+    "or add a standalone statement about whether testimony occurred. If attribution is unclear, "
     "use neutral wording rather than guessing. Return one concise prose paragraph only."
 )
 DOCUMENT_SUMMARY_WINDOW_CONTRACT = (
@@ -1292,7 +1295,18 @@ def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
         role_id = str(counsel.get("role_id") or "")
         role = _participant_role_label(role_id) if role_id else str(counsel.get("role_label") or "").strip()
         name = str(counsel.get("name") or "").strip() or "not identified"
-        counsel_parts.append(f"{role} — {name}")
+        metadata: list[str] = []
+        organization = str(counsel.get("organization") or "").strip()
+        aliases = [str(value).strip() for value in counsel.get("aliases", []) if str(value).strip()]
+        appearance = str(counsel.get("appearance_status") or "").strip().replace("_", " ")
+        if organization:
+            metadata.append(f"organization: {organization}")
+        if aliases:
+            metadata.append(f"personal aliases: {', '.join(aliases)}")
+        if appearance:
+            metadata.append(f"appearance: {appearance}")
+        suffix = f" ({'; '.join(metadata)})" if metadata else ""
+        counsel_parts.append(f"{role} — {name}{suffix}")
     counsel_line = "Counsel: " + ("; ".join(counsel_parts) if counsel_parts else "Not reliably identified.") + "."
     status = str(hearing.get("witness_status") or "unknown")
     witnesses = [item for item in hearing.get("witnesses", []) if isinstance(item, dict)]
@@ -1334,6 +1348,28 @@ def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
     return counsel_line, testimony_line
 
 
+def _hearing_participant_context(hearing: dict[str, Any]) -> str:
+    """Render private model context; this text is never added to the summary."""
+    counsel_line, testimony_line = _hearing_context_lines(hearing)
+    participant_parts: list[str] = []
+    for participant in hearing.get("participants", []):
+        if not isinstance(participant, dict):
+            continue
+        role = str(participant.get("role_label") or "").strip()
+        name = str(participant.get("name") or "").strip()
+        identity = f"{role} — {name}" if role and name else role or name or "Unresolved participant"
+        attendance = str(participant.get("attendance_status") or "unknown").replace("_", " ")
+        speaking = str(participant.get("speaking_status") or "unknown").replace("_", " ")
+        sworn = str(participant.get("sworn_status") or "unknown").replace("_", " ")
+        participant_parts.append(
+            f"{identity} (attendance: {attendance}; speaking: {speaking}; sworn: {sworn})"
+        )
+    participants_line = "Participants: " + (
+        "; ".join(participant_parts) if participant_parts else "No additional participant metadata recorded."
+    )
+    return "\n".join((counsel_line, participants_line, testimony_line))
+
+
 def _render_summary_window_payload(
     window: dict[str, Any],
     citation_by_page: dict[int, str],
@@ -1373,10 +1409,22 @@ def _hearing_summary_validation_issue(text: str, hearing: dict[str, Any]) -> str
         role_id = str(counsel.get("role_id") or "")
         role = _participant_role_label(role_id) if role_id else str(counsel.get("role_label") or "").strip()
         for identifier in identifiers:
-            if re.search(rf"\b{re.escape(identifier)}\b.{{0,80}}\btestif", text, re.I | re.S):
+            testimony_pattern = rf"(?:\b{re.escape(identifier)}\b.{{0,80}}\btestif|\btestif\w*\b.{{0,80}}\b{re.escape(identifier)}\b)"
+            if re.search(testimony_pattern, text, re.I | re.S):
                 return f"model described counsel {identifier} as testifying"
             if identifier.casefold() in text.casefold() and role and role.casefold() not in text.casefold():
                 return f"model named counsel {identifier} without the party role {role}"
+    for participant in hearing.get("participants", []):
+        if not isinstance(participant, dict) or str(participant.get("sworn_status") or "") == "sworn":
+            continue
+        identifiers = [
+            str(participant.get("name") or "").strip(),
+            *[str(value).strip() for value in (participant.get("aliases") or [])],
+        ]
+        for identifier in (value for value in identifiers if value):
+            testimony_pattern = rf"(?:\b{re.escape(identifier)}\b.{{0,80}}\btestif|\btestif\w*\b.{{0,80}}\b{re.escape(identifier)}\b)"
+            if re.search(testimony_pattern, text, re.I | re.S):
+                return f"model described unsworn participant {identifier} as testifying"
     return None
 
 
@@ -9470,8 +9518,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 date_value = _normalize_hearing_date(
                     _extract_entry_value(boundary, "date", "hearing_date") or str(participant.get("date") or "HEARING")
                 )
-                counsel_line, testimony_line = _hearing_context_lines(participant)
-                context = counsel_line + "\n" + testimony_line
+                context = _hearing_participant_context(participant)
                 preferred_breaks: set[int] = set()
                 for witness in participant.get("witnesses", []):
                     if not isinstance(witness, dict):
@@ -9489,7 +9536,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
                     preferred_breaks=preferred_breaks,
                 )
-                hearing_output.extend([date_value or "HEARING", "", counsel_line, testimony_line])
+                hearing_output.extend([date_value or "HEARING", ""])
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(

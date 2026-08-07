@@ -132,6 +132,7 @@ def build_pages(root: Path, transcript: dict[str, Any]) -> tuple[list[dict[str, 
             "document_ids": [],
             "hearing_id": "",
             "counsel_roles": [],
+            "participants": [],
             "witnesses": [],
             "examinations": [],
         }
@@ -207,11 +208,24 @@ def annotate_pages(
         start = page_number(hearing.get("start_page"))
         end = page_number(hearing.get("end_page"))
         roles = sorted({str(item.get("role_id") or "") for item in hearing.get("counsel", []) if isinstance(item, dict) and item.get("role_id")})
+        hearing_participants = [
+            {
+                "id": str(item.get("id") or ""),
+                "role_id": str(item.get("role_id") or ""),
+                "role_label": str(item.get("role_label") or ""),
+                "name": str(item.get("name") or ""),
+                "attendance_status": str(item.get("attendance_status") or ""),
+                "speaking_status": str(item.get("speaking_status") or ""),
+                "sworn_status": str(item.get("sworn_status") or ""),
+            }
+            for item in hearing.get("participants", []) if isinstance(item, dict)
+        ]
         for number in range(start, end + 1):
             page = pages_by_number.get(number)
             if page is not None:
                 page["hearing_id"] = str(hearing.get("id") or page["hearing_id"])
                 page["counsel_roles"] = roles
+                page["participants"] = hearing_participants
         for witness in hearing.get("witnesses", []):
             if not isinstance(witness, dict):
                 continue
@@ -247,6 +261,7 @@ def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], p
     by_date: dict[str, list[str]] = {}
     by_report: dict[str, list[str]] = {}
     by_counsel: dict[str, list[dict[str, str]]] = {}
+    by_participant: dict[str, list[dict[str, str]]] = {}
     by_witness: dict[str, list[dict[str, Any]]] = {}
     for page in pages:
         by_file[page["file_name"]] = {
@@ -275,6 +290,22 @@ def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], p
             for key in keys:
                 if key:
                     by_counsel.setdefault(key.casefold(), []).append(value)
+        for participant in hearing.get("participants", []):
+            if not isinstance(participant, dict):
+                continue
+            value = {
+                "hearing_id": hearing_id,
+                "participant_id": str(participant.get("id") or ""),
+                "name": str(participant.get("name") or ""),
+                "role_id": str(participant.get("role_id") or ""),
+                "role_label": str(participant.get("role_label") or ""),
+                "attendance_status": str(participant.get("attendance_status") or ""),
+                "speaking_status": str(participant.get("speaking_status") or ""),
+            }
+            keys = [value["name"], value["role_id"], value["role_label"], *[str(alias) for alias in participant.get("aliases", [])]]
+            for key in keys:
+                if key:
+                    by_participant.setdefault(key.casefold(), []).append(value)
         for witness in hearing.get("witnesses", []):
             if not isinstance(witness, dict):
                 continue
@@ -282,7 +313,7 @@ def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], p
             for key in [value["name"], *[str(alias) for alias in witness.get("aliases", [])]]:
                 if key:
                     by_witness.setdefault(key.casefold(), []).append(value)
-    return {"by_file": by_file, "by_citation_key": by_citation, "by_type": by_type, "by_date": by_date, "by_report_id": by_report, "by_counsel": by_counsel, "by_witness": by_witness}
+    return {"by_file": by_file, "by_citation_key": by_citation, "by_type": by_type, "by_date": by_date, "by_report_id": by_report, "by_counsel": by_counsel, "by_participant": by_participant, "by_witness": by_witness}
 
 
 def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -292,8 +323,8 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if int(transcript.get("schema_version") or 0) < 2:
         raise ValueError("Transcript numbering schema version 2 or newer is required.")
     participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
-    if participants.get("schema_version") != 1:
-        raise ValueError("Participant index schema version 1 is required.")
+    if participants.get("schema_version") != 2:
+        raise ValueError("Participant index schema version 2 is required.")
     summaries = summary_paths(root, manifest)
     pages, pages_by_number, warnings = build_pages(root, transcript)
     documents = boundary_documents(root, pages_by_number)
@@ -324,7 +355,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             "hearings": sum(item["type"] == "hearing" for item in documents),
             "reports": sum(item["type"] == "report" for item in documents),
             "minute_orders": sum(item["type"] == "minute_order" for item in documents),
-            "participants": sum(len(item.get("counsel", [])) + len(item.get("witnesses", [])) for item in participants.get("hearings", []) if isinstance(item, dict)),
+            "participants": sum(len(item.get("counsel", [])) + len(item.get("participants", [])) + len(item.get("witnesses", [])) for item in participants.get("hearings", []) if isinstance(item, dict)),
             "citation_series": len(citation_series), "citation_anomalies": len(anomalies),
         },
         "citation_series": citation_series, "citation_anomalies": anomalies,

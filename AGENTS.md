@@ -29,15 +29,15 @@ Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and 
 5. Build/correct TOC.
 6. Find/correct hearing, report, and minute boundaries.
 7. Number transcript pages with PI.
-8. Build `artifacts/participant_index.json` with PI from RT witness indexes, appearances, and sworn/examination evidence.
+8. Build `artifacts/participant_index.json` schema v2 with PI from appearances, express attendance/absence, unsworn colloquy, RT witness indexes, and sworn/examination evidence.
 9. Create summaries directly from boundary-scoped source pages through ephemeral page windows.
 10. Add summary links.
 11. Organize hearing/report summaries with PI.
 12. Build source-map v2 last.
 
-The participant index is hearing-scoped. Q/A alone is not testimony. Unknown/conflicting witness or counsel evidence must remain explicit rather than guessed.
+The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
 
-Summary windows default to 15 primary source pages, include a preceding context-only page where useful, honor a safe size cap, and are never persisted. Each hearing request receives verified counsel/witness context. Deterministic `Counsel:` and `Testimony:` lines are generated outside free-form model output. Reject/retry known-bad attribution and fail rather than save a known false testimony claim.
+Summary windows default to 15 primary source pages, include a preceding context-only page where useful, honor a safe size cap, and are never persisted. Each hearing request receives verified counsel/participant/witness context privately for accurate attribution. Do not publish counsel/participant rosters or standalone testimony-status lines in summaries. Reject/retry known-bad attribution and fail rather than save a known false testimony claim.
 
 Source-map v2 uses original `text_pages`, boundaries, transcript citation metadata, participants, examinations, warnings, and summary paths. Only source pages are authoritative evidence.
 

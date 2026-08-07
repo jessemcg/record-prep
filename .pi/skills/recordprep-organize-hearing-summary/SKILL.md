@@ -1,6 +1,6 @@
 ---
 name: recordprep-organize-hearing-summary
-description: Organize the direct-source RecordPrep hearing summary in the case bundle named by RECORDPREP_CASE_BUNDLE while preserving Counsel/Testimony context lines and every sourced window-summary sentence, quotation, citation, and Markdown link.
+description: Organize the direct-source RecordPrep hearing summary in the case bundle named by RECORDPREP_CASE_BUNDLE while preserving every sourced window-summary sentence, quotation, citation, and Markdown link without adding appearance or testimony-status boilerplate.
 ---
 
 # Organize RecordPrep Hearing Summary
@@ -29,16 +29,18 @@ When a verification helper is useful, invoke `python3` (not `python`).
   citations, links, and quoted text.
 - Preserve each hearing date/link line exactly and keep its content within that
   hearing.
-- Preserve the deterministic `Counsel:` and `Testimony:` lines exactly, directly
-  after their hearing date/Quick point area, and never merge, rewrite, infer, or
-  relocate their content.
+- Do not add a counsel-appearance roster, participant roster, or standalone
+  statement about whether testimony occurred. Participant metadata is private
+  attribution context and is not summary content.
 - Preserve every unique window-summary sentence. Do not consolidate multiple
   window paragraphs or compress details merely because they concern the same topic.
 - Sort hearing entries chronologically.
 - Reorder existing sentences within a hearing only for clarity.
 - Add exactly one uncited `Quick point:` sentence immediately after each
-  substantive hearing date line. Do not add one to date-only or
-  minute-order-only entries.
+  substantive hearing date line. The Quick point must summarize a material
+  event, issue, or ruling; it must not merely identify appearances or state
+  whether testimony occurred. Do not add one to date-only or minute-order-only
+  entries.
 - Do not create new subheadings. Add no facts, legal argument, transitions,
   citations, or commentary besides the required Quick points.
 - Separate structural lines and paragraphs with blank lines.
@@ -60,8 +62,7 @@ confirm:
 - each date/link line appears exactly once and entries are chronological;
 - every original factual sentence and quotation appears exactly once and
   unchanged;
-- each original `Counsel:` and `Testimony:` line appears exactly once, unchanged,
-  under the same hearing;
+- no counsel/participant roster or standalone testimony-status line was added;
 - nothing moved between hearings;
 - every substantive hearing has one Quick point and date-only entries have none;
 - no new subheadings were created;

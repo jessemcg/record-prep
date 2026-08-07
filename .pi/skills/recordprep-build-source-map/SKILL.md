@@ -14,7 +14,7 @@ Require:
 - `text_pages/NNNN.txt`
 - `artifacts/transcript_page_numbers.json` using schema version 2 or newer
 - `artifacts/transcript_page_number_series.md`
-- `artifacts/participant_index.json` using schema version 1
+- `artifacts/participant_index.json` using schema version 2
 - hearing, report, and minute boundary JSON
 - the organized hearing summary
 - the organized reports summary
@@ -41,7 +41,7 @@ atomically writes `artifacts/source_map.json`, then atomically publishes:
 
 It also upgrades the manifest to schema version 2 and removes legacy optimization,
 chunk, overview, and vector-path entries. The source map must build document ranges
-directly from boundaries and `text_pages`, embed normalized participant metadata,
+directly from boundaries and `text_pages`, embed normalized counsel, non-counsel participant, witness, and examination metadata,
 and contain only case-root-relative paths.
 
 Verify page counts against `text_pages`, direct document ranges, participant

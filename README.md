@@ -44,20 +44,20 @@ uv run python -m recordprep app
 ### Record context
 
 8. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
-9. **Build participant and witness index** — PI inspects `RT_index` witness/examination pages, appearances, and actual sworn/examination evidence and writes `artifacts/participant_index.json`.
+9. **Build participant and witness index** — PI inspects appearances, express attendance or absence, unsworn colloquy, `RT_index` witness/examination pages, and actual sworn/examination evidence and writes schema-v2 `artifacts/participant_index.json`.
 
-Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`. Q/A formatting alone never establishes testimony, and counsel aliases are hearing-scoped.
+Counsel, non-counsel participants, and witnesses are separate hearing-scoped records. Law firms and agency abbreviations are stored as organizations rather than attorney aliases. Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`; Q/A formatting alone never establishes testimony.
 
 ### Summarize
 
 10. **Create summaries** — the configured Summarize API reads boundary-scoped source pages directly.
 11. **Add links** — add hearing/minute page links.
-12. **Organize hearing summary** — PI preserves deterministic `Counsel:`/`Testimony:` lines and every unique summary-window sentence.
+12. **Organize hearing summary** — PI preserves every unique summary-window sentence without adding an appearance roster or testimony-status boilerplate.
 13. **Organize report summary** — PI organizes sourced report-summary sentences without rewriting them.
 
 Summary inputs are bounded **ephemeral windows** (default: 15 primary source pages, with an additional input-size cap). The preceding page may be sent as context-only. Every primary window is summarized independently; no final compression pass discards unique detail, and no window text or metadata is written to disk.
 
-Hearing requests repeat validated participant/examination context. Summary prose must identify counsel by party role, reserve “testified” for mapped witnesses within verified examinations, and describe unsworn colloquy as stated/answered/confirmed/advised. Known-bad attribution causes retry and then a specific step failure rather than publication.
+Hearing requests privately repeat validated counsel/participant/examination context. Summary prose uses that metadata only for accurate attribution: it identifies counsel by party role when describing a material act, reserves “testified” for mapped witnesses within verified examinations, and describes unsworn colloquy as stated/answered/confirmed/advised. It does not publish a counsel/participant roster or a standalone statement about whether testimony occurred. Known-bad attribution causes retry and then a specific step failure rather than publication.
 
 ### Agent Search
 

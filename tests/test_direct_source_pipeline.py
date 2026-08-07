@@ -3,8 +3,9 @@ import unittest
 from pathlib import Path
 
 from recordprep.ui.main_window import (
+    HEARING_SUMMARY_ATTRIBUTION_CONTRACT,
     _cleanup_legacy_generated_artifacts,
-    _hearing_context_lines,
+    _hearing_participant_context,
     _hearing_summary_validation_issue,
     _render_summary_window_payload,
     _summary_page_windows,
@@ -61,7 +62,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
             self.assertIn("CONTEXT ONLY — DO NOT SUMMARIZE", payload)
             self.assertIn("PRIMARY SOURCE PAGES", payload)
 
-    def test_context_lines_distinguish_counsel_and_verified_testimony(self) -> None:
+    def test_private_context_distinguishes_counsel_participants_and_testimony(self) -> None:
         hearing = {
             "witness_status": "verified",
             "counsel": [
@@ -69,6 +70,18 @@ class DirectSourcePipelineTests(unittest.TestCase):
                     "role_id": "mothers_counsel",
                     "role_label": "Mother’s counsel",
                     "name": "Jane Smith",
+                    "aliases": ["Ms. Smith"],
+                    "organization": "JCA",
+                    "appearance_status": "remote",
+                }
+            ],
+            "participants": [
+                {
+                    "role_label": "Maternal great-aunt",
+                    "name": "Janette McKinley",
+                    "attendance_status": "present",
+                    "speaking_status": "spoke",
+                    "sworn_status": "unsworn",
                 }
             ],
             "witnesses": [
@@ -87,12 +100,24 @@ class DirectSourcePipelineTests(unittest.TestCase):
             ],
         }
 
-        counsel, testimony = _hearing_context_lines(hearing)
+        context = _hearing_participant_context(hearing)
 
-        self.assertEqual(counsel, "Counsel: Mother’s counsel — Jane Smith.")
-        self.assertIn("Father (presumed father)", testimony)
-        self.assertIn("direct by Father’s counsel", testimony)
-        self.assertIn("2RT 101–2RT 118", testimony)
+        self.assertIn("Counsel: Mother’s counsel — Jane Smith", context)
+        self.assertIn("organization: JCA", context)
+        self.assertIn("personal aliases: Ms. Smith", context)
+        self.assertIn("appearance: remote", context)
+        self.assertIn("Maternal great-aunt — Janette McKinley", context)
+        self.assertIn("speaking: spoke; sworn: unsworn", context)
+        self.assertIn("Father (presumed father)", context)
+        self.assertIn("direct by Father’s counsel", context)
+        self.assertIn("2RT 101–2RT 118", context)
+        self.assertIn("do not list appearances", HEARING_SUMMARY_ATTRIBUTION_CONTRACT)
+        self.assertIn(
+            "unsworn participant Janette McKinley",
+            _hearing_summary_validation_issue(
+                "The maternal great-aunt Janette McKinley testified.", hearing
+            ) or "",
+        )
 
     def test_summary_validation_rejects_false_testimony_and_bare_counsel_name(self) -> None:
         hearing = {
@@ -119,6 +144,13 @@ class DirectSourcePipelineTests(unittest.TestCase):
         self.assertIn(
             "without the party role",
             _hearing_summary_validation_issue("Ms. Smith objected.", hearing) or "",
+        )
+        self.assertIn(
+            "counsel Ms. Smith as testifying",
+            _hearing_summary_validation_issue(
+                "After testifying before the court, Ms. Smith objected.",
+                {**hearing, "witness_status": "verified"},
+            ) or "",
         )
         self.assertIsNone(
             _hearing_summary_validation_issue("Mother’s counsel (Jane Smith) objected.", hearing)

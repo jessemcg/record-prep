@@ -50,7 +50,7 @@ class PiBundleTests(unittest.TestCase):
         participant_index.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "source": "record-participant-index",
                     "hearings": [
                         {
@@ -62,6 +62,7 @@ class PiBundleTests(unittest.TestCase):
                                 {"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "", "citation_key": "", "note": "Explicit no-witness index."}
                             ],
                             "counsel": [],
+                            "participants": [],
                             "witnesses": [],
                             "warnings": [],
                         }
@@ -212,7 +213,7 @@ class PiBundleTests(unittest.TestCase):
             root = Path(temporary)
             (root / "artifacts").mkdir()
             payload = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "source": "record-participant-index",
                 "hearings": [{
                     "id": "hearing:0001",
@@ -220,6 +221,7 @@ class PiBundleTests(unittest.TestCase):
                     "end_page": 20,
                     "witness_status": "none",
                     "counsel": [{"role_id": "mothers_counsel", "name": "Jane Smith"}],
+                    "participants": [],
                     "witnesses": [{
                         "id": "witness:1",
                         "name": "Jane Smith",

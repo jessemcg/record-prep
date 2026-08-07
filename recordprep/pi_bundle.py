@@ -147,8 +147,8 @@ def validate_participant_index_output(root: Path) -> list[str]:
     if payload is None:
         return ["artifacts/participant_index.json is missing or invalid."]
     issues: list[str] = []
-    if payload.get("schema_version") != 1:
-        issues.append("participant index must use schema version 1.")
+    if payload.get("schema_version") != 2:
+        issues.append("participant index must use schema version 2.")
     if payload.get("source") != "record-participant-index":
         issues.append("participant index has an invalid source.")
     hearings = payload.get("hearings")
@@ -161,6 +161,15 @@ def validate_participant_index_output(root: Path) -> list[str]:
         "county_counsel", "tribes_counsel", "guardian_ad_litem",
         "other_counsel", "unresolved_counsel",
     }
+    valid_participant_roles = {
+        "mother", "father", "alleged_father", "presumed_father", "minor",
+        "relative", "caregiver", "social_worker", "agency_representative",
+        "judicial_officer", "interpreter", "audience_member",
+        "other_participant", "unresolved_participant",
+    }
+    valid_attendance = {"present", "remote", "absent", "unknown"}
+    valid_speaking = {"spoke", "did_not_speak", "unknown"}
+    valid_sworn = {"sworn", "unsworn", "not_applicable", "unknown"}
     seen: set[str] = set()
     for index, hearing in enumerate(hearings, start=1):
         label = f"participant index hearing {index}"
@@ -211,7 +220,42 @@ def validate_participant_index_output(root: Path) -> list[str]:
             name = str(person.get("name") or "").strip()
             if not name:
                 issues.append(f"{label} has counsel without a name.")
+            if not isinstance(person.get("aliases"), list):
+                issues.append(f"{label} counsel aliases must be a list.")
+            if not isinstance(person.get("organization"), str):
+                issues.append(f"{label} counsel organization must be a string.")
+            if str(person.get("appearance_status") or "") not in {"present", "remote", "unknown"}:
+                issues.append(f"{label} counsel has an invalid appearance_status.")
+            if not isinstance(person.get("evidence"), list) or not person.get("evidence"):
+                issues.append(f"{label} counsel must cite evidence.")
             counsel_names.add(name.casefold())
+        participants = hearing.get("participants")
+        if not isinstance(participants, list):
+            issues.append(f"{label} participants must be a list.")
+            participants = []
+        participant_ids: set[str] = set()
+        for person in participants:
+            if not isinstance(person, dict):
+                issues.append(f"{label} has a malformed participant entry.")
+                continue
+            participant_id = str(person.get("id") or "").strip()
+            if not participant_id or participant_id in participant_ids:
+                issues.append(f"{label} participant id must be nonempty and unique.")
+            participant_ids.add(participant_id)
+            if str(person.get("role_id") or "") not in valid_participant_roles:
+                issues.append(f"{label} participant has an invalid role_id.")
+            if not str(person.get("role_label") or "").strip():
+                issues.append(f"{label} participant has no role_label.")
+            if not isinstance(person.get("aliases"), list):
+                issues.append(f"{label} participant aliases must be a list.")
+            if str(person.get("attendance_status") or "") not in valid_attendance:
+                issues.append(f"{label} participant has an invalid attendance_status.")
+            if str(person.get("speaking_status") or "") not in valid_speaking:
+                issues.append(f"{label} participant has an invalid speaking_status.")
+            if str(person.get("sworn_status") or "") not in valid_sworn:
+                issues.append(f"{label} participant has an invalid sworn_status.")
+            if not isinstance(person.get("evidence"), list) or not person.get("evidence"):
+                issues.append(f"{label} participant must cite evidence.")
         for witness in witnesses:
             if not isinstance(witness, dict):
                 issues.append(f"{label} has a malformed witness entry.")

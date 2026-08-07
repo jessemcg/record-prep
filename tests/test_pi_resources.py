@@ -91,7 +91,7 @@ class PiResourceTests(unittest.TestCase):
             "the physical line immediately before it must be empty",
             hearing_skill,
         )
-        self.assertIn("Preserve the deterministic `Counsel:` and `Testimony:` lines", hearing_skill)
+        self.assertIn("Do not add a counsel-appearance roster", hearing_skill)
         self.assertIn(
             "the physical line immediately before it must be empty",
             report_skill,
@@ -288,14 +288,26 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             (root / "artifacts/minutes_boundaries.json").write_text("[]", encoding="utf-8")
             (root / "artifacts/participant_index.json").write_text(
                 json.dumps({
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "source": "record-participant-index",
                     "hearings": [{
                         "id": "hearing:0001", "date": "January 2, 2025",
                         "start_page": 1, "end_page": 1,
                         "witness_status": "none",
                         "witness_evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "CT 1", "citation_key": "CT:1", "note": "No witness listed."}],
-                        "counsel": [], "witnesses": [], "warnings": [],
+                        "counsel": [],
+                        "participants": [{
+                            "id": "participant:hearing:0001:001",
+                            "role_id": "relative",
+                            "role_label": "Maternal great-aunt",
+                            "name": "Janette McKinley",
+                            "aliases": ["Ms. McKinley"],
+                            "attendance_status": "present",
+                            "speaking_status": "spoke",
+                            "sworn_status": "unsworn",
+                            "evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "CT 1", "citation_key": "CT:1", "note": "Addressed the court."}],
+                        }],
+                        "witnesses": [], "warnings": [],
                     }],
                     "warnings": [],
                 }),
@@ -342,6 +354,14 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             self.assertEqual(source_map["counts"]["pages"], 1)
             self.assertEqual(source_map["citation_series"][0]["citation_prefix"], "CT")
             self.assertEqual(source_map["pages"][0]["hearing_id"], "hearing:0001")
+            self.assertEqual(
+                source_map["pages"][0]["participants"][0]["name"],
+                "Janette McKinley",
+            )
+            self.assertEqual(
+                source_map["lookup"]["by_participant"]["ms. mckinley"][0]["role_id"],
+                "relative",
+            )
             serialized = json.dumps(source_map)
             for obsolete in ("optimized", "vector_database", "case_overview", "chunks"):
                 self.assertNotIn(obsolete, serialized)

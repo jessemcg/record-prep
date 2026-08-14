@@ -28,7 +28,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk, GObject  # type: ignore
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, GObject, Pango  # type: ignore
 
 Vte = None  # type: ignore[assignment]
 try:
@@ -66,8 +66,36 @@ from recordprep.pi_runtime import (
 )
 
 STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
+PI_MODEL_DROPDOWN_WIDTH_CHARS = 64
+PI_MODEL_DROPDOWN_MAX_WIDTH_CHARS = 80
 
 GLib.set_application_name(APPLICATION_NAME)
+
+
+def _setup_pi_model_list_item(
+    _factory: Gtk.SignalListItemFactory,
+    list_item: Gtk.ListItem,
+) -> None:
+    label = Gtk.Label(xalign=0)
+    label.set_width_chars(PI_MODEL_DROPDOWN_WIDTH_CHARS)
+    label.set_max_width_chars(PI_MODEL_DROPDOWN_MAX_WIDTH_CHARS)
+    label.set_wrap(True)
+    label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    label.set_margin_top(6)
+    label.set_margin_bottom(6)
+    label.set_margin_start(12)
+    label.set_margin_end(12)
+    list_item.set_child(label)
+
+
+def _bind_pi_model_list_item(
+    _factory: Gtk.SignalListItemFactory,
+    list_item: Gtk.ListItem,
+) -> None:
+    item = list_item.get_item()
+    label = list_item.get_child()
+    if isinstance(item, Gtk.StringObject) and isinstance(label, Gtk.Label):
+        label.set_label(item.get_string())
 
 LLM_MAX_RETRIES = 5
 LLM_RETRY_BASE_SECONDS = 1.0
@@ -4186,6 +4214,10 @@ class SettingsWindow(Adw.ApplicationWindow):
             subtitle=self._pi_model_settings_error or "Loading models authorized in PI…",
         )
         model_row.set_model(Gtk.StringList.new(["Loading PI models…"]))
+        model_list_factory = Gtk.SignalListItemFactory()
+        model_list_factory.connect("setup", _setup_pi_model_list_item)
+        model_list_factory.connect("bind", _bind_pi_model_list_item)
+        model_row.set_list_factory(model_list_factory)
         model_row.set_sensitive(False)
         model_row.connect("notify::selected", self._on_pi_model_selected)
         refresh_button = Gtk.Button(icon_name="view-refresh-symbolic")

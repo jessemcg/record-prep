@@ -15,6 +15,7 @@ from recordprep.ui.main_window import (
     _generate_text_files_with_local_ocr,
     _reset_generated_case_bundle,
     _start_server,
+    _start_server_output_reader,
     _stop_server,
     _update_rt_ct_split_manifest,
     _write_manifest,
@@ -22,6 +23,22 @@ from recordprep.ui.main_window import (
 
 
 class BundleRestartTests(unittest.TestCase):
+    def test_server_output_reader_prevents_a_full_pipe_deadlock(self) -> None:
+        process = _start_server(
+            "python3 -c 'for index in range(2000): print(index, \"x\" * 100)'"
+        )
+        try:
+            recent_output = _start_server_output_reader(process)
+            process.wait(timeout=5)
+
+            self.assertEqual(process.returncode, 0)
+            self.assertIn("1999 ", recent_output())
+        finally:
+            if process.poll() is None:
+                _stop_server(process)
+            elif process.stdout is not None:
+                process.stdout.close()
+
     def test_server_stop_terminates_the_launched_process_group(self) -> None:
         process = _start_server("sleep 30 & wait")
         try:

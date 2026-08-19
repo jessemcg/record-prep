@@ -2987,6 +2987,34 @@ def _start_server(command: str) -> subprocess.Popen[str]:
     )
 
 
+def _start_server_output_reader(
+    process: subprocess.Popen[str],
+) -> Callable[[], str]:
+    recent_output: deque[str] = deque(maxlen=40)
+    output_lock = threading.Lock()
+
+    def read_server_output() -> None:
+        if process.stdout is None:
+            return
+        try:
+            for line in process.stdout:
+                with output_lock:
+                    recent_output.append(line.rstrip("\r\n"))
+        except (OSError, TypeError, ValueError):
+            pass
+
+    def recent_output_text() -> str:
+        with output_lock:
+            return "\n".join(recent_output)
+
+    threading.Thread(
+        target=read_server_output,
+        name="recordprep-local-ocr-server-log-reader",
+        daemon=True,
+    ).start()
+    return recent_output_text
+
+
 def _stop_server(process: subprocess.Popen[str]) -> None:
     process_group_id = process.pid
     try:
@@ -3119,6 +3147,7 @@ def _generate_text_files_with_local_ocr(
             server_slots,
         )
         process = _start_server(resolved_start_command)
+        recent_output = _start_server_output_reader(process)
         set_server_process(process)
         try:
             if sleep_seconds > 0:
@@ -3126,6 +3155,7 @@ def _generate_text_files_with_local_ocr(
             _wait_for_endpoint_ready(
                 server_url,
                 process=process,
+                recent_output=recent_output,
                 stop_check=stop_check,
             )
             _print_server_slot_report(server_url, server_slots)

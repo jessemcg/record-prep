@@ -14,6 +14,7 @@ from recordprep.ui.main_window import (
     _bundle_inputs_changed,
     _generate_text_files_with_local_ocr,
     _reset_generated_case_bundle,
+    _resolve_local_ocr_start_command,
     _start_server,
     _start_server_output_reader,
     _stop_server,
@@ -23,6 +24,12 @@ from recordprep.ui.main_window import (
 
 
 class BundleRestartTests(unittest.TestCase):
+    def test_local_ocr_parallel_slots_do_not_enable_unified_kv(self) -> None:
+        command = _resolve_local_ocr_start_command("./llama-server --port 8000", 4)
+
+        self.assertIn("--parallel 4", command)
+        self.assertNotIn("--kv-unified", command)
+
     def test_server_output_reader_prevents_a_full_pipe_deadlock(self) -> None:
         process = _start_server(
             "python3 -c 'for index in range(2000): print(index, \"x\" * 100)'"
@@ -33,6 +40,23 @@ class BundleRestartTests(unittest.TestCase):
 
             self.assertEqual(process.returncode, 0)
             self.assertIn("1999 ", recent_output())
+        finally:
+            if process.poll() is None:
+                _stop_server(process)
+            elif process.stdout is not None:
+                process.stdout.close()
+
+    def test_server_output_reader_drains_output_without_newlines(self) -> None:
+        process = _start_server(
+            "python3 -c 'import sys; sys.stdout.write(\"x\" * 200000); "
+            "sys.stdout.flush()'"
+        )
+        try:
+            recent_output = _start_server_output_reader(process)
+            process.wait(timeout=5)
+
+            self.assertEqual(process.returncode, 0)
+            self.assertTrue(recent_output().endswith("x" * 100))
         finally:
             if process.poll() is None:
                 _stop_server(process)

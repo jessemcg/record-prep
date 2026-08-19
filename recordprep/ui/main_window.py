@@ -227,7 +227,7 @@ cd $HOME/llama.cpp/build/bin
 ./llama-server \
 -m $HOME/llama.cpp/models/LightOnOCR-2-1B-Q8_0.gguf \
 --mmproj $HOME/llama.cpp/models/mmproj-LightOnOCR-2-1B-Q8_0.gguf \
---parallel {slots} --kv-unified \
+--parallel {slots} \
 -ngl 999 --port 8000 --flash-attn on
 """
 
@@ -2911,8 +2911,6 @@ def _resolve_local_ocr_start_command(start_command: str, slots: int) -> str:
         return command
 
     parallel_args = f"--parallel {slots}"
-    if "--kv-unified" not in command:
-        parallel_args = f"{parallel_args} --kv-unified"
 
     lines = command.splitlines()
     for index, line in enumerate(lines):
@@ -2991,21 +2989,33 @@ def _start_server_output_reader(
     process: subprocess.Popen[str],
 ) -> Callable[[], str]:
     recent_output: deque[str] = deque(maxlen=40)
+    partial_output = ""
     output_lock = threading.Lock()
 
     def read_server_output() -> None:
+        nonlocal partial_output
         if process.stdout is None:
             return
         try:
-            for line in process.stdout:
+            while chunk := os.read(process.stdout.fileno(), 4096):
+                text = chunk.decode(errors="replace")
                 with output_lock:
-                    recent_output.append(line.rstrip("\r\n"))
+                    lines = (partial_output + text).splitlines(keepends=True)
+                    partial_output = ""
+                    for line in lines:
+                        if line.endswith(("\r", "\n")):
+                            recent_output.append(line.rstrip("\r\n"))
+                        else:
+                            partial_output = line[-8192:]
         except (OSError, TypeError, ValueError):
             pass
 
     def recent_output_text() -> str:
         with output_lock:
-            return "\n".join(recent_output)
+            output = list(recent_output)
+            if partial_output:
+                output.append(partial_output)
+            return "\n".join(output)
 
     threading.Thread(
         target=read_server_output,

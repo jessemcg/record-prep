@@ -9,10 +9,12 @@ from recordprep.pi_runtime import (
     PiModel,
     available_pi_models,
     current_project_pi_model,
+    current_project_pi_thinking_level,
     discover_pi_agent_command,
     incompatible_pi_agent_flag,
     resolve_pi_agent_argv,
     save_project_pi_model,
+    save_project_pi_thinking_level,
 )
 
 
@@ -86,6 +88,7 @@ class PiRuntimeTests(unittest.TestCase):
                     {
                         "defaultProvider": "old",
                         "defaultModel": "old-model",
+                        "defaultThinkingLevel": "medium",
                         "enableSkillCommands": True,
                         "custom": {"keep": True},
                     }
@@ -95,9 +98,29 @@ class PiRuntimeTests(unittest.TestCase):
             save_project_pi_model(PiModel("new", "model", "Model"), path)
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(current_project_pi_model(path), ("new", "model"))
+            self.assertEqual(current_project_pi_thinking_level(path), "medium")
             self.assertTrue(payload["enableSkillCommands"])
             self.assertEqual(payload["custom"], {"keep": True})
             self.assertEqual(list(path.parent.glob(".*.tmp")), [])
+
+    def test_project_thinking_level_save_supports_override_and_global_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "settings.json"
+            path.write_text(
+                json.dumps({"defaultProvider": "provider", "custom": True}),
+                encoding="utf-8",
+            )
+            self.assertIsNone(current_project_pi_thinking_level(path))
+
+            save_project_pi_thinking_level("high", path)
+            self.assertEqual(current_project_pi_thinking_level(path), "high")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertTrue(payload["custom"])
+
+            save_project_pi_thinking_level(None, path)
+            self.assertIsNone(current_project_pi_thinking_level(path))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("defaultThinkingLevel", payload)
 
 
 if __name__ == "__main__":

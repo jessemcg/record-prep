@@ -31,6 +31,12 @@ STAGES = {
     stage.step_id: stage
     for stage in (
         SkillStage(
+            "detect_transcript_layout",
+            "Detect transcript layout",
+            "recordprep-detect-transcript-layout",
+            "read,bash,grep,find,ls,write,edit",
+        ),
+        SkillStage(
             "number_transcript_pages",
             "Number transcript pages",
             "recordprep-number-transcript-pages",
@@ -171,11 +177,18 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
             "\nCreate only a concise nonauthoritative orientation aid. Do not "
             "modify manifest.json."
         )
+    elif stage.step_id == "detect_transcript_layout":
+        instruction += (
+            "\nSearch text pages first and open only targeted page images as "
+            "needed. Publish needs_review instead of guessing when the record "
+            "structure is ambiguous. Only the detect skill may write "
+            "artifacts/transcript_layout.json."
+        )
     elif stage.step_id == "build_source_map":
         instruction += (
             "\nDo not proceed unless transcript numbering, participant indexing, "
-            "the source summaries, and the case overview already validate. This is "
-            "the final Agent Search preparation step."
+            "the source summaries, the transcript layout, and the case overview "
+            "already validate. This is the final Agent Search preparation step."
         )
     return instruction
 

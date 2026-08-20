@@ -18,6 +18,15 @@ PROJECT_PI_DIR = PROJECT_DIR / ".pi"
 PROJECT_PI_SETTINGS_PATH = PROJECT_PI_DIR / "settings.json"
 DEFAULT_PI_AGENT_COMMAND = "pi"
 PI_MODEL_DISCOVERY_TIMEOUT_SECONDS = 10
+PI_THINKING_LEVELS = (
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
 
 
 class PiRuntimeError(RuntimeError):
@@ -317,13 +326,22 @@ def current_project_pi_model(
     return provider, model_id
 
 
-def save_project_pi_model(
-    model: PiModel,
+def current_project_pi_thinking_level(
     path: Path = PROJECT_PI_SETTINGS_PATH,
-) -> None:
+) -> str | None:
     settings = _read_pi_settings(path)
-    settings["defaultProvider"] = model.provider
-    settings["defaultModel"] = model.model_id
+    raw_level = settings.get("defaultThinkingLevel")
+    if raw_level is None:
+        return None
+    level = str(raw_level).strip().lower()
+    if level not in PI_THINKING_LEVELS:
+        raise PiSettingsError(
+            f"PI project settings contain an invalid thinking level: {raw_level}"
+        )
+    return level
+
+
+def _write_pi_settings(settings: dict[str, Any], path: Path) -> None:
     temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         temp_path.write_text(
@@ -335,3 +353,28 @@ def save_project_pi_model(
         raise PiSettingsError(f"Unable to save PI project settings: {exc}") from exc
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def save_project_pi_model(
+    model: PiModel,
+    path: Path = PROJECT_PI_SETTINGS_PATH,
+) -> None:
+    settings = _read_pi_settings(path)
+    settings["defaultProvider"] = model.provider
+    settings["defaultModel"] = model.model_id
+    _write_pi_settings(settings, path)
+
+
+def save_project_pi_thinking_level(
+    level: str | None,
+    path: Path = PROJECT_PI_SETTINGS_PATH,
+) -> None:
+    settings = _read_pi_settings(path)
+    if level is None:
+        settings.pop("defaultThinkingLevel", None)
+    else:
+        normalized = str(level).strip().lower()
+        if normalized not in PI_THINKING_LEVELS:
+            raise PiSettingsError(f"Unsupported PI thinking level: {level}")
+        settings["defaultThinkingLevel"] = normalized
+    _write_pi_settings(settings, path)

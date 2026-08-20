@@ -3,16 +3,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from recordprep.transcript_layout import apply_manual_override
 from recordprep.ui.main_window import (
+    NO_RESOLVED_LAYOUT_STEP_IDS,
     PIPELINE_PHASES,
     PIPELINE_STEP_PHASE,
     SETTINGS_NAV_GROUPS,
     TEST_PROMPT_GROUPS,
+    VISION_CLASSIFICATION_STEP_IDS,
     _first_incomplete_phase_id,
+    _layout_matches_legacy,
     _pipeline_split_validation_message,
     _phase_progress_text,
     _sanitize_terminal_log_text,
     _settings_destination_keys,
+    _step_requires_resolved_layout,
     _terminal_log_line,
     _test_prompt_input_kind,
     _test_prompt_options,
@@ -29,12 +34,13 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 18)
+        self.assertEqual(len(grouped), 19)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
-        self.assertEqual(
-            grouped[-6:],
+        self.assertEqual(grouped[1], "detect_transcript_layout")
+        self.assertEqual(grouped[2], "strip_characters")
+        self.assertEqual(grouped[-6:],
             [
                 "number_transcript_pages",
                 "build_participant_index",
@@ -45,6 +51,11 @@ class MainWindowUiStateTests(unittest.TestCase):
             ],
         )
         self.assertEqual(PIPELINE_PHASES[-1][1], "Agent Search")
+        self.assertEqual(
+            PIPELINE_STEP_PHASE["detect_transcript_layout"],
+            PIPELINE_STEP_PHASE["create_files"],
+        )
+        self.assertNotIn("detect_transcript_layout", VISION_CLASSIFICATION_STEP_IDS)
 
     def test_phase_progress_reports_completion_and_activity(self) -> None:
         step_ids = ("one", "two", "three")
@@ -136,6 +147,86 @@ class MainWindowUiStateTests(unittest.TestCase):
         line = _terminal_log_line("problem\x07", "ERROR")
         self.assertIn("[ERROR]", line)
         self.assertNotIn("\x07", line)
+
+    def test_create_files_and_detection_are_the_only_unresolved_steps(self) -> None:
+        self.assertEqual(
+            NO_RESOLVED_LAYOUT_STEP_IDS,
+            {"create_files", "detect_transcript_layout"},
+        )
+        self.assertFalse(_step_requires_resolved_layout("create_files"))
+        self.assertFalse(_step_requires_resolved_layout("detect_transcript_layout"))
+        for step_id in (
+            "strip_characters",
+            "infer_case",
+            "classify_basic",
+            "classify_advanced",
+            "classify_dates",
+            "classify_names",
+            "build_toc",
+            "find_boundaries",
+            "number_transcript_pages",
+            "build_participant_index",
+            "create_summaries",
+            "create_case_overview",
+            "build_source_map",
+        ):
+            self.assertTrue(_step_requires_resolved_layout(step_id))
+        self.assertNotIn("detect_transcript_layout", VISION_CLASSIFICATION_STEP_IDS)
+
+    def test_layout_legacy_mirror_matching_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            for page in (1, 2):
+                (root / "text_pages" / f"{page:04d}.txt").write_text(
+                    f"page {page}", encoding="utf-8"
+                )
+                (root / "image_pages" / f"{page:04d}.png").write_bytes(b"image")
+            (root / "manifest.json").write_text(
+                json.dumps({"rt_ct_split_mode": "split", "rt_ct_split_page": 1}),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(_layout_matches_legacy(root))
+            apply_manual_override(root, mode="split", rt_end_file_page=1)
+            self.assertTrue(_layout_matches_legacy(root))
+
+            # A pi-agent resolution never touches manifest mirrors, so it can
+            # disagree with the legacy split stored in the manifest.
+            from recordprep.transcript_layout import (
+                draft_layout_payload,
+                finalize_layout_draft,
+            )
+
+            draft = draft_layout_payload(
+                mode="rt_only",
+                status="resolved",
+                decision_source="pi-agent",
+                confidence="high",
+                method="text search",
+                rt_end_file_page=2,
+                search_summary="RT evidence spans the record.",
+                evidence=[{"path": "text_pages/0002.txt", "kind": "text"}],
+            )
+            finalize_layout_draft(root, draft)
+            self.assertFalse(_layout_matches_legacy(root))
+
+    def test_old_bundle_without_artifact_is_detection_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            (root / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {"rt_ct_split_mode": "split", "rt_ct_split_page": 1}
+                ),
+                encoding="utf-8",
+            )
+            from recordprep.transcript_layout import detection_status
+
+            self.assertEqual(detection_status(root), ("pending", None))
 
     def test_manifest_refresh_preserves_pi_artifact_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

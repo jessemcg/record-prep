@@ -23,17 +23,30 @@ Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and 
 ## Pipeline
 
 1. Create files.
-2. Strip characters.
-3. Infer case.
-4. Basic/advanced/corrected/date/name classification.
-5. Build/correct TOC.
-6. Find/correct hearing, report, and minute boundaries.
-7. Number transcript pages with PI.
-8. Build `artifacts/participant_index.json` schema v2 with PI from appearances, express attendance/absence, unsworn colloquy, RT witness indexes, and sworn/examination evidence.
-9. Create summaries directly from boundary-scoped source pages through ephemeral page windows.
-10. Add summary links.
-11. Create the concise nonauthoritative `artifacts/case_overview.md` orientation aid.
-12. Build source-map v2 last.
+2. Detect transcript layout (PI).
+3. Strip characters.
+4. Infer case.
+5. Basic/advanced/corrected/date/name classification.
+6. Build/correct TOC.
+7. Find/correct hearing, report, and minute boundaries.
+8. Number transcript pages with PI.
+9. Build `artifacts/participant_index.json` schema v2 with PI from appearances, express attendance/absence, unsworn colloquy, RT witness indexes, and sworn/examination evidence.
+10. Create summaries directly from boundary-scoped source pages through ephemeral page windows.
+11. Add summary links.
+12. Create the concise nonauthoritative `artifacts/case_overview.md` orientation aid.
+13. Build source-map v2 last.
+
+Transcript layout detection runs immediately after Create files, once per new
+or changed bundle, and publishes `artifacts/transcript_layout.json` schema v1.
+It searches OCR text first and opens only targeted page images (soft budget of
+12 PNGs per detection), never a full image sweep. A high-confidence agent
+result continues automatically; ambiguity publishes a structurally valid
+`needs_review` artifact and pauses before any layout-dependent mutation.
+Layouts are case-local, bound to the current page count and input signature;
+a value from another case is never used. All downstream routing reads the
+validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page` fields
+are legacy compatibility mirrors only. The retired `rt_ct_split_page` config
+key is removed during config migration.
 
 The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
 
@@ -50,9 +63,10 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - Stage `.pi/SYSTEM.md` and only `extensions/recordprep-auto-exit.ts` into a private workspace.
 - Preserve PI's native interactive VTE UI.
 - Validate each stage after PI exits.
+- The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion.
 - Transcript numbering and participant/summary stages must not update `manifest.json`.
 - The case-overview skill writes only `artifacts/case_overview.md`.
-- The final source-map skill is the single manifest publisher.
+- The final source-map skill is the single manifest publisher and also publishes the `transcript_layout` path.
 - Do not add an agent framework, subagent abstraction, or runtime npm install.
 
 ## Source extraction

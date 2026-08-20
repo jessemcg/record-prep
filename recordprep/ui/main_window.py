@@ -52,6 +52,15 @@ from tabulate import tabulate
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
 from recordprep.pi_bundle import pi_step_complete, validate_participant_index_output
+from recordprep.transcript_layout import (
+    TranscriptLayoutError,
+    apply_manual_override,
+    detection_status,
+    layout_display_summary,
+    legacy_manifest_split,
+    read_resolved_layout,
+    resolve_rt_ct_split as resolve_layout_rt_ct_split,
+)
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
     PiModel,
@@ -59,10 +68,12 @@ from recordprep.pi_runtime import (
     PiSettingsError,
     available_pi_models,
     current_project_pi_model,
+    current_project_pi_thinking_level,
     discover_pi_agent_command,
     incompatible_pi_agent_flag,
     resolve_pi_agent_argv,
     save_project_pi_model,
+    save_project_pi_thinking_level,
 )
 
 STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
@@ -114,11 +125,19 @@ VISION_CLASSIFICATION_STEP_IDS = {
     "classify_dates",
     "classify_names",
 }
+# Steps that can launch without a resolved transcript layout. Detection is a
+# PI stage and must never join VISION_CLASSIFICATION_STEP_IDS.
+NO_RESOLVED_LAYOUT_STEP_IDS = {"create_files", "detect_transcript_layout"}
 PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "prepare",
         "Prepare",
-        ("create_files", "strip_characters", "infer_case"),
+        (
+            "create_files",
+            "detect_transcript_layout",
+            "strip_characters",
+            "infer_case",
+        ),
     ),
     (
         "classify",
@@ -281,6 +300,36 @@ def _pipeline_split_validation_message(
     return None
 
 
+def _step_requires_resolved_layout(step_id: str) -> bool:
+    """True when a step may launch only after a resolved layout exists."""
+    return step_id not in NO_RESOLVED_LAYOUT_STEP_IDS
+
+
+def _layout_matches_legacy(root_dir: Path) -> bool:
+    """Compare the resolved artifact against the legacy manifest mirrors.
+
+    Returns True when the legacy mirrors are absent, when they match the
+    resolved layout, or when no resolved layout exists. The legacy value is
+    never accepted automatically; it is only compared.
+    """
+    resolved = read_resolved_layout(root_dir)
+    if resolved is None:
+        return True
+    legacy_mode, legacy_page = legacy_manifest_split(root_dir)
+    if legacy_mode not in {"rt_only", "ct_only", "split"}:
+        return True
+    resolved_mode = str(resolved.get("mode") or "")
+    if resolved_mode == "rt_only":
+        return legacy_mode == "rt_only"
+    if resolved_mode == "ct_only":
+        return legacy_mode == "ct_only"
+    return (
+        legacy_mode == "split"
+        and legacy_page is not None
+        and legacy_page == int(resolved.get("rt_end_file_page") or 0)
+    )
+
+
 def _settings_destination_keys() -> tuple[str, ...]:
     return tuple(
         key
@@ -415,6 +464,16 @@ CONFIG_FILE = PROJECT_DIR / "config.json"
 PI_PROJECT_DIR = PROJECT_DIR / ".pi"
 PI_SKILL_RUNNER = PI_PROJECT_DIR / "scripts" / "run_recordprep_skill.py"
 CONFIG_KEY_PI_AGENT_COMMAND = "pi_agent_command"
+PI_THINKING_LEVEL_OPTIONS: tuple[tuple[str, str | None], ...] = (
+    ("Use global PI default", None),
+    ("Off", "off"),
+    ("Minimal", "minimal"),
+    ("Low", "low"),
+    ("Medium", "medium"),
+    ("High", "high"),
+    ("Extra high", "xhigh"),
+    ("Maximum", "max"),
+)
 INPUT_IDENTITY_VERSION = 1
 GENERATED_CASE_BUNDLE_DIRS = (
     "text_pages",
@@ -481,7 +540,6 @@ CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS = "summarize_window_target_chars"
 CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES = "summarize_window_max_pages"
 LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
 CONFIG_KEY_SELECTED_PDFS = "selected_pdfs"
-CONFIG_KEY_RT_CT_SPLIT_PAGE = "rt_ct_split_page"
 CONFIG_KEY_RUN_UNTIL_STEP = "run_until_step"
 TEXT_SOURCE_EMBEDDED = "embedded"
 TEXT_SOURCE_LOCAL_OCR = "local_ocr"
@@ -764,17 +822,6 @@ def _read_rt_ct_split_mode(root_dir: Path) -> str:
     return _normalize_rt_ct_split_mode(manifest.get("rt_ct_split_mode"))
 
 
-def _read_rt_ct_split_page_config() -> int | None:
-    config = _read_config()
-    return _normalize_rt_ct_split_page(config.get(CONFIG_KEY_RT_CT_SPLIT_PAGE))
-
-
-def _write_rt_ct_split_page_config(value: int | None) -> None:
-    config = _read_config()
-    config[CONFIG_KEY_RT_CT_SPLIT_PAGE] = value
-    _write_config(config)
-
-
 def _count_text_pages(text_dir: Path) -> int:
     if not text_dir.exists():
         return 0
@@ -785,18 +832,12 @@ def _count_text_pages(text_dir: Path) -> int:
 
 
 def _resolve_rt_ct_split(root_dir: Path, text_dir: Path) -> tuple[int, int, bool, bool, str]:
-    split_mode = _read_rt_ct_split_mode(root_dir)
-    total_pages = _count_text_pages(text_dir)
-    if split_mode == "rt_only":
-        return max(1, total_pages), total_pages, True, False, split_mode
-    if split_mode == "ct_only":
-        return 0, total_pages, False, True, split_mode
-    split_page = _read_rt_ct_split_page(root_dir)
-    if split_page is None:
-        raise ValueError("Set the RT end page number before running classification.")
-    need_rt = split_page >= 1
-    need_ct = total_pages > 0 and split_page < total_pages
-    return split_page, total_pages, need_rt, need_ct, split_mode
+    """Route downstream RT/CT work exclusively from the validated artifact.
+
+    Raises TranscriptLayoutError when the layout is unresolved or needs
+    review; the caller surfaces the message as a clean pipeline pause.
+    """
+    return resolve_layout_rt_ct_split(root_dir, text_dir)
 
 
 def _is_truthy(value: str) -> bool:
@@ -2332,6 +2373,7 @@ OBSOLETE_PIPELINE_CONFIG_KEYS = {
     "overview_disable_reasoning", "overview_prompt",
     "rag_provider", "rag_voyage_api_key", "rag_voyage_model", "rag_isaacus_api_key",
     "rag_isaacus_model",
+    "rt_ct_split_page",
 }
 
 
@@ -3309,6 +3351,7 @@ class SummarizeSettingsWidgets:
 @dataclass
 class AgentSettingsWidgets:
     pi_agent_command_row: Adw.EntryRow
+    pi_thinking_level_row: Adw.ComboRow
 
 
 
@@ -3465,8 +3508,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._pi_model_settings_error = ""
         try:
             self._original_pi_model_key = current_project_pi_model()
+            self._original_pi_thinking_level = current_project_pi_thinking_level()
         except PiSettingsError as exc:
             self._original_pi_model_key = None
+            self._original_pi_thinking_level = None
             self._pi_model_settings_error = str(exc)
         self._build_ui()
         self.connect("close-request", self._on_pi_settings_close_request)
@@ -4267,11 +4312,33 @@ class SettingsWindow(Adw.ApplicationWindow):
         model_row.add_suffix(refresh_button)
         launch_group.add(model_row)
 
+        thinking_level_row = Adw.ComboRow(
+            title="PI reasoning level",
+            subtitle=(
+                "Applied to each new RecordPrep PI session; PI adjusts levels "
+                "unsupported by the selected model."
+            ),
+        )
+        thinking_level_row.set_model(
+            Gtk.StringList.new([label for label, _level in PI_THINKING_LEVEL_OPTIONS])
+        )
+        configured_level = self._original_pi_thinking_level
+        selected_thinking_index = next(
+            (
+                index
+                for index, (_label, level) in enumerate(PI_THINKING_LEVEL_OPTIONS)
+                if level == configured_level
+            ),
+            0,
+        )
+        thinking_level_row.set_selected(selected_thinking_index)
+        launch_group.add(thinking_level_row)
+
         configuration_row = Adw.ActionRow(
             title="PI configuration",
             subtitle=(
-                "Provider and model are saved in project .pi/settings.json. "
-                "Credentials remain in your global PI configuration."
+                "Provider, model, and reasoning level are saved in project "
+                ".pi/settings.json. Credentials remain in your global PI configuration."
             ),
         )
         launch_group.add(configuration_row)
@@ -4291,7 +4358,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         page.set_vexpand(True)
         page.set_child(page_box)
 
-        self._agent_widgets = AgentSettingsWidgets(pi_agent_command_row=command_row)
+        self._agent_widgets = AgentSettingsWidgets(
+            pi_agent_command_row=command_row,
+            pi_thinking_level_row=thinking_level_row,
+        )
         self._pi_model_row = model_row
         self._pi_model_refresh_button = refresh_button
         return page
@@ -4338,6 +4408,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         if self._pi_model_settings_error:
             try:
                 self._original_pi_model_key = current_project_pi_model()
+                self._original_pi_thinking_level = current_project_pi_thinking_level()
                 self._pi_model_settings_error = ""
             except PiSettingsError as exc:
                 self._pi_model_row.set_subtitle(str(exc))
@@ -4693,6 +4764,19 @@ class SettingsWindow(Adw.ApplicationWindow):
                     return
                 self._original_pi_model_key = selected_model.settings_key
                 self._pi_model_selection_changed = False
+            thinking_index = int(agent_widgets.pi_thinking_level_row.get_selected())
+            thinking_level = (
+                PI_THINKING_LEVEL_OPTIONS[thinking_index][1]
+                if 0 <= thinking_index < len(PI_THINKING_LEVEL_OPTIONS)
+                else None
+            )
+            try:
+                save_project_pi_thinking_level(thinking_level)
+            except PiSettingsError as exc:
+                agent_widgets.pi_thinking_level_row.set_subtitle(str(exc))
+                self._select_settings_page("pi")
+                return
+            self._original_pi_thinking_level = thinking_level
             save_pi_agent_command_setting(pi_command)
         if self._on_saved:
             self._on_saved()
@@ -5122,6 +5206,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_until_dropdown: Gtk.DropDown | None = None
         self._run_until_values: list[str | None] = [None]
         self._run_completion_message: str | None = None
+        self._run_pause_message: str | None = None
         self._local_ocr_server_process: subprocess.Popen[str] | None = None
         self._local_ocr_server_lock = threading.Lock()
         self._local_vision_server_process: subprocess.Popen[str] | None = None
@@ -5307,6 +5392,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             lambda _btn: self.on_step_one_clicked(self.step_one_row),
         )
         self._attach_step_status(self.step_one_row)
+
+        self.step_detect_transcript_layout_row = Adw.ActionRow(
+            title="Detect transcript layout",
+            subtitle="PI searches extracted text and opens only selected page images.",
+        )
+        self.step_detect_transcript_layout_row.set_activatable(False)
+        self._attach_step_controls(
+            "detect_transcript_layout",
+            self.step_detect_transcript_layout_row,
+            lambda _btn: self.on_step_detect_transcript_layout_clicked(
+                self.step_detect_transcript_layout_row
+            ),
+        )
+        self._attach_step_status(self.step_detect_transcript_layout_row)
 
         self.step_strip_nonstandard_row = Adw.ActionRow(
             title="Process text files",
@@ -6255,6 +6354,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if expected_pages:
                 return text_pages >= expected_pages and image_pages >= expected_pages
             return bool(text_pages) and bool(image_pages)
+        if step_id == "detect_transcript_layout":
+            return read_resolved_layout(root_dir) is not None
         if step_id == "strip_characters":
             return _dir_has_files(text_dir, "*.txt")
         if step_id == "infer_case":
@@ -6392,17 +6493,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             menu_button.set_sensitive(not running)
         if self._rt_ct_split_dropdown is not None:
             self._rt_ct_split_dropdown.set_sensitive(not running)
+        manual_split_selected = bool(
+            self._rt_ct_split_dropdown is not None
+            and self._rt_ct_split_dropdown.get_selected() == 1
+        )
         if self._rt_ct_split_entry is not None:
-            split_selected = bool(
-                self._rt_ct_split_dropdown is not None
-                and self._rt_ct_split_dropdown.get_selected() == 0
+            self._rt_ct_split_entry.set_sensitive(
+                not running and manual_split_selected
             )
-            self._rt_ct_split_entry.set_sensitive(not running and split_selected)
         if self._rt_ct_split_page_row is not None:
             self._rt_ct_split_page_row.set_sensitive(
-                not running
-                and self._rt_ct_split_dropdown is not None
-                and self._rt_ct_split_dropdown.get_selected() == 0
+                not running and manual_split_selected
             )
         self._update_toc_button()
 
@@ -6413,10 +6514,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         source_row.set_expanded(False)
 
-        dropdown = Adw.ComboRow(title="Transcript type")
+        dropdown = Adw.ComboRow(
+            title="Transcript layout",
+            subtitle=(
+                "Automatic detection is the default; manual choices override "
+                "the detected layout for this case only."
+            ),
+        )
         dropdown.set_model(
             Gtk.StringList.new(
                 [
+                    "Automatic detection",
                     "RT + CT",
                     "Reporter's transcript only",
                     "Clerk's transcript only",
@@ -6426,7 +6534,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         dropdown.connect("notify::selected", self._on_rt_ct_split_mode_changed)
         source_row.add_row(dropdown)
 
-        page_row = Adw.ActionRow(title="RT ends at page")
+        page_row = Adw.ActionRow(
+            title="RT ends at page",
+            subtitle=(
+                "Combined PDF file page, not an official RT citation page. "
+                "Must be less than the combined PDF page count."
+            ),
+        )
 
         entry = Gtk.Entry()
         entry.set_width_chars(3)
@@ -6446,6 +6560,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_page_row = page_row
         self._rt_ct_split_label = None
         return source_row
+
+    def _loaded_layout_mode(self, root_dir: Path | None) -> str:
+        if root_dir is not None:
+            status, mode = detection_status(root_dir)
+            if status == "resolved" and mode in {"rt_only", "ct_only", "split"}:
+                return mode
+        return "auto"
 
     def _update_source_summary(
         self,
@@ -6473,24 +6594,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not display_case and not self.selected_pdfs:
             subtitle = "Choose a case bundle or PDF files"
         else:
-            if split_mode is None:
-                root_dir = self._resolve_case_root()
-                if root_dir is not None and root_dir.exists():
-                    split_mode = _read_rt_ct_split_mode(root_dir)
-                    split_page = _read_rt_ct_split_page(root_dir)
-                else:
-                    split_mode = self._rt_ct_split_mode_pending or "split"
-                    if split_page is None:
-                        split_page = self._rt_ct_split_pending
+            root_dir = self._resolve_case_root()
+            if root_dir is not None and root_dir.exists():
+                summary = layout_display_summary(root_dir)
+            elif split_mode is not None:
+                summary = _transcript_summary(split_mode or "split", split_page)
+            else:
+                summary = "Detection pending"
             source_description = "Existing case bundle"
             if len(self.selected_pdfs) == 1:
                 source_description = self.selected_pdfs[0].name
             elif self.selected_pdfs:
                 source_description = f"{len(self.selected_pdfs)} PDFs"
-            subtitle = (
-                f"{source_description} • "
-                f"{_transcript_summary(split_mode or 'split', split_page)}"
-            )
+            subtitle = f"{source_description} • {summary}"
         source_row.set_title(title)
         source_row.set_subtitle(subtitle)
 
@@ -6503,10 +6619,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         self._rt_ct_split_updating = True
         if not entry.has_focus():
-            entry.set_text(str(split_page or ""))
-        dropdown.set_selected(
-            0 if split_mode == "split" else (1 if split_mode == "rt_only" else 2)
-        )
+            entry.set_text(
+                str(split_page)
+                if split_page is not None and split_mode == "split"
+                else ""
+            )
+        if split_mode == "rt_only":
+            selected_index = 2
+        elif split_mode == "ct_only":
+            selected_index = 3
+        elif split_mode == "split":
+            selected_index = 1
+        else:
+            selected_index = 0
+        dropdown.set_selected(selected_index)
         self._rt_ct_split_updating = False
         page_sensitive = split_mode == "split" and not self._pipeline_running
         entry.set_sensitive(page_sensitive)
@@ -6518,43 +6644,55 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             entry.add_css_class("dim-label")
         self._update_source_summary(split_page, split_mode)
 
+    def _apply_pending_manual_layout(
+        self, root_dir: Path
+    ) -> None:
+        """Apply an in-memory manual choice to a fresh bundle after Create files.
+
+        The old cross-case config value is never used; a pending override is
+        only ever case-local and is applied only when the bundle has no
+        resolved artifact.
+        """
+        if self._rt_ct_split_mode_pending in {"split", "rt_only", "ct_only"}:
+            mode = self._rt_ct_split_mode_pending
+            rt_end = self._rt_ct_split_pending
+            try:
+                apply_manual_override(
+                    root_dir,
+                    mode=mode,
+                    rt_end_file_page=rt_end,
+                    note="Manual layout chosen before Create files completed.",
+                )
+                self._rt_ct_split_mode_pending = None
+                self._rt_ct_split_pending = None
+            except TranscriptLayoutError:
+                self._rt_ct_split_mode_pending = None
+                self._rt_ct_split_pending = None
+
     def _load_rt_ct_split(self) -> None:
         root_dir = self._resolve_case_root()
-        if root_dir is None or not _manifest_path(root_dir).exists():
-            pending_mode = self._rt_ct_split_mode_pending or "split"
-            split_page = self._rt_ct_split_pending
-            if split_page is None:
-                split_page = _read_rt_ct_split_page_config()
-            self._set_rt_ct_split_ui(split_page, None, pending_mode)
+        if root_dir is None or not root_dir.exists():
+            self._set_rt_ct_split_ui(None, None, "auto")
             return
-        split_page = _read_rt_ct_split_page(root_dir)
-        split_mode = _read_rt_ct_split_mode(root_dir)
-        if split_page is None and self._rt_ct_split_pending:
-            split_page = self._rt_ct_split_pending
-            try:
-                saved = _update_rt_ct_split_manifest(
-                    root_dir,
-                    split_page,
-                    split_mode,
-                )
-            except Exception:
-                saved = False
-            if saved:
-                self._rt_ct_split_pending = None
-        if self._rt_ct_split_mode_pending:
-            split_mode = self._rt_ct_split_mode_pending
-            try:
-                saved = _update_rt_ct_split_manifest(
-                    root_dir,
-                    split_page,
-                    split_mode,
-                )
-            except Exception:
-                saved = False
-            if saved:
-                self._rt_ct_split_mode_pending = None
+        status, mode = detection_status(root_dir)
+        if status != "resolved" and self._rt_ct_split_mode_pending in {
+            "split",
+            "rt_only",
+            "ct_only",
+        }:
+            self._apply_pending_manual_layout(root_dir)
+            status, mode = detection_status(root_dir)
+        split_mode = "auto"
+        split_page: int | None = None
+        if status == "resolved" and mode in {"rt_only", "ct_only", "split"}:
+            split_mode = mode
+            if mode == "split":
+                resolved = read_resolved_layout(root_dir)
+                if resolved is not None:
+                    split_page = int(resolved.get("rt_end_file_page") or 0) or None
         total_pages = _count_text_pages(root_dir / "text_pages")
         self._set_rt_ct_split_ui(split_page, total_pages, split_mode)
+        self._update_source_summary(split_page, split_mode)
 
     def _on_rt_ct_split_mode_changed(
         self, dropdown: Gtk.DropDown, _pspec: GObject.ParamSpec
@@ -6562,74 +6700,98 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._rt_ct_split_updating:
             return
         if self._pipeline_running:
-            self.show_toast("Stop the pipeline before changing the RT/CT split.")
-            root_dir = self._resolve_case_root()
-            current_mode = (
-                _read_rt_ct_split_mode(root_dir) if root_dir and root_dir.exists() else "split"
-            )
-            current_page = _read_rt_ct_split_page(root_dir) if root_dir and root_dir.exists() else None
-            total_pages = (
-                _count_text_pages(root_dir / "text_pages")
-                if root_dir and root_dir.exists()
-                else None
-            )
-            self._set_rt_ct_split_ui(current_page, total_pages, current_mode)
+            self.show_toast("Stop the pipeline before changing the transcript layout.")
+            self._load_rt_ct_split()
             return
-        mode = "split"
         selected = dropdown.get_selected()
-        if selected == 1:
-            mode = "rt_only"
-        elif selected == 2:
-            mode = "ct_only"
-        root_dir = self._resolve_case_root()
-        if root_dir is None or not _manifest_path(root_dir).exists():
-            self._rt_ct_split_mode_pending = mode
-            self._set_rt_ct_split_ui(self._rt_ct_split_pending, None, mode)
+        if selected == 0:
+            self._rt_ct_split_mode_pending = None
+            self._rt_ct_split_pending = None
+            self._load_rt_ct_split()
+            self._refresh_step_statuses_from_artifacts()
             return
-        try:
-            _update_rt_ct_split_manifest(
-                root_dir,
-                _read_rt_ct_split_page(root_dir),
-                mode,
+        mode = "split" if selected == 1 else ("rt_only" if selected == 2 else "ct_only")
+        root_dir = self._resolve_case_root()
+        if root_dir is None or not root_dir.exists():
+            self._rt_ct_split_mode_pending = mode
+            self._set_rt_ct_split_ui(
+                self._rt_ct_split_pending, None, mode
             )
-        except Exception as exc:
-            self.show_toast(f"Unable to save RT/CT split: {exc}")
-        total_pages = _count_text_pages(root_dir / "text_pages")
-        self._set_rt_ct_split_ui(_read_rt_ct_split_page(root_dir), total_pages, mode)
+            self.show_toast(
+                "Create files first, then choose a manual transcript layout.",
+                "INFO",
+            )
+            return
+        if not (root_dir / "text_pages").exists():
+            self._rt_ct_split_mode_pending = mode
+            self._set_rt_ct_split_ui(
+                self._rt_ct_split_pending, None, mode
+            )
+            self.show_toast(
+                "Run Create files first, then choose a manual transcript layout.",
+                "INFO",
+            )
+            return
+        self._rt_ct_split_mode_pending = mode
+        self._try_apply_manual_layout()
         self._refresh_step_statuses_from_artifacts()
+
+    def _try_apply_manual_layout(self) -> bool:
+        root_dir = self._resolve_case_root()
+        mode = self._rt_ct_split_mode_pending
+        if root_dir is None or mode not in {"split", "rt_only", "ct_only"}:
+            return False
+        if not (root_dir / "text_pages").exists():
+            return False
+        rt_end = self._rt_ct_split_pending
+        if mode == "split" and rt_end is None:
+            self._load_rt_ct_split()
+            return False
+        try:
+            apply_manual_override(
+                root_dir,
+                mode=mode,
+                rt_end_file_page=rt_end,
+                note=(
+                    "Manual transcript layout chosen in the transcript "
+                    "expander."
+                ),
+            )
+        except TranscriptLayoutError as exc:
+            self.show_toast(str(exc), "WARN")
+            if self._source_row is not None:
+                self._source_row.set_expanded(True)
+            return False
+        self._rt_ct_split_mode_pending = None
+        self._rt_ct_split_pending = None
+        if self._has_layout_dependent_work(root_dir):
+            self._bundle_reset_required = True
+            self.show_toast(
+                "Transcript layout changed; re-run Create files to rebuild "
+                "from the new layout.",
+                "WARN",
+            )
+        else:
+            self.show_toast("Transcript layout updated.")
+        return True
 
     def _commit_rt_ct_split_entry(self, entry: Gtk.Entry, allow_ui_update: bool) -> None:
         if self._rt_ct_split_updating:
             return
         raw = entry.get_text().strip()
-        split_page = int(raw) if raw.isdigit() else None
+        split_page = None
+        if raw.isdigit():
+            split_page = int(raw)
         self._rt_ct_split_pending = split_page
         if self._pipeline_running:
             return
-        root_dir = self._resolve_case_root()
-        if root_dir is None or not _manifest_path(root_dir).exists():
-            self._rt_ct_split_pending = split_page
-            _write_rt_ct_split_page_config(split_page)
-            pending_mode = self._rt_ct_split_mode_pending or "split"
+        if self._try_apply_manual_layout():
             if allow_ui_update and not entry.has_focus():
-                self._set_rt_ct_split_ui(split_page, None, pending_mode)
-            return
-        try:
-            _update_rt_ct_split_manifest(
-                root_dir,
-                split_page,
-                _read_rt_ct_split_mode(root_dir),
-            )
-            _write_rt_ct_split_page_config(split_page)
-        except Exception as exc:
-            self.show_toast(f"Unable to save RT/CT split: {exc}")
-        self._refresh_step_statuses_from_artifacts()
-        if allow_ui_update and not entry.has_focus():
-            self._set_rt_ct_split_ui(
-                _read_rt_ct_split_page(root_dir),
-                _count_text_pages(root_dir / "text_pages"),
-                _read_rt_ct_split_mode(root_dir),
-            )
+                self._load_rt_ct_split()
+        else:
+            if allow_ui_update and not entry.has_focus():
+                self._load_rt_ct_split()
+            self._refresh_step_statuses_from_artifacts()
 
     def _on_rt_ct_split_commit(self, entry: Gtk.Entry) -> None:
         self._commit_rt_ct_split_entry(entry, allow_ui_update=False)
@@ -6654,42 +6816,79 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         entry = self._rt_ct_split_entry
         if dropdown is not None:
             selected = dropdown.get_selected()
-            split_mode = "rt_only" if selected == 1 else ("ct_only" if selected == 2 else "split")
+            split_mode = "auto"
+            if selected == 1:
+                split_mode = "split"
+            elif selected == 2:
+                split_mode = "rt_only"
+            elif selected == 3:
+                split_mode = "ct_only"
         else:
             root_dir = self._resolve_case_root()
-            split_mode = (
-                _read_rt_ct_split_mode(root_dir)
-                if root_dir is not None and root_dir.exists()
-                else (self._rt_ct_split_mode_pending or "split")
-            )
+            split_mode = self._loaded_layout_mode(root_dir)
         if entry is not None:
             raw = entry.get_text().strip()
             split_page = _normalize_rt_ct_split_page(int(raw) if raw.isdigit() else None)
         else:
             root_dir = self._resolve_case_root()
-            split_page = (
-                _read_rt_ct_split_page(root_dir)
-                if root_dir is not None and root_dir.exists()
-                else self._rt_ct_split_pending
-            )
+            split_page = self._rt_ct_split_pending
         return split_mode, split_page
 
-    def _ensure_rt_ct_split_ready(self) -> bool:
-        split_mode, split_page = self._current_rt_ct_split_selection()
-        message = _pipeline_split_validation_message(split_mode, split_page)
-        entry = self._rt_ct_split_entry
-        if message is not None:
+    def _has_layout_dependent_work(self, root_dir: Path) -> bool:
+        """True when layout-dependent (destructive-cleanup) work exists."""
+        if not root_dir.exists():
+            return False
+        classification = root_dir / "classification"
+        if classification.is_dir() and any(classification.iterdir()):
+            return True
+        artifacts = root_dir / "artifacts"
+        if artifacts.is_dir():
+            for item in artifacts.iterdir():
+                if item.name == "transcript_layout.json":
+                    continue
+                if item.is_file() or (item.is_dir() and any(item.iterdir())):
+                    return True
+        return False
+
+    def _require_resolved_layout(
+        self,
+        allow_unresolved: bool = False,
+    ) -> bool:
+        root_dir = self._resolve_case_root()
+        if root_dir is None or not root_dir.exists():
+            self.show_toast("Choose PDF files or a case bundle first.", "WARN")
+            return False
+        mode, split_page = self._current_rt_ct_split_selection()
+        if mode != "auto":
+            self._rt_ct_split_mode_pending = mode
+            self._rt_ct_split_pending = split_page
+            if self._try_apply_manual_layout():
+                return True
+            self._load_rt_ct_split()
+            return False
+        if allow_unresolved:
+            return True
+        status, _mode = detection_status(root_dir)
+        if status == "needs_review":
             if self._source_row is not None:
                 self._source_row.set_expanded(True)
-            if entry is not None:
-                entry.add_css_class("error")
-                entry.grab_focus()
-            self.show_toast(message, "WARN")
+            self.show_toast(
+                "Transcript layout needs review: choose a manual layout to continue.",
+                "WARN",
+            )
             return False
-        if split_mode == "split" and entry is not None:
-            self._commit_rt_ct_split_entry(entry, allow_ui_update=False)
-            entry.remove_css_class("error")
+        if status == "pending":
+            if self._source_row is not None:
+                self._source_row.set_expanded(True)
+            self.show_toast(
+                "Run Detect transcript layout before starting this step.",
+                "WARN",
+            )
+            return False
         return True
+
+    def _ensure_rt_ct_split_ready(self) -> bool:
+        return self._require_resolved_layout(allow_unresolved=False)
 
     def _raise_if_stop_requested(self) -> None:
         if self._stop_event.is_set():
@@ -7052,6 +7251,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _pipeline_steps(self) -> list[tuple[str, Adw.ActionRow, Callable[[], bool]]]:
         return [
             ("create_files", self.step_one_row, self._run_step_one),
+            (
+                "detect_transcript_layout",
+                self.step_detect_transcript_layout_row,
+                self._run_step_detect_transcript_layout,
+            ),
             ("strip_characters", self.step_strip_nonstandard_row, self._run_step_strip_nonstandard),
             ("infer_case", self.step_infer_case_row, self._run_step_infer_case),
             ("classify_basic", self.step_two_row, self._run_step_two),
@@ -7188,11 +7392,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
             return
-        if not self._ensure_rt_ct_split_ready():
+        if not self._require_resolved_layout(allow_unresolved=True):
             return
         end_step_id = self._selected_run_until_step()
         self._stop_event.clear()
         self._run_completion_message = None
+        self._run_pause_message = None
         self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
@@ -7218,9 +7423,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        if not self._ensure_rt_ct_split_ready():
-            return
-        end_step_id = self._selected_run_until_step()
         try:
             start_index = self._resume_start_index(root_dir, end_step_id)
         except ValueError as exc:
@@ -7232,6 +7434,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         steps = self._pipeline_steps()
         start_step_id, start_row, _handler = steps[start_index]
+        start_needs_resolved = _step_requires_resolved_layout(start_step_id)
+        if not self._require_resolved_layout(allow_unresolved=not start_needs_resolved):
+            return
         if start_step_id == "create_files" and not self.selected_pdfs:
             self.show_toast("Choose PDF files first to resume Create files.")
             return
@@ -7239,6 +7444,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.show_toast(f"Resuming at {label}.", "INFO")
         self._stop_event.clear()
         self._run_completion_message = None
+        self._run_pause_message = None
         self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
@@ -7266,20 +7472,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not self.selected_pdfs:
                 self.show_toast("Choose PDF files first.")
                 return
-        else:
+        if _step_requires_resolved_layout(step_id):
             root_dir = self._resolve_case_root()
-            if root_dir is None:
+            if root_dir is None or not root_dir.exists():
                 if self.selected_pdfs:
                     self.show_toast("Selected PDFs must be in the same folder.")
                 else:
                     self.show_toast("Choose PDF files or select a saved case first.")
                 return
-        if not self._ensure_rt_ct_split_ready():
+        if not self._require_resolved_layout(
+            allow_unresolved=not _step_requires_resolved_layout(step_id)
+        ):
             return
         start_index = step_ids.index(step_id)
         root_dir = self._resolve_case_root()
         self._stop_event.clear()
         self._run_completion_message = None
+        self._run_pause_message = None
         self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
@@ -7303,10 +7512,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._pipeline_running:
             self.show_toast("Pipeline already running.")
             return
-        if not self._ensure_rt_ct_split_ready():
+        if not self._require_resolved_layout(
+            allow_unresolved=not _step_requires_resolved_layout(
+                step_id or ""
+            )
+        ):
             return
         self._stop_event.clear()
         self._run_completion_message = None
+        self._run_pause_message = None
         self._pi_terminal_sequence_started = False
         self._pipeline_running = True
         self.run_all_button.set_sensitive(False)
@@ -7355,12 +7569,36 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
         self._sync_pipeline_controls()
+        pause_message = self._run_pause_message
+        self._run_pause_message = None
+        if pause_message:
+            self.show_toast(pause_message, "WARN")
 
     def on_step_one_clicked(self, _row: Adw.ActionRow) -> None:
         if not self.selected_pdfs:
             self.show_toast("Choose PDF files first.")
             return
         self._launch_single_step(self.step_one_row, self._run_step_one)
+
+    def on_step_detect_transcript_layout_clicked(
+        self, _row: Adw.ActionRow
+    ) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None or not root_dir.exists():
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        text_dir = root_dir / "text_pages"
+        if not text_dir.exists() or not any(text_dir.glob("*.txt")):
+            self.show_toast("Run Create files to generate text files first.")
+            return
+        self._launch_single_step(
+            self.step_detect_transcript_layout_row,
+            self._run_step_detect_transcript_layout,
+            "detect_transcript_layout",
+        )
 
     def on_step_strip_nonstandard_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -7393,16 +7631,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             root_dir = base_dir / "case_bundle"
             pending_split = self._rt_ct_split_pending
             pending_mode = self._rt_ct_split_mode_pending
-            split_page = (
-                pending_split
-                if pending_split is not None
-                else _read_rt_ct_split_page(root_dir)
-            )
-            split_mode = (
-                pending_mode
-                if pending_mode is not None
-                else _read_rt_ct_split_mode(root_dir)
-            )
             reset_required = (
                 self._bundle_reset_required
                 or _bundle_inputs_changed(root_dir, self.selected_pdfs)
@@ -7427,8 +7655,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 root_dir,
                 self.selected_pdfs,
                 pipeline_info={"active_step": "create_files"},
-                rt_ct_split_page=split_page,
-                rt_ct_split_mode=split_mode,
+                rt_ct_split_page=pending_split,
+                rt_ct_split_mode=pending_mode,
             )
             self._raise_if_stop_requested()
             text_source = load_text_source_setting()
@@ -7463,14 +7691,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "last_failed_step": None,
                     "last_failed_at": None,
                 },
-                rt_ct_split_page=pending_split,
-                rt_ct_split_mode=pending_mode,
             )
-            if pending_split is not None:
-                self._rt_ct_split_pending = None
-            if pending_mode is not None:
-                self._rt_ct_split_mode_pending = None
             GLib.idle_add(self._load_rt_ct_split)
+            if (
+                self._rt_ct_split_mode_pending in {"split", "rt_only", "ct_only"}
+                and read_resolved_layout(root_dir) is None
+            ):
+                self._apply_pending_manual_layout(root_dir)
+                GLib.idle_add(self._load_rt_ct_split)
             GLib.idle_add(self.show_toast, "Create files complete.")
         finally:
             GLib.idle_add(self.step_one_row.set_sensitive, True)
@@ -7478,6 +7706,40 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
+
+    def _run_step_detect_transcript_layout(self) -> bool:
+        """Run the PI detection skill, then apply legacy-mismatch handling.
+
+        A structurally valid needs_review artifact is accepted by the PI
+        runner but is not pipeline-complete: the pipeline pauses with a
+        "needs review" message and the user chooses a manual layout.
+        """
+        success = self._run_pi_skill_step(
+            "detect_transcript_layout",
+            self.step_detect_transcript_layout_row,
+        )
+        if not success:
+            return False
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            return True
+        status, _mode = detection_status(root_dir)
+        if status != "resolved":
+            self._run_pause_message = (
+                "Transcript layout needs review: choose a manual layout to "
+                "continue (open the transcript expander)."
+            )
+            return False
+        if _layout_matches_legacy(root_dir):
+            return True
+        if not self._has_layout_dependent_work(root_dir):
+            return True
+        self._run_pause_message = (
+            "Detected transcript layout differs from the legacy split; "
+            "re-run Create files to rebuild from the new layout."
+        )
+        self._bundle_reset_required = True
+        return False
 
     def _run_step_strip_nonstandard(self) -> bool:
         success: bool | None = False
@@ -7494,10 +7756,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)
             if not text_files:
                 raise FileNotFoundError("No text files found to process.")
-            split_mode = _read_rt_ct_split_mode(root_dir)
-            split_page = _read_rt_ct_split_page(root_dir)
-            if split_page is None:
-                split_page = _read_rt_ct_split_page_config()
+            try:
+                split_page, _ct_start, _need_rt, _need_ct, split_mode = (
+                    _resolve_rt_ct_split(root_dir, text_dir)
+                )
+            except TranscriptLayoutError as exc:
+                raise ValueError(str(exc)) from exc
             for text_path in text_files:
                 self._raise_if_stop_requested()
                 content = text_path.read_text(encoding="utf-8", errors="ignore")
@@ -7840,10 +8104,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._update_toc_button()
         self._refresh_step_statuses_from_artifacts()
         self._sync_pipeline_controls()
+        pause_message = self._run_pause_message
+        self._run_pause_message = None
         completion_message = self._run_completion_message
         self._run_completion_message = None
         if stop_requested:
             self.show_toast("Pipeline stopped.")
+        elif pause_message:
+            self.show_toast(pause_message, "WARN")
         elif completion_message:
             self.show_toast(completion_message)
         elif success:

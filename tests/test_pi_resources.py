@@ -106,6 +106,7 @@ class PiResourceTests(unittest.TestCase):
                 "recordprep-build-participant-index",
                 "recordprep-build-source-map",
                 "recordprep-create-case-overview",
+                "recordprep-detect-transcript-layout",
                 "recordprep-number-transcript-pages",
             ],
         )
@@ -180,6 +181,108 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             )
             self.assertIn("/sessions", session_line)
 
+    def test_runner_accepts_detect_layout_needs_review_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            case_bundle = temp / "case_bundle"
+            (case_bundle / "text_pages").mkdir(parents=True)
+            (case_bundle / "image_pages").mkdir(parents=True)
+            (case_bundle / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (case_bundle / "image_pages/0001.png").write_bytes(b"image")
+            fake_pi = temp / "pi"
+            fake_pi.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '0.80.10\\n'
+  exit 0
+fi
+mkdir -p "$RECORDPREP_CASE_BUNDLE/artifacts"
+python3 <<'PYEOF'
+import json
+payload = {
+    "artifact": "recordprep-transcript-layout",
+    "schema_version": 1,
+    "status": "needs_review",
+    "decision_source": "pi-agent",
+    "mode": "split",
+    "input_page_count": 0,
+    "input_signature": "",
+    "rt_end_file_page": 1,
+    "ct_start_file_page": 2,
+    "confidence": "low",
+    "method": "text search",
+    "search_summary": "Ambiguous boundary markers.",
+    "evidence": [],
+    "warnings": ["Multiple transitions; cannot choose a single boundary."],
+}
+import os, hashlib, sys
+from pathlib import Path
+root = Path(os.environ["RECORDPREP_CASE_BUNDLE"])
+digest = hashlib.sha256()
+digest.update(b"recordprep-transcript-layout-signature-v1\\n")
+for name in sorted(p.name for p in (root/"text_pages").glob("*.txt")):
+    digest.update(name.encode())
+    digest.update(b"\\n")
+    digest.update(str((root/"text_pages"/name).stat().st_size).encode())
+    digest.update(b"\\n")
+    img = root/"image_pages"/name.replace(".txt", ".png")
+    digest.update(img.name.encode())
+    digest.update(b":")
+    digest.update(str(img.stat().st_size if img.exists() else 0).encode())
+    digest.update(b"\\n")
+payload["input_page_count"] = len(list((root/"text_pages").glob("*.txt")))
+payload["input_signature"] = digest.hexdigest()
+(root/"artifacts"/"transcript_layout.json").write_text(json.dumps(payload, indent=2))
+PYEOF
+printf '\\033[32mDetect complete: needs review\\033[0m\\n'
+""",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            env = _runner_environment(case_bundle, fake_pi, temp / "cache")
+
+            result = subprocess.run(
+                ["python3", str(RUNNER), "detect_transcript_layout"],
+                cwd=PROJECT_DIR,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Detect complete: needs review", result.stdout)
+            payload = json.loads(
+                (case_bundle / "artifacts/transcript_layout.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(payload["status"], "needs_review")
+
+    def test_runner_rejects_detect_layout_without_text_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            case_bundle = temp / "case_bundle"
+            (case_bundle / "text_pages").mkdir(parents=True)
+            fake_pi = temp / "pi"
+            fake_pi.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == \"--version\" ]]; then echo 0.80.10; fi\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            result = subprocess.run(
+                ["python3", str(RUNNER), "detect_transcript_layout"],
+                cwd=PROJECT_DIR,
+                env=_runner_environment(case_bundle, fake_pi, temp / "cache"),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("transcript_layout.json is missing", result.stdout)
+
     def test_resource_validator_rejects_missing_or_empty_system_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp_pi = Path(temporary) / ".pi"
@@ -239,9 +342,11 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"
             (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
             (root / "artifacts").mkdir()
             (root / "summaries").mkdir()
             (root / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (root / "image_pages/0001.png").write_bytes(b"image")
             (root / "summaries/hearings_sum_case.txt").write_text(
                 "hearing source",
                 encoding="utf-8",
@@ -250,6 +355,9 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 "report source",
                 encoding="utf-8",
             )
+            from recordprep.transcript_layout import apply_manual_override
+
+            apply_manual_override(root, mode="ct_only")
             legacy_organized = root / "summaries/hearings_sum_case_organized.txt"
             legacy_organized.write_text("retired derivative", encoding="utf-8")
             (root / "artifacts/transcript_page_number_series.md").write_text(
@@ -328,6 +436,7 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 "files": {
                     "summarized_hearings": "summaries/hearings_sum_case.txt",
                     "summarized_reports": "summaries/reports_sum_case.txt",
+                    "transcript_layout": "artifacts/transcript_layout.json",
                 }
             }
             (root / "manifest.json").write_text(
@@ -352,6 +461,10 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
                 "artifacts/case_overview.md",
             )
             self.assertEqual(
+                updated["files"]["transcript_layout"],
+                "artifacts/transcript_layout.json",
+            )
+            self.assertEqual(
                 updated["files"]["source_map"],
                 "artifacts/source_map.json",
             )
@@ -362,6 +475,10 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             self.assertEqual(
                 source_map["paths"]["case_overview"],
                 "artifacts/case_overview.md",
+            )
+            self.assertEqual(
+                source_map["paths"]["transcript_layout"],
+                "artifacts/transcript_layout.json",
             )
             self.assertEqual(source_map["counts"]["pages"], 1)
             self.assertEqual(source_map["citation_series"][0]["citation_prefix"], "CT")

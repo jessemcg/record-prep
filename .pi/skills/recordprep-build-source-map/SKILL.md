@@ -1,18 +1,19 @@
 ---
 name: recordprep-build-source-map
-description: Build and validate direct-source artifacts/source_map.json schema v2 for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript numbering, participant indexing, source summaries, and the concise case overview complete. Use only as the final Agent Search stage.
+description: Build and validate direct-source artifacts/source_map.json schema v2 for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript layout detection, transcript numbering, participant indexing, source summaries, and the concise case overview complete. Use only as the final Agent Search stage.
 ---
 
 # Build RecordPrep Source Map
 
-Use `RECORDPREP_CASE_BUNDLE`. This stage must run only after transcript numbering,
-participant indexing, direct source-page summaries, and the case-overview skill
-succeed.
+Use `RECORDPREP_CASE_BUNDLE`. This stage must run only after transcript layout
+detection, transcript numbering, participant indexing, direct source-page
+summaries, and the case-overview skill succeed.
 
 Require:
 
 - `manifest.json`
 - `text_pages/NNNN.txt`
+- `artifacts/transcript_layout.json` using schema version 1, resolved with a declared mode
 - `artifacts/transcript_page_numbers.json` using schema version 2 or newer
 - `artifacts/transcript_page_number_series.md`
 - `artifacts/participant_index.json` using schema version 2
@@ -34,6 +35,7 @@ Codex skill path.
 The script is the only workflow stage allowed to update `manifest.json`. It
 atomically writes `artifacts/source_map.json`, then atomically publishes:
 
+- `files.transcript_layout`
 - `files.transcript_page_numbers`
 - `files.transcript_page_number_series`
 - `files.participant_index`
@@ -52,7 +54,8 @@ witness, and examination metadata, and contain only case-root-relative paths.
 
 Verify page counts against `text_pages`, direct document ranges, participant
 page annotations, a nonempty citation-series list when record citations were
-selected, valid lookup references, the versioned nonauthoritative overview path,
-and freshness relative to every prerequisite. Report the output path,
+selected, valid lookup references, the resolved transcript-layout path, the
+versioned nonauthoritative overview path, and freshness relative to every
+prerequisite. Report the output path,
 page/document/series counts, and warnings. Fail on missing prerequisites or invalid JSON rather than producing a
 non-citation-aware map.

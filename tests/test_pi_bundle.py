@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from recordprep.pi_bundle import (
+    PI_STEP_IDS,
     expected_prepare_bundle_paths,
     pi_step_complete,
     prepare_bundle_complete,
@@ -14,8 +15,17 @@ from recordprep.pi_bundle import (
     validate_pi_step_outputs,
     validate_prepare_bundle_outputs,
     validate_summary_source_outputs,
+    validate_transcript_layout_output,
     validate_transcript_numbering_outputs,
 )
+from recordprep.transcript_layout import apply_manual_override
+
+
+def _build_layout_artifact(root: Path) -> None:
+    (root / "text_pages/0001.txt").write_text("record page 1", encoding="utf-8")
+    (root / "image_pages").mkdir(parents=True, exist_ok=True)
+    (root / "image_pages/0001.png").write_bytes(b"image")
+    apply_manual_override(root, mode="ct_only")
 
 
 def _case_overview_text() -> str:
@@ -59,7 +69,10 @@ class PiBundleTests(unittest.TestCase):
         (root / "artifacts").mkdir(parents=True)
         (root / "summaries").mkdir()
         (root / "text_pages").mkdir()
+        (root / "image_pages").mkdir()
         (root / "text_pages/0001.txt").write_text("record page 1", encoding="utf-8")
+        (root / "image_pages/0001.png").write_bytes(b"image")
+        apply_manual_override(root, mode="ct_only")
         hearing = root / "summaries/hearings_sum_case.txt"
         reports = root / "summaries/reports_sum_case.txt"
         hearing.write_text("hearing summary", encoding="utf-8")
@@ -125,6 +138,7 @@ class PiBundleTests(unittest.TestCase):
         )
         manifest = {
             "files": {
+                "transcript_layout": "artifacts/transcript_layout.json",
                 "summarized_hearings": "summaries/hearings_sum_case.txt",
                 "summarized_reports": "summaries/reports_sum_case.txt",
                 "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
@@ -155,7 +169,13 @@ class PiBundleTests(unittest.TestCase):
                 expected_prepare_bundle_paths(root)["case_overview"].name,
                 "case_overview.md",
             )
+            self.assertEqual(
+                expected_prepare_bundle_paths(root)["transcript_layout"].name,
+                "transcript_layout.json",
+            )
+            self.assertIn("detect_transcript_layout", PI_STEP_IDS)
             for step_id in (
+                "detect_transcript_layout",
                 "number_transcript_pages",
                 "build_participant_index",
                 "create_case_overview",
@@ -166,6 +186,7 @@ class PiBundleTests(unittest.TestCase):
             self.assertEqual(validate_transcript_numbering_outputs(root), [])
             self.assertEqual(validate_summary_source_outputs(root), [])
             self.assertEqual(validate_case_overview_output(root), [])
+            self.assertEqual(validate_transcript_layout_output(root), [])
             self.assertEqual(source_map_prerequisite_issues(root), [])
 
     def test_case_overview_requires_versioning_word_count_and_freshness(self) -> None:

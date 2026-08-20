@@ -1,5 +1,6 @@
 {
   "defaultProvider": "fireworks",
-  "defaultModel": "accounts/fireworks/models/glm-5p2",
-  "enableSkillCommands": true
+  "defaultModel": "accounts/fireworks/models/deepseek-v4-pro-0813",
+  "enableSkillCommands": true,
+  "defaultThinkingLevel": "high"
 }

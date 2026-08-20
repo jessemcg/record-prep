@@ -7,6 +7,7 @@ from typing import Any
 
 
 PREPARE_BUNDLE_MANIFEST_KEYS = {
+    "transcript_layout": "artifacts/transcript_layout.json",
     "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
     "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
     "participant_index": "artifacts/participant_index.json",
@@ -14,6 +15,7 @@ PREPARE_BUNDLE_MANIFEST_KEYS = {
     "source_map": "artifacts/source_map.json",
 }
 PI_STEP_IDS = (
+    "detect_transcript_layout",
     "number_transcript_pages",
     "build_participant_index",
     "create_case_overview",
@@ -270,6 +272,76 @@ def validate_summary_source_outputs(root: Path) -> list[str]:
     return issues
 
 
+def validate_transcript_layout_output(root: Path) -> list[str]:
+    root = root.resolve(strict=False)
+    path = root / "artifacts" / "transcript_layout.json"
+    payload = _read_json(path)
+    if payload is None:
+        return ["artifacts/transcript_layout.json is missing or invalid."]
+    issues: list[str] = []
+    if payload.get("artifact") != "recordprep-transcript-layout":
+        issues.append("transcript layout has an invalid artifact name.")
+    if payload.get("schema_version") != 1:
+        issues.append("transcript layout must use schema version 1.")
+    if payload.get("status") not in {"resolved", "needs_review"}:
+        issues.append("transcript layout status must be resolved or needs_review.")
+    if payload.get("status") == "resolved" and payload.get("mode") is None:
+        issues.append("a resolved transcript layout must declare a mode.")
+    if payload.get("decision_source") not in {"pi-agent", "manual"}:
+        issues.append("transcript layout decision_source is invalid.")
+    input_count = len(
+        list(
+            (root / "text_pages").glob("[0-9][0-9][0-9][0-9].txt")
+        )
+    )
+    if int(payload.get("input_page_count") or -1) != input_count:
+        issues.append(
+            "transcript layout input_page_count does not match the text pages."
+        )
+    try:
+        signature_matches = payload.get("input_signature") == _input_signature(root)
+    except OSError:
+        signature_matches = False
+    if not signature_matches:
+        issues.append("transcript layout input_signature is stale.")
+    return list(dict.fromkeys(issues))
+
+
+def _input_signature(root: Path) -> str:
+    import hashlib
+
+    text_dir = root / "text_pages"
+    image_dir = root / "image_pages"
+    digest = hashlib.sha256()
+    digest.update(b"recordprep-transcript-layout-signature-v1\n")
+    names = sorted(
+        path.name
+        for path in text_dir.glob("[0-9][0-9][0-9][0-9].txt")
+        if path.is_file()
+    )
+    for name in names:
+        digest.update(name.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\n")
+        try:
+            content = (text_dir / name).read_bytes()
+        except OSError:
+            content = b""
+        digest.update(str(len(content)).encode("ascii"))
+        digest.update(b"\n")
+        image_path = image_dir / (Path(name).stem + ".png")
+        size = 0
+        try:
+            if image_path.is_file():
+                size = image_path.stat().st_size
+        except OSError:
+            size = 0
+        digest.update(image_path.name.encode("utf-8", errors="surrogateescape"))
+        digest.update(b":")
+        digest.update(str(size).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def case_overview_prerequisite_issues(root: Path) -> list[str]:
     issues = validate_participant_index_output(root)
     issues.extend(validate_summary_source_outputs(root))
@@ -336,7 +408,8 @@ def validate_case_overview_output(root: Path) -> list[str]:
 
 
 def source_map_prerequisite_issues(root: Path) -> list[str]:
-    issues = validate_transcript_numbering_outputs(root)
+    issues = validate_transcript_layout_output(root)
+    issues.extend(validate_transcript_numbering_outputs(root))
     issues.extend(validate_case_overview_output(root))
     return list(dict.fromkeys(issues))
 
@@ -396,6 +469,8 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
                 "artifacts/case_overview.md."
             )
 
+    issues.extend(validate_transcript_layout_output(root))
+
     expected_manifest_paths = dict(PREPARE_BUNDLE_MANIFEST_KEYS)
     for key, expected in expected_manifest_paths.items():
         if files.get(key) != expected:
@@ -408,6 +483,7 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
         if (source := _summary_source(root, manifest, kind)) is not None
     ]
     for prerequisite in (
+        root / "artifacts" / "transcript_layout.json",
         transcript_path,
         series_path,
         participant_index_path,
@@ -432,6 +508,8 @@ def prepare_bundle_complete(root: Path) -> bool:
 
 
 def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
+    if step_id == "detect_transcript_layout":
+        return validate_transcript_layout_output(root)
     if step_id == "number_transcript_pages":
         return validate_transcript_numbering_outputs(root)
     if step_id == "build_participant_index":

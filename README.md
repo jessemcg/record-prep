@@ -33,20 +33,35 @@ uv run python -m recordprep app
 ### Prepare
 
 1. **Create files** — create `text_pages/NNNN.txt` and 300-DPI grayscale `image_pages/NNNN.png`; merge selected PDFs in natural order when needed.
-2. **Strip characters** — remove nonprinting extraction artifacts.
-3. **Infer case** — write `case_name.txt`.
+2. **Detect transcript layout** — PI searches all extracted OCR text for structural RT/CT markers and opens only targeted page images (soft budget of 12 PNGs); it publishes the case-local schema-v1 `artifacts/transcript_layout.json` (RT-only, CT-only, or RT-then-CT with the exact boundary).
+3. **Strip characters** — remove nonprinting extraction artifacts.
+4. **Infer case** — write `case_name.txt`.
 
 ### Classify and organize
 
-4. Classify RT/CT pages.
-5. Add advanced first/last markers, dates, report/form names, and corrections.
-6. Build/correct the TOC.
-7. Find/correct hearing, report, and minute-order boundaries.
+5. Classify RT/CT pages.
+6. Add advanced first/last markers, dates, report/form names, and corrections.
+7. Build/correct the TOC.
+8. Find/correct hearing, report, and minute-order boundaries.
 
 ### Record context
 
-8. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
-9. **Build participant and witness index** — PI inspects appearances, express attendance or absence, unsworn colloquy, `RT_index` witness/examination pages, and actual sworn/examination evidence and writes schema-v2 `artifacts/participant_index.json`.
+9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
+10. **Build participant and witness index** — PI inspects appearances, express attendance or absence, unsworn colloquy, `RT_index` witness/examination pages, and actual sworn/examination evidence and writes schema-v2 `artifacts/participant_index.json`.
+
+Transcript layout detection runs once per new or changed bundle, never on
+every launch and never as an image-classifier sweep. A high-confidence agent
+result continues automatically; ambiguous or contradictory evidence publishes
+a structurally valid `needs_review` artifact and pauses before any
+layout-dependent mutation, with the transcript-layout controls available as a
+manual override. Layouts are case-local and bound to the current page count
+and input signature; a value from another case is never used. All routing
+reads the validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page`
+fields are legacy compatibility mirrors only, and the retired cross-case
+`rt_ct_split_page` config value is removed during migration. Old bundles with
+only legacy split fields are detection-pending; a detected result that differs
+from the legacy fields after dependent work exists requires a rebuild from
+Create files (RT-specific text cleanup is destructive).
 
 Counsel, non-counsel participants, and witnesses are separate hearing-scoped records. Law firms and agency abbreviations are stored as organizations rather than attorney aliases. Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`; Q/A formatting alone never establishes testimony.
 
@@ -65,12 +80,12 @@ The hearing and report prompt editors contain the complete instructions actually
 
 ### Agent Search
 
-12. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
-13. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
+13. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
+14. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
 
 The case overview supplies parties, procedural posture, key events, principal issues, and record scope so a Focus Agent can orient before inspecting structural metadata. It is explicitly nonauthoritative, is freshness-checked against its inputs, and cannot support a final factual claim or citation.
 
-Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.
+Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, the resolved transcript-layout path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.
 
 ## Case bundle layout
 
@@ -83,6 +98,7 @@ case_bundle/
   classification/
   artifacts/
     toc.txt
+    transcript_layout.json
     hearing_boundaries.json
     report_boundaries.json
     minutes_boundaries.json
@@ -107,17 +123,18 @@ Tracked PI resources live under `.pi/`:
 - `SYSTEM.md`
 - `settings.json`
 - `extensions/recordprep-auto-exit.ts`
+- `skills/recordprep-detect-transcript-layout/`
 - `skills/recordprep-number-transcript-pages/`
 - `skills/recordprep-build-participant-index/`
 - `skills/recordprep-create-case-overview/`
 - `skills/recordprep-build-source-map/`
 - `scripts/run_recordprep_skill.py`
 
-Each row launches one explicitly loaded Agent Skill in PI's native VTE UI. Only the final source-map stage updates the manifest. Skills validate outputs before the pipeline advances.
+Each row launches one explicitly loaded Agent Skill in PI's native VTE UI. The runner accepts a structurally valid `needs_review` layout artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Only the final source-map stage updates the manifest (including the `transcript_layout` path). Skills validate outputs before the pipeline advances.
 
 ## Settings
 
-Settings include source extraction, local OCR, classification/case inference, the Summarize API/prompts, summary-window character target and maximum page count, and PI command/model selection. Retired artifact-pipeline credentials and prompts are removed when local config is loaded or saved. The obsolete paragraph-count setting is not reinterpreted as a page count; adaptive defaults apply until the new settings are saved.
+Settings include source extraction, local OCR, classification/case inference, the Summarize API/prompts, summary-window character target and maximum page count, and PI command, model, and reasoning-level selection. The PI reasoning level is stored in the project `.pi/settings.json`; choosing the global default removes the project override. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key — are removed when local config is loaded or saved. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. The obsolete paragraph-count setting is not reinterpreted as a page count; adaptive defaults apply until the new settings are saved.
 
 Saved run-until targets migrate as follows:
 

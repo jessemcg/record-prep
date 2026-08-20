@@ -79,6 +79,28 @@ def load_object(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
+def validated_transcript_layout_path(root: Path) -> str:
+    path = root / "artifacts" / "transcript_layout.json"
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FileNotFoundError(
+            "artifacts/transcript_layout.json is missing or invalid."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError("artifacts/transcript_layout.json must be an object.")
+    if payload.get("artifact") != "recordprep-transcript-layout":
+        raise ValueError("transcript_layout.json has an invalid artifact name.")
+    if payload.get("schema_version") != 1:
+        raise ValueError("transcript_layout.json must use schema version 1.")
+    if payload.get("status") != "resolved" or payload.get("mode") is None:
+        raise ValueError(
+            "transcript_layout.json must be resolved with a mode before the "
+            "source map is published."
+        )
+    return relpath(root, path)
+
+
 def validated_case_overview_path(root: Path) -> str:
     path = root / "artifacts" / "case_overview.md"
     try:
@@ -342,6 +364,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if participants.get("schema_version") != 2:
         raise ValueError("Participant index schema version 2 is required.")
     summaries = summary_paths(root, manifest)
+    transcript_layout = validated_transcript_layout_path(root)
     case_overview = validated_case_overview_path(root)
     pages, pages_by_number, warnings = build_pages(root, transcript)
     documents = boundary_documents(root, pages_by_number)
@@ -360,6 +383,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
         "participant_index": "artifacts/participant_index.json",
+        "transcript_layout": transcript_layout,
         "case_overview": case_overview,
         "summaries": summaries,
     }
@@ -385,6 +409,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     for key in LEGACY_FILE_KEYS:
         files.pop(key, None)
     files.update({
+        "transcript_layout": transcript_layout,
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
         "participant_index": "artifacts/participant_index.json",

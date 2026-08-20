@@ -2035,6 +2035,29 @@ def _case_bundle_root_for_pdfs(paths: Sequence[Path]) -> Path | None:
     return parents.pop() / "case_bundle"
 
 
+def _case_context_matches_selection(
+    case_name: str,
+    root_dir: Path | None,
+    selected_pdfs: Sequence[Path],
+) -> bool:
+    """True when persisted case context belongs to the current selection.
+
+    With no PDF selection (an explicit case-bundle choice), the saved
+    context is authoritative. With a selection, it is current only when the
+    prospective bundle exists and its manifest records exactly those PDFs;
+    a fresh selection awaiting Create files never inherits the prior name.
+    """
+    if not case_name or root_dir is None:
+        return False
+    if not selected_pdfs:
+        return True
+    prospective = _case_bundle_root_for_pdfs(selected_pdfs)
+    if prospective is None or prospective != root_dir.expanduser().resolve(strict=False):
+        return False
+    manifest_pdfs = _manifest_input_pdf_paths(root_dir)
+    return bool(manifest_pdfs) and _pdf_selections_equal(manifest_pdfs, selected_pdfs)
+
+
 def _reset_generated_case_bundle(root_dir: Path) -> None:
     for name in GENERATED_CASE_BUNDLE_DIRS:
         path = root_dir / name
@@ -6576,11 +6599,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         source_row = self._source_row
         if source_row is None:
             return
-        case_name, base_dir = load_case_context()
-        if self.selected_pdfs:
-            selected_parents = {path.parent for path in self.selected_pdfs}
-            if len(selected_parents) != 1 or base_dir not in selected_parents:
-                case_name = ""
+        case_name, _base_dir = load_case_context()
+        root_dir = self._resolve_case_root()
+        case_current = _case_context_matches_selection(
+            case_name, root_dir, self.selected_pdfs
+        )
+        if self.selected_pdfs and not case_current:
+            case_name = ""
         display_case = _display_case_name(case_name) if case_name else ""
         if display_case:
             title = display_case
@@ -6594,10 +6619,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not display_case and not self.selected_pdfs:
             subtitle = "Choose a case bundle or PDF files"
         else:
-            root_dir = self._resolve_case_root()
-            if root_dir is not None and root_dir.exists():
+            if root_dir is not None and root_dir.exists() and case_current:
                 summary = layout_display_summary(root_dir)
-            elif split_mode is not None:
+            elif split_mode is not None and case_current:
                 summary = _transcript_summary(split_mode or "split", split_page)
             else:
                 summary = "Detection pending"
@@ -6855,9 +6879,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         allow_unresolved: bool = False,
     ) -> bool:
         root_dir = self._resolve_case_root()
-        if root_dir is None or not root_dir.exists():
+        if root_dir is None:
             self.show_toast("Choose PDF files or a case bundle first.", "WARN")
             return False
+        if not root_dir.exists():
+            # A fresh PDF selection may run pre-layout steps (Create files)
+            # before the prospective case_bundle exists. Layout-dependent
+            # steps stay gated until the bundle and transcript layout exist.
+            fresh_pdf_selection = bool(
+                allow_unresolved
+                and self.selected_pdfs
+                and _case_bundle_root_for_pdfs(self.selected_pdfs)
+                == root_dir.expanduser().resolve(strict=False)
+            )
+            if not fresh_pdf_selection:
+                self.show_toast("Choose PDF files or a case bundle first.", "WARN")
+                return False
+            return True
         mode, split_page = self._current_rt_ct_split_selection()
         if mode != "auto":
             self._rt_ct_split_mode_pending = mode
@@ -7241,7 +7279,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _load_case_context(self) -> None:
         case_name, _root_dir = load_case_context()
-        if case_name:
+        # A PDF selection is the source-identity authority; the persisted
+        # name may only drive presentation when no PDFs are selected (an
+        # explicit case-bundle choice). The prior context is not discarded.
+        if not self.selected_pdfs and case_name:
             display_name = _display_case_name(case_name) or case_name
             self.selected_label.set_text(f"Selected: {display_name}")
         self._load_rt_ct_split()
@@ -7578,7 +7619,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not self.selected_pdfs:
             self.show_toast("Choose PDF files first.")
             return
-        self._launch_single_step(self.step_one_row, self._run_step_one)
+        self._launch_single_step(
+            self.step_one_row, self._run_step_one, "create_files"
+        )
 
     def on_step_detect_transcript_layout_clicked(
         self, _row: Adw.ActionRow

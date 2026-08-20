@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from recordprep.transcript_layout import apply_manual_override
+from unittest import mock
+
 from recordprep.ui.main_window import (
     NO_RESOLVED_LAYOUT_STEP_IDS,
     PIPELINE_PHASES,
@@ -11,7 +13,9 @@ from recordprep.ui.main_window import (
     SETTINGS_NAV_GROUPS,
     TEST_PROMPT_GROUPS,
     VISION_CLASSIFICATION_STEP_IDS,
+    _case_context_matches_selection,
     _first_incomplete_phase_id,
+    RecordPrepWindow,
     _layout_matches_legacy,
     _pipeline_split_validation_message,
     _phase_progress_text,
@@ -267,6 +271,260 @@ class MainWindowUiStateTests(unittest.TestCase):
             self.assertEqual(
                 payload["pipeline"]["last_completed_step"],
                 "build_source_map",
+            )
+
+
+class _PreflightHarness:
+    """Minimal MainWindow stand-in used to exercise launch preflights.
+
+    Keeps real case config and GTK widgets out of the tests; only the
+    launch-authority surface (selection, root resolution, toasts) is
+    provided.
+    """
+
+    def __init__(
+        self,
+        selected_pdfs: list[Path] | None = None,
+        override_root: Path | None = None,
+    ) -> None:
+        self.selected_pdfs = list(selected_pdfs or [])
+        self.override_root = override_root
+        self.warnings: list[str] = []
+
+    def _resolve_case_root(self) -> Path | None:
+        if self.override_root is not None:
+            return self.override_root
+        if self.selected_pdfs:
+            parents = {path.parent for path in self.selected_pdfs}
+            if len(parents) != 1:
+                return None
+            return parents.pop() / "case_bundle"
+        return None
+
+    def show_toast(self, message: str, kind: str = "INFO") -> None:
+        if kind == "WARN":
+            self.warnings.append(message)
+
+    def _require_resolved_layout(self, **kwargs: bool) -> bool:
+        return RecordPrepWindow._require_resolved_layout(self, **kwargs)
+
+
+class _SourceRowHarness(_PreflightHarness):
+    """Adds the source-row presentation surface for summary tests."""
+
+    def __init__(
+        self,
+        selected_pdfs: list[Path] | None = None,
+        override_root: Path | None = None,
+    ) -> None:
+        super().__init__(selected_pdfs, override_root)
+        self.title: str | None = None
+        self.subtitle: str | None = None
+        self.selected_label = self._FakeLabel()
+
+    @property
+    def _source_row(self) -> "_SourceRowHarness":
+        return self
+
+    def set_title(self, value: str) -> None:
+        self.title = value
+
+    def set_subtitle(self, value: str) -> None:
+        self.subtitle = value
+
+    class _FakeLabel:
+        def __init__(self) -> None:
+            self.last_text: str | None = None
+
+        def set_text(self, value: str) -> None:
+            self.last_text = value
+
+    def _update_source_summary(
+        self,
+        split_page: int | None = None,
+        split_mode: str | None = None,
+    ) -> None:
+        return RecordPrepWindow._update_source_summary(self, split_page, split_mode)
+
+    def _load_case_context(self) -> None:
+        return RecordPrepWindow._load_case_context(self)
+
+    def _load_rt_ct_split(self) -> None:
+        return None
+
+    def _update_toc_button(self) -> None:
+        return None
+
+    def _refresh_step_statuses_from_artifacts(self) -> None:
+        return None
+
+
+class FreshPdfStartupTests(unittest.TestCase):
+    def test_fresh_pdf_selection_passes_preflight_with_allow_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            harness = _PreflightHarness(selected_pdfs=[pdf])
+
+            self.assertTrue(
+                harness._require_resolved_layout(allow_unresolved=True)
+            )
+            self.assertEqual(harness.warnings, [])
+            self.assertFalse((Path(temporary) / "case_bundle").exists())
+
+    def test_fresh_pdf_selection_rejected_without_allow_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            harness = _PreflightHarness(selected_pdfs=[pdf])
+
+            self.assertFalse(
+                harness._require_resolved_layout(allow_unresolved=False)
+            )
+            self.assertEqual(
+                harness.warnings, ["Choose PDF files or a case bundle first."]
+            )
+
+    def test_no_selection_and_no_bundle_still_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            missing_root = Path(temporary) / "missing" / "case_bundle"
+            harness = _PreflightHarness(override_root=missing_root)
+
+            self.assertFalse(
+                harness._require_resolved_layout(allow_unresolved=True)
+            )
+            self.assertEqual(
+                harness.warnings, ["Choose PDF files or a case bundle first."]
+            )
+
+    def test_pdfs_from_different_parents_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            first = Path(temporary) / "a" / "record.pdf"
+            second = Path(temporary) / "b" / "record.pdf"
+            first.parent.mkdir()
+            second.parent.mkdir()
+            first.write_bytes(b"dummy")
+            second.write_bytes(b"dummy")
+            harness = _PreflightHarness(selected_pdfs=[first, second])
+
+            self.assertFalse(
+                harness._require_resolved_layout(allow_unresolved=True)
+            )
+            self.assertEqual(
+                harness.warnings, ["Choose PDF files or a case bundle first."]
+            )
+
+    def test_persisted_context_not_current_without_manifest_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            root = Path(temporary) / "case_bundle"
+
+            self.assertFalse(
+                _case_context_matches_selection("Prior Case Name", root, [pdf])
+            )
+            self.assertFalse(
+                _case_context_matches_selection("", root, [pdf])
+            )
+
+    def test_persisted_context_current_when_manifest_exactly_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            (root / "manifest.json").write_text(
+                json.dumps({"input_pdfs": ["../record.pdf"]}),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                _case_context_matches_selection("Prior Case Name", root, [pdf])
+            )
+
+            # Normalization: a selection spelled through a `..` component
+            # still matches the manifest record of the same file.
+            self.assertTrue(
+                _case_context_matches_selection(
+                    "Prior Case Name",
+                    root,
+                    [Path(temporary) / "sub" / ".." / "record.pdf"],
+                )
+            )
+
+    def test_changed_selection_does_not_inherit_old_case_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            first = Path(temporary) / "first.pdf"
+            second = Path(temporary) / "second.pdf"
+            first.write_bytes(b"dummy")
+            second.write_bytes(b"dummy")
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            (root / "manifest.json").write_text(
+                json.dumps({"input_pdfs": ["../first.pdf"]}),
+                encoding="utf-8",
+            )
+
+            self.assertFalse(
+                _case_context_matches_selection("Prior Case Name", root, [second])
+            )
+            self.assertTrue(
+                _case_context_matches_selection("Prior Case Name", root, [first])
+            )
+
+    def test_load_case_context_keeps_pdf_selection_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            harness = _SourceRowHarness(selected_pdfs=[pdf])
+            harness.selected_label.last_text = "Selected: record.pdf"
+
+            with mock.patch(
+                "recordprep.ui.main_window.load_case_context",
+                return_value=("Prior Case Name", Path(temporary)),
+            ):
+                harness._load_case_context()
+
+            self.assertEqual(harness.selected_label.last_text, "Selected: record.pdf")
+
+    def test_fresh_selection_summary_shows_pdf_and_detection_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            harness = _SourceRowHarness(selected_pdfs=[pdf])
+
+            with mock.patch(
+                "recordprep.ui.main_window.load_case_context",
+                return_value=("Prior Case Name", Path(temporary)),
+            ):
+                harness._update_source_summary(split_mode="auto")
+
+            self.assertEqual(harness.title, "record.pdf")
+            self.assertEqual(
+                harness.subtitle, "record.pdf • Detection pending"
+            )
+
+    def test_existing_bundle_selection_keeps_case_name_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pdf = Path(temporary) / "record.pdf"
+            pdf.write_bytes(b"dummy")
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            (root / "manifest.json").write_text(
+                json.dumps({"input_pdfs": ["../record.pdf"]}),
+                encoding="utf-8",
+            )
+            harness = _SourceRowHarness(selected_pdfs=[pdf])
+
+            with mock.patch(
+                "recordprep.ui.main_window.load_case_context",
+                return_value=("Prior Case Name", Path(temporary)),
+            ):
+                harness._update_source_summary(split_mode="auto")
+
+            self.assertEqual(harness.title, "Prior Case Name")
+            self.assertEqual(
+                harness.subtitle, "record.pdf • Detection pending"
             )
 
 

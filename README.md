@@ -56,8 +56,12 @@ a structurally valid `needs_review` artifact and pauses before any
 layout-dependent mutation, with the transcript-layout controls available as a
 manual override. Layouts are case-local and bound to the current page count
 and input signature; a value from another case is never used. All routing
-reads the validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page`
-fields are legacy compatibility mirrors only, and the retired cross-case
+reads the validated artifact. After RecordPrep's own guarded text-only
+normalization, it may atomically rebind the unchanged resolved decision to the
+new text signature. Added, removed, or renamed numbered pages, changed paired
+images, unguarded text changes, or a concurrently replaced artifact still
+require transcript-layout detection to run again. The manifest
+`rt_ct_split_mode`/`rt_ct_split_page` fields are legacy compatibility mirrors only, and the retired cross-case
 `rt_ct_split_page` config value is removed during migration. Old bundles with
 only legacy split fields are detection-pending; a detected result that differs
 from the legacy fields after dependent work exists requires a rebuild from

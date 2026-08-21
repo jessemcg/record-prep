@@ -55,7 +55,10 @@ from recordprep.pi_bundle import pi_step_complete, validate_participant_index_ou
 from recordprep.transcript_layout import (
     TranscriptLayoutError,
     apply_manual_override,
+    capture_layout_rebind_guard,
     detection_status,
+    diagnose_layout,
+    finalize_layout_rebind,
     layout_display_summary,
     legacy_manifest_split,
     read_resolved_layout,
@@ -6906,22 +6909,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return False
         if allow_unresolved:
             return True
-        status, _mode = detection_status(root_dir)
-        if status == "needs_review":
+        diagnostic = diagnose_layout(root_dir)
+        if diagnostic.code != "resolved":
             if self._source_row is not None:
                 self._source_row.set_expanded(True)
-            self.show_toast(
-                "Transcript layout needs review: choose a manual layout to continue.",
-                "WARN",
-            )
-            return False
-        if status == "pending":
-            if self._source_row is not None:
-                self._source_row.set_expanded(True)
-            self.show_toast(
-                "Run Detect transcript layout before starting this step.",
-                "WARN",
-            )
+            self.show_toast(diagnostic.message, "WARN")
             return False
         return True
 
@@ -7464,6 +7456,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
+        end_step_id = self._selected_run_until_step()
         try:
             start_index = self._resume_start_index(root_dir, end_step_id)
         except ValueError as exc:
@@ -7587,6 +7580,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         local_server_started = False
         try:
             if step_id in VISION_CLASSIFICATION_STEP_IDS:
+                root_dir = self._resolve_case_root()
+                if root_dir is None:
+                    raise ValueError("Choose PDF files or a case bundle first.")
+                diagnostic = diagnose_layout(root_dir)
+                if diagnostic.code != "resolved":
+                    raise ValueError(diagnostic.message)
                 local_server_started = self._ensure_local_vision_server_running()
             handler()
         except Exception as exc:
@@ -7786,6 +7785,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _run_step_strip_nonstandard(self) -> bool:
         success: bool | None = False
+        guard = None
+        rewritten_sizes: dict[str, int] = {}
+
+        def _rebind_after_writes() -> None:
+            if guard is not None and rewritten_sizes:
+                finalize_layout_rebind(guard, rewritten_sizes)
+
         try:
             self._raise_if_stop_requested()
             root_dir = self._resolve_case_root()
@@ -7800,6 +7806,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not text_files:
                 raise FileNotFoundError("No text files found to process.")
             try:
+                guard = capture_layout_rebind_guard(root_dir)
                 split_page, _ct_start, _need_rt, _need_ct, split_mode = (
                     _resolve_rt_ct_split(root_dir, text_dir)
                 )
@@ -7821,10 +7828,34 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if is_rt_page:
                     processed = _strip_ascii_and_html_tables(processed)
                 if processed != content:
-                    text_path.write_text(processed, encoding="utf-8")
+                    try:
+                        text_path.write_text(processed, encoding="utf-8")
+                    finally:
+                        if text_path.is_file():
+                            rewritten_sizes[text_path.name] = text_path.stat().st_size
+            _rebind_after_writes()
         except StopRequested:
-            success = None
+            try:
+                _rebind_after_writes()
+            except TranscriptLayoutError as exc:
+                success = False
+                GLib.idle_add(
+                    self.show_toast,
+                    f"Process text files failed while refreshing transcript layout: {exc}",
+                )
+            else:
+                success = None
         except Exception as exc:
+            rebind_error: Exception | None = (
+                exc if isinstance(exc, TranscriptLayoutError) else None
+            )
+            if rebind_error is None:
+                try:
+                    _rebind_after_writes()
+                except TranscriptLayoutError as caught:
+                    rebind_error = caught
+            if rebind_error is not None and rebind_error is not exc:
+                exc = ValueError(f"{exc}; transcript-layout refresh failed: {rebind_error}")
             GLib.idle_add(self.show_toast, f"Process text files failed: {exc}")
         else:
             success = True
@@ -8110,6 +8141,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     GLib.idle_add(self._finish_step, row, "Skipped")
                     continue
                 if manage_local_vision and offset == first_classify_offset:
+                    if root_dir is None:
+                        raise ValueError("Choose PDF files or a case bundle first.")
+                    diagnostic = diagnose_layout(root_dir)
+                    if diagnostic.code != "resolved":
+                        raise ValueError(diagnostic.message)
                     local_server_started = self._ensure_local_vision_server_running()
                 GLib.idle_add(self._start_step, row)
                 if not handler():

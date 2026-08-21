@@ -16,9 +16,10 @@ import hashlib
 import json
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ARTIFACT_NAME = "recordprep-transcript-layout"
 SCHEMA_VERSION = 1
@@ -36,6 +37,25 @@ AUTO_RESOLVE_CONFIDENCE = "high"
 
 class TranscriptLayoutError(ValueError):
     """Raised when the layout artifact or its inputs are invalid."""
+
+
+@dataclass(frozen=True)
+class LayoutDiagnostic:
+    """Canonical transcript-layout state for UI and prerequisite messages."""
+
+    code: str
+    message: str
+    mode: str | None = None
+
+
+@dataclass(frozen=True)
+class LayoutRebindGuard:
+    """Immutable authority for one RecordPrep-owned text normalization pass."""
+
+    root: Path
+    artifact_bytes: bytes
+    text_pages: tuple[tuple[str, int], ...]
+    image_pages: tuple[tuple[str, int], ...]
 
 
 def transcript_layout_path(root: Path) -> Path:
@@ -85,6 +105,35 @@ def text_page_names(text_dir: Path) -> list[str]:
         key=_natural_sort_key,
     )
     return names
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size if path.is_file() else 0
+    except OSError:
+        return 0
+
+
+def _text_page_inventory(root: Path) -> tuple[tuple[str, int], ...]:
+    text_dir = root / "text_pages"
+    return tuple(
+        (name, _file_size(text_dir / name)) for name in text_page_names(text_dir)
+    )
+
+
+def _image_page_inventory(root: Path) -> tuple[tuple[str, int], ...]:
+    image_dir = root / "image_pages"
+    if not image_dir.is_dir():
+        return ()
+    paths = sorted(
+        (
+            path
+            for path in image_dir.glob("[0-9][0-9][0-9][0-9].png")
+            if path.is_file()
+        ),
+        key=_natural_sort_key,
+    )
+    return tuple((path.name, _file_size(path)) for path in paths)
 
 
 def input_signature(root: Path) -> str:
@@ -298,6 +347,173 @@ def load_layout(root: Path) -> dict[str, Any] | None:
     return payload
 
 
+def diagnose_layout(root: Path) -> LayoutDiagnostic:
+    """Distinguish missing, malformed, review-required, and stale layouts."""
+    root = root.resolve(strict=False)
+    path = transcript_layout_path(root)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return LayoutDiagnostic(
+            "missing",
+            "Run Detect transcript layout before starting this step.",
+        )
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        payload = None
+    if not isinstance(payload, dict):
+        return LayoutDiagnostic(
+            "malformed",
+            "Transcript layout artifact is malformed; rerun Detect transcript layout.",
+        )
+    mode = payload.get("mode") if payload.get("mode") in MODES else None
+    issues = list(validate_payload(payload))
+    issues.extend(_evidence_unsafe_path_issues(root, payload.get("evidence")))
+    if issues:
+        return LayoutDiagnostic(
+            "malformed",
+            "Transcript layout artifact is malformed; rerun Detect transcript layout.",
+            mode,
+        )
+    input_count = len(text_page_names(root / "text_pages"))
+    if int(payload.get("input_page_count") or -1) != input_count:
+        return LayoutDiagnostic(
+            "page_count_stale",
+            "Transcript layout is stale because numbered text pages changed; "
+            "rerun Detect transcript layout.",
+            mode,
+        )
+    if _as_str(payload.get("input_signature")) != input_signature(root):
+        return LayoutDiagnostic(
+            "signature_stale",
+            "Transcript layout is stale because page text or images changed; "
+            "rerun Detect transcript layout.",
+            mode,
+        )
+    if payload.get("status") == "needs_review":
+        return LayoutDiagnostic(
+            "needs_review",
+            "Transcript layout needs review: choose a manual layout to continue.",
+            mode,
+        )
+    return LayoutDiagnostic("resolved", "Transcript layout is resolved and fresh.", mode)
+
+
+def capture_layout_rebind_guard(root: Path) -> LayoutRebindGuard:
+    """Capture authority to rebind a fresh resolved layout after normalization."""
+    root = root.resolve(strict=False)
+    diagnostic = diagnose_layout(root)
+    if diagnostic.code != "resolved":
+        raise TranscriptLayoutError(diagnostic.message)
+    path = transcript_layout_path(root)
+    try:
+        artifact_bytes = path.read_bytes()
+    except OSError as exc:
+        raise TranscriptLayoutError(
+            "Transcript layout changed while text processing was starting."
+        ) from exc
+    return LayoutRebindGuard(
+        root=root,
+        artifact_bytes=artifact_bytes,
+        text_pages=_text_page_inventory(root),
+        image_pages=_image_page_inventory(root),
+    )
+
+
+def finalize_layout_rebind(
+    guard: LayoutRebindGuard,
+    rewritten_text_sizes: Mapping[str, int],
+) -> Path:
+    """Rebind an unchanged decision after guarded RecordPrep text rewrites.
+
+    Every text-size change must be named by the normalization loop, while page
+    and image identity and the artifact itself must remain unchanged.
+    """
+    root = guard.root.resolve(strict=False)
+    path = transcript_layout_path(root)
+    try:
+        if path.read_bytes() != guard.artifact_bytes:
+            raise TranscriptLayoutError(
+                "Transcript layout artifact changed during text processing."
+            )
+    except OSError as exc:
+        raise TranscriptLayoutError(
+            "Transcript layout artifact changed during text processing."
+        ) from exc
+
+    current_text = _text_page_inventory(root)
+    old_names = tuple(name for name, _size in guard.text_pages)
+    current_names = tuple(name for name, _size in current_text)
+    if current_names != old_names:
+        raise TranscriptLayoutError(
+            "Numbered text pages were added, removed, or renamed during text processing."
+        )
+    if _image_page_inventory(root) != guard.image_pages:
+        raise TranscriptLayoutError(
+            "Paired page images changed during text processing."
+        )
+
+    reported: dict[str, int] = {}
+    for raw_name, raw_size in rewritten_text_sizes.items():
+        name = Path(str(raw_name)).name
+        if name != str(raw_name) or name not in old_names:
+            raise TranscriptLayoutError(
+                "Text processing reported an unknown numbered page rewrite."
+            )
+        try:
+            size = int(raw_size)
+        except (TypeError, ValueError) as exc:
+            raise TranscriptLayoutError(
+                "Text processing reported an invalid rewritten page size."
+            ) from exc
+        if size < 0:
+            raise TranscriptLayoutError(
+                "Text processing reported an invalid rewritten page size."
+            )
+        reported[name] = size
+
+    old_sizes = dict(guard.text_pages)
+    current_sizes = dict(current_text)
+    changed = {name for name in old_names if old_sizes[name] != current_sizes[name]}
+    if not changed.issubset(reported):
+        raise TranscriptLayoutError(
+            "Unreported text-page changes occurred during text processing."
+        )
+    if any(current_sizes[name] != size for name, size in reported.items()):
+        raise TranscriptLayoutError(
+            "A rewritten text page changed after RecordPrep normalized it."
+        )
+
+    try:
+        payload = json.loads(guard.artifact_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TranscriptLayoutError("Transcript layout artifact is malformed.") from exc
+    if not isinstance(payload, dict) or payload.get("status") != "resolved":
+        raise TranscriptLayoutError(
+            "Only a resolved transcript layout can be rebound."
+        )
+    payload["input_page_count"] = len(current_text)
+    payload["input_signature"] = input_signature(root)
+    issues = list(validate_payload(payload))
+    issues.extend(_evidence_unsafe_path_issues(root, payload.get("evidence")))
+    if issues:
+        raise TranscriptLayoutError(
+            "transcript-layout rebinding failed: " + "; ".join(issues)
+        )
+    try:
+        if path.read_bytes() != guard.artifact_bytes:
+            raise TranscriptLayoutError(
+                "Transcript layout artifact changed during text processing."
+            )
+    except OSError as exc:
+        raise TranscriptLayoutError(
+            "Transcript layout artifact changed during text processing."
+        ) from exc
+    _atomic_write_json(path, payload)
+    return path
+
+
 def read_resolved_layout(root: Path) -> dict[str, Any] | None:
     """Return the validated, fresh, resolved layout for pipeline routing.
 
@@ -326,18 +542,12 @@ def is_detection_pending(root: Path) -> bool:
 
 def detection_status(root: Path) -> tuple[str, str | None]:
     """Return (status, mode) for UI display: resolved, pending, needs_review."""
-    payload = load_layout(root)
-    if payload is None:
-        return "pending", None
-    input_count = len(text_page_names(root / "text_pages"))
-    issues = list(validate_payload(payload))
-    issues.extend(_evidence_unsafe_path_issues(root, payload.get("evidence")))
-    _reject_stale(payload, root, input_count, input_signature(root), issues)
-    if issues:
-        return "pending", payload.get("mode")
-    if payload.get("status") == "needs_review":
-        return "needs_review", payload.get("mode")
-    return "resolved", payload.get("mode")
+    diagnostic = diagnose_layout(root)
+    if diagnostic.code == "resolved":
+        return "resolved", diagnostic.mode
+    if diagnostic.code == "needs_review":
+        return "needs_review", diagnostic.mode
+    return "pending", diagnostic.mode
 
 
 def layout_display_summary(root: Path) -> str:
@@ -596,9 +806,7 @@ def resolve_rt_ct_split(root: Path, text_dir: Path) -> tuple[int, int, bool, boo
                 "Transcript layout needs review: open the transcript expander "
                 "and choose a manual layout before continuing."
             )
-        raise TranscriptLayoutError(
-            "Run Detect transcript layout before starting classification."
-        )
+        raise TranscriptLayoutError(diagnose_layout(root).message)
     mode = str(payload.get("mode") or "")
     input_count = len(text_page_names(root / "text_pages"))
     if input_count <= 0:
@@ -626,11 +834,16 @@ __all__ = (
     "SCHEMA_VERSION",
     "STATUSES",
     "TRANSCRIPT_LAYOUT_RELATIVE",
+    "LayoutDiagnostic",
+    "LayoutRebindGuard",
     "TranscriptLayoutError",
     "apply_manual_override",
+    "capture_layout_rebind_guard",
     "detection_status",
+    "diagnose_layout",
     "draft_layout_payload",
     "finalize_layout_draft",
+    "finalize_layout_rebind",
     "input_signature",
     "is_detection_pending",
     "is_resolved",

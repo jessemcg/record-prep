@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from recordprep.transcript_layout import input_signature
+
 
 PREPARE_BUNDLE_MANIFEST_KEYS = {
     "transcript_layout": "artifacts/transcript_layout.json",
@@ -299,47 +301,12 @@ def validate_transcript_layout_output(root: Path) -> list[str]:
             "transcript layout input_page_count does not match the text pages."
         )
     try:
-        signature_matches = payload.get("input_signature") == _input_signature(root)
+        signature_matches = payload.get("input_signature") == input_signature(root)
     except OSError:
         signature_matches = False
     if not signature_matches:
         issues.append("transcript layout input_signature is stale.")
     return list(dict.fromkeys(issues))
-
-
-def _input_signature(root: Path) -> str:
-    import hashlib
-
-    text_dir = root / "text_pages"
-    image_dir = root / "image_pages"
-    digest = hashlib.sha256()
-    digest.update(b"recordprep-transcript-layout-signature-v1\n")
-    names = sorted(
-        path.name
-        for path in text_dir.glob("[0-9][0-9][0-9][0-9].txt")
-        if path.is_file()
-    )
-    for name in names:
-        digest.update(name.encode("utf-8", errors="surrogateescape"))
-        digest.update(b"\n")
-        try:
-            content = (text_dir / name).read_bytes()
-        except OSError:
-            content = b""
-        digest.update(str(len(content)).encode("ascii"))
-        digest.update(b"\n")
-        image_path = image_dir / (Path(name).stem + ".png")
-        size = 0
-        try:
-            if image_path.is_file():
-                size = image_path.stat().st_size
-        except OSError:
-            size = 0
-        digest.update(image_path.name.encode("utf-8", errors="surrogateescape"))
-        digest.update(b":")
-        digest.update(str(size).encode("ascii"))
-        digest.update(b"\n")
-    return digest.hexdigest()
 
 
 def case_overview_prerequisite_issues(root: Path) -> list[str]:

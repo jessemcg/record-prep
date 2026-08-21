@@ -24,6 +24,7 @@ from recordprep.ui.main_window import (
     _step_requires_resolved_layout,
     _terminal_log_line,
     _test_prompt_input_kind,
+    StopRequested,
     _test_prompt_options,
     _transcript_summary,
     _write_manifest,
@@ -60,6 +61,36 @@ class MainWindowUiStateTests(unittest.TestCase):
             PIPELINE_STEP_PHASE["create_files"],
         )
         self.assertNotIn("detect_transcript_layout", VISION_CLASSIFICATION_STEP_IDS)
+
+    def test_resume_uses_selected_run_through_target(self) -> None:
+        root = Path("/tmp/recordprep-resume-test")
+        row = mock.Mock()
+        row.get_title.return_value = "Classification basic"
+        handler = mock.Mock()
+        harness = mock.Mock()
+        harness._pipeline_running = False
+        harness.selected_pdfs = []
+        harness._resolve_case_root.return_value = root
+        harness._selected_run_until_step.return_value = "classify_names"
+        harness._resume_start_index.return_value = 0
+        harness._pipeline_steps.return_value = [
+            ("classify_basic", row, handler)
+        ]
+        harness._require_resolved_layout.return_value = True
+        harness._run_until_dropdown = None
+
+        with mock.patch("recordprep.ui.main_window.threading.Thread") as thread:
+            RecordPrepWindow.on_resume_clicked(harness, mock.Mock())
+
+        harness._resume_start_index.assert_called_once_with(
+            root, "classify_names"
+        )
+        thread.assert_called_once_with(
+            target=harness._run_steps_from_index,
+            args=(0, root, "classify_names", True),
+            daemon=True,
+        )
+        thread.return_value.start.assert_called_once_with()
 
     def test_phase_progress_reports_completion_and_activity(self) -> None:
         step_ids = ("one", "two", "three")
@@ -291,6 +322,10 @@ class _PreflightHarness:
         self.override_root = override_root
         self.warnings: list[str] = []
 
+    @property
+    def _source_row(self) -> None:
+        return None
+
     def _resolve_case_root(self) -> Path | None:
         if self.override_root is not None:
             return self.override_root
@@ -304,6 +339,9 @@ class _PreflightHarness:
     def show_toast(self, message: str, kind: str = "INFO") -> None:
         if kind == "WARN":
             self.warnings.append(message)
+
+    def _current_rt_ct_split_selection(self) -> tuple[str, int | None]:
+        return "auto", None
 
     def _require_resolved_layout(self, **kwargs: bool) -> bool:
         return RecordPrepWindow._require_resolved_layout(self, **kwargs)
@@ -383,6 +421,135 @@ class FreshPdfStartupTests(unittest.TestCase):
             )
             self.assertEqual(
                 harness.warnings, ["Choose PDF files or a case bundle first."]
+            )
+
+    def test_layout_preflight_distinguishes_missing_and_stale_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            (root / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (root / "image_pages/0001.png").write_bytes(b"image")
+            harness = _PreflightHarness(override_root=root)
+
+            self.assertFalse(harness._require_resolved_layout())
+            self.assertIn("Run Detect transcript layout", harness.warnings[-1])
+
+            apply_manual_override(root, mode="ct_only")
+            (root / "text_pages/0001.txt").write_text(
+                "externally changed text", encoding="utf-8"
+            )
+            self.assertFalse(harness._require_resolved_layout())
+            self.assertIn("is stale", harness.warnings[-1])
+            self.assertNotIn("before starting", harness.warnings[-1])
+
+    def test_partial_text_processing_stop_rebinds_but_stays_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            for page in (1, 2):
+                (root / "text_pages" / f"{page:04d}.txt").write_text(
+                    f"page {page}\x00 text", encoding="utf-8"
+                )
+                (root / "image_pages" / f"{page:04d}.png").write_bytes(b"image")
+            apply_manual_override(root, mode="rt_only")
+
+            harness = mock.Mock()
+            harness.selected_pdfs = []
+            harness._resolve_case_root.return_value = root
+            harness._raise_if_stop_requested.side_effect = [
+                None,
+                None,
+                StopRequested(),
+            ]
+            with mock.patch(
+                "recordprep.ui.main_window.GLib.idle_add",
+                side_effect=lambda function, *args: function(*args),
+            ):
+                completed = RecordPrepWindow._run_step_strip_nonstandard(harness)
+
+            self.assertFalse(completed)
+            self.assertNotIn("\x00", (root / "text_pages/0001.txt").read_text())
+            self.assertIn("\x00", (root / "text_pages/0002.txt").read_text())
+            from recordprep.transcript_layout import diagnose_layout
+
+            self.assertEqual(diagnose_layout(root).code, "resolved")
+            finish_success = harness._finish_step.call_args.args[-1]
+            self.assertIsNone(finish_success)
+            harness._safe_update_manifest.assert_not_called()
+
+    def test_partial_text_processing_error_rebinds_but_stays_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            for page in (1, 2):
+                (root / "text_pages" / f"{page:04d}.txt").write_text(
+                    f"page {page}\x00 text", encoding="utf-8"
+                )
+                (root / "image_pages" / f"{page:04d}.png").write_bytes(b"image")
+            apply_manual_override(root, mode="rt_only")
+
+            harness = mock.Mock()
+            harness.selected_pdfs = []
+            harness._resolve_case_root.return_value = root
+            calls = 0
+
+            def fail_second_page(text: str) -> str:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("recoverable normalization error")
+                return text
+
+            with (
+                mock.patch(
+                    "recordprep.ui.main_window._convert_html_tables",
+                    side_effect=fail_second_page,
+                ),
+                mock.patch(
+                    "recordprep.ui.main_window.GLib.idle_add",
+                    side_effect=lambda function, *args: function(*args),
+                ),
+            ):
+                completed = RecordPrepWindow._run_step_strip_nonstandard(harness)
+
+            self.assertFalse(completed)
+            from recordprep.transcript_layout import diagnose_layout
+
+            self.assertEqual(diagnose_layout(root).code, "resolved")
+            finish_success = harness._finish_step.call_args.args[-1]
+            self.assertFalse(finish_success)
+            harness._safe_update_manifest.assert_not_called()
+
+    def test_stale_layout_blocks_local_server_start_in_worker_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            (root / "text_pages").mkdir(parents=True)
+            (root / "image_pages").mkdir()
+            (root / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (root / "image_pages/0001.png").write_bytes(b"image")
+            apply_manual_override(root, mode="ct_only")
+            (root / "text_pages/0001.txt").write_text("stale text", encoding="utf-8")
+
+            harness = mock.Mock()
+            harness._resolve_case_root.return_value = root
+            row = mock.Mock()
+            row.get_title.return_value = "Classify pages"
+            handler = mock.Mock()
+            with mock.patch(
+                "recordprep.ui.main_window.GLib.idle_add",
+                side_effect=lambda function, *args: function(*args),
+            ):
+                RecordPrepWindow._run_single_step_thread(
+                    harness, handler, row, "classify_basic"
+                )
+
+            harness._ensure_local_vision_server_running.assert_not_called()
+            handler.assert_not_called()
+            self.assertIn(
+                "is stale", harness.show_toast.call_args_list[0].args[0]
             )
 
     def test_no_selection_and_no_bundle_still_fails(self) -> None:

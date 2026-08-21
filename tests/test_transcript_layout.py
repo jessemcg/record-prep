@@ -8,9 +8,12 @@ from recordprep.transcript_layout import (
     ARTIFACT_NAME,
     TranscriptLayoutError,
     apply_manual_override,
+    capture_layout_rebind_guard,
     detection_status,
+    diagnose_layout,
     draft_layout_payload,
     finalize_layout_draft,
+    finalize_layout_rebind,
     input_signature,
     layout_display_summary,
     legacy_manifest_split,
@@ -248,6 +251,115 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
                 payload["evidence"][0]["path"], "text_pages/0001.txt"
             )
             self.assertEqual(validate_payload(payload), [])
+
+    def test_guarded_normalization_rebinds_without_changing_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _make_pages(root, 4)
+            draft = _resolved_draft(mode="split", rt_end=2, ct_start=3)
+            draft["marker_pages"] = {"rt": [1, 2], "ct": [3, 4]}
+            finalize_layout_draft(root, draft)
+            before = json.loads(
+                (root / "artifacts/transcript_layout.json").read_text(encoding="utf-8")
+            )
+            guard = capture_layout_rebind_guard(root)
+
+            changed = root / "text_pages/0002.txt"
+            changed.write_text("normalized page two\n", encoding="utf-8")
+            finalize_layout_rebind(guard, {changed.name: changed.stat().st_size})
+
+            after = read_resolved_layout(root)
+            self.assertIsNotNone(after)
+            for key in (
+                "mode",
+                "rt_end_file_page",
+                "ct_start_file_page",
+                "confidence",
+                "evidence",
+                "decision_source",
+                "marker_pages",
+            ):
+                self.assertEqual(after[key], before[key])
+            self.assertNotEqual(after["input_signature"], before["input_signature"])
+            self.assertEqual(after["input_signature"], input_signature(root))
+            self.assertEqual(
+                resolve_rt_ct_split(root, root / "text_pages"),
+                (2, 3, True, True, "split"),
+            )
+
+    def test_rebind_rejects_unreported_external_text_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _make_pages(root, 3)
+            finalize_layout_draft(
+                root, _resolved_draft(mode="ct_only", ct_start=1)
+            )
+            guard = capture_layout_rebind_guard(root)
+            controlled = root / "text_pages/0001.txt"
+            external = root / "text_pages/0002.txt"
+            controlled.write_text("controlled rewrite", encoding="utf-8")
+            external.write_text("external rewrite with a new size", encoding="utf-8")
+            with self.assertRaisesRegex(TranscriptLayoutError, "Unreported"):
+                finalize_layout_rebind(
+                    guard, {controlled.name: controlled.stat().st_size}
+                )
+            self.assertEqual(diagnose_layout(root).code, "signature_stale")
+
+    def test_rebind_rejects_page_image_and_artifact_changes(self) -> None:
+        mutations = (
+            ("page", lambda root: (root / "text_pages/0004.txt").write_text("new")),
+            ("image", lambda root: (root / "image_pages/0001.png").write_bytes(b"changed-image")),
+            (
+                "artifact",
+                lambda root: (root / "artifacts/transcript_layout.json").write_text("{}"),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                _make_pages(root, 3)
+                finalize_layout_draft(
+                    root, _resolved_draft(mode="ct_only", ct_start=1)
+                )
+                guard = capture_layout_rebind_guard(root)
+                mutate(root)
+                with self.assertRaises(TranscriptLayoutError):
+                    finalize_layout_rebind(guard, {})
+
+    def test_needs_review_cannot_capture_rebind_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _make_pages(root, 3)
+            finalize_layout_draft(
+                root,
+                _resolved_draft(
+                    mode=None,
+                    status="needs_review",
+                    confidence="low",
+                    warnings=["Ambiguous boundary."],
+                ),
+            )
+            self.assertEqual(diagnose_layout(root).code, "needs_review")
+            with self.assertRaises(TranscriptLayoutError):
+                capture_layout_rebind_guard(root)
+
+    def test_diagnostic_distinguishes_missing_malformed_count_and_signature(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _make_pages(root, 2)
+            self.assertEqual(diagnose_layout(root).code, "missing")
+            artifact = root / "artifacts/transcript_layout.json"
+            artifact.parent.mkdir()
+            artifact.write_text("not json", encoding="utf-8")
+            self.assertEqual(diagnose_layout(root).code, "malformed")
+            finalize_layout_draft(
+                root, _resolved_draft(mode="ct_only", ct_start=1)
+            )
+            (root / "text_pages/0003.txt").write_text("new", encoding="utf-8")
+            self.assertEqual(diagnose_layout(root).code, "page_count_stale")
+            (root / "text_pages/0003.txt").unlink()
+            (root / "text_pages/0001.txt").write_text("changed", encoding="utf-8")
+            self.assertEqual(diagnose_layout(root).code, "signature_stale")
 
     def test_stale_signature_rejected_after_page_regeneration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -43,8 +43,11 @@ It searches OCR text first and opens only targeted page images (soft budget of
 result continues automatically; ambiguity publishes a structurally valid
 `needs_review` artifact and pauses before any layout-dependent mutation.
 Layouts are case-local, bound to the current page count and input signature;
-a value from another case is never used. All downstream routing reads the
-validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page` fields
+a value from another case is never used. RecordPrep may atomically rebind an
+unchanged, resolved decision after its own guarded text-only normalization.
+It must rerun detection when numbered page identity or paired images change,
+or when text changes outside that controlled pass. All downstream routing
+reads the validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page` fields
 are legacy compatibility mirrors only. The retired `rt_ct_split_page` config
 key is removed during config migration.
 

@@ -14,6 +14,7 @@ from recordprep.ui.main_window import (
     TEST_PROMPT_GROUPS,
     VISION_CLASSIFICATION_STEP_IDS,
     _case_context_matches_selection,
+    _correct_toc_lines,
     case_identity_conflicts,
     _first_incomplete_phase_id,
     RecordPrepWindow,
@@ -816,6 +817,177 @@ class FreshPdfStartupTests(unittest.TestCase):
             self.assertEqual(
                 harness.subtitle, "record.pdf • Detection pending"
             )
+
+
+class CorrectTocCompletionTests(unittest.TestCase):
+    def _write_toc(self, root: Path, lines: list[str]) -> Path:
+        toc_path = root / "artifacts" / "toc.txt"
+        toc_path.parent.mkdir(parents=True, exist_ok=True)
+        toc_path.write_text(
+            "\n".join(lines).rstrip() + "\n", encoding="utf-8"
+        )
+        return toc_path
+
+    def _toc_complete(self, root: Path, step_id: str) -> bool:
+        return RecordPrepWindow._step_artifact_complete(
+            mock.Mock(), step_id, root, []
+        )
+
+    def test_duplicate_minute_order_date_blocks_correct_toc_completion(
+        self,
+    ) -> None:
+        toc_lines = [
+            "FORMS",
+            "\tParental Notification Form 0003",
+            "",
+            "REPORTS",
+            "\tDetention Report March 3, 2025 0005",
+            "",
+            "MINUTE ORDERS",
+            "\tMarch 3, 2025 0012",
+            "\tMarch 3, 2025 0018",
+            "\tApril 10, 2025 0022",
+            "",
+            "HEARINGS",
+            "\tMarch 3, 2025 0025",
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            self._write_toc(root, toc_lines)
+
+            self.assertTrue(self._toc_complete(root, "build_toc"))
+            self.assertFalse(self._toc_complete(root, "correct_toc"))
+
+    def test_correction_keeps_first_entry_and_completes_step(self) -> None:
+        toc_lines = [
+            "MINUTE ORDERS",
+            "\tMarch 3, 2025 0012",
+            "\tMarch 3, 2025 0018",
+            "\tApril 10, 2025 0022",
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            toc_path = self._write_toc(root, toc_lines)
+
+            corrected, removals = _correct_toc_lines(toc_lines)
+
+            self.assertEqual(removals, 1)
+            self.assertEqual(
+                corrected,
+                [
+                    "MINUTE ORDERS",
+                    "\tMarch 3, 2025 0012",
+                    "\tApril 10, 2025 0022",
+                ],
+            )
+            toc_path.write_text(
+                "\n".join(corrected).rstrip() + "\n", encoding="utf-8"
+            )
+
+            self.assertTrue(self._toc_complete(root, "correct_toc"))
+
+    def test_duplicate_looking_entries_outside_minute_orders_preserved(
+        self,
+    ) -> None:
+        toc_lines = [
+            "FORMS",
+            "\tMarch 3, 2025 0003",
+            "\tMarch 3, 2025 0004",
+            "",
+            "REPORTS",
+            "\tMarch 3, 2025 0006",
+            "\tMarch 3, 2025 0007",
+            "",
+            "MINUTE ORDERS",
+            "\tMarch 3, 2025 0012",
+            "\tMarch 3, 2025 0018",
+            "",
+            "HEARINGS",
+            "\tMarch 3, 2025 0025",
+            "\tMarch 3, 2025 0026",
+        ]
+
+        corrected, removals = _correct_toc_lines(toc_lines)
+
+        self.assertEqual(removals, 1)
+        self.assertEqual(corrected, toc_lines[:10] + toc_lines[11:])
+
+    def test_distinct_minute_order_dates_preserved(self) -> None:
+        toc_lines = [
+            "MINUTE ORDERS",
+            "\tMarch 3, 2025 0012",
+            "\tApril 10, 2025 0018",
+            "\tMay 15, 2025 0022",
+        ]
+
+        corrected, removals = _correct_toc_lines(toc_lines)
+
+        self.assertEqual(removals, 0)
+        self.assertEqual(corrected, toc_lines)
+
+    def test_correction_is_idempotent(self) -> None:
+        toc_lines = [
+            "MINUTE ORDERS",
+            "\tMarch 3, 2025 0012",
+            "\tMarch 3, 2025 0018",
+            "\tApril 10, 2025 0022",
+        ]
+
+        first_pass, first_removals = _correct_toc_lines(toc_lines)
+        second_pass, second_removals = _correct_toc_lines(first_pass)
+
+        self.assertEqual(first_removals, 1)
+        self.assertEqual(second_removals, 0)
+        self.assertEqual(second_pass, first_pass)
+
+    def test_resume_starts_at_correct_toc_when_duplicates_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            root.mkdir()
+            self._write_toc(
+                root,
+                [
+                    "MINUTE ORDERS",
+                    "\tMarch 3, 2025 0012",
+                    "\tMarch 3, 2025 0018",
+                ],
+            )
+            harness = mock.Mock()
+            harness.selected_pdfs = []
+            harness._step_artifact_complete = (
+                RecordPrepWindow._step_artifact_complete.__get__(
+                    harness, RecordPrepWindow
+                )
+            )
+            harness._pipeline_steps.return_value = [
+                ("build_toc", mock.Mock(), mock.Mock()),
+                ("correct_toc", mock.Mock(), mock.Mock()),
+            ]
+
+            start = RecordPrepWindow._resume_start_index(harness, root, None)
+
+            self.assertEqual(start, 1)
+
+            self._write_toc(root, ["MINUTE ORDERS", "\tMarch 3, 2025 0012"])
+
+            start = RecordPrepWindow._resume_start_index(harness, root, None)
+
+            self.assertIsNone(start)
+
+    def test_missing_or_unreadable_toc_is_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "case_bundle"
+            (root / "artifacts").mkdir(parents=True)
+
+            self.assertFalse(self._toc_complete(root, "build_toc"))
+            self.assertFalse(self._toc_complete(root, "correct_toc"))
+
+            (root / "artifacts" / "toc.txt").mkdir()
+
+            self.assertTrue(self._toc_complete(root, "build_toc"))
+            self.assertFalse(self._toc_complete(root, "correct_toc"))
 
 
 if __name__ == "__main__":

@@ -1129,6 +1129,57 @@ def _format_toc_line(label: str, page: str) -> str:
     return "\t"
 
 
+def _correct_toc_lines(
+    toc_lines: list[str],
+    raise_if_stop: Callable[[], None] | None = None,
+) -> tuple[list[str], int]:
+    """Return TOC lines with duplicate minute-order dates removed and the removal count.
+
+    Inspects only tab-indented entries inside the ``MINUTE ORDERS`` section,
+    retaining the first entry for each exact date. Headings, blank lines, other
+    sections, and unrelated formatting are preserved. Idempotent on an already
+    corrected TOC because no removable duplicates remain.
+    """
+    corrected_lines: list[str] = []
+    in_minute_orders = False
+    seen_dates: set[str] = set()
+    removals = 0
+    for line in toc_lines:
+        if raise_if_stop is not None:
+            raise_if_stop()
+        stripped = line.strip()
+        if stripped == "MINUTE ORDERS":
+            in_minute_orders = True
+            seen_dates.clear()
+            corrected_lines.append(line)
+            continue
+        if stripped in {"FORMS", "REPORTS", "HEARINGS"}:
+            in_minute_orders = False
+            corrected_lines.append(line)
+            continue
+        if in_minute_orders:
+            if not stripped:
+                corrected_lines.append(line)
+                continue
+            if not line.startswith("\t"):
+                corrected_lines.append(line)
+                continue
+            entry_text = line.lstrip()
+            date_value = (
+                entry_text.rsplit(" ", 1)[0].strip()
+                if " " in entry_text
+                else entry_text
+            )
+            if not date_value or date_value in seen_dates:
+                removals += 1
+                continue
+            seen_dates.add(date_value)
+            corrected_lines.append(line)
+            continue
+        corrected_lines.append(line)
+    return corrected_lines, removals
+
+
 def _sanitize_case_name_tokens(tokens: list[str]) -> str:
     cleaned: list[str] = []
     for token in tokens:
@@ -6542,7 +6593,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id == "build_toc":
             return (artifacts_dir / "toc.txt").exists()
         if step_id == "correct_toc":
-            return (artifacts_dir / "toc.txt").exists()
+            toc_path = artifacts_dir / "toc.txt"
+            try:
+                toc_lines = toc_path.read_text(
+                    encoding="utf-8", errors="ignore"
+                ).splitlines()
+            except OSError:
+                return False
+            _corrected_lines, removals = _correct_toc_lines(toc_lines)
+            return removals == 0
         if step_id == "find_boundaries":
             return (
                 (artifacts_dir / "hearing_boundaries.json").exists()
@@ -9641,38 +9700,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             toc_path = derived_dir / "toc.txt"
             if not toc_path.exists():
                 raise FileNotFoundError("Run Build TOC to generate artifacts/toc.txt first.")
-            toc_lines = toc_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            corrected_lines: list[str] = []
-            in_minute_orders = False
-            seen_dates: set[str] = set()
-            for line in toc_lines:
-                self._raise_if_stop_requested()
-                stripped = line.strip()
-                if stripped == "MINUTE ORDERS":
-                    in_minute_orders = True
-                    seen_dates.clear()
-                    corrected_lines.append(line)
-                    continue
-                if stripped in {"FORMS", "REPORTS", "HEARINGS"}:
-                    in_minute_orders = False
-                    corrected_lines.append(line)
-                    continue
-                if in_minute_orders:
-                    if not stripped:
-                        corrected_lines.append(line)
-                        continue
-                    if not line.startswith("\t"):
-                        corrected_lines.append(line)
-                        continue
-                    entry_text = line.lstrip()
-                    date_value = entry_text.rsplit(" ", 1)[0].strip() if " " in entry_text else entry_text
-                    if not date_value or date_value in seen_dates:
-                        continue
-                    seen_dates.add(date_value)
-                    corrected_lines.append(line)
-                    continue
-                corrected_lines.append(line)
-            toc_path.write_text("\n".join(corrected_lines).rstrip() + "\n", encoding="utf-8")
+            toc_lines = toc_path.read_text(
+                encoding="utf-8", errors="ignore"
+            ).splitlines()
+            corrected_lines, _removals = _correct_toc_lines(
+                toc_lines, self._raise_if_stop_requested
+            )
+            toc_path.write_text(
+                "\n".join(corrected_lines).rstrip() + "\n", encoding="utf-8"
+            )
         except StopRequested:
             success = None
         except Exception as exc:

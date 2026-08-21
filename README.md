@@ -47,7 +47,7 @@ uv run python -m recordprep app
 ### Record context
 
 9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
-10. **Build participant and witness index** — PI inspects appearances, express attendance or absence, unsworn colloquy, `RT_index` witness/examination pages, and actual sworn/examination evidence and writes schema-v2 `artifacts/participant_index.json`.
+10. **Build participant and witness index** — a deterministic helper first writes a temporary, nonauthoritative worklist containing hearing ranges, first/appearance pages, reporter-series-scoped `RT_index` pages, and oath/examination/attendance marker pages with resolved citations. PI then processes one hearing at a time, reads only original single-page sources, persists reviewed hearings incrementally, validates batches of at most five, and writes schema-v2 `artifacts/participant_index.json`. Full validation rejects the untouched template.
 
 Transcript layout detection runs once per new or changed bundle, never on
 every launch and never as an image-classifier sweep. A high-confidence agent
@@ -67,7 +67,9 @@ only legacy split fields are detection-pending; a detected result that differs
 from the legacy fields after dependent work exists requires a rebuild from
 Create files (RT-specific text cleanup is destructive).
 
-Counsel, non-counsel participants, and witnesses are separate hearing-scoped records. Law firms and agency abbreviations are stored as organizations rather than attorney aliases. Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`; Q/A formatting alone never establishes testimony.
+Counsel, non-counsel participants, and witnesses are separate hearing-scoped records. Law firms and agency abbreviations are stored as organizations rather than attorney aliases. Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`; Q/A formatting alone never establishes testimony. The participant stage never concatenates a complete transcript or multi-hundred-page range. When its bounded evidence budget cannot resolve a hearing, it preserves hearing-specific uncertainty instead of stalling.
+
+During PI stages, RecordPrep displays the immutable bundle root used by the runner. It warns when the parent folder appears to name a different appellate case than the manifest/PDF, but never moves or renames private case data. The runner also monitors session-file progress and PI CPU state. Sustained CPU activity without session progress produces an actionable Activity/VTE warning; work continues until the user explicitly presses **Stop**. Stop terminates PI's complete process group, returns the active row to Pending, and prevents later stages from starting.
 
 ### Summarize
 

@@ -51,7 +51,7 @@ reads the validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page`
 are legacy compatibility mirrors only. The retired `rt_ct_split_page` config
 key is removed during config migration.
 
-The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
+The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Its helper publishes a temporary, nonauthoritative worklist under `temp/` that scopes first/appearance pages, RT-index pages, and oath/examination/attendance markers without copying source-page text. The agent processes one hearing at a time, reads single source pages, persists completed hearings incrementally, and uses partial validation after batches of at most five hearings. It must never concatenate the complete RT or a multi-hundred-page run. Full validation rejects the unreviewed template placeholder. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
 
 Summary windows keep pages intact and adapt toward a 6,000-character target, with defaults of six primary pages maximum and a 12,000-character safety limit; one oversized page remains intact. They include a preceding context-only page where useful, prefer examination boundaries, and are never persisted. Do not reinterpret the retired paragraph-count setting as a page count. The complete hearing and report prompts shown in Settings must explain their labeled input sections; do not append a hidden attribution contract. Normalize each page-window response to one prose paragraph and insert one blank line between adjacent hearing or report paragraphs deterministically rather than depending on model-supplied trailing whitespace. Each hearing request receives validated participant-index context privately under `PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY`. The prompt should discourage counsel/participant rosters, standalone testimony-status lines, and unsupported testimony attribution, but RecordPrep must not apply deterministic model-output attribution validation, rejection, or repair requests. Summaries are nonauthoritative; source pages remain the factual authority.
 
@@ -66,6 +66,9 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - Stage `.pi/SYSTEM.md` and only `extensions/recordprep-auto-exit.ts` into a private workspace.
 - Preserve PI's native interactive VTE UI.
 - Validate each stage after PI exits.
+- The runner monitors session-file growth and child CPU state. Sustained high CPU with no session progress produces a visible stalled-stage warning but never kills PI automatically; the user must press Stop.
+- Stop signals the runner, terminates PI's complete process group, escalates to SIGKILL only when SIGTERM fails, restores the row to Pending, and prevents downstream stages from starting.
+- PI launch logs the immutable bundle root. RecordPrep warns when a parent folder's apparent appellate case number conflicts with manifest/PDF identity, but never moves or renames private case data.
 - The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion.
 - Transcript numbering and participant/summary stages must not update `manifest.json`.
 - The case-overview skill writes only `artifacts/case_overview.md`.

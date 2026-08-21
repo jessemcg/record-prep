@@ -241,6 +241,203 @@ class PiBundleTests(unittest.TestCase):
 
             self.assertIn("the source report summary is missing or ambiguous.", issues)
 
+    def _add_transcript_numbering(self, root: Path) -> None:
+        (root / "artifacts/transcript_page_numbers.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "entries": [
+                        {
+                            "file_name": f"{index:04d}.txt",
+                            "file_page": index,
+                            "record_type": "RT",
+                            "citation_label": f"RT {index}",
+                            "citation_key": f"RT:{index}",
+                        }
+                        for index in range(1, 45)
+                    ],
+                    "citation_series": [{"series_id": "rt-1", "citation_prefix": "RT"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "artifacts/transcript_page_number_series.md").write_text(
+            "# Series\n", encoding="utf-8"
+        )
+
+    def _template_participant_payload(self, hearings: int = 44) -> dict:
+        return {
+            "schema_version": 2,
+            "source": "record-participant-index",
+            "hearings": [
+                {
+                    "id": f"hearing:{index:04d}",
+                    "date": f"Hearing {index}",
+                    "start_page": index,
+                    "end_page": index,
+                    "counsel": [],
+                    "participants": [],
+                    "witness_status": "unknown",
+                    "witness_evidence": [],
+                    "witnesses": [],
+                    "warnings": ["Participant review has not been completed."],
+                }
+                for index in range(1, hearings + 1)
+            ],
+            "warnings": ["Participant review has not been completed."],
+        }
+
+    def _reviewed_hearing(self, index: int) -> dict:
+        return {
+            "id": f"hearing:{index:04d}",
+            "date": f"Hearing {index}",
+            "start_page": index,
+            "end_page": index,
+            "witness_status": "none" if index % 2 else "verified",
+            "witness_evidence": [
+                {
+                    "text_path": f"text_pages/{index:04d}.txt",
+                    "file_page": index,
+                    "citation_label": "",
+                    "citation_key": "",
+                    "note": "Explicit no-witness index.",
+                }
+            ],
+            "counsel": [
+                {
+                    "role_id": "mothers_counsel",
+                    "role_label": "Mother's counsel",
+                    "name": f"Attorney {index}",
+                    "aliases": [],
+                    "organization": "Clark & Le",
+                    "appearance_status": "present",
+                    "evidence": [
+                        {
+                            "text_path": f"text_pages/{index:04d}.txt",
+                            "file_page": index,
+                            "citation_label": "",
+                            "citation_key": "",
+                            "note": "Counsel appeared.",
+                        }
+                    ],
+                }
+            ],
+            "participants": [],
+            "witnesses": (
+                []
+                if index % 2
+                else [
+                    {
+                        "id": f"witness:{index:04d}:001",
+                        "name": f"Witness {index}",
+                        "description": "Sworn witness",
+                        "aliases": [],
+                        "evidence": [
+                            {
+                                "text_path": f"text_pages/{index:04d}.txt",
+                                "file_page": index,
+                                "citation_label": "",
+                                "citation_key": "",
+                                "note": "Oath administered.",
+                            }
+                        ],
+                        "examinations": [
+                            {
+                                "type": "direct",
+                                "examiner_name": f"Attorney {index}",
+                                "examiner_role_id": "mothers_counsel",
+                                "start_file_page": index,
+                                "end_file_page": index,
+                                "evidence": [
+                                    {
+                                        "text_path": f"text_pages/{index:04d}.txt",
+                                        "file_page": index,
+                                        "citation_label": "",
+                                        "citation_key": "",
+                                        "note": "DIRECT EXAMINATION.",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            ),
+            "warnings": [f"Hearing {index} reviewed."],
+        }
+
+    def test_participant_index_rejects_raw_prepared_template(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir()
+            for index in range(1, 45):
+                (root / "text_pages" / f"{index:04d}.txt").write_text(
+                    f"page {index}", encoding="utf-8"
+                )
+            (root / "artifacts").mkdir()
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps(self._template_participant_payload()), encoding="utf-8"
+            )
+            self._add_transcript_numbering(root)
+
+            issues = validate_participant_index_output(root)
+
+            self.assertTrue(
+                any("has not been reviewed" in issue for issue in issues)
+            )
+            self.assertTrue(
+                any("template warning remains" in issue for issue in issues)
+            )
+            self.assertFalse(pi_step_complete("build_participant_index", root))
+
+    def test_partially_reviewed_participant_index_is_still_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir()
+            for index in range(1, 45):
+                (root / "text_pages" / f"{index:04d}.txt").write_text(
+                    f"page {index}", encoding="utf-8"
+                )
+            (root / "artifacts").mkdir()
+            payload = self._template_participant_payload()
+            payload["hearings"][:10] = [
+                self._reviewed_hearing(index) for index in range(1, 11)
+            ]
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            self._add_transcript_numbering(root)
+
+            issues = validate_participant_index_output(root)
+
+            self.assertTrue(
+                any("has not been reviewed" in issue for issue in issues)
+            )
+            self.assertFalse(pi_step_complete("build_participant_index", root))
+
+    def test_fully_reviewed_44_hearing_participant_index_is_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir()
+            for index in range(1, 45):
+                (root / "text_pages" / f"{index:04d}.txt").write_text(
+                    f"page {index}", encoding="utf-8"
+                )
+            (root / "artifacts").mkdir()
+            payload = self._template_participant_payload()
+            payload["hearings"] = [
+                self._reviewed_hearing(index) for index in range(1, 45)
+            ]
+            payload["warnings"] = []
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            self._add_transcript_numbering(root)
+
+            issues = validate_participant_index_output(root)
+
+            self.assertEqual(issues, [])
+            self.assertTrue(pi_step_complete("build_participant_index", root))
+
     def test_participant_index_rejects_inferred_witnesses_and_counsel_confusion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

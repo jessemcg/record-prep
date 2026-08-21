@@ -51,7 +51,11 @@ from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
-from recordprep.pi_bundle import pi_step_complete, validate_participant_index_output
+from recordprep.pi_bundle import (
+    PARTICIPANT_TEMPLATE_WARNING,
+    pi_step_complete,
+    validate_participant_index_output,
+)
 from recordprep.transcript_layout import (
     TranscriptLayoutError,
     apply_manual_override,
@@ -2012,6 +2016,106 @@ def _format_create_files_error(exc: Exception) -> str:
             "`cryptography` package required by pypdf."
         )
     return f"Create files failed: {exc}"
+
+
+PI_STAGE_STATUS_RELATIVE = Path("temp") / ".pi_stage_status.json"
+PI_STAGE_STATUS_ARTIFACT = "recordprep-pi-stage-status"
+PI_STAGE_STATUS_POLL_SECONDS = 2.0
+PARTICIPANT_PROGRESS_POLL_SECONDS = 5.0
+_CASE_NUMBER_PATTERN = re.compile(r"B\d{5,6}")
+
+
+def _read_pi_stage_status(
+    root_dir: Path | None,
+    runner_pid: int | None,
+) -> dict[str, Any] | None:
+    """Read the runner's stage-status file, ignoring stale/foreign writes."""
+    if root_dir is None or runner_pid is None:
+        return None
+    path = root_dir / PI_STAGE_STATUS_RELATIVE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("artifact") != PI_STAGE_STATUS_ARTIFACT:
+        return None
+    try:
+        if int(payload.get("runner_pid") or 0) != runner_pid:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return payload
+
+
+def _participant_review_progress(root_dir: Path | None) -> tuple[int, int] | None:
+    """Count hearings reviewed so far (no template placeholder) over total."""
+    if root_dir is None:
+        return None
+    path = root_dir / "artifacts" / "participant_index.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    hearings = payload.get("hearings")
+    if not isinstance(hearings, list) or not hearings:
+        return None
+    total = len(hearings)
+    reviewed = 0
+    for hearing in hearings:
+        if not isinstance(hearing, dict):
+            continue
+        warnings = hearing.get("warnings")
+        reviewed += 1
+        if isinstance(warnings, list) and any(
+            isinstance(item, str) and item == PARTICIPANT_TEMPLATE_WARNING
+            for item in warnings
+        ):
+            reviewed -= 1
+    return reviewed, total
+
+
+def case_identity_conflicts(root_dir: Path) -> list[str]:
+    """Warn when folder naming conflicts with the bundle's record identity.
+
+    The folder chain (up to three levels) is compared against the manifest's
+    input PDF filenames and case_name.txt. RecordPrep never moves or renames
+    private case data; this exists to surface mismatched selections.
+    """
+    root_dir = Path(root_dir)
+    folder_tokens: set[str] = set()
+    for candidate in (
+        root_dir.parent,
+        root_dir.parent.parent,
+        root_dir.parent.parent.parent,
+    ):
+        folder_tokens.update(_CASE_NUMBER_PATTERN.findall(candidate.name or ""))
+    record_tokens: set[str] = set()
+    try:
+        for pdf_path in _manifest_input_pdf_paths(root_dir):
+            record_tokens.update(_CASE_NUMBER_PATTERN.findall(pdf_path.stem or ""))
+    except Exception:
+        pass
+    try:
+        case_name = (root_dir / "case_name.txt").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+    except OSError:
+        case_name = ""
+    if case_name.strip():
+        record_tokens.update(_CASE_NUMBER_PATTERN.findall(case_name))
+    conflicts: list[str] = []
+    if folder_tokens and record_tokens and folder_tokens.isdisjoint(record_tokens):
+        folder_label = ", ".join(sorted(folder_tokens))
+        record_label = ", ".join(sorted(record_tokens))
+        name_suffix = f" ({case_name.strip()})" if case_name.strip() else ""
+        conflicts.append(
+            f"The case folder suggests {folder_label} but this bundle's record "
+            f"is {record_label}{name_suffix}. Continuing with the selected "
+            "bundle; no files will be moved or renamed."
+        )
+    return conflicts
 
 
 def _ensure_case_bundle_dirs(base_dir: Path) -> tuple[Path, Path, Path]:
@@ -5227,6 +5331,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pi_terminal_active = False
         self._pi_terminal_done: threading.Event | None = None
         self._pi_terminal_exit_status: int | None = None
+        self._pi_stall_warned = False
+        self._active_bundle_root: str | None = None
+        self._bundle_identity_warning_roots: set[str] = set()
         self._pi_terminal_spawn_error: str | None = None
         self._pi_terminal_sequence_started = False
         self._run_until_dropdown: Gtk.DropDown | None = None
@@ -8233,6 +8340,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._pi_terminal_spawn_error = None
         self._pi_terminal_active = True
         self._pi_terminal_pid = None
+        self._pi_stall_warned = False
         if not self._pi_terminal_sequence_started:
             terminal.reset(False, False)
             self._pi_terminal_sequence_started = True
@@ -8286,6 +8394,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         row: Adw.ActionRow,
     ) -> bool:
         success: bool | None = False
+        root_dir: Path | None = None
         step_title = (row.get_title() or step_id).strip() or step_id
         try:
             self._raise_if_stop_requested()
@@ -8332,6 +8441,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "PI executable not found. Install PI or set the PI command in Settings."
                 )
 
+            self._active_bundle_root = str(root_dir)
+            GLib.idle_add(self._append_log_message, f"Case bundle: {root_dir}", "INFO")
+            if str(root_dir) not in self._bundle_identity_warning_roots:
+                self._bundle_identity_warning_roots.add(str(root_dir))
+                for message in case_identity_conflicts(root_dir):
+                    GLib.idle_add(self.show_toast, message, "WARN")
+                    GLib.idle_add(self._append_log_message, message, "WARN")
+
             done = threading.Event()
             GLib.idle_add(
                 self._spawn_pi_skill_terminal,
@@ -8341,9 +8458,45 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 step_title,
                 done,
             )
+            next_stall_poll = 0.0
+            next_progress_poll = 0.0
+            revealed_progress: tuple[int, int] | None = None
             while not done.wait(0.1):
                 if self._stop_event.is_set():
                     GLib.idle_add(self._terminate_pi_terminal)
+                    break
+                now = time.monotonic()
+                if now >= next_stall_poll:
+                    next_stall_poll = now + PI_STAGE_STATUS_POLL_SECONDS
+                    status = _read_pi_stage_status(root_dir, self._pi_terminal_pid)
+                    if (
+                        status is not None
+                        and status.get("state") == "stalled"
+                        and not self._pi_stall_warned
+                    ):
+                        self._pi_stall_warned = True
+                        message = (
+                            f"{step_title} may be stalled: PI has no session "
+                            "progress and may be spinning or hung. "
+                            + str(status.get("message") or "")
+                            + " Use the Stop button to terminate it."
+                        )
+                        GLib.idle_add(self.show_toast, message, "WARN")
+                        GLib.idle_add(self._append_log_message, message, "WARN")
+                if (
+                    step_id == "build_participant_index"
+                    and now >= next_progress_poll
+                ):
+                    next_progress_poll = now + PARTICIPANT_PROGRESS_POLL_SECONDS
+                    progress = _participant_review_progress(root_dir)
+                    if progress != revealed_progress:
+                        revealed_progress = progress
+                        if progress is not None:
+                            GLib.idle_add(
+                                self._set_activity_status_text,
+                                f"{step_title} — reviewed {progress[0]} of "
+                                f"{progress[1]} hearings",
+                            )
             self._raise_if_stop_requested()
             if self._pi_terminal_spawn_error:
                 raise ValueError(
@@ -8363,11 +8516,24 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_toast, f"{step_title} failed: {exc}")
         finally:
             self._pi_terminal_done = None
+            self._cleanup_pi_stage_status(root_dir)
             GLib.idle_add(row.set_sensitive, True)
             GLib.idle_add(self._finish_step, row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
+
+    def _cleanup_pi_stage_status(self, root_dir: Path | None) -> None:
+        if root_dir is None:
+            return
+        try:
+            (root_dir / PI_STAGE_STATUS_RELATIVE).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _set_activity_status_text(self, text: str) -> None:
+        if self._activity_status_label is not None:
+            self._activity_status_label.set_label(text)
 
     def _run_step_number_transcript_pages(self) -> bool:
         return self._run_pi_skill_step(

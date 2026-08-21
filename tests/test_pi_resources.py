@@ -1,11 +1,16 @@
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +52,17 @@ The apparent issues involve placement, services, contact, and the orders reflect
 
 The available material includes hearing, report, and minute-order summaries from January through April 2025. The overview does not establish completeness. Every detail must be verified against mapped source pages before use.
 """
+
+
+def _load_runner_module() -> "object":
+    spec = importlib.util.spec_from_file_location(
+        "run_recordprep_skill_module", RUNNER
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _runner_environment(
@@ -501,6 +517,186 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
             ):
                 self.assertNotIn(obsolete, serialized)
             self.assertIn("case_overview", serialized)
+
+    def test_runner_reports_pids_when_process_group_cannot_be_terminated(self) -> None:
+        module = _load_runner_module()
+        sleeper = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+        )
+        module._active_process = sleeper
+        try:
+            captured = io.StringIO()
+            with mock.patch("os.killpg", side_effect=ProcessLookupError("no group")), \
+                    mock.patch.object(sleeper, "terminate", side_effect=OSError("nope")), \
+                    contextlib.redirect_stdout(captured):
+                result = module._terminate_active_process()
+            self.assertFalse(result)
+            text = captured.getvalue()
+            self.assertIn(f"PI pid {sleeper.pid}", text)
+            self.assertIn("runner pid", text)
+            self.assertIn("stays Pending", text)
+        finally:
+            module._active_process = None
+            sleeper.kill()
+            sleeper.wait(timeout=5)
+
+    def test_runner_detects_stalled_pi_child_and_remains_stoppable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            case_bundle = temp / "case_bundle"
+            (case_bundle / "text_pages").mkdir(parents=True)
+            (case_bundle / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            fake_pi = temp / "pi"
+            fake_pi.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == \"--version\" ]]; then\n"
+                "  echo 0.80.10\n"
+                "  exit 0\n"
+                "fi\n"
+                "while :; do :; done\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            env = _runner_environment(case_bundle, fake_pi, temp / "cache")
+            env.update(
+                {
+                    "RECORDPREP_PI_STALL_TIMEOUT_SECONDS": "4",
+                    "RECORDPREP_PI_STALL_POLL_INTERVAL": "0.2",
+                    "RECORDPREP_PI_STALL_CPU_WINDOW_SECONDS": "2",
+                }
+            )
+            log_path = temp / "runner.log"
+            with log_path.open("w", encoding="utf-8") as log_handle:
+                process = subprocess.Popen(
+                    ["python3", str(RUNNER), "build_participant_index"],
+                    cwd=PROJECT_DIR,
+                    env=env,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                try:
+                    warning_line: str | None = None
+                    deadline = time.monotonic() + 25
+                    while time.monotonic() < deadline and process.poll() is None:
+                        text = log_path.read_text(encoding="utf-8", errors="ignore")
+                        warning_line = next(
+                            (line for line in text.splitlines() if "[stalled]" in line),
+                            None,
+                        )
+                        if warning_line is not None:
+                            break
+                        time.sleep(0.1)
+                    output = log_path.read_text(encoding="utf-8", errors="ignore")
+                    self.assertIsNotNone(
+                        warning_line,
+                        "no stalled warning; output:\n" + output,
+                    )
+                    self.assertIn(
+                        "Build participant and witness index", warning_line or ""
+                    )
+                    self.assertIn("not making progress", warning_line or "")
+                    status_path = case_bundle / "temp" / ".pi_stage_status.json"
+                    self.assertTrue(status_path.is_file())
+                    status = json.loads(status_path.read_text(encoding="utf-8"))
+                    self.assertEqual(status["state"], "stalled")
+                    self.assertEqual(status["runner_pid"], process.pid)
+                    self.assertIn("last_activity", status)
+
+                    # Warning only: no automatic kill.
+                    self.assertIsNone(process.poll())
+
+                    # Explicit stop terminates the complete PI process group.
+                    pi_pid = status["pi_pid"]
+                    process.terminate()
+                    process.wait(timeout=10)
+                    self.assertEqual(process.returncode, 130)
+                    deadline = time.monotonic() + 5
+                    while (
+                        Path(f"/proc/{pi_pid}").exists()
+                        and time.monotonic() < deadline
+                    ):
+                        time.sleep(0.05)
+                    self.assertFalse(Path(f"/proc/{pi_pid}").exists())
+                    self.assertFalse(status_path.exists())
+                    workspace_parent = temp / "cache" / "recordprep-pi-workspaces"
+                    self.assertEqual(list(workspace_parent.glob("skill.*")), [])
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=5)
+
+    def test_runner_rejects_participant_template_after_pi_exits(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            case_bundle = temp / "case_bundle"
+            (case_bundle / "text_pages").mkdir(parents=True)
+            (case_bundle / "artifacts").mkdir()
+            (case_bundle / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            fake_pi = temp / "pi"
+            fake_pi.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '0.80.10\n'
+  exit 0
+fi
+mkdir -p "$RECORDPREP_CASE_BUNDLE/artifacts"
+python3 <<'PYEOF'
+import json, os
+from pathlib import Path
+root = Path(os.environ["RECORDPREP_CASE_BUNDLE"])
+payload = {
+    "schema_version": 2,
+    "generated_at": "2026-01-01T00:00:00+00:00",
+    "source": "record-participant-index",
+    "hearings": [{
+        "id": "hearing:0001",
+        "date": "",
+        "start_page": 1,
+        "end_page": 1,
+        "start_citation_label": "",
+        "end_citation_label": "",
+        "citation_range": "",
+        "counsel": [],
+        "participants": [],
+        "witness_status": "unknown",
+        "witness_evidence": [],
+        "witnesses": [],
+        "warnings": ["Participant review has not been completed."],
+    }],
+    "warnings": ["Participant review has not been completed."],
+}
+(root/"artifacts"/"participant_index.json").write_text(json.dumps(payload, indent=2))
+PYEOF
+printf '\033[32mParticipant template prepared\033[0m\n'
+""",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            result = subprocess.run(
+                ["python3", str(RUNNER), "build_participant_index"],
+                cwd=PROJECT_DIR,
+                env=_runner_environment(case_bundle, fake_pi, temp / "cache"),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertIn(
+                "participant index review has not been completed "
+                "(template warning remains).",
+                result.stdout,
+            )
+            self.assertIn(
+                "participant index hearing 1 has not been reviewed "
+                "(template warning remains).",
+                result.stdout,
+            )
 
     def test_runner_termination_cleans_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

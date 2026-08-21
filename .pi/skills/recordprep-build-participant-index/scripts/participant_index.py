@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare and validate RecordPrep participant_index.json."""
+"""Prepare, scope, and validate RecordPrep participant_index.json."""
 
 from __future__ import annotations
 
@@ -29,6 +29,53 @@ PARTICIPANT_ROLE_IDS = {
 ATTENDANCE_STATUSES = {"present", "remote", "absent", "unknown"}
 SPEAKING_STATUSES = {"spoke", "did_not_speak", "unknown"}
 SWORN_STATUSES = {"sworn", "unsworn", "not_applicable", "unknown"}
+
+TEMPLATE_WARNING = "Participant review has not been completed."
+
+WORKLIST_RELATIVE = Path("temp") / ".participant_worklist.json"
+
+MARKER_PATTERNS: list[tuple[str, str]] = [
+    (
+        "oath",
+        r"\boath\b|\bswear\b|\bsworn\b|\baffirm\b|\baffirmed\b|"
+        r"\bsolemnly\s+promise\b|\bdo\s+you\s+solemnly\b",
+    ),
+    (
+        "examination",
+        r"\bDIRECT\s+EXAMINATION\b|\bCROSS-EXAMINATION\b|"
+        r"\bREDIRECT\s+EXAMINATION\b|\bRECROSS-EXAMINATION\b|"
+        r"\bEXAMINATION\s+(?:BY|CONTINUED)\b",
+    ),
+    (
+        "counsel",
+        r"\battorneys?\s+for\b|\bcounsel\s+for\b|\bby\s+counsel\b|"
+        r"\bappointed\s+counsel\b",
+    ),
+    (
+        "attendance",
+        r"\bappeared\b|\bappearance\b|\bpresent\s+in\s+court\b|"
+        r"\bappear\w*\s+(?:by|through)\s+counsel\b|\bon\s+behalf\s+of\b",
+    ),
+    (
+        "absence",
+        r"\bfailed\s+to\s+appear\b|\babsent\b|\bnot\s+present\b|"
+        r"\bwaiv\w*\s+appearance\b",
+    ),
+]
+MARKER_PRIORITY = {
+    "oath": 0,
+    "examination": 1,
+    "counsel": 2,
+    "attendance": 3,
+    "absence": 3,
+}
+
+WORKLIST_LIMITS = {
+    "pages_per_read": 1,
+    "first_pages_per_hearing": 3,
+    "marker_pages_per_hearing": 12,
+    "page_read_budget_per_hearing": 12,
+}
 
 
 def read_json(path: Path) -> Any:
@@ -80,40 +127,38 @@ def classification_rows(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def transcript_entries(root: Path) -> list[dict[str, Any]]:
+    transcript = read_json(root / "artifacts" / "transcript_page_numbers.json")
+    entries = transcript.get("entries") if isinstance(transcript, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("Transcript numbering entries are required.")
+    return [item for item in entries if isinstance(item, dict)]
+
+
+def hearing_boundaries(root: Path) -> list[dict[str, Any]]:
+    boundaries = read_json(root / "artifacts" / "hearing_boundaries.json")
+    if not isinstance(boundaries, list):
+        raise ValueError("Hearing boundaries are required.")
+    return [item for item in boundaries if isinstance(item, dict)]
+
+
+def load_required_context(root: Path) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]]]:
+    entries = transcript_entries(root)
+    by_file_page: dict[int, dict[str, Any]] = {}
+    for item in entries:
+        number = page_number(item.get("file_page") or item.get("file_name"))
+        if number:
+            by_file_page[number] = item
+    return hearing_boundaries(root), by_file_page
+
+
 def prepare(root: Path) -> Path:
     root = root.resolve(strict=False)
     artifacts = root / "artifacts"
-    boundaries = read_json(artifacts / "hearing_boundaries.json")
-    transcript = read_json(artifacts / "transcript_page_numbers.json")
-    if not isinstance(boundaries, list) or not isinstance(transcript, dict):
-        raise ValueError("Hearing boundaries and transcript numbering are required.")
-    entries = transcript.get("entries") if isinstance(transcript.get("entries"), list) else []
-    by_file_page: dict[int, dict[str, Any]] = {}
-    for item in entries:
-        if isinstance(item, dict):
-            number = page_number(item.get("file_page") or item.get("file_name"))
-            if number:
-                by_file_page[number] = item
-
-    index_pages: list[dict[str, Any]] = []
-    for row in classification_rows(root):
-        page_type = str(row.get("page_type") or row.get("classification") or row.get("type") or "")
-        if page_type.casefold() != "rt_index":
-            continue
-        number = page_number(row.get("file_page") or row.get("page") or row.get("file_name"))
-        entry = by_file_page.get(number, {})
-        index_pages.append({
-            "text_path": f"text_pages/{number:04d}.txt" if number else "",
-            "file_page": number,
-            "citation_label": str(entry.get("citation_label") or ""),
-            "citation_key": str(entry.get("citation_key") or ""),
-            "note": "Page classified as RT_index; inspect for witness/examination evidence.",
-        })
+    boundaries, by_file_page = load_required_context(root)
 
     hearings: list[dict[str, Any]] = []
     for index, item in enumerate(boundaries, start=1):
-        if not isinstance(item, dict):
-            continue
         start = page_number(item.get("start_page"))
         end = page_number(item.get("end_page"))
         start_entry = by_file_page.get(start, {})
@@ -130,13 +175,12 @@ def prepare(root: Path) -> Path:
                 str(start_entry.get("citation_label") or ""),
                 str(end_entry.get("citation_label") or ""),
             ),
-            "candidate_index_pages": index_pages,
             "counsel": [],
             "participants": [],
             "witness_status": "unknown",
             "witness_evidence": [],
             "witnesses": [],
-            "warnings": ["Participant review has not been completed."],
+            "warnings": [TEMPLATE_WARNING],
         })
 
     payload = {
@@ -144,10 +188,172 @@ def prepare(root: Path) -> Path:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "record-participant-index",
         "hearings": hearings,
-        "warnings": ["Participant review has not been completed."],
+        "warnings": [TEMPLATE_WARNING],
     }
     output = artifacts / "participant_index.json"
     write_json(output, payload)
+    return output
+
+
+def scoped_index_pages(root: Path, by_file_page: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """RT_index-classified pages that belong to a reporter-transcript series."""
+    index_pages: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for row in classification_rows(root):
+        page_type = str(
+            row.get("page_type") or row.get("classification") or row.get("type") or ""
+        )
+        if page_type.casefold() != "rt_index":
+            continue
+        number = page_number(row.get("file_page") or row.get("page") or row.get("file_name"))
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        entry = by_file_page.get(number)
+        if entry is None or str(entry.get("record_type") or "").casefold() != "rt":
+            continue
+        index_pages.append({
+            "text_path": f"text_pages/{number:04d}.txt",
+            "file_page": number,
+            "citation_label": str(entry.get("citation_label") or ""),
+            "citation_key": str(entry.get("citation_key") or ""),
+        })
+    index_pages.sort(key=lambda item: item["file_page"])
+    return index_pages
+
+
+def _page_markers(text: str) -> list[str]:
+    found: list[str] = []
+    for marker_name, pattern in MARKER_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE):
+            found.append(marker_name)
+    return found
+
+
+def worklist(root: Path) -> Path:
+    root = root.resolve(strict=False)
+    boundaries, by_file_page = load_required_context(root)
+
+    ranges: list[tuple[int, int, str]] = []
+    for index, item in enumerate(boundaries, start=1):
+        start = page_number(item.get("start_page"))
+        end = page_number(item.get("end_page"))
+        if not start or end < start:
+            continue
+        hearing_id = str(item.get("id") or f"hearing:{index:04d}")
+        ranges.append((start, end, hearing_id))
+
+    index_pages = scoped_index_pages(root, by_file_page)
+
+    def citation_for(number: int) -> tuple[str, str]:
+        entry = by_file_page.get(number, {})
+        return (
+            str(entry.get("citation_label") or ""),
+            str(entry.get("citation_key") or ""),
+        )
+
+    def citation_page(number: int) -> dict[str, Any]:
+        label, key = citation_for(number)
+        return {
+            "file_page": number,
+            "citation_label": label,
+            "citation_key": key,
+            "text_path": f"text_pages/{number:04d}.txt",
+        }
+
+    # Scan only pages inside hearing ranges. Each text page is read once.
+    markers_by_page: dict[int, tuple[int, list[str]]] = {}
+    scanned: set[int] = set()
+    for start, end, _hearing_id in ranges:
+        for number in range(start, end + 1):
+            if number in scanned:
+                continue
+            scanned.add(number)
+            try:
+                text = (root / "text_pages" / f"{number:04d}.txt").read_text(
+                    encoding="utf-8", errors="ignore"
+                )
+            except OSError:
+                continue
+            markers = _page_markers(text)
+            if not markers:
+                continue
+            priority = min(MARKER_PRIORITY[name] for name in markers)
+            markers_by_page[number] = (priority, markers)
+
+    in_range = {
+        number
+        for start, end, _hearing_id in ranges
+        for number in range(start, end + 1)
+    }
+
+    hearing_entries: list[dict[str, Any]] = []
+    for start, end, hearing_id in ranges:
+        first_pages = [
+            citation_page(number)
+            for number in range(start, min(start + WORKLIST_LIMITS["first_pages_per_hearing"], end + 1))
+        ]
+        chosen_markers = sorted(
+            (number for number in range(start, end + 1) if number in markers_by_page),
+            key=lambda number: (markers_by_page[number][0], number),
+        )[: WORKLIST_LIMITS["marker_pages_per_hearing"]]
+        marker_pages = [
+            {
+                **citation_page(number),
+                "markers": list(markers_by_page[number][1]),
+            }
+            for number in chosen_markers
+        ]
+        hearing_index_pages = [
+            {**page}
+            for page in index_pages
+            if start <= page["file_page"] <= end
+        ]
+        hearing_entries.append({
+            "id": hearing_id,
+            "start_page": start,
+            "end_page": end,
+            "start_citation_label": str(by_file_page.get(start, {}).get("citation_label") or ""),
+            "end_citation_label": str(by_file_page.get(end, {}).get("citation_label") or ""),
+            "citation_range": citation_range(
+                str(by_file_page.get(start, {}).get("citation_label") or ""),
+                str(by_file_page.get(end, {}).get("citation_label") or ""),
+            ),
+            "first_pages": first_pages,
+            "index_pages": hearing_index_pages,
+            "marker_pages": marker_pages,
+        })
+
+    outside = [
+        {**page}
+        for page in index_pages
+        if page["file_page"] not in in_range
+    ]
+
+    payload = {
+        "artifact": "recordprep-participant-worklist",
+        "schema_version": 1,
+        "temporary": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "record-participant-index",
+        "limits": dict(WORKLIST_LIMITS),
+        "hearings": hearing_entries,
+        "index_pages_outside_hearings": outside,
+        "note": (
+            "Nonauthoritative evidence scoping only. Inspect the original source "
+            "pages referenced here before making any finding; this file never "
+            "substitutes for record text and must be deleted when the stage finishes."
+        ),
+    }
+    output = root / WORKLIST_RELATIVE
+    write_json(output, payload)
+    return output
+
+
+def cleanup(root: Path) -> Path:
+    root = root.resolve(strict=False)
+    output = root / WORKLIST_RELATIVE
+    output.unlink(missing_ok=True)
     return output
 
 
@@ -164,7 +370,14 @@ def _validate_evidence(value: Any, label: str, issues: list[str]) -> None:
             issues.append(f"{label}.evidence[{index}] has an unsafe text_path.")
 
 
-def validate_payload(payload: Any) -> list[str]:
+def _hearing_has_template_warning(hearing: dict[str, Any]) -> bool:
+    warnings = hearing.get("warnings")
+    return isinstance(warnings, list) and any(
+        isinstance(item, str) and item == TEMPLATE_WARNING for item in warnings
+    )
+
+
+def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["participant_index.json must be an object."]
@@ -172,6 +385,11 @@ def validate_payload(payload: Any) -> list[str]:
         issues.append("schema_version must be 2.")
     if payload.get("source") != "record-participant-index":
         issues.append("source must be record-participant-index.")
+    top_warnings = payload.get("warnings")
+    if not partial and isinstance(top_warnings, list) and any(
+        isinstance(item, str) and item == TEMPLATE_WARNING for item in top_warnings
+    ):
+        issues.append("the participant review has not been completed (template warning remains).")
     hearings = payload.get("hearings")
     if not isinstance(hearings, list) or not hearings:
         issues.append("hearings must be a nonempty list.")
@@ -190,6 +408,10 @@ def validate_payload(payload: Any) -> list[str]:
         end = page_number(hearing.get("end_page"))
         if not start or end < start:
             issues.append(f"{label} has an invalid page range.")
+        if partial and _hearing_has_template_warning(hearing):
+            continue
+        if not partial and _hearing_has_template_warning(hearing):
+            issues.append(f"{label} has not been reviewed (template warning remains).")
         status = str(hearing.get("witness_status") or "")
         if status not in STATUSES:
             issues.append(f"{label}.witness_status is invalid.")
@@ -305,30 +527,44 @@ def validate_payload(payload: Any) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def validate(root: Path) -> list[str]:
+def validate(root: Path, *, partial: bool = False) -> list[str]:
     path = root.resolve(strict=False) / "artifacts" / "participant_index.json"
     try:
         payload = read_json(path)
     except (OSError, json.JSONDecodeError) as exc:
         return [f"participant_index.json is missing or invalid: {exc}"]
-    return validate_payload(payload)
+    return validate_payload(payload, partial=partial)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "validate"))
+    parser.add_argument("command", choices=("prepare", "worklist", "cleanup", "validate"))
     parser.add_argument("case_bundle", type=Path)
+    parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="validate only the hearings reviewed so far (permits template warnings).",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "prepare":
             print(f"Wrote {prepare(args.case_bundle)}")
             return 0
-        issues = validate(args.case_bundle)
+        if args.command == "worklist":
+            print(f"Wrote {worklist(args.case_bundle)}")
+            return 0
+        if args.command == "cleanup":
+            print(f"Removed {cleanup(args.case_bundle)}")
+            return 0
+        issues = validate(args.case_bundle, partial=args.partial)
         if issues:
             for issue in issues:
                 print(f"participant-index validation: {issue}", file=sys.stderr)
             return 1
-        print("participant_index.json is valid.")
+        if args.partial:
+            print("participant_index.json partial validation passed.")
+        else:
+            print("participant_index.json is valid.")
         return 0
     except Exception as exc:  # noqa: BLE001
         print(f"participant-index failed: {exc}", file=sys.stderr)

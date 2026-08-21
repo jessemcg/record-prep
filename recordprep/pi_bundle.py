@@ -8,6 +8,9 @@ from typing import Any
 from recordprep.transcript_layout import input_signature
 
 
+PARTICIPANT_TEMPLATE_WARNING = "Participant review has not been completed."
+
+
 PREPARE_BUNDLE_MANIFEST_KEYS = {
     "transcript_layout": "artifacts/transcript_layout.json",
     "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
@@ -124,6 +127,15 @@ def validate_participant_index_output(root: Path) -> list[str]:
     if payload.get("source") != "record-participant-index":
         issues.append("participant index has an invalid source.")
     hearings = payload.get("hearings")
+    top_warnings = payload.get("warnings")
+    if isinstance(top_warnings, list) and any(
+        isinstance(item, str) and item == PARTICIPANT_TEMPLATE_WARNING
+        for item in top_warnings
+    ):
+        issues.append(
+            "participant index review has not been completed "
+            "(template warning remains)."
+        )
     if not isinstance(hearings, list) or not hearings:
         return [*issues, "participant index hearings must be a nonempty list."]
     valid_statuses = {"verified", "none", "unknown", "conflict"}
@@ -152,6 +164,14 @@ def validate_participant_index_output(root: Path) -> list[str]:
         if not hearing_id or hearing_id in seen:
             issues.append(f"{label} id must be nonempty and unique.")
         seen.add(hearing_id)
+        hearing_warnings = hearing.get("warnings")
+        if isinstance(hearing_warnings, list) and any(
+            isinstance(item, str) and item == PARTICIPANT_TEMPLATE_WARNING
+            for item in hearing_warnings
+        ):
+            issues.append(
+                f"{label} has not been reviewed (template warning remains)."
+            )
         try:
             start = int(hearing.get("start_page") or 0)
             end = int(hearing.get("end_page") or 0)

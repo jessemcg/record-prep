@@ -14,11 +14,14 @@ from recordprep.ui.main_window import (
     TEST_PROMPT_GROUPS,
     VISION_CLASSIFICATION_STEP_IDS,
     _case_context_matches_selection,
+    case_identity_conflicts,
     _first_incomplete_phase_id,
     RecordPrepWindow,
     _layout_matches_legacy,
     _pipeline_split_validation_message,
+    _participant_review_progress,
     _phase_progress_text,
+    _read_pi_stage_status,
     _sanitize_terminal_log_text,
     _settings_destination_keys,
     _step_requires_resolved_layout,
@@ -91,6 +94,126 @@ class MainWindowUiStateTests(unittest.TestCase):
             daemon=True,
         )
         thread.return_value.start.assert_called_once_with()
+
+    def test_case_identity_guard_warns_without_renaming(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary) / "B355972_Desmond_P" / "0_record"
+            root = base / "case_bundle"
+            root.mkdir(parents=True)
+            (base / "B355785_combined_record.pdf").write_bytes(b"pdf")
+            (root / "manifest.json").write_text(
+                json.dumps({"input_pdfs": ["../B355785_combined_record.pdf"]}),
+                encoding="utf-8",
+            )
+            (root / "case_name.txt").write_text(
+                "In_re_Keiven_L.", encoding="utf-8"
+            )
+
+            warnings = case_identity_conflicts(root)
+
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("B355972", warnings[0])
+            self.assertIn("B355785", warnings[0])
+            self.assertIn("no files will be moved or renamed", warnings[0])
+            self.assertTrue(root.is_dir())
+
+    def test_case_identity_guard_accepts_matching_case_number(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary) / "B355785_Keiven_L" / "0_record"
+            root = base / "case_bundle"
+            root.mkdir(parents=True)
+            (root / "manifest.json").write_text(
+                json.dumps({"input_pdfs": ["../B355785_combined_record.pdf"]}),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(case_identity_conflicts(root), [])
+
+    def test_participant_activity_counts_reviewed_hearings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "artifacts").mkdir()
+            hearings = []
+            for index in range(44):
+                hearings.append(
+                    {
+                        "id": f"hearing:{index + 1:04d}",
+                        "warnings": (
+                            ["Hearing reviewed."]
+                            if index < 12
+                            else ["Participant review has not been completed."]
+                        ),
+                    }
+                )
+            (root / "artifacts/participant_index.json").write_text(
+                json.dumps({"hearings": hearings}), encoding="utf-8"
+            )
+
+            self.assertEqual(_participant_review_progress(root), (12, 44))
+
+    def test_stage_status_ignores_foreign_runner_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "temp").mkdir()
+            status = {
+                "artifact": "recordprep-pi-stage-status",
+                "schema_version": 1,
+                "stage": "build_participant_index",
+                "state": "stalled",
+                "runner_pid": 123,
+                "pi_pid": 456,
+                "message": "No session activity while PI is using CPU.",
+            }
+            (root / "temp/.pi_stage_status.json").write_text(
+                json.dumps(status), encoding="utf-8"
+            )
+
+            self.assertEqual(_read_pi_stage_status(root, 123), status)
+            self.assertIsNone(_read_pi_stage_status(root, 999))
+
+    def test_failed_or_stopped_stage_prevents_downstream_start(self) -> None:
+        first_handler = mock.Mock(return_value=False)
+        second_handler = mock.Mock(return_value=True)
+        harness = mock.Mock()
+        harness.selected_pdfs = []
+        harness._pipeline_steps.return_value = [
+            ("build_participant_index", mock.Mock(), first_handler),
+            ("create_summaries", mock.Mock(), second_handler),
+        ]
+        harness._run_until_label.return_value = "end"
+        harness._run_until_dropdown = None
+
+        def idle_now(callback, *args):
+            callback(*args)
+            return 1
+
+        with mock.patch(
+            "recordprep.ui.main_window.load_classifier_settings",
+            return_value={"local_vision_enabled": False},
+        ), mock.patch(
+            "recordprep.ui.main_window.GLib.idle_add", side_effect=idle_now
+        ):
+            RecordPrepWindow._run_steps_from_index(harness, 0, Path("/tmp/bundle"))
+
+        first_handler.assert_called_once_with()
+        second_handler.assert_not_called()
+        harness._finish_run_all.assert_called_once_with(False)
+
+    def test_stop_completion_clears_working_state_and_reports_stopped(self) -> None:
+        harness = mock.Mock()
+        harness._stop_event.is_set.return_value = True
+        harness._pipeline_running = True
+        harness._run_until_dropdown = None
+        harness._run_pause_message = None
+        harness._run_completion_message = None
+
+        RecordPrepWindow._finish_run_all(harness, False)
+
+        self.assertFalse(harness._pipeline_running)
+        harness._stop_event.clear.assert_called_once_with()
+        harness.stop_button.set_sensitive.assert_called_with(False)
+        harness._stop_status.assert_called_once_with()
+        harness.show_toast.assert_called_with("Pipeline stopped.")
 
     def test_phase_progress_reports_completion_and_activity(self) -> None:
         step_ids = ("one", "two", "three")

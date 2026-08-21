@@ -5,33 +5,62 @@ description: Builds and validates hearing-scoped counsel, non-counsel participan
 
 # Build Participant Index
 
-Create exactly `artifacts/participant_index.json` in `RECORDPREP_CASE_BUNDLE`. This is a private record artifact. Do not alter source pages, transcript numbering, boundaries, summaries, or any other file.
+Create exactly `artifacts/participant_index.json` in `RECORDPREP_CASE_BUNDLE`. This is a private record artifact. Do not alter source pages, transcript numbering, boundaries, summaries, the manifest, or any other file.
 
-## 1. Prepare the template
+## 1. Prepare the template and the evidence worklist
 
-Run:
+Run both helpers first:
 
 ```bash
 python scripts/participant_index.py prepare "$RECORDPREP_CASE_BUNDLE"
+python scripts/participant_index.py worklist "$RECORDPREP_CASE_BUNDLE"
 ```
 
-Read the generated template. It contains every hearing, citation mappings, and candidate `RT_index` pages. Preserve every hearing entry and all generated page/range fields.
+`prepare` generates every hearing entry with citation mappings. `worklist` writes a **temporary, nonauthoritative evidence scope** at `$RECORDPREP_CASE_BUNDLE/temp/.participant_worklist.json` containing, per hearing:
 
-## 2. Gather evidence conservatively
+- hearing ranges and the first/appearance pages;
+- candidate `RT_index` pages scoped to the applicable reporter-transcript series;
+- pages matching oath, sworn-witness, examination, attendance, absence, and appearance markers;
+- citation labels and keys resolved from `artifacts/transcript_page_numbers.json`.
 
-For each hearing:
+Read the worklist once. It is a pointer file only: **inspect the original source pages it references before making any finding**. Use its paths and citation metadata only to locate sources; evidence notes must describe the verified source page, not the worklist marker. Preserve every generated hearing entry and page/range field from the template.
 
-1. Read nearby appearance pages and identify counsel by **party role**, not only name. Use these normalized role IDs where applicable: `mothers_counsel`, `fathers_counsel`, `alleged_fathers_counsel`, `presumed_fathers_counsel`, `parents_counsel`, `minors_counsel`, `county_counsel`, `tribes_counsel`, `guardian_ad_litem`, `other_counsel`, `unresolved_counsel`.
-2. Identify non-counsel participants when the transcript expressly shows that they spoke, were present, appeared remotely, or were absent. Include parties, relatives, caregivers, social workers, agency representatives, judicial officers, and interpreters when supported. Do not infer a party's attendance merely because counsel appeared for that party. Routine clerks and reporters need not be listed unless they materially participate.
-3. Read relevant `RT_index` pages. Look for chronological witness indexes, witness names, examination type, examiner, and printed transcript page.
-4. Resolve every printed transcript page through `artifacts/transcript_page_numbers.json`. Record the file page, citation label, citation key, and source text page as evidence.
-5. Cross-check witness-index entries against the hearing text around each examination start. Search for sworn/oath language, `DIRECT EXAMINATION`, `CROSS-EXAMINATION`, examiner labels, and Q/A structure.
-6. If the witness index is absent or unclear, search the actual hearing for explicit swearing and examination evidence. Q/A formatting alone is never enough.
-7. Use a page image only when OCR creates a material ambiguity. Record the text-page evidence either way.
+## 2. Gather evidence one hearing at a time
+
+Work strictly **one hearing at a time**, in worklist order. For each hearing:
+
+1. Start with the worklist's first/appearance pages, then its marker pages and scoped `RT_index` pages for that hearing. Read those original pages.
+2. Identify counsel by **party role**, not only name. Use these normalized role IDs where applicable: `mothers_counsel`, `fathers_counsel`, `alleged_fathers_counsel`, `presumed_fathers_counsel`, `parents_counsel`, `minors_counsel`, `county_counsel`, `tribes_counsel`, `guardian_ad_litem`, `other_counsel`, `unresolved_counsel`.
+3. Identify non-counsel participants when the transcript expressly shows that they spoke, were present, appeared remotely, or were absent. Include parties, relatives, caregivers, social workers, agency representatives, judicial officers, and interpreters when supported. Do not infer a party's attendance merely because counsel appeared for that party. Routine clerks and reporters need not be listed unless they materially participate.
+4. On the hearing's scoped `RT_index` pages, look for chronological witness indexes, witness names, examination type, examiner, and printed transcript page.
+5. Resolve every printed transcript page through `artifacts/transcript_page_numbers.json`. Record the file page, citation label, citation key, and source text page as evidence.
+6. Cross-check witness-index entries against the hearing text around each examination start. Search the hearing's own pages for sworn/oath language, `DIRECT EXAMINATION`, `CROSS-EXAMINATION`, examiner labels, and Q/A structure.
+7. If the witness index is absent or unclear, investigate only the hearing's own pages for explicit swearing and examination evidence. Q/A formatting alone is never enough.
+8. Use a page image only when OCR creates a material ambiguity. Record the text-page evidence either way.
 
 Counsel aliases are hearing-scoped. An alias is an alternate personal name or transcript speaker label, such as `Matt McDonald` or `Mr. McDonald`; a law firm or agency abbreviation such as `JCA`, `CAG`, or `Clark & Le` belongs in `organization`, not `aliases`. Do not apply an attorney-role assignment from one hearing to another without evidence. Preserve names as printed and add only observed aliases. Never guess a role, identity, attendance, or speaking status.
 
-## 3. Populate the schema
+### Bounded work rules (mandatory)
+
+- Read at most one page file per `read` call (`text_pages/NNNN.txt`). **Never concatenate the complete RT, a complete hearing, or any multi-hundred-page run into one tool call.**
+- Use `grep`, `find`, and `ls` over targeted page sets to locate evidence; do not load whole directories into context.
+- Stay within the worklist's per-hearing page budget (at most 12 page reads per hearing, including the first/appearance pages).
+- Prefer hearing-scoped pages. The worklist's scoped index pages and explicitly noted cross-references are the only sanctioned out-of-range sources.
+- If the budget is exhausted or evidence stays ambiguous, record explicit `unknown` or `conflict` status with the evidence gathered so far and a hearing-specific warning. **Never stall while trying to eliminate uncertainty**; the record stays the authority and uncertainty stays explicit.
+
+## 3. Persist incrementally and validate in bounded batches
+
+- After completing each hearing, update `artifacts/participant_index.json` so every generated hearing entry is preserved and this hearing's `counsel`, `participants`, `witness_status`, `witness_evidence`, `witnesses`, and `warnings` reflect your findings.
+- Remove the placeholder warning exactly as you review each hearing, from that hearing and from the top-level `warnings` list once the last hearing is done.
+- After each batch of **up to 5 hearings**, and before finishing, validate the work persisted so far:
+
+```bash
+python scripts/participant_index.py validate --partial "$RECORDPREP_CASE_BUNDLE"
+```
+
+`--partial` fully validates every reviewed hearing while allowing not-yet-reviewed hearings to keep the placeholder. Fix every error before continuing to the next batch.
+
+## 4. Populate the schema
 
 Top level:
 
@@ -99,12 +128,16 @@ Set status as follows:
 
 An attorney who asks questions is the examiner, not the witness. Do not list counsel as a witness unless independent, explicit sworn-witness evidence establishes that unusual fact; flag it as a conflict for human review. An unsworn speaker remains a participant, not a witness.
 
-## 4. Validate
+## 5. Validate and clean up
 
-Run:
+Run the final full validation:
 
 ```bash
 python scripts/participant_index.py validate "$RECORDPREP_CASE_BUNDLE"
 ```
 
-Fix every error. Warnings representing genuine record uncertainty may remain, but must also appear in the affected hearing. Finish only after validation succeeds.
+Full validation **rejects the prepared template**: every hearing must be reviewed, or explicitly declared `unknown`/`conflict` with hearing-specific evidence and warnings. Fix every error. Warnings representing genuine record uncertainty may remain, but must also appear in the affected hearing. Finish only after full validation succeeds, then remove the temporary worklist:
+
+```bash
+python scripts/participant_index.py cleanup "$RECORDPREP_CASE_BUNDLE"
+```

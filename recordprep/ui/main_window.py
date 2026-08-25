@@ -665,7 +665,8 @@ DEFAULT_SUMMARIZE_HEARINGS_PROMPT = PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT.r
     "does not claim that testimony occurred at the current hearing. Q/A formatting "
     "alone does not establish testimony. Describe unsworn ",
 )
-DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
+NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
+PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "You are summarizing one window of source pages from a report in a juvenile dependency "
     "case. The user message is organized into these labeled sections:\n\n"
     "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
@@ -680,6 +681,39 @@ DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "each an uninterrupted two-to-five-word sequence in quotation marks. Do not alter "
     "quoted text or use ellipses. Do not begin with prefatory language, add commentary, or "
     "use Markdown. Do not summarize the optional preceding context page again."
+)
+DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
+    "You are summarizing one window of source pages from a report in a juvenile dependency "
+    "case. The user message is organized into these labeled sections:\n\n"
+    "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
+    "only to understand a sentence or passage that continues into the primary pages.\n"
+    "2. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages. "
+    "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n"
+    "3. REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY. When present, this section "
+    "marks a formal package of proposed or recommended advisements, findings, and orders, "
+    "together with associated boilerplate, offered for court adoption. A scope delimiter "
+    "in the source text marks exactly where that package begins; on a later window this "
+    "section instead warns that the formal proposal may still be continuing. Omit that "
+    "formal package from your summary entirely: do not qualify, disclaim, or restate it. "
+    "Never present a proposed or recommended finding or order as if it were a finding of "
+    "fact, an order the court actually made, or a settled factual conclusion, and never use "
+    "proposed wording to satisfy the verbatim-quotation requirement. Remain eligible: factual "
+    "narrative, interviews, observations, assessments, procedural history, a high-level agency "
+    "recommendation stated apart from the formal template with accurate agency attribution, "
+    "and actual historical orders the report says the court already made, with accurate "
+    "attribution.\n\n"
+    "Output requirements: return exactly one concise prose paragraph in plain English, with "
+    "no internal line breaks. RecordPrep inserts a blank line between this paragraph and each "
+    "adjacent summary-window paragraph. Preserve every material fact, substantive assessment, "
+    "and actual procedural development in the eligible portions of the primary pages at a "
+    "consistent level of detail. If a window mixes eligible narrative and formal proposed "
+    "material, summarize only the eligible narrative. Include several legally significant "
+    "verbatim quotes, each an uninterrupted two-to-five-word sequence in quotation marks, "
+    "taken only from eligible material. Do not alter quoted text or use ellipses. Do not begin "
+    "with prefatory language, add commentary, or use Markdown. Do not summarize the optional "
+    "preceding context page again. If, after omitting the formal proposed advisements, findings, "
+    "orders, and associated boilerplate, a window contains no eligible report narrative, return "
+    "exactly this value and nothing else: " + NO_SUMMARIZABLE_REPORT_CONTENT
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "I will provide you with the pages of a minute order. Based on this information, "
@@ -1382,6 +1416,156 @@ def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
     return removed
 
 
+# --- Formal proposed findings/orders detection (report summaries only) ---
+# These markers are ephemeral and never persisted: they only drive per-window
+# scope hints to the summarization model. Detection is deliberately conservative
+# and fires only on bounded structural signatures of a formal package of
+# proposed/recommended advisements, findings, and orders offered for court
+# adoption. A bare "Recommendation" heading, a change-in-recommendation note, a
+# substantive treatment/assessment recommendation, a singular request for an
+# assessment order, and narrative references to orders the court already made
+# are all deliberately out of scope.
+
+REPORT_PROPOSAL_MARKER_TITLE = "proposed_findings_and_orders_title"
+REPORT_PROPOSAL_MARKER_LEAD_IN = "proposed_findings_and_orders_lead_in"
+REPORT_PROPOSAL_MARKER_SPLIT = "proposed_findings_then_orders_split"
+REPORT_PROPOSAL_MARKER_FIND_ORDER = "proposed_find_and_order_template"
+
+REPORT_PROPOSAL_SCOPE_HEADING = "REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY"
+REPORT_PROPOSAL_SCOPE_DELIMITER = (
+    "\n\n<<< FORMAL PROPOSED FINDINGS/ORDERS START HERE "
+    "— EXCLUDED FROM REPORT SUMMARY >>>\n\n"
+)
+
+
+@dataclass(frozen=True)
+class ReportProposalMarker:
+    source_page: int
+    offset: int
+    line_number: int
+    kind: str
+
+
+_RE_PROPOSED_FINDINGS_ORDERS_TITLE = re.compile(
+    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s+"
+    r"(?:AND\s+|/)\s*ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_RE_PROPOSED_FINDINGS_HEADING = re.compile(
+    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s*[#>*-]*\s*[.:]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_RE_PROPOSED_ORDERS_HEADING = re.compile(
+    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_RE_PROPOSED_LEAD_IN = re.compile(
+    r"\b(?:(?:respectfully|humbly)\s+)?recommends?\s+(?:that\s+)?the\s+court\s+"
+    r"(?:make|enter|adopt|issue)\s+the\s+following\s+"
+    r"(?:proposed\s+|recommended\s+)?findings?\s+and\s+orders?\b",
+    re.IGNORECASE,
+)
+_RE_PROPOSED_FIND_ORDER = re.compile(
+    r"\b(?:recommends?|requests?)\b[^.\n]{0,200}?\bthe\s+court\b[^.\n]{0,200}?\bfind\b[^.\n]{0,200}?\band\s+order\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_report_proposal_marker(
+    page_text: dict[int, str],
+    start_page: int,
+    end_page: int,
+) -> ReportProposalMarker | None:
+    """Return the first high-confidence formal proposal marker in a report range.
+
+    Scans the already-loaded page text for one report range and returns the
+    earliest structural marker, or ``None`` when no formal package is present.
+    Marker text is never returned or emitted; only the page, offset, line
+    number, and a non-sensitive kind are carried through.
+    """
+    best: ReportProposalMarker | None = None
+
+    def _consider(page: int, offset: int, kind: str) -> None:
+        nonlocal best
+        if best is None or (page, offset) < (best.source_page, best.offset):
+            line_number = page_text[page].count("\n", 0, offset) + 1
+            best = ReportProposalMarker(page, offset, line_number, kind)
+
+    # Split template: a formal proposed-findings heading followed later in the
+    # same report by a formal proposed-orders heading.
+    findings_at: tuple[int, int] | None = None
+    for page in range(start_page, end_page + 1):
+        text = page_text.get(page) or ""
+        match = _RE_PROPOSED_FINDINGS_HEADING.search(text)
+        if match:
+            findings_at = (page, match.start())
+            break
+    if findings_at is not None:
+        findings_page, findings_offset = findings_at
+        for page in range(findings_page, end_page + 1):
+            text = page_text.get(page) or ""
+            search_from = findings_offset if page == findings_page else 0
+            match = _RE_PROPOSED_ORDERS_HEADING.search(text, search_from)
+            if match:
+                orders_at = (page, match.start())
+                if orders_at > findings_at:
+                    _consider(
+                        findings_at[0],
+                        findings_at[1],
+                        REPORT_PROPOSAL_MARKER_SPLIT,
+                    )
+                break
+
+    # Single-page structural markers, earliest offset within each page wins.
+    for page in range(start_page, end_page + 1):
+        text = page_text.get(page)
+        if not text:
+            continue
+        for kind, pattern in (
+            (REPORT_PROPOSAL_MARKER_TITLE, _RE_PROPOSED_FINDINGS_ORDERS_TITLE),
+            (REPORT_PROPOSAL_MARKER_LEAD_IN, _RE_PROPOSED_LEAD_IN),
+            (REPORT_PROPOSAL_MARKER_FIND_ORDER, _RE_PROPOSED_FIND_ORDER),
+        ):
+            match = pattern.search(text)
+            if match:
+                _consider(page, match.start(), kind)
+
+    return best
+
+
+def _report_proposal_scope_note(
+    window: dict[str, Any],
+    report_marker: ReportProposalMarker | None,
+) -> str:
+    """Return the scope-only instruction for a window relative to the marker."""
+    if report_marker is None:
+        return ""
+    primary_pages = window.get("primary_pages") or []
+    if not primary_pages:
+        return ""
+    marker_page = report_marker.source_page
+    if marker_page in primary_pages:
+        return (
+            "A scope delimiter in the source text below marks where a formal package "
+            "of proposed or recommended advisements, findings, and orders, with "
+            "associated boilerplate, begins. Omit that formal package from your summary; "
+            "summarize only the eligible report narrative that precedes the delimiter."
+        )
+    if primary_pages[0] > marker_page:
+        return (
+            "A formal package of proposed or recommended findings and orders began on an "
+            "earlier page and may still be continuing. Summarize only clearly separate "
+            "factual narrative or clearly separate attachments; omit any continuing "
+            "proposed findings or orders."
+        )
+    return ""
+
+
+def _insert_report_proposal_delimiter(text: str, offset: int) -> str:
+    bounded = max(0, min(offset, len(text)))
+    return f"{text[:bounded]}{REPORT_PROPOSAL_SCOPE_DELIMITER}{text[bounded:]}"
+
+
 def _summary_page_windows(
     text_dir: Path,
     start_page: int,
@@ -1567,6 +1751,7 @@ def _render_summary_window_payload(
     citation_by_page: dict[int, str],
     *,
     participant_context: str = "",
+    report_marker: ReportProposalMarker | None = None,
 ) -> str:
     page_text = window["page_text"]
     sections: list[str] = []
@@ -1585,11 +1770,21 @@ def _render_summary_window_payload(
             page_text[context_page].strip(),
             "",
         ])
+    scope_note = _report_proposal_scope_note(window, report_marker)
+    if scope_note:
+        sections.extend([
+            REPORT_PROPOSAL_SCOPE_HEADING,
+            scope_note,
+            "",
+        ])
     sections.append("PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS")
     for number in window["primary_pages"]:
         citation = citation_by_page.get(number, "")
         sections.append(f"[{citation or f'file page {number}'} | source text_pages/{number:04d}.txt]")
-        sections.append(page_text[number].strip())
+        text = page_text[number]
+        if report_marker is not None and number == report_marker.source_page:
+            text = _insert_report_proposal_delimiter(text, report_marker.offset)
+        sections.append(text.strip())
     return "\n".join(sections).strip()
 
 
@@ -3582,7 +3777,7 @@ def load_summarize_settings() -> dict[str, Any]:
         )
     ):
         hearings_prompt = DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    if reports_prompt.startswith(
+    if reports_prompt == PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT or reports_prompt.startswith(
         (
             "Summarize the following reports in one very concise paragraph",
             "Summarize the primary report source pages in one concise paragraph",
@@ -6033,6 +6228,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         settings: dict[str, Any],
         *,
         participant_context: str = "",
+        report_marker: ReportProposalMarker | None = None,
     ) -> list[str]:
         source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
         with tempfile.TemporaryDirectory(prefix="recordprep-summary-test.") as temporary:
@@ -6054,6 +6250,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     window,
                     {page: f"TEST {page}" for page in range(1, len(source_pages) + 1)},
                     participant_context=participant_context,
+                    report_marker=report_marker,
                 )
                 for window in windows
             ]
@@ -6076,17 +6273,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     participant_context = "\n".join(
                         _hearing_context_lines({"counsel": [], "witness_status": "unknown", "witnesses": []})
                     )
+                report_marker = None
+                if mode_id == "summarize_reports":
+                    source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
+                    report_marker = _detect_report_proposal_marker(
+                        {index: text for index, text in enumerate(source_pages, start=1)},
+                        1,
+                        len(source_pages),
+                    )
                 payloads = self._test_summary_payloads(
                     raw_text,
                     settings,
                     participant_context=participant_context,
+                    report_marker=report_marker,
                 )
                 responses: list[str] = []
                 for payload in payloads:
                     self._raise_if_stop_requested()
                     response = self._request_plain_text(settings, payload)
-                    if response:
-                        responses.append(" ".join(response.split()))
+                    normalized = " ".join(response.split()).strip()
+                    if mode_id == "summarize_reports" and normalized == NO_SUMMARIZABLE_REPORT_CONTENT:
+                        continue
+                    if normalized:
+                        responses.append(normalized)
                 GLib.idle_add(on_done, "\n\n".join(responses).strip(), None)
             except StopRequested:
                 GLib.idle_add(on_done, "", "Stopped.")
@@ -10218,13 +10427,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
             report_output = ["Reports Summary", *([display_case_name] if display_case_name else []), ""]
             total_reports = len(report_boundaries)
+            reports_with_proposals = 0
+            proposal_only_windows_skipped = 0
             for report_number, boundary in enumerate(report_boundaries, start=1):
                 start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
                 end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
                 if start is None or end is None:
                     raise ValueError("Report boundary is missing a page range.")
                 label = _extract_entry_value(boundary, "report_label", "report_name") or f"Report {report_number}"
-                report_output.extend([label, ""])
                 windows = _summary_page_windows(
                     text_dir,
                     start,
@@ -10233,6 +10443,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     target_chars=target_chars,
                     max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
                 )
+                report_marker = (
+                    _detect_report_proposal_marker(windows[0]["page_text"], start, end)
+                    if windows else None
+                )
+                if report_marker is not None:
+                    reports_with_proposals += 1
+                    GLib.idle_add(
+                        self._append_log_message,
+                        f"Report {report_number}: formal proposed findings/orders "
+                        f"detected on source page {report_marker.source_page}.",
+                        "INFO",
+                    )
+                report_paragraphs: list[str] = []
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(
@@ -10242,11 +10465,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                     response = request_window(
                         settings["reports_prompt"],
-                        _render_summary_window_payload(window, citation_by_page),
+                        _render_summary_window_payload(
+                            window, citation_by_page, report_marker=report_marker
+                        ),
                     )
+                    if response == NO_SUMMARIZABLE_REPORT_CONTENT:
+                        proposal_only_windows_skipped += 1
+                        continue
                     if response:
-                        _append_summary_paragraph(report_output, response)
-                report_output.append("")
+                        report_paragraphs.append(response)
+                if report_paragraphs:
+                    report_output.extend([label, ""])
+                    for paragraph in report_paragraphs:
+                        _append_summary_paragraph(report_output, paragraph)
+                    report_output.append("")
 
             minute_output = ["Minutes Summary", *([display_case_name] if display_case_name else []), ""]
             total_minutes = len(minute_boundaries)
@@ -10292,7 +10524,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             success = True
             assert root_dir is not None
             self._safe_update_manifest(root_dir, {"last_completed_step": "create_summaries", "last_failed_step": None, "last_failed_at": None})
-            GLib.idle_add(self.show_toast, "Create direct-source summaries complete.")
+            completion = "Create direct-source summaries complete."
+            if reports_with_proposals or proposal_only_windows_skipped:
+                completion += (
+                    f" Excluded formal proposed findings/orders in "
+                    f"{reports_with_proposals} report(s); skipped "
+                    f"{proposal_only_windows_skipped} proposal-only window(s)."
+                )
+            GLib.idle_add(self.show_toast, completion)
         finally:
             GLib.idle_add(self.step_ten_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_ten_row, success)

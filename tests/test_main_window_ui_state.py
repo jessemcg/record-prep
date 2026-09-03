@@ -43,17 +43,19 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 19)
+        self.assertEqual(len(grouped), 21)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
         self.assertEqual(grouped[1], "detect_transcript_layout")
         self.assertEqual(grouped[2], "strip_characters")
-        self.assertEqual(grouped[-6:],
+        self.assertEqual(grouped[-8:],
             [
                 "number_transcript_pages",
                 "build_participant_index",
-                "create_summaries",
+                "create_hearing_summaries",
+                "create_report_summaries",
+                "create_minute_order_summaries",
                 "add_hearing_date_links",
                 "create_case_overview",
                 "build_source_map",
@@ -179,7 +181,7 @@ class MainWindowUiStateTests(unittest.TestCase):
         harness.selected_pdfs = []
         harness._pipeline_steps.return_value = [
             ("build_participant_index", mock.Mock(), first_handler),
-            ("create_summaries", mock.Mock(), second_handler),
+            ("create_hearing_summaries", mock.Mock(), second_handler),
         ]
         harness._run_until_label.return_value = "end"
         harness._run_until_dropdown = None
@@ -325,7 +327,9 @@ class MainWindowUiStateTests(unittest.TestCase):
             "find_boundaries",
             "number_transcript_pages",
             "build_participant_index",
-            "create_summaries",
+            "create_hearing_summaries",
+            "create_report_summaries",
+            "create_minute_order_summaries",
             "create_case_overview",
             "build_source_map",
         ):

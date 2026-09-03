@@ -171,7 +171,9 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "summarize",
         "Summarize",
         (
-            "create_summaries",
+            "create_hearing_summaries",
+            "create_report_summaries",
+            "create_minute_order_summaries",
             "add_hearing_date_links",
         ),
     ),
@@ -1342,6 +1344,22 @@ def _minutes_summary_output_path(root_dir: Path) -> Path:
     if case_name:
         return summaries_dir / f"minutes_sum_{case_name}.txt"
     return summaries_dir / "summarized_minutes.txt"
+
+
+@dataclass
+class _SummaryStepContext:
+    """Shared resolved inputs for one summary-generation step."""
+
+    root_dir: Path
+    artifacts_dir: Path
+    text_dir: Path
+    citation_by_page: dict[int, str]
+    settings: dict[str, Any]
+    target_chars: int
+    max_pages: int
+    request_window: Callable[[str, str], str]
+    display_case_name: str
+    participant_by_range: dict[tuple[int, int], dict[str, Any]]
 
 
 def _strip_nonstandard_characters(text: str) -> str:
@@ -2834,9 +2852,10 @@ def load_run_until_step_setting() -> str | None:
         return None
     normalized = value.strip()
     migrated = {
-        "create_raw": "create_summaries",
-        "create_preoptimized": "create_summaries",
-        "create_optimized": "create_summaries",
+        "create_raw": "create_minute_order_summaries",
+        "create_preoptimized": "create_minute_order_summaries",
+        "create_optimized": "create_minute_order_summaries",
+        "create_summaries": "create_minute_order_summaries",
         "case_overview": "create_case_overview",
         "create_rag_index": "build_source_map",
     }.get(normalized, normalized)
@@ -5939,17 +5958,47 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_correct_boundaries_row)
 
-        self.step_ten_row = Adw.ActionRow(
-            title="Create summaries",
-            subtitle="Summarize hearings, reports, and minute orders into concise paragraphs.",
+        self.step_hearing_summaries_row = Adw.ActionRow(
+            title="Create hearing summaries",
+            subtitle="Summarize hearing testimony into concise paragraphs.",
         )
-        self.step_ten_row.set_activatable(False)
+        self.step_hearing_summaries_row.set_activatable(False)
         self._attach_step_controls(
-            "create_summaries",
-            self.step_ten_row,
-            lambda _btn: self.on_step_ten_clicked(self.step_ten_row),
+            "create_hearing_summaries",
+            self.step_hearing_summaries_row,
+            lambda _btn: self.on_create_hearing_summaries_clicked(
+                self.step_hearing_summaries_row
+            ),
         )
-        self._attach_step_status(self.step_ten_row)
+        self._attach_step_status(self.step_hearing_summaries_row)
+
+        self.step_report_summaries_row = Adw.ActionRow(
+            title="Create report summaries",
+            subtitle="Summarize named reports into concise paragraphs.",
+        )
+        self.step_report_summaries_row.set_activatable(False)
+        self._attach_step_controls(
+            "create_report_summaries",
+            self.step_report_summaries_row,
+            lambda _btn: self.on_create_report_summaries_clicked(
+                self.step_report_summaries_row
+            ),
+        )
+        self._attach_step_status(self.step_report_summaries_row)
+
+        self.step_minute_order_summaries_row = Adw.ActionRow(
+            title="Create minute-order summaries",
+            subtitle="Summarize dated minute orders into concise paragraphs.",
+        )
+        self.step_minute_order_summaries_row.set_activatable(False)
+        self._attach_step_controls(
+            "create_minute_order_summaries",
+            self.step_minute_order_summaries_row,
+            lambda _btn: self.on_create_minute_order_summaries_clicked(
+                self.step_minute_order_summaries_row
+            ),
+        )
+        self._attach_step_status(self.step_minute_order_summaries_row)
 
         self.step_add_hearing_date_links_row = Adw.ActionRow(
             title="Add links to summaries",
@@ -6839,8 +6888,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 (artifacts_dir / "hearing_boundaries.json").exists()
                 and (artifacts_dir / "report_boundaries.json").exists()
             )
-        if step_id == "create_summaries":
-            return summaries_path.exists() and reports_path.exists() and minutes_path.exists()
+        if step_id == "create_hearing_summaries":
+            return summaries_path.exists()
+        if step_id == "create_report_summaries":
+            return reports_path.exists()
+        if step_id == "create_minute_order_summaries":
+            return minutes_path.exists()
         if step_id == "add_hearing_date_links":
             return _has_page_markdown_links(summaries_path)
         if step_id in {
@@ -7710,7 +7763,21 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.step_build_participant_index_row,
                 self._run_step_build_participant_index,
             ),
-            ("create_summaries", self.step_ten_row, self._run_step_ten),
+            (
+                "create_hearing_summaries",
+                self.step_hearing_summaries_row,
+                self._run_step_create_hearing_summaries,
+            ),
+            (
+                "create_report_summaries",
+                self.step_report_summaries_row,
+                self._run_step_create_report_summaries,
+            ),
+            (
+                "create_minute_order_summaries",
+                self.step_minute_order_summaries_row,
+                self._run_step_create_minute_order_summaries,
+            ),
             (
                 "add_hearing_date_links",
                 self.step_add_hearing_date_links_row,
@@ -8420,7 +8487,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
 
 
-    def on_step_ten_clicked(self, _row: Adw.ActionRow) -> None:
+    def on_create_hearing_summaries_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
         if root_dir is None:
             if self.selected_pdfs:
@@ -8428,7 +8495,36 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 self.show_toast("Choose PDF files or select a saved case first.")
             return
-        self._launch_single_step(self.step_ten_row, self._run_step_ten)
+        self._launch_single_step(
+            self.step_hearing_summaries_row,
+            self._run_step_create_hearing_summaries,
+        )
+
+    def on_create_report_summaries_clicked(self, _row: Adw.ActionRow) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(
+            self.step_report_summaries_row,
+            self._run_step_create_report_summaries,
+        )
+
+    def on_create_minute_order_summaries_clicked(self, _row: Adw.ActionRow) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(
+            self.step_minute_order_summaries_row,
+            self._run_step_create_minute_order_summaries,
+        )
 
     def on_step_add_hearing_date_links_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -10332,79 +10428,125 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
 
 
-    def _run_step_ten(self) -> bool:
-        """Create direct-source summaries through nonpersisted page windows."""
-        success: bool | None = False
-        root_dir: Path | None = None
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                raise ValueError("Choose PDF files or select a saved case first.")
-            artifacts_dir = root_dir / "artifacts"
-            _cleanup_legacy_generated_artifacts(root_dir)
-            text_dir = root_dir / "text_pages"
-            summaries_dir = root_dir / "summaries"
-            summaries_path, reports_path = _summary_output_paths(root_dir)
-            minutes_path = _minutes_summary_output_path(root_dir)
-            if not text_dir.is_dir():
-                raise FileNotFoundError("Run Create files to generate text pages first.")
-            hearing_boundaries = _load_json_entries(artifacts_dir / "hearing_boundaries.json")
-            report_boundaries = _load_json_entries(artifacts_dir / "report_boundaries.json")
-            minute_boundaries = _load_json_entries(artifacts_dir / "minutes_boundaries.json")
+    def _prepare_summary_step(
+        self,
+        *,
+        require_participant_index: bool,
+    ) -> _SummaryStepContext:
+        """Resolve the shared inputs for one summary-generation step."""
+        self._raise_if_stop_requested()
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            raise ValueError("Choose PDF files or select a saved case first.")
+        artifacts_dir = root_dir / "artifacts"
+        _cleanup_legacy_generated_artifacts(root_dir)
+        text_dir = root_dir / "text_pages"
+        if not text_dir.is_dir():
+            raise FileNotFoundError("Run Create files to generate text pages first.")
+        participant_by_range: dict[tuple[int, int], dict[str, Any]] = {}
+        if require_participant_index:
             participant_issues = validate_participant_index_output(root_dir)
             if participant_issues:
-                raise ValueError("Participant index validation failed: " + " ".join(participant_issues))
+                raise ValueError(
+                    "Participant index validation failed: "
+                    + " ".join(participant_issues)
+                )
             participant_payload = json.loads(
                 (artifacts_dir / "participant_index.json").read_text(encoding="utf-8")
             )
             participant_hearings = [
-                item for item in participant_payload.get("hearings", []) if isinstance(item, dict)
+                item
+                for item in participant_payload.get("hearings", [])
+                if isinstance(item, dict)
             ]
             participant_by_range = {
                 (int(item.get("start_page") or 0), int(item.get("end_page") or 0)): item
                 for item in participant_hearings
             }
-            transcript_payload = json.loads(
-                (artifacts_dir / "transcript_page_numbers.json").read_text(encoding="utf-8")
+        transcript_payload = json.loads(
+            (artifacts_dir / "transcript_page_numbers.json").read_text(encoding="utf-8")
+        )
+        citation_by_page = {
+            int(
+                item.get("file_page")
+                or _page_number_from_label(str(item.get("file_name") or ""))
+                or 0
+            ): str(item.get("citation_label") or "")
+            for item in transcript_payload.get("entries", [])
+            if isinstance(item, dict)
+        }
+        settings = load_summarize_settings()
+        if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
+            raise ValueError(
+                "Configure Summarize API URL, model ID, and API key in Settings."
             )
-            citation_by_page = {
-                int(item.get("file_page") or _page_number_from_label(str(item.get("file_name") or "")) or 0): str(item.get("citation_label") or "")
-                for item in transcript_payload.get("entries", []) if isinstance(item, dict)
-            }
-            settings = load_summarize_settings()
-            if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure Summarize API URL, model ID, and API key in Settings.")
-            target_chars, max_pages = _summary_window_limits(settings)
-            request_base = {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-            }
-            def request_window(prompt: str, payload: str) -> str:
-                response = self._request_plain_text(
-                    {**request_base, "prompt": prompt}, payload
-                )
-                return " ".join((response or "").split())
+        target_chars, max_pages = _summary_window_limits(settings)
+        request_base = {
+            "api_url": settings["api_url"],
+            "model_id": settings["model_id"],
+            "api_key": settings["api_key"],
+            "disable_reasoning": bool(
+                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
+            ),
+        }
 
-            case_name, _ = load_case_context()
-            display_case_name = case_name.replace("_", " ") if case_name else ""
-            hearing_output = ["Hearings Summary", *([display_case_name] if display_case_name else []), ""]
+        def request_window(prompt: str, payload: str) -> str:
+            response = self._request_plain_text(
+                {**request_base, "prompt": prompt}, payload
+            )
+            return " ".join((response or "").split())
+
+        case_name, _ = load_case_context()
+        display_case_name = case_name.replace("_", " ") if case_name else ""
+        return _SummaryStepContext(
+            root_dir=root_dir,
+            artifacts_dir=artifacts_dir,
+            text_dir=text_dir,
+            citation_by_page=citation_by_page,
+            settings=settings,
+            target_chars=target_chars,
+            max_pages=max_pages,
+            request_window=request_window,
+            display_case_name=display_case_name,
+            participant_by_range=participant_by_range,
+        )
+
+    def _run_step_create_hearing_summaries(self) -> bool:
+        """Create hearing summaries through nonpersisted page windows."""
+        success: bool | None = False
+        root_dir: Path | None = None
+        try:
+            step = self._prepare_summary_step(require_participant_index=True)
+            root_dir = step.root_dir
+            hearing_boundaries = _load_json_entries(
+                step.artifacts_dir / "hearing_boundaries.json"
+            )
+            hearing_output = [
+                "Hearings Summary",
+                *([step.display_case_name] if step.display_case_name else []),
+                "",
+            ]
             total_hearings = len(hearing_boundaries)
             for hearing_number, boundary in enumerate(hearing_boundaries, start=1):
                 self._raise_if_stop_requested()
-                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
-                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
+                start = _page_number_from_label(
+                    _extract_entry_value(boundary, "start_page", "start")
+                )
+                end = _page_number_from_label(
+                    _extract_entry_value(boundary, "end_page", "end")
+                )
                 if start is None or end is None:
                     raise ValueError("Hearing boundary is missing a page range.")
-                participant = participant_by_range.get((start, end))
+                participant = step.participant_by_range.get((start, end))
                 if participant is None:
-                    raise ValueError(f"Participant index has no hearing for source pages {start}-{end}.")
+                    raise ValueError(
+                        f"Participant index has no hearing for source pages {start}-{end}."
+                    )
                 date_value = _normalize_hearing_date(
-                    _extract_entry_value(boundary, "date", "hearing_date") or str(participant.get("date") or "HEARING")
+                    _extract_entry_value(boundary, "date", "hearing_date")
+                    or str(participant.get("date") or "HEARING")
                 )
-                context = _hearing_participant_context(participant)
+                participant_context = _hearing_participant_context(participant)
                 preferred_breaks: set[int] = set()
                 for witness in participant.get("witnesses", []):
                     if not isinstance(witness, dict):
@@ -10418,11 +10560,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             if value:
                                 preferred_breaks.add(value)
                 windows = _summary_page_windows(
-                    text_dir,
+                    step.text_dir,
                     start,
                     end,
-                    max_pages=max_pages,
-                    target_chars=target_chars,
+                    max_pages=step.max_pages,
+                    target_chars=step.target_chars,
                     max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
                     preferred_breaks=preferred_breaks,
                 )
@@ -10430,39 +10572,91 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(
-                        self.step_ten_row,
+                        self.step_hearing_summaries_row,
                         f"Hearing {hearing_number}/{total_hearings} window {window_number}/{len(windows)}",
-                        f"Create summaries: direct-source hearing pages {window['primary_start']}-{window['primary_end']}.",
+                        f"Create hearing summaries: direct-source hearing pages {window['primary_start']}-{window['primary_end']}.",
                     )
                     payload = _render_summary_window_payload(
-                        window, citation_by_page, participant_context=context
+                        window, step.citation_by_page, participant_context=participant_context
                     )
-                    response = request_window(settings["hearings_prompt"], payload)
+                    response = step.request_window(
+                        step.settings["hearings_prompt"], payload
+                    )
                     if response:
                         _append_summary_paragraph(hearing_output, response)
                 hearing_output.append("")
+            summaries_dir = root_dir / "summaries"
+            summaries_dir.mkdir(parents=True, exist_ok=True)
+            summaries_path, _reports_path = _summary_output_paths(root_dir)
+            summaries_path.write_text(
+                _collapse_blank_lines("\n".join(hearing_output)), encoding="utf-8"
+            )
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(self.show_toast, f"Create hearing summaries failed: {exc}")
+        else:
+            success = True
+            assert root_dir is not None
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "create_hearing_summaries",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            GLib.idle_add(self.show_toast, "Create hearing summaries complete.")
+        finally:
+            GLib.idle_add(self.step_hearing_summaries_row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, self.step_hearing_summaries_row, success)
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
 
-            report_output = ["Reports Summary", *([display_case_name] if display_case_name else []), ""]
+    def _run_step_create_report_summaries(self) -> bool:
+        """Create report summaries through nonpersisted page windows."""
+        success: bool | None = False
+        root_dir: Path | None = None
+        try:
+            step = self._prepare_summary_step(require_participant_index=False)
+            root_dir = step.root_dir
+            report_boundaries = _load_json_entries(
+                step.artifacts_dir / "report_boundaries.json"
+            )
+            report_output = [
+                "Reports Summary",
+                *([step.display_case_name] if step.display_case_name else []),
+                "",
+            ]
             total_reports = len(report_boundaries)
             reports_with_proposals = 0
             proposal_only_windows_skipped = 0
             for report_number, boundary in enumerate(report_boundaries, start=1):
-                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
-                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
+                start = _page_number_from_label(
+                    _extract_entry_value(boundary, "start_page", "start")
+                )
+                end = _page_number_from_label(
+                    _extract_entry_value(boundary, "end_page", "end")
+                )
                 if start is None or end is None:
                     raise ValueError("Report boundary is missing a page range.")
-                label = _extract_entry_value(boundary, "report_label", "report_name") or f"Report {report_number}"
+                label = (
+                    _extract_entry_value(boundary, "report_label", "report_name")
+                    or f"Report {report_number}"
+                )
                 windows = _summary_page_windows(
-                    text_dir,
+                    step.text_dir,
                     start,
                     end,
-                    max_pages=max_pages,
-                    target_chars=target_chars,
+                    max_pages=step.max_pages,
+                    target_chars=step.target_chars,
                     max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
                 )
                 report_marker = (
                     _detect_report_proposal_marker(windows[0]["page_text"], start, end)
-                    if windows else None
+                    if windows
+                    else None
                 )
                 if report_marker is not None:
                     reports_with_proposals += 1
@@ -10476,14 +10670,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 for window_number, window in enumerate(windows, start=1):
                     self._raise_if_stop_requested()
                     self._report_step_progress(
-                        self.step_ten_row,
+                        self.step_report_summaries_row,
                         f"Report {report_number}/{total_reports} window {window_number}/{len(windows)}",
-                        f"Create summaries: direct-source report pages {window['primary_start']}-{window['primary_end']}.",
+                        f"Create report summaries: direct-source report pages {window['primary_start']}-{window['primary_end']}.",
                     )
-                    response = request_window(
-                        settings["reports_prompt"],
+                    response = step.request_window(
+                        step.settings["reports_prompt"],
                         _render_summary_window_payload(
-                            window, citation_by_page, report_marker=report_marker
+                            window, step.citation_by_page, report_marker=report_marker
                         ),
                     )
                     if response == NO_SUMMARIZABLE_REPORT_CONTENT:
@@ -10496,52 +10690,28 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     for paragraph in report_paragraphs:
                         _append_summary_paragraph(report_output, paragraph)
                     report_output.append("")
-
-            minute_output = ["Minutes Summary", *([display_case_name] if display_case_name else []), ""]
-            total_minutes = len(minute_boundaries)
-            for minute_number, boundary in enumerate(minute_boundaries, start=1):
-                start = _page_number_from_label(_extract_entry_value(boundary, "start_page", "start"))
-                end = _page_number_from_label(_extract_entry_value(boundary, "end_page", "end"))
-                if start is None or end is None:
-                    raise ValueError("Minute-order boundary is missing a page range.")
-                label = _extract_entry_value(boundary, "date") or f"Minute Order {minute_number}"
-                minute_output.extend([label, ""])
-                windows = _summary_page_windows(
-                    text_dir,
-                    start,
-                    end,
-                    max_pages=max_pages,
-                    target_chars=target_chars,
-                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-                )
-                for window_number, window in enumerate(windows, start=1):
-                    self._raise_if_stop_requested()
-                    self._report_step_progress(
-                        self.step_ten_row,
-                        f"Minutes {minute_number}/{total_minutes} window {window_number}/{len(windows)}",
-                        f"Create summaries: direct-source minute-order pages {window['primary_start']}-{window['primary_end']}.",
-                    )
-                    response = request_window(
-                        settings["minutes_prompt"] + MINUTE_SUMMARY_WINDOW_GUIDANCE,
-                        _render_summary_window_payload(window, citation_by_page),
-                    )
-                    if response:
-                        minute_output.append(response)
-                minute_output.append("")
-
+            summaries_dir = root_dir / "summaries"
             summaries_dir.mkdir(parents=True, exist_ok=True)
-            summaries_path.write_text(_collapse_blank_lines("\n".join(hearing_output)), encoding="utf-8")
-            reports_path.write_text(_collapse_blank_lines("\n".join(report_output)), encoding="utf-8")
-            minutes_path.write_text(_collapse_blank_lines("\n".join(minute_output)), encoding="utf-8")
+            _summaries_path, reports_path = _summary_output_paths(root_dir)
+            reports_path.write_text(
+                _collapse_blank_lines("\n".join(report_output)), encoding="utf-8"
+            )
         except StopRequested:
             success = None
         except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create summaries failed: {exc}")
+            GLib.idle_add(self.show_toast, f"Create report summaries failed: {exc}")
         else:
             success = True
             assert root_dir is not None
-            self._safe_update_manifest(root_dir, {"last_completed_step": "create_summaries", "last_failed_step": None, "last_failed_at": None})
-            completion = "Create direct-source summaries complete."
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "create_report_summaries",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            completion = "Create report summaries complete."
             if reports_with_proposals or proposal_only_windows_skipped:
                 completion += (
                     f" Excluded formal proposed findings/orders in "
@@ -10550,11 +10720,99 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             GLib.idle_add(self.show_toast, completion)
         finally:
-            GLib.idle_add(self.step_ten_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_ten_row, success)
+            GLib.idle_add(self.step_report_summaries_row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, self.step_report_summaries_row, success)
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
         return success is True
+
+    def _run_step_create_minute_order_summaries(self) -> bool:
+        """Create minute-order summaries through nonpersisted page windows."""
+        success: bool | None = False
+        root_dir: Path | None = None
+        try:
+            step = self._prepare_summary_step(require_participant_index=False)
+            root_dir = step.root_dir
+            minute_boundaries = _load_json_entries(
+                step.artifacts_dir / "minutes_boundaries.json"
+            )
+            minute_output = [
+                "Minutes Summary",
+                *([step.display_case_name] if step.display_case_name else []),
+                "",
+            ]
+            total_minutes = len(minute_boundaries)
+            for minute_number, boundary in enumerate(minute_boundaries, start=1):
+                start = _page_number_from_label(
+                    _extract_entry_value(boundary, "start_page", "start")
+                )
+                end = _page_number_from_label(
+                    _extract_entry_value(boundary, "end_page", "end")
+                )
+                if start is None or end is None:
+                    raise ValueError("Minute-order boundary is missing a page range.")
+                label = (
+                    _extract_entry_value(boundary, "date")
+                    or f"Minute Order {minute_number}"
+                )
+                minute_output.extend([label, ""])
+                windows = _summary_page_windows(
+                    step.text_dir,
+                    start,
+                    end,
+                    max_pages=step.max_pages,
+                    target_chars=step.target_chars,
+                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+                )
+                for window_number, window in enumerate(windows, start=1):
+                    self._raise_if_stop_requested()
+                    self._report_step_progress(
+                        self.step_minute_order_summaries_row,
+                        f"Minutes {minute_number}/{total_minutes} window {window_number}/{len(windows)}",
+                        f"Create minute-order summaries: direct-source minute-order pages {window['primary_start']}-{window['primary_end']}.",
+                    )
+                    response = step.request_window(
+                        step.settings["minutes_prompt"] + MINUTE_SUMMARY_WINDOW_GUIDANCE,
+                        _render_summary_window_payload(
+                            window, step.citation_by_page
+                        ),
+                    )
+                    if response:
+                        minute_output.append(response)
+                minute_output.append("")
+            summaries_dir = root_dir / "summaries"
+            summaries_dir.mkdir(parents=True, exist_ok=True)
+            minutes_path = _minutes_summary_output_path(root_dir)
+            minutes_path.write_text(
+                _collapse_blank_lines("\n".join(minute_output)), encoding="utf-8"
+            )
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(
+                self.show_toast, f"Create minute-order summaries failed: {exc}"
+            )
+        else:
+            success = True
+            assert root_dir is not None
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "create_minute_order_summaries",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            GLib.idle_add(self.show_toast, "Create minute-order summaries complete.")
+        finally:
+            GLib.idle_add(self.step_minute_order_summaries_row.set_sensitive, True)
+            GLib.idle_add(
+                self._finish_step, self.step_minute_order_summaries_row, success
+            )
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
+
 
     def _build_summarize_request_settings(
         self,
@@ -10584,7 +10842,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             summaries_path, _reports_path = _summary_output_paths(root_dir)
             if not summaries_path.exists():
                 raise FileNotFoundError(
-                    "Run Create summaries to generate hearing summaries first."
+                    "Run Create hearing summaries to generate hearing summaries first."
                 )
             hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
             minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"

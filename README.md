@@ -73,8 +73,12 @@ During PI stages, RecordPrep displays the immutable bundle root used by the runn
 
 ### Summarize
 
-10. **Create summaries** — the configured Summarize API reads boundary-scoped source pages directly.
-11. **Add links** — add hearing/minute page links.
+10. **Create hearing summaries** — the configured Summarize API reads hearing-boundary-scoped source pages directly and requires the participant index for attribution.
+11. **Create report summaries** — the configured Summarize API reads report-boundary-scoped source pages directly, excluding formal proposed findings/orders.
+12. **Create minute-order summaries** — the configured Summarize API reads minute-order-boundary-scoped source pages directly.
+13. **Add links** — add hearing/minute page links (hearing summary only).
+
+The three summary stages are independently runnable rows, each with its own Run this step and Run from here actions. Each stage writes only its own output file (`summaries/hearings_sum_<case>.txt`, `summaries/reports_sum_<case>.txt`, or `summaries/minutes_sum_<case>.txt`) after all of its API windows succeed, so rerunning one category never rewrites the other two, and a stop or error leaves existing summaries untouched. Each row is Done exactly when its own summary file exists, so Resume can target a single missing category. Full pipeline runs still execute hearing, report, and minute-order generation in order before Add links.
 
 Summary inputs are adaptive, page-aligned **ephemeral windows**. RecordPrep adds complete source pages toward a 6,000-character target, stops at six primary pages or the 12,000-character safety limit, and prefers a break before a mapped witness examination. A single oversized page remains intact. The preceding page may be sent as context-only. Every primary page is summarized exactly once; no final compression pass discards unique detail, and no window text or metadata is written to disk.
 
@@ -88,8 +92,8 @@ The hearing and report prompt editors contain the complete instructions actually
 
 ### Agent Search
 
-13. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
-14. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
+14. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
+15. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
 
 The case overview supplies parties, procedural posture, key events, principal issues, and record scope so a Focus Agent can orient before inspecting structural metadata. It is explicitly nonauthoritative, is freshness-checked against its inputs, and cannot support a final factual claim or citation.
 
@@ -146,7 +150,7 @@ Settings include source extraction, local OCR, classification/case inference, th
 
 Saved run-until targets migrate as follows:
 
-- retired raw/transform stages → `create_summaries`
+- retired raw/transform stages and the retired aggregate `create_summaries` target → `create_minute_order_summaries`
 - retired overview stage → `create_case_overview`
 - retired vector stage → `build_source_map`
 

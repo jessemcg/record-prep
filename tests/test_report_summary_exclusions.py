@@ -15,6 +15,7 @@ from recordprep.ui.main_window import (
     DEFAULT_SUMMARIZE_REPORTS_PROMPT,
     NO_SUMMARIZABLE_REPORT_CONTENT,
     PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
     REPORT_PROPOSAL_MARKER_FIND_ORDER,
     REPORT_PROPOSAL_MARKER_LEAD_IN,
     REPORT_PROPOSAL_MARKER_SPLIT,
@@ -212,7 +213,66 @@ class ReportPromptContractTests(unittest.TestCase):
             PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         )
 
-    def test_previous_builtin_prompt_migrates_custom_prompt_preserved(self) -> None:
+    def test_previously_shipped_proposal_scope_prompt_is_preserved_verbatim(self) -> None:
+        # The immediately preceding built-in keeps the proposal-exclusion
+        # section and the old "several" quota wording, untouched.
+        self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Include several legally significant", PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("at least six", PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT)
+
+
+class ReportQuoteQuotaPromptTests(unittest.TestCase):
+    def test_new_prompt_states_numeric_minimum_of_six(self) -> None:
+        self.assertIn("Include at least six legally significant verbatim quotes", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("Include several", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_new_prompt_includes_fewer_than_six_safeguard(self) -> None:
+        self.assertIn(
+            "If fewer than six suitable quotations exist, include every suitable quotation",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+
+    def test_new_prompt_forbids_invention_and_insignificant_padding(self) -> None:
+        self.assertIn(
+            "never invent, alter, or pad the summary with insignificant or out-of-scope quotations",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+
+    def test_new_prompt_preserves_quote_length_verbatim_and_no_ellipsis_rules(self) -> None:
+        self.assertIn("two-to-five-word sequence in quotation marks", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Do not alter quoted text or use ellipses", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("taken only from eligible material", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_new_prompt_distributes_quotes_without_sacrificing_coverage(self) -> None:
+        self.assertIn("Distribute the quotations across the material facts, observations, interviews, and assessments", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("never sacrifice material factual coverage merely to reach the quotation target", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_new_prompt_keeps_proposal_exclusion_from_satisfying_quote_requirement(self) -> None:
+        self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn(
+            "never use proposed wording to satisfy the verbatim-quotation requirement",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+
+    def test_new_prompt_retains_one_paragraph_and_sentinel_contracts(self) -> None:
+        self.assertIn("with no internal line breaks", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("inserts a blank line", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+
+class ReportPromptMigrationTests(unittest.TestCase):
+    def test_previously_shipped_proposal_scope_prompt_migrates_to_new_prompt(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_reports_prompt": PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+            },
+        ):
+            migrated = load_summarize_settings()
+        self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_older_builtin_report_prompts_also_migrate(self) -> None:
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={
@@ -222,6 +282,19 @@ class ReportPromptContractTests(unittest.TestCase):
             migrated = load_summarize_settings()
         self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
+        legacy = (
+            "I need to understand the factual and procedural history of this juvenile "
+            "dependency case. Therefore, summarize the following report in one very "
+            "concise paragraph. Here is the report:"
+        )
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_prompt": legacy},
+        ):
+            legacy_migrated = load_summarize_settings()
+        self.assertEqual(legacy_migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_custom_prompt_remains_byte_for_byte_unchanged(self) -> None:
         custom = "A genuinely customized report prompt."
         with patch(
             "recordprep.ui.main_window._read_config",
@@ -229,6 +302,14 @@ class ReportPromptContractTests(unittest.TestCase):
         ):
             preserved = load_summarize_settings()
         self.assertEqual(preserved["reports_prompt"], custom)
+
+    def test_empty_prompt_falls_back_to_new_default(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_prompt": ""},
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
 
 class SentinelAndSkipTests(unittest.TestCase):

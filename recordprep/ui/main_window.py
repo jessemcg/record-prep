@@ -682,7 +682,7 @@ PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "quoted text or use ellipses. Do not begin with prefatory language, add commentary, or "
     "use Markdown. Do not summarize the optional preceding context page again."
 )
-DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
+PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT = (
     "You are summarizing one window of source pages from a report in a juvenile dependency "
     "case. The user message is organized into these labeled sections:\n\n"
     "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
@@ -714,6 +714,19 @@ DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "preceding context page again. If, after omitting the formal proposed advisements, findings, "
     "orders, and associated boilerplate, a window contains no eligible report narrative, return "
     "exactly this value and nothing else: " + NO_SUMMARIZABLE_REPORT_CONTENT
+)
+DEFAULT_SUMMARIZE_REPORTS_PROMPT = PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT.replace(
+    "Include several legally significant "
+    "verbatim quotes, each an uninterrupted two-to-five-word sequence in quotation marks, "
+    "taken only from eligible material. Do not alter quoted text or use ellipses.",
+    "Include at least six legally significant verbatim quotes, each an uninterrupted "
+    "two-to-five-word sequence in quotation marks, taken only from eligible material, "
+    "whenever the eligible primary pages contain at least six suitable quotations. If fewer "
+    "than six suitable quotations exist, include every suitable quotation; never invent, "
+    "alter, or pad the summary with insignificant or out-of-scope quotations. Distribute the "
+    "quotations across the material facts, observations, interviews, and assessments rather "
+    "than clustering them around one point, and never sacrifice material factual coverage "
+    "merely to reach the quotation target. Do not alter quoted text or use ellipses.",
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "I will provide you with the pages of a minute order. Based on this information, "
@@ -3777,12 +3790,16 @@ def load_summarize_settings() -> dict[str, Any]:
         )
     ):
         hearings_prompt = DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    if reports_prompt == PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT or reports_prompt.startswith(
-        (
-            "Summarize the following reports in one very concise paragraph",
-            "Summarize the primary report source pages in one concise paragraph",
-            "I need to understand the factual and procedural history of this juvenile "
-            "dependency case. Therefore, summarize the following report",
+    if (
+        reports_prompt == PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT
+        or reports_prompt == PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT
+        or reports_prompt.startswith(
+            (
+                "Summarize the following reports in one very concise paragraph",
+                "Summarize the primary report source pages in one concise paragraph",
+                "I need to understand the factual and procedural history of this juvenile "
+                "dependency case. Therefore, summarize the following report",
+            )
         )
     ):
         reports_prompt = DEFAULT_SUMMARIZE_REPORTS_PROMPT

@@ -7,6 +7,7 @@ from recordprep.ui.main_window import (
     DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     DEFAULT_SUMMARIZE_REPORTS_PROMPT,
     PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+    PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
     _append_summary_paragraph,
     _cleanup_legacy_generated_artifacts,
     _hearing_participant_context,
@@ -224,11 +225,12 @@ class DirectSourcePipelineTests(unittest.TestCase):
             "recordprep.ui.main_window._read_config",
             return_value={
                 "summarize_hearings_prompt": PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
-                "summarize_reports_prompt": DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+                "summarize_reports_prompt": PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
             },
         ):
             migrated = load_summarize_settings()
         self.assertEqual(migrated["hearings_prompt"], DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
+        self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
         custom_prompt = "My genuinely customized hearing prompt."
         with patch(
@@ -240,6 +242,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
         ):
             preserved = load_summarize_settings()
         self.assertEqual(preserved["hearings_prompt"], custom_prompt)
+        self.assertEqual(preserved["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
     def test_cleanup_removes_only_known_legacy_generated_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

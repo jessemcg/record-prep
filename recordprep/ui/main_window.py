@@ -56,6 +56,17 @@ from recordprep.pi_bundle import (
     pi_step_complete,
     validate_participant_index_output,
 )
+from recordprep.summary_editions import (
+    SUMMARY_EDITION_KINDS,
+    SummaryEdition,
+    SummaryEditionError,
+    build_summary_edition,
+    publish_summary_edition,
+    remove_summary_edition,
+    summary_edition_is_complete,
+    summary_edition_output_paths,
+    validate_summary_edition_files,
+)
 from recordprep.transcript_layout import (
     TranscriptLayoutError,
     apply_manual_override,
@@ -175,6 +186,7 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "create_report_summaries",
             "create_minute_order_summaries",
             "add_hearing_date_links",
+            "build_summary_editions",
         ),
     ),
     (
@@ -1344,6 +1356,24 @@ def _minutes_summary_output_path(root_dir: Path) -> Path:
     if case_name:
         return summaries_dir / f"minutes_sum_{case_name}.txt"
     return summaries_dir / "summarized_minutes.txt"
+
+
+def _summary_edition_sources(root_dir: Path) -> dict[str, Path]:
+    """Map each edition category to its canonical summary text path."""
+    hearings_path, reports_path = _summary_output_paths(root_dir)
+    return {
+        "hearings": hearings_path,
+        "reports": reports_path,
+        "minutes": _minutes_summary_output_path(root_dir),
+    }
+
+
+def _summary_editions_complete(root_dir: Path) -> bool:
+    """True when every category's edition validates against its current source."""
+    for kind, source_path in _summary_edition_sources(root_dir).items():
+        if not summary_edition_is_complete(kind, source_path, root_dir):
+            return False
+    return True
 
 
 @dataclass
@@ -2682,6 +2712,23 @@ def _write_manifest(
             "summarized_minutes": _relpath(summarized_minutes_path),
         }
     )
+    # Companion page-matched edition keys are additive and optional: present
+    # only while the generated PDF and page-map sidecar exist on disk, so
+    # invalidation removes them and older Focus versions never see them.
+    for kind, summary_path in (
+        ("hearings", summarized_hearings_path),
+        ("reports", summarized_reports_path),
+        ("minutes", summarized_minutes_path),
+    ):
+        edition_pdf, edition_pages = summary_edition_output_paths(summary_path)
+        pdf_key = f"summarized_{kind}_pdf"
+        pages_key = f"summarized_{kind}_pages"
+        if edition_pdf.exists() and edition_pages.exists():
+            files_payload[pdf_key] = _relpath(edition_pdf)
+            files_payload[pages_key] = _relpath(edition_pages)
+        else:
+            files_payload.pop(pdf_key, None)
+            files_payload.pop(pages_key, None)
 
     payload: dict[str, Any] = {
         "schema_version": 2,
@@ -6014,6 +6061,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_add_hearing_date_links_row)
 
+        self.step_build_summary_editions_row = Adw.ActionRow(
+            title="Build paginated summary editions",
+            subtitle="Create page-matched Letter PDFs and Focus page maps.",
+        )
+        self.step_build_summary_editions_row.set_activatable(False)
+        self._attach_step_controls(
+            "build_summary_editions",
+            self.step_build_summary_editions_row,
+            lambda _btn: self.on_step_build_summary_editions_clicked(
+                self.step_build_summary_editions_row
+            ),
+        )
+        self._attach_step_status(self.step_build_summary_editions_row)
+
         self.step_number_transcript_pages_row = Adw.ActionRow(
             title="Number transcript pages",
             subtitle="Identify official RT/CT page numbers and citation series with PI.",
@@ -6896,6 +6957,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return minutes_path.exists()
         if step_id == "add_hearing_date_links":
             return _has_page_markdown_links(summaries_path)
+        if step_id == "build_summary_editions":
+            return (
+                _summary_editions_complete(root_dir)
+            )
         if step_id in {
             "number_transcript_pages",
             "build_participant_index",
@@ -7784,6 +7849,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._run_step_add_hearing_date_links,
             ),
             (
+                "build_summary_editions",
+                self.step_build_summary_editions_row,
+                self._run_step_build_summary_editions,
+            ),
+            (
                 "create_case_overview",
                 self.step_create_case_overview_row,
                 self._run_step_create_case_overview,
@@ -8537,6 +8607,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._launch_single_step(
             self.step_add_hearing_date_links_row,
             self._run_step_add_hearing_date_links,
+        )
+
+    def on_step_build_summary_editions_clicked(self, _row: Adw.ActionRow) -> None:
+        root_dir = self._resolve_case_root()
+        if root_dir is None:
+            if self.selected_pdfs:
+                self.show_toast("Selected PDFs must be in the same folder.")
+            else:
+                self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(
+            self.step_build_summary_editions_row,
+            self._run_step_build_summary_editions,
         )
 
 
@@ -10598,6 +10681,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         else:
             success = True
             assert root_dir is not None
+            remove_summary_edition(summaries_path)
             self._safe_update_manifest(
                 root_dir,
                 {
@@ -10703,6 +10787,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         else:
             success = True
             assert root_dir is not None
+            remove_summary_edition(reports_path)
             self._safe_update_manifest(
                 root_dir,
                 {
@@ -10795,6 +10880,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         else:
             success = True
             assert root_dir is not None
+            remove_summary_edition(minutes_path)
             self._safe_update_manifest(
                 root_dir,
                 {
@@ -10879,6 +10965,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_toast, f"Add links to summaries failed: {exc}")
         else:
             success = True
+            remove_summary_edition(summaries_path)
             self._safe_update_manifest(
                 root_dir,
                 {
@@ -10894,6 +10981,81 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._stop_status_if_idle)
             GLib.idle_add(self._stop_button_if_idle)
         return success is True or success == "Skipped"
+
+    def _run_step_build_summary_editions(self) -> bool:
+        """Build and publish page-matched Letter PDFs and Focus page maps.
+
+        All three candidates are built and validated before any existing
+        edition is replaced, so an ordinary rendering failure never leaves a
+        mixed update. Messages carry only categories and page counts.
+        """
+        success: bool | str | None = False
+        root_dir: Path | None = None
+        page_counts: dict[str, int] = {}
+        try:
+            self._raise_if_stop_requested()
+            root_dir = self._resolve_case_root()
+            if root_dir is None:
+                if self.selected_pdfs:
+                    raise ValueError("Selected PDFs must be in the same folder.")
+                raise ValueError("Choose PDF files or select a saved case first.")
+            sources = _summary_edition_sources(root_dir)
+            for kind in SUMMARY_EDITION_KINDS:
+                if not sources[kind].exists():
+                    raise FileNotFoundError(
+                        "Run the summary steps to generate all three summaries first."
+                    )
+            editions: dict[str, SummaryEdition] = {}
+            for kind in SUMMARY_EDITION_KINDS:
+                self._raise_if_stop_requested()
+                editions[kind] = build_summary_edition(
+                    kind,
+                    sources[kind],
+                    root_dir,
+                )
+                page_counts[kind] = editions[kind].page_map["pdf"]["page_count"]
+            for kind in SUMMARY_EDITION_KINDS:
+                self._raise_if_stop_requested()
+                publish_summary_edition(editions[kind], sources[kind])
+        except StopRequested:
+            success = None
+        except SummaryEditionError as exc:
+            GLib.idle_add(
+                self.show_toast,
+                f"Build paginated summary editions failed: {exc}",
+            )
+        except Exception as exc:
+            GLib.idle_add(
+                self.show_toast,
+                f"Build paginated summary editions failed: {exc}",
+            )
+        else:
+            success = True
+            assert root_dir is not None
+            self._safe_update_manifest(
+                root_dir,
+                {
+                    "last_completed_step": "build_summary_editions",
+                    "last_failed_step": None,
+                    "last_failed_at": None,
+                },
+            )
+            counts_text = ", ".join(
+                f"{kind} {page_counts[kind]} pages"
+                for kind in SUMMARY_EDITION_KINDS
+            )
+            GLib.idle_add(
+                self.show_toast,
+                f"Build paginated summary editions complete ({counts_text}).",
+            )
+        finally:
+            GLib.idle_add(self.step_build_summary_editions_row.set_sensitive, True)
+            GLib.idle_add(
+                self._finish_step, self.step_build_summary_editions_row, success
+            )
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
 
 
 

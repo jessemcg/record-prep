@@ -13,6 +13,7 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 - `recordprep/config.py`: supported settings import surface.
 - `recordprep/manifest.py`: manifest import surface.
 - `recordprep/summaries.py`: summary path/link import surface.
+- `recordprep/summary_editions.py`: page-matched Letter PDF editions and Focus page maps.
 - `recordprep/documents.py`: PDF merge, extraction, rendering, and OCR import surface.
 - `recordprep/pi_runtime.py`: PI discovery/model settings.
 - `recordprep/pi_bundle.py`: PI artifact/schema validation.
@@ -33,8 +34,9 @@ Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and 
 9. Build `artifacts/participant_index.json` schema v2 with PI from appearances, express attendance/absence, unsworn colloquy, RT witness indexes, and sworn/examination evidence.
 10. Create summaries in three independently runnable stages — hearing, report, and minute-order — each directly from its own boundary-scoped source pages through ephemeral page windows. Each stage writes only its own summary file and completes independently; hearing generation requires the validated participant index, while report and minute-order generation do not.
 11. Add summary links (hearing summary only).
-12. Create the concise nonauthoritative `artifacts/case_overview.md` orientation aid.
-13. Build source-map v2 last.
+12. Build page-matched summary editions deterministically: after Add Links, render each summary into a fixed US-Letter PDF and a schema-v1 page-map sidecar under `summaries/editions/`. The PDF is the immutable pagination authority (Letter portrait, 72-point margins, 12-point serif body, `Page N of M` footer, numbering restarting at 1 per category). The sidecar records per-page selectable body text, trusted record-page link spans and targets, inclusive source-line ranges, and source/PDF hashes; generation verifies normalized page text reproduces the printable source exactly and fails rather than dropping a link. Build and validate all three candidates before replacing any edition, publish PDF then sidecar atomically, and invalidate only the rerun category's edition after a summary or Add Links text change. Editions are never Agent evidence or source-map search paths. RecordPrep/`summary_editions.py` owns this logic, re-exported through `recordprep/summaries.py`.
+13. Create the concise nonauthoritative `artifacts/case_overview.md` orientation aid.
+14. Build source-map v2 last.
 
 Transcript layout detection runs immediately after Create files, once per new
 or changed bundle, and publishes `artifacts/transcript_layout.json` schema v1.

@@ -43,13 +43,13 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 21)
+        self.assertEqual(len(grouped), 22)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")
         self.assertEqual(grouped[1], "detect_transcript_layout")
         self.assertEqual(grouped[2], "strip_characters")
-        self.assertEqual(grouped[-8:],
+        self.assertEqual(grouped[-9:],
             [
                 "number_transcript_pages",
                 "build_participant_index",
@@ -57,6 +57,7 @@ class MainWindowUiStateTests(unittest.TestCase):
                 "create_report_summaries",
                 "create_minute_order_summaries",
                 "add_hearing_date_links",
+                "build_summary_editions",
                 "create_case_overview",
                 "build_source_map",
             ],

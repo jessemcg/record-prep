@@ -2,10 +2,10 @@
  * RecordPrep summary-agent tools.
  *
  * Narrowly scoped custom tools for the two-stage summary pipeline. Extraction
- * children may only read work-spec windows and submit one extraction
- * candidate; synthesis children may only read canonical fact rows, submit
- * sections, and finalize. There is no filesystem, shell, or arbitrary-path
- * capability here.
+ * children may only read the current document's complete source payload and
+ * submit one extraction candidate; synthesis children may only read canonical
+ * fact rows, submit sections, and finalize. There is no filesystem, shell, or
+ * arbitrary-path capability here.
  */
 
 import { Type } from "typebox";
@@ -20,8 +20,7 @@ interface WorkSpec {
   label: string;
   start_page: number;
   end_page: number;
-  window_count: number;
-  windows: string[];
+  source: string;
   candidate_path: string;
   guidance: string;
   additional_guidance: string;
@@ -52,7 +51,6 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
   const specPath = String(process.env.RECORDPREP_SUMMARY_WORK_SPEC || "");
   const datasetPath = String(process.env.RECORDPREP_SUMMARY_DATASET || "");
 
-  const requestedWindows = new Set<number>();
   const requestedOrdinals = new Set<number>();
   const sections = new Map<string, Record<string, unknown>>();
 
@@ -73,32 +71,22 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
   // --- Extraction tools ---
 
   pi.registerTool({
-    name: "recordprep_get_window",
-    label: "Get source window",
+    name: "recordprep_get_source",
+    label: "Get document source",
     description:
-      "Return the next transport window of the current document's source " +
-      "pages. Request every eligible window index (0 through window_count-1) " +
-      "at least once before submitting.",
-    parameters: Type.Object({
-      window_index: Type.Integer({ minimum: 0 }),
-    }),
-    async execute(_id, params) {
+      "Return the current document's complete source pages, including any " +
+      "scope delimiters. Read it fully before submitting.",
+    parameters: Type.Object({}),
+    async execute(_id) {
       const spec = requireSpec();
-      if (params.window_index >= spec.window_count) {
-        return fail(
-          `window_index ${params.window_index} is out of range; this document has ` +
-            `${spec.window_count} window(s)`
-        );
-      }
-      requestedWindows.add(params.window_index);
       return {
         content: [
           {
             type: "text" as const,
-            text: spec.windows[params.window_index],
+            text: spec.source,
           },
         ],
-        details: { window_index: params.window_index },
+        details: { item_id: spec.item_id },
       };
     },
   });
@@ -180,16 +168,6 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
             }
           }
         }
-      }
-      if (requestedWindows.size < spec.window_count) {
-        const missing = [];
-        for (let index = 0; index < spec.window_count; index += 1) {
-          if (!requestedWindows.has(index)) missing.push(index);
-        }
-        return fail(
-          `request every eligible window before submitting; missing window ` +
-            `indices: ${missing.join(", ")}`
-        );
       }
       try {
         writeFileSync(

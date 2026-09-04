@@ -139,8 +139,6 @@ class BundleBuilder:
 def _extraction_config(kind: str = "hearings", **overrides) -> sa.ExtractionConfig:
     defaults: dict[str, Any] = {
         "kind": kind,
-        "target_chars": 6000,
-        "max_pages": 6,
         "guidance": (
             sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
             if kind == "hearings"
@@ -400,48 +398,72 @@ class QuoteResolutionTests(unittest.TestCase):
             self.assertIn("proposed findings", str(context.exception))
 
 
-class WindowTests(unittest.TestCase):
-    def test_windows_cover_every_page_exactly_once(self) -> None:
+class SourcePayloadTests(unittest.TestCase):
+    """Extraction serves each document's complete source pages in one payload.
+
+    The page-intact window algorithm remains only for the direct-API paths
+    (minute orders and prompt testing); PI extraction does not use it.
+    """
+
+    def test_source_payload_covers_every_page_in_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
-            builder.add_pages(1, 20, "aa bb")
-            builder.finish([(1, 20, "March 3, 2025")], [])
+            builder.add_pages(1, 4, "aa bb")
+            builder.finish([(1, 4, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config())
-            covered: list[int] = []
-            for window in items[0].windows:
-                covered.extend(window["primary_pages"])
-            self.assertEqual(covered, list(range(1, 21)))
-            self.assertEqual(
-                [window["primary_start"] for window in items[0].windows],
-                sorted(window["primary_start"] for window in items[0].windows),
+            payload = sa.item_source_payload(
+                items[0], root / "text_pages", {page: f"RT {page}" for page in range(1, 5)}
             )
+            for page in range(1, 5):
+                self.assertIn(f"[RT {page} | source page {page:04d}]", payload)
+                self.assertIn(f"Page {page} narrative.", payload)
+            self.assertIn("COMPLETE SOURCE PAGES 0001-0004", payload)
+            self.assertLess(payload.index("[RT 1 |"), payload.index("[RT 4 |"))
 
-    def test_examination_breaks_are_preferred(self) -> None:
+    def test_source_payload_carries_participant_context_and_proposal_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
-            builder.add_pages(1, 12, "aa bb")
-            builder.finish([(1, 12, "March 3, 2025")], [])
-            config = _extraction_config()
-            # Force the participant break at page 5.
-            items = sa.build_work_items(root, config)
-            items[0].preferred_breaks = {5}
-            from recordprep.summary_agents import _summary_page_windows
-
-            windows = _summary_page_windows(
-                root / "text_pages",
-                1,
-                12,
-                max_pages=config.max_pages,
-                target_chars=config.target_chars,
-                preferred_breaks={5},
+            builder.add_pages(1, 2, "rr 01")
+            (root / "text_pages" / "0002.txt").write_text(
+                "PROPOSED FINDINGS AND ORDERS\nQUOTEME:cc dd excluded material.\n",
+                encoding="utf-8",
             )
-            covered = [
-                page for window in windows for page in window["primary_pages"]
-            ]
-            self.assertEqual(covered, list(range(1, 13)))
-            self.assertEqual(windows[0]["primary_end"], 4)
+            builder.finish([], [(1, 2, "March 3, 2025", "Detention Report")])
+            items = sa.build_work_items(root, _extraction_config("reports"))
+            payload = sa.item_source_payload(
+                items[0], root / "text_pages", {}
+            )
+            self.assertIn(sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
+            self.assertLess(
+                payload.index("QUOTEME:rr 01"),
+                payload.index(sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip()),
+            )
+            self.assertNotIn("PARTICIPANT INDEX CONTEXT", payload)
+
+    def test_hearing_source_payload_includes_participant_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            payload = sa.item_source_payload(items[0], root / "text_pages", {})
+            self.assertIn("PARTICIPANT INDEX CONTEXT", payload)
+
+    def test_work_spec_shape_is_single_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            spec = sa.build_work_spec(items[0], _extraction_config(), root, Path("c.json"))
+            self.assertNotIn("windows", spec)
+            self.assertNotIn("window_count", spec)
+            self.assertIn("source", spec)
+            self.assertEqual(spec["schema_version"], 2)
 
 
 class JsonlStoreTests(unittest.TestCase):
@@ -1036,17 +1058,11 @@ if "--mode" in argv and "rpc" in argv:
 tools_index = argv.index("--tools") if "--tools" in argv else None
 tools = argv[tools_index + 1] if tools_index is not None else ""
 
-if "recordprep_get_window" in tools:
+if "recordprep_get_source" in tools:
     spec = json.loads(Path("work_spec.json").read_text(encoding="utf-8"))
-    # Read every window (recorded via tool names would be internal); the fake
-    # simply proves it could: all windows are embedded in the spec.
-    assert spec["window_count"] == len(spec["windows"])
-    marker = None
-    for window in spec["windows"]:
-        match = re.search(r"QUOTEME:([a-z ]+)", window)
-        if match:
-            marker = match.group(1).strip()
-    assert marker, "marker not found in windows"
+    marker_match = re.search(r"QUOTEME:([a-z ]+)", spec["source"])
+    marker = marker_match.group(1).strip() if marker_match else None
+    assert marker, "marker not found in source"
     categories = []
     for category in spec["categories"]:
         if category["id"] == spec["categories"][0]["id"]:
@@ -1197,7 +1213,7 @@ raise SystemExit(3)
             extraction = [
                 entry
                 for entry in invocations
-                if "recordprep_get_window" in _tools(entry)
+                if "recordprep_get_source" in _tools(entry)
             ]
             synthesis = [
                 entry
@@ -1217,7 +1233,7 @@ raise SystemExit(3)
             for entry in extraction:
                 tools = entry["argv"][entry["argv"].index("--tools") + 1]
                 self.assertEqual(
-                    tools, "recordprep_get_window,recordprep_submit_extraction"
+                    tools, "recordprep_get_source,recordprep_submit_extraction"
                 )
             synthesis_tools = synthesis[0]["argv"][
                 synthesis[0]["argv"].index("--tools") + 1
@@ -1267,8 +1283,9 @@ raise SystemExit(3)
             builder.finish([(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")], [])
             # Accept only the first document; the second child exits nonzero.
             fake_script = self.FAKE_PI.replace(
-                'marker = match.group(1).strip()',
-                'marker = match.group(1).strip()\n    if spec["ordinal"] > 1: raise SystemExit(4)',
+                "marker = marker_match.group(1).strip() if marker_match else None",
+                "marker = marker_match.group(1).strip() if marker_match else None\n"
+                '    if spec["ordinal"] > 1: raise SystemExit(4)',
             )
             fake = temp / "fake-pi"
             fake.write_text(fake_script, encoding="utf-8")

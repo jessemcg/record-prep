@@ -4778,15 +4778,12 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         # --- PI extraction windows ---
         windows_group = Adw.PreferencesGroup(
-            title="PI extraction windows",
+            title="Direct-API summary windows",
             description=(
-                "Adaptive page-intact transport windows per category. Each "
-                "document's windows are served inside one PI session; they "
-                "batch source pages and are never an output-length rule. "
-                "RecordPrep adds complete source pages toward the character "
-                "target and stops at the maximum page count or the 12,000-"
-                "character primary-source safety limit; one oversized source "
-                "page always remains intact."
+                "Adaptive page-intact windows for the direct-API paths "
+                "(prompt testing and minute orders). PI extraction does not "
+                "use windows: it sends each document's complete source pages "
+                "in one request to the extraction model."
             ),
         )
         windows_group.add_css_class("list-stack")

@@ -125,7 +125,7 @@ class PiResourceTests(unittest.TestCase):
             PI_DIR / "extensions" / "recordprep-summary-tools.ts"
         ).read_text(encoding="utf-8")
         for tool_name in (
-            "recordprep_get_window",
+            "recordprep_get_source",
             "recordprep_submit_extraction",
             "recordprep_get_facts",
             "recordprep_submit_summary_section",

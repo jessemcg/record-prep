@@ -38,7 +38,7 @@ SUMMARY_SKILL_NAMES = {
     },
 }
 SUMMARY_TOOL_ALLOWLISTS = {
-    "extract": "recordprep_get_window,recordprep_submit_extraction",
+    "extract": "recordprep_get_source,recordprep_submit_extraction",
     "synthesize": (
         "recordprep_get_facts,recordprep_submit_summary_section,"
         "recordprep_finish_summary"
@@ -621,8 +621,6 @@ def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
         or value("summary_synthesize_pi_model"),
         "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
         or value("summary_synthesize_pi_thinking"),
-        "target_chars": value(f"summarize_{kind}_window_target_chars"),
-        "max_pages": value(f"summarize_{kind}_window_max_pages"),
         "extract_prompt": value(f"summarize_{kind}_prompt"),
         "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
     }
@@ -635,26 +633,6 @@ def _extraction_config(
 ) -> Any:
     from recordprep import summary_agents as sa
 
-    defaults = {
-        "hearings": (
-            sa.DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
-            sa.DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
-        ),
-        "reports": (
-            sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
-            sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
-        ),
-    }
-    default_chars, default_pages = defaults[kind]
-    try:
-        target_chars = max(1, int(settings["target_chars"] or default_chars))
-    except (TypeError, ValueError):
-        target_chars = default_chars
-    try:
-        max_pages = max(1, int(settings["max_pages"] or default_pages))
-    except (TypeError, ValueError):
-        max_pages = default_pages
-    target_chars = min(target_chars, sa.DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS)
     default_guidance = (
         sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
         if kind == "hearings"
@@ -670,8 +648,6 @@ def _extraction_config(
         additional = settings["extract_prompt"].strip()
     return sa.ExtractionConfig(
         kind=kind,
-        target_chars=target_chars,
-        max_pages=max_pages,
         guidance=guidance,
         additional_guidance=additional,
         provider=settings["extract_provider"],
@@ -938,7 +914,6 @@ def _run_extraction_child(
             f"ordinal: {item.ordinal}",
             f"label: {item.label}",
             f"page range: {item.start_page}-{item.end_page}",
-            f"window_count: {len(item.windows)}",
             f"candidate_path: {cache_candidate}",
             "category ids in order: "
             + ", ".join(sa.SUMMARY_CATEGORY_IDS[kind]),
@@ -952,8 +927,8 @@ def _run_extraction_child(
                 ]
             )
         prompt_parts.append(
-            "The work specification file is available to your tools; request every "
-            "window, then submit once."
+            "The work specification file is available to your tools; read the "
+            "complete document source, then submit once."
         )
         prompt = "\n".join(prompt_parts)
         command = _base_child_command(
@@ -965,7 +940,7 @@ def _run_extraction_child(
             settings,
             "extract",
         )
-        payload_chars = sum(len(window) for window in spec["windows"]) + len(prompt)
+        payload_chars = len(spec["source"]) + len(prompt)
         _preflight_context(
             pi_command,
             f"{item.item_id} extraction",

@@ -27,6 +27,7 @@ from recordprep.ui.main_window import (
 )
 from recordprep.summary_editions import (
     PAGE_HEIGHT_PT,
+    SummaryEditionError,
     PAGE_MAP_ARTIFACT,
     PAGE_MAP_SCHEMA_VERSION,
     PAGE_WIDTH_PT,
@@ -287,6 +288,68 @@ class EditionRenderingTests(unittest.TestCase):
                 pdf_bytes=edition.pdf_bytes,
             )
             self.assertEqual(errors, [])
+
+    def test_ligature_substitution_keeps_coverage(self) -> None:
+        # MuPDF's serif face renders fi/fl/ff as single ligature glyphs, so
+        # extraction returns one codepoint where the source has two letters.
+        from recordprep.summary_editions import _coverage_stream
+
+        self.assertEqual(_coverage_stream("ﬁne"), _coverage_stream("fine"))
+        self.assertEqual(_coverage_stream("ﬂow"), _coverage_stream("flow"))
+        self.assertEqual(_coverage_stream("aﬀect"), _coverage_stream("affect"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            text = (
+                "The official filed a final affidavit before the first "
+                "fiscal review. "
+                "The flamingo flew over the flat field finally. "
+                + LONG_PARAGRAPH * 4
+            )
+            source = _write_source(root, "hearings", text)
+            edition = build_summary_edition("hearings", source, root)
+            errors = validate_edition_payload(
+                edition.page_map,
+                kind="hearings",
+                root_dir=root,
+                source_text=text,
+                pdf_bytes=edition.pdf_bytes,
+            )
+            self.assertEqual(errors, [])
+
+    def test_alignment_tolerates_wrapped_compounds_and_ligatures(self) -> None:
+        # Hyphenated compounds that wrap at the hyphen split into two
+        # extracted tokens whose concatenation equals the source word; NFKC
+        # folds ligature glyphs. Character-level whitespace-insensitive
+        # alignment must accept both.
+        from recordprep.summary_editions import _align_source_lines
+
+        printable = [
+            (1, "The record-breaking, well-documented \N{LATIN SMALL LIGATURE FI}nal "
+                "finding was reviewed."),
+            (3, "Second line with more detail here."),
+        ]
+        # Page 1: the compound "record-breaking" wrapped at the hyphen (space
+        # injected by extraction) and the ligature extracted precomposed.
+        page_texts = {
+            1: "The record- breaking, well- documented ﬁnal finding was",
+            2: "reviewed. Second line with more detail here.",
+        }
+        ranges = _align_source_lines(printable, page_texts)
+        self.assertEqual(ranges[1], (1, 1))
+        # Page 2 begins mid-paragraph ("reviewed." closes source line 1), so
+        # its inclusive source-line range legitimately spans 1..3.
+        self.assertEqual(ranges[2], (1, 3))
+
+    def test_overlong_unbreakable_token_fails_loudly(self) -> None:
+        # A single word wider than a full line is clipped by the renderer;
+        # the coverage check must fail the step instead of losing characters
+        # silently. Prior editions are preserved by the caller.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            text = "Reference marker x" + "y" * 140 + " ends the sentence."
+            source = _write_source(root, "reports", text)
+            with self.assertRaises(SummaryEditionError):
+                build_summary_edition("reports", source, root)
 
 
 class EditionRejectionTests(unittest.TestCase):

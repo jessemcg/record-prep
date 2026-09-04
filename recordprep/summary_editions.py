@@ -34,6 +34,7 @@ import json
 import os
 import re
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -129,6 +130,23 @@ def _sha256_file(path: Path) -> str:
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.split())
+
+
+def _coverage_stream(text: str) -> list[str]:
+    """Content characters surviving rendering-equivalent normalization.
+
+    NFKC folds ligature glyphs (an fi/fl ligature extracts as one codepoint
+    where the source has two letters); whitespace and format/control
+    characters are ignored because the renderer may realize them as line
+    breaks, collapses, or nothing at all (e.g. a long word wraps mid-word
+    without a hyphen, which extraction joins with a space).
+    """
+    normalized = unicodedata.normalize("NFKC", text)
+    return [
+        char
+        for char in normalized
+        if not char.isspace() and unicodedata.category(char) not in {"Cc", "Cf"}
+    ]
 
 
 def _relpath_inside_root(path: Path, root_dir: Path) -> str:
@@ -385,25 +403,32 @@ def _align_source_lines(
     printable: list[tuple[int, str]],
     page_texts: dict[int, str],
 ) -> dict[int, tuple[int, int]]:
-    """Align page tokens to the printable source token stream monotonically."""
-    source_tokens: list[tuple[str, int]] = []
+    """Align page content to the printable source monotonically.
+
+    Comparison is character-level after rendering-equivalent normalization
+    (NFKC, whitespace-insensitive), so ligature substitution and mid-word
+    line wraps do not falsely fail coverage.
+    """
+    source_stream: list[tuple[str, int]] = []
     for lineno, line in printable:
-        for token in line.split():
-            source_tokens.append((token, lineno))
+        for char in _coverage_stream(line):
+            source_stream.append((char, lineno))
 
-    page_tokens: list[tuple[str, int]] = []
+    page_stream: list[tuple[str, int]] = []
     for page_number in sorted(page_texts):
-        for token in page_texts[page_number].split():
-            page_tokens.append((token, page_number))
+        for char in _coverage_stream(page_texts[page_number]):
+            page_stream.append((char, page_number))
 
-    if len(source_tokens) != len(page_tokens):
+    if len(source_stream) != len(page_stream):
         raise SummaryEditionError(
-            "Source coverage check failed: token count mismatch between source and PDF."
+            "Source coverage check failed: character count mismatch between "
+            "source and PDF "
+            f"({len(source_stream)} source, {len(page_stream)} PDF)."
         )
-    for index, (source, page) in enumerate(zip(source_tokens, page_tokens)):
+    for index, (source, page) in enumerate(zip(source_stream, page_stream)):
         if source[0] != page[0]:
             raise SummaryEditionError(
-                "Source coverage check failed: content mismatch at token "
+                "Source coverage check failed: content mismatch at character "
                 f"{index + 1} on PDF page {page[1]}."
             )
 
@@ -411,11 +436,11 @@ def _align_source_lines(
     cursor = 0
     consumed_lines: list[int] = []
     for page_number in sorted(page_texts):
-        token_count = len(page_texts[page_number].split())
-        chunk = source_tokens[cursor : cursor + token_count]
-        cursor += token_count
+        char_count = len(_coverage_stream(page_texts[page_number]))
+        chunk = source_stream[cursor : cursor + char_count]
+        cursor += char_count
         if chunk:
-            lines = [lineno for _token, lineno in chunk]
+            lines = [lineno for _char, lineno in chunk]
             ranges[page_number] = (min(lines), max(lines))
             consumed_lines.extend(lines)
         else:
@@ -656,10 +681,10 @@ def validate_edition_payload(
                 break
 
     if source_text is not None:
-        expected = _normalize_text(
+        expected = _coverage_stream(
             " ".join(line for _lineno, line in printable_source_lines(source_text))
         )
-        actual = _normalize_text(
+        actual = _coverage_stream(
             " ".join(str(entry.get("text", "")) for entry in pages if isinstance(entry, dict))
         )
         if expected != actual:

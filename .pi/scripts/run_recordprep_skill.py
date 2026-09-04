@@ -134,6 +134,18 @@ def _project_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _ensure_project_importable(project_dir: Path) -> None:
+    """Make the recordprep package importable from the runner subprocess.
+
+    The parent of the staged/project `.pi` directory is the RecordPrep project
+    root. Native stages patched sys.path lazily inside their validators; the
+    summary stages import recordprep directly, so bootstrap it up front.
+    """
+    project_root = project_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+
 def _case_bundle() -> Path:
     configured = str(os.environ.get("RECORDPREP_CASE_BUNDLE", "") or "").strip()
     if not configured:
@@ -702,12 +714,14 @@ class _SummaryChildRunner:
         workspace: Path,
         poll_interval: float,
         stall_timeout: float,
+        env_overrides: dict[str, str] | None = None,
     ) -> None:
         self.command = list(command)
         self.label = label
         self.workspace = workspace
         self.poll_interval = poll_interval
         self.stall_timeout = stall_timeout
+        self.env_overrides = env_overrides or {}
         self.process: subprocess.Popen[str] | None = None
         self._stall_reported = False
 
@@ -716,6 +730,7 @@ class _SummaryChildRunner:
         env = os.environ.copy()
         env["TMPDIR"] = str(self.workspace / "tmp")
         env["PI_CODING_AGENT_SESSION_DIR"] = str(self.workspace / "sessions")
+        env.update(self.env_overrides)
         (self.workspace / "sessions").mkdir(parents=True, exist_ok=True)
         (self.workspace / "tmp").mkdir(parents=True, exist_ok=True)
         started = time.monotonic()
@@ -848,6 +863,7 @@ def _base_child_command(
 
 def _preflight_context(
     pi_command: Sequence[str],
+    model_id: str,
     label: str,
     input_chars: int,
     output_chars: int,
@@ -863,12 +879,10 @@ def _preflight_context(
             f"context preflight ({exc}); PI will enforce its own limit."
         )
         return
-    settings_model = str(
-        os.environ.get("RECORDPREP_SUMMARY_ACTIVE_MODEL", "") or ""
-    ).strip()
     model = None
-    if settings_model:
-        pattern = settings_model.split("/")[-1].lower()
+    active_model = str(model_id or "").strip()
+    if active_model:
+        pattern = active_model.split("/")[-1].lower()
         model = next(
             (entry for entry in models if entry.model_id.lower() == pattern),
             None,
@@ -885,6 +899,17 @@ def _preflight_context(
         )
     except runtime.PiRuntimeError as exc:
         raise ValueError(str(exc)) from None
+
+
+def _staged_project_model(staged_pi: Path) -> str:
+    """Read the project default model from the staged PI settings copy."""
+    try:
+        settings = json.loads(
+            (staged_pi / "settings.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(settings.get("defaultModel") or "").strip() if isinstance(settings, dict) else ""
 
 
 def _run_extraction_child(
@@ -944,8 +969,10 @@ def _run_extraction_child(
             "extract",
         )
         payload_chars = len(spec["source"]) + len(prompt)
+        active_model = settings.get("extract_model") or _staged_project_model(staged_pi)
         _preflight_context(
             pi_command,
+            active_model,
             f"{item.item_id} extraction",
             payload_chars,
             output_chars=6000,
@@ -960,6 +987,10 @@ def _run_extraction_child(
             stall_timeout=_float_env(
                 "RECORDPREP_PI_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS
             ),
+            env_overrides={
+                "RECORDPREP_SUMMARY_MODE": "extract",
+                "RECORDPREP_SUMMARY_WORK_SPEC": str(spec_path),
+            },
         )
         return_code = child.run()
         if _stopped:
@@ -1044,6 +1075,7 @@ def _run_synthesis_child(
         )
         _preflight_context(
             pi_command,
+            settings.get("synthesize_model") or _staged_project_model(staged_pi),
             f"{kind} synthesis",
             len(json.dumps(dataset)) + len(prompt),
             output_chars=max(4000, len(rows) * 2500),
@@ -1058,6 +1090,10 @@ def _run_synthesis_child(
             stall_timeout=_float_env(
                 "RECORDPREP_PI_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS
             ),
+            env_overrides={
+                "RECORDPREP_SUMMARY_MODE": "synthesize",
+                "RECORDPREP_SUMMARY_DATASET": str(dataset_path),
+            },
         )
         return_code = child.run()
         if _stopped:
@@ -1171,7 +1207,19 @@ def _render_and_validate(
 
 def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     from recordprep import summary_agents as sa
-    from recordprep.summary_editions import remove_summary_edition
+
+    # summary_editions pulls in PyMuPDF; the GTK app always has it, but the
+    # runner must not hard-fail without it. Skipping the removal is safe:
+    # edition hash validation marks a superseded edition stale regardless.
+    try:
+        from recordprep.summary_editions import remove_summary_edition
+    except ImportError:
+        remove_summary_edition = None
+        _line(
+            "\033[33m[warn]\033[0m PyMuPDF is unavailable in this interpreter; "
+            "the superseded summary edition was not removed. Hash validation "
+            "will still mark it stale until it is rebuilt."
+        )
 
     kind = SUMMARY_STAGE_KINDS[stage.step_id]
     settings = _summary_stage_settings(project_dir, kind)
@@ -1330,7 +1378,8 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 sa.summary_final_meta_path(root, kind),
                 json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
             )
-            remove_summary_edition(final_path)
+            if remove_summary_edition is not None:
+                remove_summary_edition(final_path)
             _line(f"\033[32m{stage.title} complete.\033[0m")
     except _StopRequested:
         _line(f"\033[33m{stage.title} stopped; the current row stays Pending.\033[0m")
@@ -1510,6 +1559,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     project_dir = _project_dir()
+    _ensure_project_importable(project_dir)
     if args == ["--validate-resources"]:
         issues = _resource_issues(project_dir)
         if issues:

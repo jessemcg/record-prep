@@ -1134,7 +1134,10 @@ tools_index = argv.index("--tools") if "--tools" in argv else None
 tools = argv[tools_index + 1] if tools_index is not None else ""
 
 if "recordprep_get_source" in tools:
-    spec = json.loads(Path("work_spec.json").read_text(encoding="utf-8"))
+    # The real extension reads the work spec through this env contract.
+    assert os.environ.get("RECORDPREP_SUMMARY_MODE") == "extract", \
+        "RECORDPREP_SUMMARY_MODE must be set for extraction children"
+    spec = json.loads(Path(os.environ["RECORDPREP_SUMMARY_WORK_SPEC"]).read_text(encoding="utf-8"))
     marker_match = re.search(r"QUOTEME:([a-z ]+)", spec["source"])
     marker = marker_match.group(1).strip() if marker_match else None
     assert marker, "marker not found in source"
@@ -1159,7 +1162,9 @@ if "recordprep_get_source" in tools:
     raise SystemExit(0)
 
 if "recordprep_finish_summary" in tools:
-    dataset = json.loads(Path("dataset.json").read_text(encoding="utf-8"))
+    assert os.environ.get("RECORDPREP_SUMMARY_MODE") == "synthesize", \
+        "RECORDPREP_SUMMARY_MODE must be set for synthesis children"
+    dataset = json.loads(Path(os.environ["RECORDPREP_SUMMARY_DATASET"]).read_text(encoding="utf-8"))
     sections = []
     for row in dataset["rows"]:
         quote_id = None

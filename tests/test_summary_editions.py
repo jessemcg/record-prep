@@ -347,6 +347,25 @@ class EditionRenderingTests(unittest.TestCase):
         # its inclusive source-line range legitimately spans 1..3.
         self.assertEqual(ranges[2], (1, 3))
 
+    def test_break_hyphen_extracts_as_regular_hyphen(self) -> None:
+        # When the Story wraps a hyphenated compound at its hyphen, MuPDF
+        # renders a real hyphen glyph but labels it U+00AD (soft hyphen) on
+        # extraction. The sidecar text must keep a plain ASCII hyphen so
+        # coverage and link labels keep matching the source. Exercise the
+        # normalization directly with a fixture page carrying U+00AD.
+        from recordprep.summary_editions import _page_body_text_and_chars
+
+        document = fitz.open()
+        page = document.new_page(width=200, height=100)
+        page.insert_text(fitz.Point(10, 50), "AAAAA\u00adBBBBB", fontname="tiro")
+        pdf_bytes = document.tobytes()
+        document.close()
+        with fitz.open("pdf", pdf_bytes) as reopened:
+            text, chars = _page_body_text_and_chars(reopened[0])
+        self.assertIn("AAAAA-BBBBB", text)
+        self.assertNotIn("\u00ad", text)
+        self.assertTrue(any(char == "-" for char, _bbox, _offset in chars))
+
     def test_overlong_unbreakable_token_fails_loudly(self) -> None:
         # A single word wider than a full line is clipped by the renderer;
         # the coverage check must fail the step instead of losing characters

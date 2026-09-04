@@ -400,7 +400,11 @@ def _page_body_text_and_chars(page: fitz.Page) -> tuple[str, list[tuple[str, tup
     """Extract body text with per-character bounding boxes and offsets.
 
     Visual line wrapping inside a block is collapsed to single spaces while
-    paragraph (block) boundaries become newlines.
+    paragraph (block) boundaries become newlines. When the Story wraps a
+    hyphenated compound at its hyphen, MuPDF renders a real, visible hyphen
+    glyph but labels it ``U+00AD`` (soft hyphen) on extraction; it is
+    normalized back to a plain ASCII hyphen so coverage checks, link label
+    matching, and the sidecar text keep matching the source.
     """
     raw = page.get_text("rawdict")
     pieces: list[str] = []
@@ -419,9 +423,12 @@ def _page_body_text_and_chars(page: fitz.Page) -> tuple[str, list[tuple[str, tup
             first_line = False
             for span in line.get("spans", []):
                 for char in span.get("chars", []):
+                    glyph = char["c"]
+                    if glyph == "\u00ad":
+                        glyph = "-"
                     offset = sum(len(piece) for piece in pieces)
-                    pieces.append(char["c"])
-                    chars.append((char["c"], tuple(char["bbox"]), offset))
+                    pieces.append(glyph)
+                    chars.append((glyph, tuple(char["bbox"]), offset))
     return "".join(pieces), chars
 
 

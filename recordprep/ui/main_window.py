@@ -4778,13 +4778,11 @@ class SettingsWindow(Adw.ApplicationWindow):
             "Minute-order window target (source characters)",
             "minutes_target_chars",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
-            minute_group,
         )
         minutes_max_pages_row = _window_row(
             "Minute-order maximum source pages per window",
             "minutes_max_pages",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
-            minute_group,
         )
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)

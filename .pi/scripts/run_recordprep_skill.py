@@ -623,6 +623,9 @@ def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
         or value("summary_synthesize_pi_thinking"),
         "extract_prompt": value(f"summarize_{kind}_prompt"),
         "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
+        "synthesize_target_words": value("summarize_reports_window_target_words")
+        if kind == "reports"
+        else "",
     }
 
 
@@ -1010,6 +1013,16 @@ def _run_synthesis_child(
         dataset_path = workspace / "dataset.json"
         dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
         guidance = str(synthesis_config.get("guidance") or "")
+        if kind == "reports":
+            try:
+                target_words = int(
+                    str(synthesis_config.get("target_words") or 0).strip()
+                )
+            except (TypeError, ValueError):
+                target_words = 0
+            length_section = sa._report_length_guidance_section(target_words)
+            if length_section:
+                guidance = f"{guidance}\n\n{length_section}"
         prompt = "\n".join(
             [
                 f"/skill:{skill_name}",
@@ -1271,6 +1284,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 "provider": settings["synthesize_provider"],
                 "model": settings["synthesize_model"],
                 "thinking": settings["synthesize_thinking"],
+                "target_words": settings["synthesize_target_words"],
             }
             if items:
                 _check_stop()

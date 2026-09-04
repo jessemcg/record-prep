@@ -995,5 +995,59 @@ class CorrectTocCompletionTests(unittest.TestCase):
             self.assertFalse(self._toc_complete(root, "correct_toc"))
 
 
+class SummarizeSettingsPageBuildTests(unittest.TestCase):
+    """Build the real Summarize settings page so runtime breakage cannot hide.
+
+    Skipped when no GTK display is available (headless environments).
+    """
+
+    def _display_available(self) -> bool:
+        try:
+            import gi
+
+            gi.require_version("Gtk", "4.0")
+            gi.require_version("Adw", "1")
+            from gi.repository import Adw, Gtk
+
+            Adw.init()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def test_summarize_page_builds_with_minute_only_windows(self) -> None:
+        if not self._display_available():
+            self.skipTest("no GTK display available")
+        from recordprep import summary_agents as sa
+        from recordprep.ui.main_window import SettingsWindow, load_summarize_settings
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ):
+                settings = load_summarize_settings()
+
+            window = SettingsWindow.__new__(SettingsWindow)
+            window._summary_model_rows = []
+            window._pi_model_options = []
+            window._prompt_editors = {}
+            page = SettingsWindow._build_summarize_prompt_page(window, settings)
+
+            self.assertIsNotNone(page)
+            widgets = window._summarize_widgets
+            self.assertEqual(
+                widgets.minutes_target_chars_row.get_text(), "6000"
+            )
+            self.assertEqual(widgets.minutes_max_pages_row.get_text(), "6")
+            self.assertEqual(
+                widgets.reports_target_words_row.get_text(),
+                str(sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
+            )
+            # Retired hearing/report window rows no longer exist as fields.
+            self.assertFalse(hasattr(widgets, "hearings_target_chars_row"))
+            self.assertFalse(hasattr(widgets, "reports_max_pages_row"))
+
+
 if __name__ == "__main__":
     unittest.main()

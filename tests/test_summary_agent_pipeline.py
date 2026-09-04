@@ -451,6 +451,83 @@ class SourcePayloadTests(unittest.TestCase):
             items = sa.build_work_items(root, _extraction_config())
             payload = sa.item_source_payload(items[0], root / "text_pages", {})
             self.assertIn("PARTICIPANT INDEX CONTEXT", payload)
+            self.assertIn("Counsel:", payload)
+            self.assertIn("Participants:", payload)
+            self.assertIn("Testimony:", payload)
+
+    def test_hearing_payload_carries_witness_and_testimony_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 3, "aa bb")
+            builder.finish([(1, 3, "March 3, 2025")], [])
+            # A verified witness with a mapped, cited examination.
+            (root / "artifacts" / "participant_index.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "source": "record-participant-index",
+                        "warnings": [],
+                        "hearings": [
+                            {
+                                "id": "hearing:0001",
+                                "date": "March 3, 2025",
+                                "start_page": 1,
+                                "end_page": 3,
+                                "witness_status": "verified",
+                                "witness_evidence": [
+                                    {
+                                        "text_path": "text_pages/0001.txt",
+                                        "file_page": 1,
+                                        "citation_label": "RT 1",
+                                        "citation_key": "RT:1",
+                                        "note": "Synthetic.",
+                                    }
+                                ],
+                                "witnesses": [
+                                    {
+                                        "name": "Casey Specialist",
+                                        "description": "agency social worker",
+                                        "examinations": [
+                                            {
+                                                "type": "direct_examination",
+                                                "examiner_role_id": "minors_counsel",
+                                                "start_file_page": 1,
+                                                "end_file_page": 2,
+                                                "start_citation_label": "RT 1",
+                                                "end_citation_label": "RT 2",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "counsel": [
+                                    {
+                                        "role_id": "minors_counsel",
+                                        "name": "Alex Attorney",
+                                        "aliases": [],
+                                        "organization": "",
+                                        "appearance_status": "present",
+                                        "evidence": [
+                                            {"file_page": 1, "citation_label": "RT 1"}
+                                        ],
+                                    }
+                                ],
+                                "participants": [],
+                                "warnings": [],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            items = sa.build_work_items(root, _extraction_config())
+            payload = sa.item_source_payload(items[0], root / "text_pages", {})
+            self.assertIn("Minor’s counsel — Alex Attorney", payload)
+            self.assertIn("direct examination by Minor’s counsel", payload)
+            self.assertIn("; RT 1–RT 2)", payload)
+            self.assertIn(
+                "Testimony: Casey Specialist (agency social worker)", payload
+            )
 
     def test_work_spec_shape_is_single_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

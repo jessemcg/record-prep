@@ -694,35 +694,146 @@ def _participant_index(root: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _hearing_participant_context(hearing: dict[str, Any]) -> str:
-    """Render participant-index attribution context (never source prose)."""
+def _participant_role_label(role_id: str) -> str:
+    labels = {
+        "mothers_counsel": "Mother’s counsel",
+        "fathers_counsel": "Father’s counsel",
+        "alleged_fathers_counsel": "Alleged father’s counsel",
+        "presumed_fathers_counsel": "Presumed father’s counsel",
+        "parents_counsel": "Parent’s counsel",
+        "minors_counsel": "Minor’s counsel",
+        "county_counsel": "County counsel",
+        "tribes_counsel": "Tribe’s counsel",
+        "guardian_ad_litem": "Guardian ad litem",
+        "other_counsel": "Other counsel",
+        "unresolved_counsel": "Unresolved counsel",
+    }
+    return labels.get(role_id, role_id.replace("_", " ").title())
+
+
+def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
+    """Counsel line and testimony line from one validated index hearing."""
     counsel_parts: list[str] = []
     for counsel in hearing.get("counsel", []):
         if not isinstance(counsel, dict):
             continue
-        role = str(counsel.get("role_label") or counsel.get("role_id") or "").strip()
+        role_id = str(counsel.get("role_id") or "")
+        role = (
+            _participant_role_label(role_id)
+            if role_id
+            else str(counsel.get("role_label") or "").strip()
+        )
         name = str(counsel.get("name") or "").strip() or "not identified"
+        metadata: list[str] = []
+        organization = str(counsel.get("organization") or "").strip()
+        aliases = [
+            str(value).strip()
+            for value in counsel.get("aliases", [])
+            if str(value).strip()
+        ]
         appearance = str(counsel.get("appearance_status") or "").strip().replace("_", " ")
-        suffix = f" (appearance: {appearance})" if appearance else ""
+        if organization:
+            metadata.append(f"organization: {organization}")
+        if aliases:
+            metadata.append(f"personal aliases: {', '.join(aliases)}")
+        if appearance:
+            metadata.append(f"appearance: {appearance}")
+        suffix = f" ({'; '.join(metadata)})" if metadata else ""
         counsel_parts.append(f"{role} — {name}{suffix}")
     counsel_line = "Counsel: " + (
         "; ".join(counsel_parts) if counsel_parts else "Not reliably identified."
     ) + "."
+    status = str(hearing.get("witness_status") or "unknown")
+    witnesses = [
+        item for item in hearing.get("witnesses", []) if isinstance(item, dict)
+    ]
+    if status == "none":
+        testimony_line = "Testimony: None."
+    elif status == "unknown":
+        testimony_line = (
+            "Testimony: Not reliably identified from the available witness "
+            "index or sworn-examination evidence."
+        )
+    elif status == "conflict":
+        names = ", ".join(
+            str(item.get("name") or "unnamed witness") for item in witnesses
+        )
+        testimony_line = (
+            "Testimony: Conflicting attribution evidence; supported witness "
+            f"entries: {names or 'none'}; review warnings."
+        )
+    else:
+        parts: list[str] = []
+        for witness in witnesses:
+            name = str(witness.get("name") or "unnamed witness")
+            description = str(witness.get("description") or "").strip()
+            exams: list[str] = []
+            start_labels: list[str] = []
+            end_labels: list[str] = []
+            for exam in witness.get("examinations", []):
+                if not isinstance(exam, dict):
+                    continue
+                exam_type = str(exam.get("type") or "examination").replace("_", " ")
+                examiner_role = _participant_role_label(
+                    str(exam.get("examiner_role_id") or "")
+                )
+                exams.append(
+                    f"{exam_type} by {examiner_role}" if examiner_role else exam_type
+                )
+                if exam.get("start_citation_label"):
+                    start_labels.append(str(exam["start_citation_label"]))
+                if exam.get("end_citation_label"):
+                    end_labels.append(str(exam["end_citation_label"]))
+            citation = ""
+            if start_labels:
+                citation_end = end_labels[-1] if end_labels else start_labels[-1]
+                citation = (
+                    start_labels[0]
+                    if citation_end == start_labels[0]
+                    else f"{start_labels[0]}–{citation_end}"
+                )
+            detail = f" ({description})" if description else ""
+            suffix = "; ".join(exams)
+            if citation:
+                suffix = f"{suffix}; {citation}" if suffix else citation
+            parts.append(f"{name}{detail}" + (f" ({suffix})" if suffix else ""))
+        testimony_line = "Testimony: " + (
+            "; ".join(parts)
+            if parts
+            else "Verified witness evidence was recorded without a resolved name"
+        ) + "."
+    return counsel_line, testimony_line
+
+
+def _hearing_participant_context(hearing: dict[str, Any]) -> str:
+    """Render participant-index guidance; this text is never added to the summary.
+
+    Carries counsel, participant, and witness/testimony context for
+    attribution only; every submitted fact still requires evidence from the
+    original hearing pages.
+    """
+    counsel_line, testimony_line = _hearing_context_lines(hearing)
     participant_parts: list[str] = []
     for participant in hearing.get("participants", []):
         if not isinstance(participant, dict):
             continue
         role = str(participant.get("role_label") or "").strip()
         name = str(participant.get("name") or "").strip()
-        identity = f"{role} — {name}" if role and name else role or name or "Unresolved participant"
+        identity = (
+            f"{role} — {name}" if role and name else role or name or "Unresolved participant"
+        )
         attendance = str(participant.get("attendance_status") or "unknown").replace("_", " ")
-        participant_parts.append(f"{identity} (attendance: {attendance})")
+        speaking = str(participant.get("speaking_status") or "unknown").replace("_", " ")
+        sworn = str(participant.get("sworn_status") or "unknown").replace("_", " ")
+        participant_parts.append(
+            f"{identity} (attendance: {attendance}; speaking: {speaking}; sworn: {sworn})"
+        )
     participants_line = "Participants: " + (
         "; ".join(participant_parts)
         if participant_parts
         else "No additional participant metadata recorded."
     )
-    return "\n".join((counsel_line, participants_line))
+    return "\n".join((counsel_line, participants_line, testimony_line))
 
 
 def _page_text_map(text_dir: Path, start: int, end: int) -> dict[int, str]:

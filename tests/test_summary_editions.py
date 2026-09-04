@@ -1,14 +1,12 @@
 """Tests for page-matched summary editions (Letter PDFs + Focus page maps).
 
 Synthetic only: no real case material. Covers rendering, coverage invariants,
-link mapping, hash/schema rejection, atomic publication, category-specific
-invalidation, pipeline ordering, and manifest companion keys.
+link mapping, hash/schema rejection, layout-contract validation, atomic
+publication, category-specific invalidation, pipeline ordering, and manifest
+companion keys.
 """
 
-import io
 import json
-import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,20 +26,18 @@ from recordprep.ui.main_window import (
     _write_manifest,
 )
 from recordprep.summary_editions import (
-    BODY_FONT_FAMILY,
-    CENTURY_SCHOOLBOOK_FAMILY,
+    BODY_FONT_SIZE_PT,
     PAGE_HEIGHT_PT,
+    MARGIN_PT,
+    PARAGRAPH_SPACING_EM,
     SummaryEditionError,
     PAGE_MAP_ARTIFACT,
     PAGE_MAP_SCHEMA_VERSION,
     PAGE_WIDTH_PT,
     SUMMARY_EDITION_KINDS,
-    _reset_edition_body_font_cache,
-    _resolve_century_schoolbook_font,
     build_summary_edition,
     publish_summary_edition,
     remove_summary_edition,
-    resolve_edition_body_font,
     summary_edition_is_complete,
     summary_edition_output_paths,
     validate_edition_payload,
@@ -158,10 +154,23 @@ class EditionRenderingTests(unittest.TestCase):
             source = _write_source(root, "hearings", _long_source(5))
             edition = build_summary_edition("hearings", source, root)
             layout = edition.page_map["layout"]
+            self.assertEqual(layout["id"], "recordprep-summary-letter-v2")
             self.assertEqual(layout["page_width_pt"], PAGE_WIDTH_PT)
             self.assertEqual(layout["page_height_pt"], PAGE_HEIGHT_PT)
-            self.assertEqual(layout["margin_pt"], 72.0)
-            self.assertEqual(layout["body_font_size_pt"], 12.0)
+            self.assertEqual(layout["margin_pt"], 54.0)
+            self.assertEqual(layout["body_font_family"], "Nimbus Roman")
+            self.assertEqual(layout["body_font_size_pt"], 11.0)
+            self.assertEqual(layout["body_line_height"], 1.18)
+            self.assertEqual(layout["paragraph_spacing_em"], 0.5)
+            self.assertEqual(
+                layout["footer"],
+                {
+                    "template": "Page {n} of {m}",
+                    "font_family": "Times",
+                    "font_size_pt": 9.0,
+                    "baseline_from_bottom_pt": 36.0,
+                },
+            )
             with fitz.open("pdf", edition.pdf_bytes) as document:
                 for page in document:
                     self.assertEqual(page.rect.width, PAGE_WIDTH_PT)
@@ -378,244 +387,72 @@ class EditionRenderingTests(unittest.TestCase):
                 build_summary_edition("reports", source, root)
 
 
-def _system_font_file() -> Path | None:
-    """Any usable system font file for mocked-resolution rendering tests."""
-    fc_match = shutil.which("fc-match")
-    if not fc_match:
-        return None
-    try:
-        result = subprocess.run(
-            [fc_match, "-f", "file=%{file}\n", "serif"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    _key, separator, value = result.stdout.strip().partition("=")
-    if not separator:
-        return None
-    path = Path(value.strip())
-    if not path.is_file() or path.suffix.casefold() not in {
-        ".ttf",
-        ".otf",
-        ".ttc",
-        ".otc",
-    }:
-        return None
-    return path
+class EditionBuiltInFontTests(unittest.TestCase):
+    """Rendering is fully self-contained: PyMuPDF's built-in Nimbus Roman
+    body and Times footer, with no external font file or subprocess."""
 
-
-class EditionFontResolutionTests(unittest.TestCase):
-    """Fontconfig resolution and graceful fallback (no real fc-match calls
-    with synthetic payloads; the exact-family test uses a temporary file)."""
-
-    def setUp(self) -> None:
-        _reset_edition_body_font_cache()
-
-    def tearDown(self) -> None:
-        _reset_edition_body_font_cache()
-
-    def _run_fc_match(self, stdout: str, returncode: int = 0, file_exists: bool = True):
-        """Patch fc-match discovery and return the resolver result plus mock."""
-        font_file = None
-        for line in stdout.splitlines():
-            key, separator, value = line.partition("=")
-            if separator and key.strip() == "file":
-                font_file = Path(value.strip())
-        def fake_run(argv, **_kwargs):
-            self.assertIsInstance(argv, list)
-            if file_exists and font_file is not None:
-                font_file.parent.mkdir(parents=True, exist_ok=True)
-                font_file.write_bytes(b"synthetic")
-            return mock.Mock(returncode=returncode, stdout=stdout)
-
-        with mock.patch(
-            "recordprep.summary_editions.shutil.which", return_value="/usr/bin/fc-match"
-        ) as which_mock, mock.patch(
-            "recordprep.summary_editions.subprocess.run", side_effect=fake_run
-        ) as run_patch:
-            resolved = _resolve_century_schoolbook_font()
-        which_mock.assert_called_once_with("fc-match")
-        return resolved, run_patch
-
-    def test_exact_family_regular_style_resolves_to_file(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=Century Schoolbook\n"
-            "style=Regular,normal,Standard\n"
-            "file=/tmp/fonttest/Century Schoolbook.ttf\n"
-        )
-        self.assertEqual(resolved, Path("/tmp/fonttest/Century Schoolbook.ttf"))
-
-    def test_directly_named_variant_family_resolves(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=Century Schoolbook L\n"
-            "style=Regular\n"
-            "file=/tmp/fonttest/Century Schoolbook L.ttf\n"
-        )
-        self.assertEqual(resolved, Path("/tmp/fonttest/Century Schoolbook L.ttf"))
-
-    def test_unrelated_fallback_family_is_rejected(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=DejaVu Serif\n"
-            "style=Regular,normal\n"
-            "file=/tmp/fonttest/DejaVuSerif.ttf\n"
-        )
-        self.assertIsNone(resolved)
-
-    def test_non_regular_style_is_rejected(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=Century Schoolbook\n"
-            "style=Bold\n"
-            "file=/tmp/fonttest/Century Schoolbook Bold.ttf\n"
-        )
-        self.assertIsNone(resolved)
-
-    def test_missing_command_falls_back(self) -> None:
-        with mock.patch("recordprep.summary_editions.shutil.which", return_value=None):
-            self.assertIsNone(_resolve_century_schoolbook_font())
-
-    def test_failed_command_falls_back(self) -> None:
-        resolved, _run_patch = self._run_fc_match("", returncode=1, file_exists=False)
-        self.assertIsNone(resolved)
-
-    def test_timeout_falls_back(self) -> None:
-        with mock.patch(
-            "recordprep.summary_editions.shutil.which", return_value="/usr/bin/fc-match"
-        ), mock.patch(
-            "recordprep.summary_editions.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="fc-match", timeout=5),
-        ):
-            self.assertIsNone(_resolve_century_schoolbook_font())
-
-    def test_subprocess_error_falls_back(self) -> None:
-        with mock.patch(
-            "recordprep.summary_editions.shutil.which", return_value="/usr/bin/fc-match"
-        ), mock.patch(
-            "recordprep.summary_editions.subprocess.run",
-            side_effect=OSError("fc-match vanished"),
-        ):
-            self.assertIsNone(_resolve_century_schoolbook_font())
-
-    def test_malformed_output_falls_back(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "garbage without separators\n", file_exists=False
-        )
-        self.assertIsNone(resolved)
-
-    def test_missing_font_file_falls_back(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=Century Schoolbook\n"
-            "style=Regular\n"
-            "file=/tmp/fonttest/absent.ttf\n",
-            file_exists=False,
-        )
-        self.assertIsNone(resolved)
-
-    def test_unsupported_suffix_falls_back(self) -> None:
-        resolved, _run_patch = self._run_fc_match(
-            "family=Century Schoolbook\n"
-            "style=Regular\n"
-            "file=/tmp/fonttest/Century Schoolbook.txt\n"
-        )
-        self.assertIsNone(resolved)
-
-    def test_resolution_is_cached_per_process(self) -> None:
-        with mock.patch(
-            "recordprep.summary_editions._resolve_century_schoolbook_font",
-            return_value=None,
-        ) as resolver:
-            self.assertIsNone(resolve_edition_body_font())
-            self.assertIsNone(resolve_edition_body_font())
-            self.assertEqual(resolver.call_count, 1)
-            _reset_edition_body_font_cache()
-            self.assertIsNone(resolve_edition_body_font())
-            self.assertEqual(resolver.call_count, 2)
-
-
-class EditionFontRenderingTests(unittest.TestCase):
-    """Rendering invariants with the Century preference enabled and disabled.
-
-    Rendering tests use any real system font file behind a mocked resolver,
-    never a bundled Century font.
-    """
-
-    def setUp(self) -> None:
-        _reset_edition_body_font_cache()
-
-    def tearDown(self) -> None:
-        _reset_edition_body_font_cache()
-
-    def _edition_with_mocked_font(self, root: Path, font_path: Path | None):
-        source = _write_source(root, "hearings", _long_source(5))
-        with mock.patch(
-            "recordprep.summary_editions.resolve_edition_body_font",
-            return_value=font_path,
-        ):
-            edition = build_summary_edition("hearings", source, root)
-        return edition
-
-    def test_century_enabled_rendering_passes_all_invariants(self) -> None:
-        system_font = _system_font_file()
-        if system_font is None:
-            self.skipTest("no usable system font file for mocked resolver")
+    def test_rendering_needs_no_external_font_or_subprocess(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
-            font_path = root / "Test Body Font.ttf"
-            shutil.copyfile(system_font, font_path)
-            edition = self._edition_with_mocked_font(root, font_path)
-
+            source = _write_source(root, "hearings", _long_source(5))
+            with mock.patch(
+                "recordprep.summary_editions.fitz.Archive",
+                side_effect=AssertionError("no font archive is allowed"),
+            ):
+                edition = build_summary_edition("hearings", source, root)
+            self.assertEqual(edition.page_map["layout"]["body_font_family"], "Nimbus Roman")
             self.assertEqual(
-                edition.page_map["layout"]["body_font_family"],
-                CENTURY_SCHOOLBOOK_FAMILY,
+                edition.page_map["layout"]["footer"]["font_family"], "Times"
             )
-            self.assertEqual(edition.page_map["layout"]["id"], "recordprep-summary-letter-v1")
-            errors = validate_edition_payload(
-                edition.page_map,
-                kind="hearings",
-                root_dir=root,
-                source_text=_long_source(5),
-                pdf_bytes=edition.pdf_bytes,
-            )
-            self.assertEqual(errors, [])
 
-            expected_name = fitz.Font(fontfile=str(font_path)).name
+    def test_body_uses_nimbus_roman_and_footer_stays_times(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            source = _write_source(root, "hearings", _long_source(5))
+            edition = build_summary_edition("hearings", source, root)
             total = edition.page_map["pdf"]["page_count"]
             page_texts = _extract_pdf_page_text(edition.pdf_bytes)
             with fitz.open("pdf", edition.pdf_bytes) as document:
                 for number, page in enumerate(document):
-                    self.assertEqual(page.rect.width, PAGE_WIDTH_PT)
-                    self.assertEqual(page.rect.height, PAGE_HEIGHT_PT)
                     fonts = document.get_page_fonts(number)
                     basefonts = [entry[3] for entry in fonts]
-                    self.assertIn(expected_name, basefonts)
-                    refnames = [entry[4] for entry in fonts]
-                    self.assertIn("CSBRegular", refnames)
+                    # Body text renders with the built-in Times-compatible
+                    # Nimbus Roman face; the footer stays built-in Times.
+                    self.assertIn("Nimbus Roman Regular", basefonts)
+                    self.assertIn("Times-Roman", basefonts)
+                    self.assertFalse(
+                        any("Century" in name for name in basefonts)
+                    )
             for number, text in enumerate(page_texts, start=1):
                 self.assertIn(f"Page {number} of {total}", text)
             for page in edition.pages:
                 self.assertNotIn(f"Page {page.page} of {total}", page.text)
 
-    def test_fallback_rendering_reports_generic_serif(self) -> None:
+    def test_v2_density_regresssion_guard(self) -> None:
+        # Sanitized density regression: the same synthetic fixture must stay
+        # meaningfully denser than the retired v1 defaults (72pt margins,
+        # 12pt body, browser-default paragraph spacing). An accidental return
+        # to those defaults inflates the page count past the guard.
+        import recordprep.summary_editions as editions_module
+
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
-            edition = self._edition_with_mocked_font(root, None)
-            self.assertEqual(
-                edition.page_map["layout"]["body_font_family"], BODY_FONT_FAMILY
-            )
-            errors = validate_edition_payload(
-                edition.page_map,
-                kind="hearings",
-                root_dir=root,
-                source_text=_long_source(5),
-                pdf_bytes=edition.pdf_bytes,
-            )
-            self.assertEqual(errors, [])
-            total = edition.page_map["pdf"]["page_count"]
-            for number, text in enumerate(_extract_pdf_page_text(edition.pdf_bytes), start=1):
-                self.assertIn(f"Page {number} of {total}", text)
+            source = _write_source(root, "hearings", _long_source(30))
+            edition = build_summary_edition("hearings", source, root)
+            v2_pages = edition.page_map["pdf"]["page_count"]
+            with mock.patch.object(
+                editions_module, "MARGIN_PT", 72.0
+            ), mock.patch.object(
+                editions_module, "BODY_FONT_SIZE_PT", 12.0
+            ), mock.patch.object(
+                editions_module, "_USER_CSS", "body{font-family:serif;}"
+            ):
+                legacy = build_summary_edition("hearings", source, root)
+            legacy_pages = legacy.page_map["pdf"]["page_count"]
+            self.assertGreater(v2_pages, 0)
+            # The dense layout must remain clearly denser than the old
+            # defaults on identical text (measured ~40% fewer pages).
+            self.assertLessEqual(v2_pages, legacy_pages * 0.8)
 
 
 class EditionRejectionTests(unittest.TestCase):
@@ -654,6 +491,75 @@ class EditionRejectionTests(unittest.TestCase):
                 page_map, kind="hearings", root_dir=root
             )
             self.assertIn("Page map schema version is unsupported.", errors)
+
+    def test_v1_layout_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, source, pages_path = self._published(temporary)
+            page_map = json.loads(pages_path.read_text(encoding="utf-8"))
+            page_map["layout"]["id"] = "recordprep-summary-letter-v1"
+            errors = validate_edition_payload(
+                page_map, kind="hearings", root_dir=root
+            )
+            self.assertIn("Page map layout identifier mismatch.", errors)
+
+    def test_each_v2_typography_field_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, source, pages_path = self._published(temporary)
+            wrong_metric = {
+                "page_width_pt": 615.0,
+                "page_height_pt": 795.0,
+                "margin_pt": 72.0,
+                "body_font_size_pt": 12.0,
+                "body_line_height": 1.0,
+                "paragraph_spacing_em": 1.0,
+            }
+            for key, value in wrong_metric.items():
+                mutated = json.loads(pages_path.read_text(encoding="utf-8"))
+                mutated["layout"][key] = value
+                errors = validate_edition_payload(
+                    mutated, kind="hearings", root_dir=root
+                )
+                self.assertIn(
+                    f"Page map layout field {key} does not match the fixed layout.",
+                    errors,
+                    f"expected rejection for {key}={value}",
+                )
+            mutated = json.loads(pages_path.read_text(encoding="utf-8"))
+            mutated["layout"]["body_font_family"] = "serif"
+            errors = validate_edition_payload(mutated, kind="hearings", root_dir=root)
+            self.assertIn(
+                "Page map layout field body_font_family does not match the fixed layout.",
+                errors,
+            )
+
+    def test_each_v2_footer_field_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, source, pages_path = self._published(temporary)
+            for key, needle in (
+                ("template", "footer template"),
+                ("font_family", "footer font family"),
+                ("font_size_pt", "footer field font_size_pt"),
+                ("baseline_from_bottom_pt", "footer field baseline_from_bottom_pt"),
+            ):
+                mutated = json.loads(pages_path.read_text(encoding="utf-8"))
+                mutated["layout"]["footer"][key] = (
+                    "Page {n}/{m}"
+                    if key == "template"
+                    else "Helvetica"
+                    if key == "font_family"
+                    else 72.0
+                )
+                errors = validate_edition_payload(
+                    mutated, kind="hearings", root_dir=root
+                )
+                self.assertTrue(
+                    any(needle in error for error in errors),
+                    f"expected footer rejection for {key}: {errors}",
+                )
+            mutated = json.loads(pages_path.read_text(encoding="utf-8"))
+            mutated["layout"]["footer"] = "Page {n} of {m}"
+            errors = validate_edition_payload(mutated, kind="hearings", root_dir=root)
+            self.assertIn("Page map layout footer metadata is missing.", errors)
 
     def test_wrong_category_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

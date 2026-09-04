@@ -20,6 +20,12 @@ Invariants enforced here:
 - The layout is fixed (Letter portrait, 72pt margins, 12pt serif body). Page
   ``N of M`` footers are drawn inside the bottom margin and are excluded from
   page body text.
+- When Fontconfig reports an exact, usable Century Schoolbook installation,
+  the 12-point body and the footer prefer that face (embedded/subsetted into
+  the generated PDF only — no font file is ever copied into a bundle). Any
+  discovery or rendering problem silently falls back to the generic serif
+  behavior, and the effective family is recorded in the sidecar layout
+  metadata.
 
 Progress and error messages intentionally contain only categories, page
 numbers, and counts — never summary content.
@@ -33,6 +39,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
@@ -55,6 +63,31 @@ BODY_FONT_FAMILY = "serif"
 FOOTER_FONT_SIZE_PT = 9.0
 FOOTER_BASELINE_FROM_BOTTOM_PT = 36.0
 FOOTER_TEMPLATE = "Page {n} of {m}"
+
+# Optional Century Schoolbook preference. Resolution is best-effort: any
+# failure means the generic serif fallback above, never a build error.
+CENTURY_SCHOOLBOOK_REQUEST = "Century Schoolbook"
+CENTURY_SCHOOLBOOK_FAMILY = "Century Schoolbook"
+_CENTURY_SCHOOLBOOK_CSS_ALIAS = "RecordPrepCenturySchoolbook"
+_FOOTER_CUSTOM_FONTNAME = "CSBRegular"
+_FC_MATCH_TIMEOUT_SECONDS = 5.0
+_FONT_FILE_SUFFIXES = {".ttf", ".otf", ".ttc", ".otc"}
+# Style tokens that disqualify a face as regular body text.
+_UNSUITABLE_STYLE_TOKENS = (
+    "bold",
+    "italic",
+    "oblique",
+    "light",
+    "thin",
+    "black",
+    "heavy",
+    "condensed",
+    "demi",
+    "semi",
+    "ultra",
+    "extra",
+    "mono",
+)
 
 # RecordPrep's trusted record-page link syntax. Anything else is literal text.
 RECORD_PAGE_LINK_RE = re.compile(r"\[([^\]\[\n]+)\]\(page:(\d+)\)")
@@ -130,6 +163,102 @@ def _sha256_file(path: Path) -> str:
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.split())
+
+
+_FONT_PATH_CACHE: dict[str, Path | None] = {}
+
+
+def _is_century_schoolbook_family(family: str) -> bool:
+    """True when a Fontconfig family names Century Schoolbook directly.
+
+    Accepts the plain family and directly named variants such as
+    ``Century Schoolbook L``; a generic fallback serif never qualifies.
+    """
+    for member in family.split(","):
+        name = member.strip().casefold()
+        if name == "century schoolbook" or name.startswith("century schoolbook "):
+            return True
+    return False
+
+
+def _is_regular_body_style(style: str) -> bool:
+    """True when a Fontconfig style suits regular body text."""
+    lowered = style.casefold()
+    return not any(token in lowered for token in _UNSUITABLE_STYLE_TOKENS)
+
+
+def _resolve_century_schoolbook_font() -> Path | None:
+    """Best-effort Fontconfig lookup of an exact Century Schoolbook face.
+
+    Returns the font file path only when ``fc-match`` resolves the requested
+    family to an actually-named Century Schoolbook variant in a regular body
+    style whose file exists and looks like a usable font. A missing command,
+    timeout, malformed output, unsupported or missing file, or any subprocess
+    error means "unavailable" — callers silently keep the generic serif.
+    """
+    fc_match = shutil.which("fc-match")
+    if not fc_match:
+        return None
+    format_string = "family=%{family}\nstyle=%{style}\nfile=%{file}\n"
+    try:
+        result = subprocess.run(
+            [fc_match, "-f", format_string, CENTURY_SCHOOLBOOK_REQUEST],
+            capture_output=True,
+            text=True,
+            timeout=_FC_MATCH_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    fields: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            fields[key.strip()] = value.strip()
+    family = fields.get("family", "")
+    style = fields.get("style", "")
+    file_value = fields.get("file", "")
+    if not family or not file_value:
+        return None
+    if not _is_century_schoolbook_family(family):
+        return None
+    if style and not _is_regular_body_style(style):
+        return None
+    font_file = Path(file_value)
+    if (
+        not font_file.is_file()
+        or font_file.suffix.casefold() not in _FONT_FILE_SUFFIXES
+    ):
+        return None
+    return font_file
+
+
+def resolve_edition_body_font() -> Path | None:
+    """Resolve and cache the preferred body font for this process.
+
+    All editions in one build share the same font decision so a single
+    publication never mixes faces.
+    """
+    if "path" not in _FONT_PATH_CACHE:
+        _FONT_PATH_CACHE["path"] = _resolve_century_schoolbook_font()
+    return _FONT_PATH_CACHE["path"]
+
+
+def _reset_edition_body_font_cache() -> None:
+    """Forget the cached font decision (test and diagnostics helper)."""
+    _FONT_PATH_CACHE.clear()
+
+
+def _century_schoolbook_user_css(font_path: Path) -> str:
+    """Escaped ``@font-face`` rule served from an archive at the font dir."""
+    filename = font_path.name.replace("\\", "\\\\").replace("'", "\\'")
+    return (
+        f"@font-face{{font-family:'{_CENTURY_SCHOOLBOOK_CSS_ALIAS}';"
+        f"src:url('{filename}');}}\n"
+        f"body{{font-family:'{_CENTURY_SCHOOLBOOK_CSS_ALIAS}';}}"
+    )
 
 
 def _coverage_stream(text: str) -> list[str]:
@@ -236,7 +365,13 @@ def _page_rect_fn() -> Any:
 
 def _render_story_html(
     html_body: str,
+    font_path: Path | None = None,
 ) -> tuple[bytes, list[dict[str, Any]]]:
+    css = _USER_CSS
+    archive = None
+    if font_path is not None:
+        css = _century_schoolbook_user_css(font_path)
+        archive = fitz.Archive(str(font_path.parent))
     positions: list[dict[str, Any]] = []
 
     def positionfn(position: Any) -> None:
@@ -249,7 +384,9 @@ def _render_story_html(
             }
         )
 
-    story = fitz.Story(html=html_body, user_css=_USER_CSS, em=int(BODY_FONT_SIZE_PT))
+    story = fitz.Story(
+        html=html_body, user_css=css, em=int(BODY_FONT_SIZE_PT), archive=archive
+    )
     buffer = io.BytesIO()
     writer = fitz.DocumentWriter(buffer)
     try:
@@ -381,21 +518,34 @@ def _map_links(
     return mapped
 
 
-def _add_footers(document: fitz.Document) -> bytes:
+def _add_footers(document: fitz.Document, font_path: Path | None = None) -> bytes:
     total = document.page_count
+    footer_font: fitz.Font | None = None
+    if font_path is not None:
+        footer_font = fitz.Font(fontfile=str(font_path))
     for page in document:
         label = FOOTER_TEMPLATE.format(n=page.number + 1, m=total)
-        width = fitz.get_text_length(
-            label, fontname="tiro", fontsize=FOOTER_FONT_SIZE_PT
-        )
-        x = (PAGE_WIDTH_PT - width) / 2
-        y = PAGE_HEIGHT_PT - FOOTER_BASELINE_FROM_BOTTOM_PT
-        page.insert_text(
-            fitz.Point(x, y),
-            label,
-            fontname="tiro",
-            fontsize=FOOTER_FONT_SIZE_PT,
-        )
+        if footer_font is not None:
+            width = footer_font.text_length(
+                label, fontsize=FOOTER_FONT_SIZE_PT
+            )
+            page.insert_text(
+                fitz.Point((PAGE_WIDTH_PT - width) / 2, PAGE_HEIGHT_PT - FOOTER_BASELINE_FROM_BOTTOM_PT),
+                label,
+                fontname=_FOOTER_CUSTOM_FONTNAME,
+                fontfile=str(font_path),
+                fontsize=FOOTER_FONT_SIZE_PT,
+            )
+        else:
+            width = fitz.get_text_length(
+                label, fontname="tiro", fontsize=FOOTER_FONT_SIZE_PT
+            )
+            page.insert_text(
+                fitz.Point((PAGE_WIDTH_PT - width) / 2, PAGE_HEIGHT_PT - FOOTER_BASELINE_FROM_BOTTOM_PT),
+                label,
+                fontname="tiro",
+                fontsize=FOOTER_FONT_SIZE_PT,
+            )
     return document.tobytes()
 
 
@@ -464,8 +614,9 @@ def build_summary_edition(
     if source_text is None:
         source_text = source_path.read_text(encoding="utf-8")
 
+    font_path = resolve_edition_body_font()
     html_body, registry = _build_html(source_text)
-    base_pdf_bytes, positions = _render_story_html(html_body)
+    base_pdf_bytes, positions = _render_story_html(html_body, font_path)
     document = fitz.open("pdf", base_pdf_bytes)
     try:
         page_texts: dict[int, str] = {}
@@ -492,7 +643,7 @@ def build_summary_edition(
                 )
             )
 
-        final_pdf_bytes = _add_footers(document)
+        final_pdf_bytes = _add_footers(document, font_path)
     finally:
         document.close()
 
@@ -509,7 +660,9 @@ def build_summary_edition(
             "page_width_pt": PAGE_WIDTH_PT,
             "page_height_pt": PAGE_HEIGHT_PT,
             "margin_pt": MARGIN_PT,
-            "body_font_family": BODY_FONT_FAMILY,
+            "body_font_family": (
+                CENTURY_SCHOOLBOOK_FAMILY if font_path is not None else BODY_FONT_FAMILY
+            ),
             "body_font_size_pt": BODY_FONT_SIZE_PT,
             "footer": FOOTER_TEMPLATE,
         },

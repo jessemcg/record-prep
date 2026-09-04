@@ -38,6 +38,27 @@ SUMMARY_KIND_LABELS = {"hearings": "hearing", "reports": "report"}
 SUMMARY_ITEM_PREFIXES = {"hearings": "hearing", "reports": "report"}
 SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary"}
 
+REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING = (
+    "REPORT SUMMARY LENGTH GUIDANCE — FOR OUTPUT SHAPE ONLY"
+)
+
+
+def _report_length_guidance_section(target_words: int) -> str:
+    """Return the ephemeral report length-guidance section, or "" when disabled."""
+    if target_words <= 0:
+        return ""
+    return (
+        f"{REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING}\n"
+        f"Target approximately {target_words} words for this report's narrative "
+        "section. This is approximate model guidance for output shape only: it is "
+        "not a token cap, a truncation rule, or a rejection criterion, and RecordPrep "
+        "will never cut off or mechanically reject an answer because of its length. "
+        "Finish the summary coherently rather than stopping mid-thought, and write "
+        "fewer words than the target when the eligible material warrants less. "
+        "Exceeding the target is better than omitting a material fact."
+    )
+
+
 NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
 
 QUOTE_MIN_WORDS = 2

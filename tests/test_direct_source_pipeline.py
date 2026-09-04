@@ -81,38 +81,22 @@ class DirectSourcePipelineTests(unittest.TestCase):
             settings["reports_prompt"],
             _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
         )
-        # The untouched legacy default pair leaves hearings and minute orders
-        # at 6000/6 while reports initialize to the new 10000/10 recommendation.
-        self.assertEqual(settings["hearings_target_chars"], "6000")
-        self.assertEqual(settings["hearings_max_pages"], "6")
-        self.assertEqual(settings["reports_target_chars"], "10000")
-        self.assertEqual(settings["reports_max_pages"], "10")
+        # The untouched legacy default pair leaves minute orders at 6000/6.
         self.assertEqual(settings["minutes_target_chars"], "6000")
         self.assertEqual(settings["minutes_max_pages"], "6")
 
-    def test_default_summary_window_settings_are_category_specific(self) -> None:
+    def test_default_summary_window_settings_are_minute_order_only(self) -> None:
+        """PI extraction no longer uses windows; only minute orders keep them."""
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={},
         ):
             settings = load_summarize_settings()
 
-        self.assertEqual(
-            settings["hearings_target_chars"],
-            str(DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS),
-        )
-        self.assertEqual(
-            settings["hearings_max_pages"],
-            str(DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES),
-        )
-        self.assertEqual(
-            settings["reports_target_chars"],
-            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS),
-        )
-        self.assertEqual(
-            settings["reports_max_pages"],
-            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES),
-        )
+        self.assertNotIn("hearings_target_chars", settings)
+        self.assertNotIn("hearings_max_pages", settings)
+        self.assertNotIn("reports_target_chars", settings)
+        self.assertNotIn("reports_max_pages", settings)
         self.assertEqual(
             settings["minutes_target_chars"],
             str(DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS),
@@ -126,7 +110,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
             str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
         )
 
-    def test_customized_legacy_pair_migrates_to_every_category(self) -> None:
+    def test_customized_legacy_pair_migrates_to_minute_orders(self) -> None:
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={
@@ -136,30 +120,24 @@ class DirectSourcePipelineTests(unittest.TestCase):
         ):
             settings = load_summarize_settings()
 
-        self.assertEqual(settings["hearings_target_chars"], "8000")
-        self.assertEqual(settings["hearings_max_pages"], "8")
-        self.assertEqual(settings["reports_target_chars"], "8000")
-        self.assertEqual(settings["reports_max_pages"], "8")
+        self.assertNotIn("hearings_target_chars", settings)
+        self.assertNotIn("reports_target_chars", settings)
         self.assertEqual(settings["minutes_target_chars"], "8000")
         self.assertEqual(settings["minutes_max_pages"], "8")
 
-    def test_explicit_category_keys_win_over_legacy_pair(self) -> None:
+    def test_explicit_keys_win_over_legacy_pair(self) -> None:
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={
                 "summarize_window_target_chars": "8000",
                 "summarize_window_max_pages": "8",
-                "summarize_reports_window_target_chars": "9000",
+                "summarize_minutes_window_target_chars": "7000",
                 "summarize_minutes_window_max_pages": "4",
             },
         ):
             settings = load_summarize_settings()
 
-        self.assertEqual(settings["hearings_target_chars"], "8000")
-        self.assertEqual(settings["hearings_max_pages"], "8")
-        self.assertEqual(settings["reports_target_chars"], "9000")
-        self.assertEqual(settings["reports_max_pages"], "8")
-        self.assertEqual(settings["minutes_target_chars"], "8000")
+        self.assertEqual(settings["minutes_target_chars"], "7000")
         self.assertEqual(settings["minutes_max_pages"], "4")
 
     def test_invalid_window_values_fall_back_to_defaults(self) -> None:
@@ -168,16 +146,11 @@ class DirectSourcePipelineTests(unittest.TestCase):
             return_value={
                 "summarize_window_target_chars": "not-a-number",
                 "summarize_window_max_pages": "0",
-                "summarize_reports_window_target_chars": "oops",
                 "summarize_minutes_window_max_pages": "-3",
             },
         ):
             settings = load_summarize_settings()
 
-        self.assertEqual(settings["hearings_target_chars"], "6000")
-        self.assertEqual(settings["hearings_max_pages"], "6")
-        self.assertEqual(settings["reports_target_chars"], "10000")
-        self.assertEqual(settings["reports_max_pages"], "10")
         self.assertEqual(settings["minutes_target_chars"], "6000")
         # Numeric values clamp to the minimum like the legacy loader; only
         # non-numeric text falls back to the default.
@@ -232,10 +205,6 @@ class DirectSourcePipelineTests(unittest.TestCase):
                 model_id="test-model",
                 api_key="key",
                 disable_reasoning=False,
-                hearings_target_chars="6000",
-                hearings_max_pages="6",
-                reports_target_chars="10000",
-                reports_max_pages="10",
                 reports_target_words="250",
                 minutes_target_chars="6000",
                 minutes_max_pages="6",
@@ -244,16 +213,17 @@ class DirectSourcePipelineTests(unittest.TestCase):
                 minutes_prompt="minute prompt",
             )
 
-        self.assertEqual(captured["summarize_hearings_window_target_chars"], "6000")
-        self.assertEqual(captured["summarize_hearings_window_max_pages"], "6")
-        self.assertEqual(captured["summarize_reports_window_target_chars"], "10000")
-        self.assertEqual(captured["summarize_reports_window_max_pages"], "10")
         self.assertEqual(captured["summarize_reports_window_target_words"], "250")
         self.assertEqual(captured["summarize_minutes_window_target_chars"], "6000")
         self.assertEqual(captured["summarize_minutes_window_max_pages"], "6")
         self.assertNotIn("summarize_window_target_chars", captured)
         self.assertNotIn("summarize_window_max_pages", captured)
         self.assertNotIn("summarize_chunk_size", captured)
+        # Retired PI extraction window keys are removed on save.
+        self.assertNotIn("summarize_hearings_window_target_chars", captured)
+        self.assertNotIn("summarize_hearings_window_max_pages", captured)
+        self.assertNotIn("summarize_reports_window_target_chars", captured)
+        self.assertNotIn("summarize_reports_window_max_pages", captured)
 
     def test_summary_window_limits_are_per_category_and_normalized(self) -> None:
         settings = {

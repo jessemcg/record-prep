@@ -927,10 +927,6 @@ class SettingsTests(unittest.TestCase):
                     model_id="synthetic-model",
                     api_key="synthetic-key",
                     disable_reasoning=False,
-                    hearings_target_chars="6000",
-                    hearings_max_pages="6",
-                    reports_target_chars="10000",
-                    reports_max_pages="10",
                     reports_target_words="250",
                     minutes_target_chars="6000",
                     minutes_max_pages="6",
@@ -948,6 +944,8 @@ class SettingsTests(unittest.TestCase):
                 )
                 config = _read_config()
                 self.assertEqual(config["summary_extract_pi_model"], "synthetic-model")
+                self.assertNotIn("summarize_hearings_window_target_chars", config)
+                self.assertNotIn("summarize_reports_window_max_pages", config)
                 self.assertEqual(config["summary_extract_pi_thinking"], "low")
                 self.assertEqual(config["summary_synthesize_pi_model"], "")
                 settings = load_summarize_settings()

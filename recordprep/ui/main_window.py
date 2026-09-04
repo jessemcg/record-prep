@@ -90,6 +90,7 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS,
     NO_SUMMARIZABLE_REPORT_CONTENT,
     REPORT_PROPOSAL_MARKER_FIND_ORDER,
     REPORT_PROPOSAL_MARKER_LEAD_IN,
@@ -97,9 +98,11 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     REPORT_PROPOSAL_MARKER_TITLE,
     REPORT_PROPOSAL_SCOPE_DELIMITER,
     REPORT_PROPOSAL_SCOPE_HEADING,
+    REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING,
     ReportProposalMarker,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
+    _report_length_guidance_section,
     _report_proposal_scope_note,
     _summary_page_windows,
 )
@@ -853,27 +856,6 @@ SUMMARY_TEST_MODE_CATEGORIES = {
     "summarize_reports": "reports",
     "summarize_minutes": "minutes",
 }
-REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING = (
-    "REPORT SUMMARY LENGTH GUIDANCE — FOR OUTPUT SHAPE ONLY"
-)
-
-
-def _report_length_guidance_section(target_words: int) -> str:
-    """Return the ephemeral report length-guidance section, or "" when disabled."""
-    if target_words <= 0:
-        return ""
-    return (
-        f"{REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING}\n"
-        f"Target approximately {target_words} words for this window's summary "
-        "paragraph. This is approximate model guidance for output shape only: it is "
-        "not a token cap, a truncation rule, or a rejection criterion, and RecordPrep "
-        "will never cut off or mechanically reject an answer because of its length. "
-        "Finish the summary coherently rather than stopping mid-thought, and write "
-        "fewer words than the target when the eligible material warrants less. "
-        "Exceeding the target is better than omitting a material fact."
-    )
-
-
 MINUTE_SUMMARY_WINDOW_GUIDANCE = (
     "\n\nThe user message labels any preceding page as optional context only and labels "
     "the pages to summarize as primary source pages. Do not summarize the optional "
@@ -3751,10 +3733,6 @@ class SummarizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
-    hearings_target_chars_row: Adw.EntryRow
-    hearings_max_pages_row: Adw.EntryRow
-    reports_target_chars_row: Adw.EntryRow
-    reports_max_pages_row: Adw.EntryRow
     reports_target_words_row: Adw.EntryRow
     minutes_target_chars_row: Adw.EntryRow
     minutes_max_pages_row: Adw.EntryRow
@@ -3837,7 +3815,6 @@ def load_summarize_settings() -> dict[str, Any]:
         legacy_index: int,
         *,
         category_default: int,
-        reports_migration: bool = False,
     ) -> int:
         """Resolve one category window value from explicit, legacy, or default."""
         explicit_raw = str(config.get(primary_key, "") or "").strip()
@@ -3847,39 +3824,9 @@ def load_summarize_settings() -> dict[str, Any]:
             except ValueError:
                 pass
         if legacy_pair is not None:
-            # A customized legacy pair migrates to every category, including
-            # reports; the untouched old default leaves reports at the new
-            # recommendation instead.
-            customized = legacy_pair != (
-                DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS,
-                DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
-            )
-            if not reports_migration or customized:
-                return legacy_pair[legacy_index]
+            return legacy_pair[legacy_index]
         return category_default
 
-    hearings_target = _window_value(
-        CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
-        0,
-        category_default=DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
-    )
-    hearings_pages = _window_value(
-        CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
-        1,
-        category_default=DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
-    )
-    reports_target = _window_value(
-        CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
-        0,
-        category_default=DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
-        reports_migration=True,
-    )
-    reports_pages = _window_value(
-        CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
-        1,
-        category_default=DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
-        reports_migration=True,
-    )
     minutes_target = _window_value(
         CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
         0,
@@ -3917,10 +3864,6 @@ def load_summarize_settings() -> dict[str, Any]:
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
-        "hearings_target_chars": str(hearings_target),
-        "hearings_max_pages": str(hearings_pages),
-        "reports_target_chars": str(reports_target),
-        "reports_max_pages": str(reports_pages),
         "reports_target_words": str(reports_words),
         "minutes_target_chars": str(minutes_target),
         "minutes_max_pages": str(minutes_pages),
@@ -3962,10 +3905,6 @@ def save_summarize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
-    hearings_target_chars: str,
-    hearings_max_pages: str,
-    reports_target_chars: str,
-    reports_max_pages: str,
     reports_target_words: str,
     minutes_target_chars: str,
     minutes_max_pages: str,
@@ -3986,13 +3925,18 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
     config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS] = hearings_target_chars
-    config[CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES] = hearings_max_pages
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS] = reports_target_chars
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES] = reports_max_pages
     config[CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS] = reports_target_words
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS] = minutes_target_chars
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES] = minutes_max_pages
+    # Retired per-category PI extraction window keys: PI extraction sends each
+    # document's complete source pages and no longer uses windows.
+    for obsolete_key in (
+        CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
+        CONFIG_KEY_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
+        CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
+        CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
+    ):
+        config.pop(obsolete_key, None)
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS, None)
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES, None)
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, None)
@@ -4776,58 +4720,38 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         synthesize_group.add(synthesize_thinking_row)
 
-        # --- PI extraction windows ---
-        windows_group = Adw.PreferencesGroup(
-            title="Direct-API summary windows",
-            description=(
-                "Adaptive page-intact windows for the direct-API paths "
-                "(prompt testing and minute orders). PI extraction does not "
-                "use windows: it sends each document's complete source pages "
-                "in one request to the extraction model."
-            ),
+        reports_target_words_row = Adw.EntryRow(
+            title="Words per report (soft target)",
         )
-        windows_group.add_css_class("list-stack")
-        windows_group.set_hexpand(True)
-        page_box.append(windows_group)
-
-        def _window_row(title: str, key: str, default_value: int, group: Adw.PreferencesGroup | None = None) -> Adw.EntryRow:
-            row = Adw.EntryRow(title=title)
-            row.set_text(settings.get(key, str(default_value)))
-            (group or windows_group).add(row)
-            return row
-
-        hearings_target_chars_row = _window_row(
-            "Hearing window target (source characters)",
-            "hearings_target_chars",
-            DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
+        reports_target_words_row.set_text(settings.get("reports_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)))
+        word_target_subtitle = (
+            "Soft words-per-report guidance for synthesis output shape only; "
+            "0 disables it. Never a token cap, truncation, rejection, or "
+            "repair rule."
         )
-        hearings_max_pages_row = _window_row(
-            "Hearing maximum source pages per window",
-            "hearings_max_pages",
-            DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
-        )
-        reports_target_chars_row = _window_row(
-            "Report window target (source characters)",
-            "reports_target_chars",
-            DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
-        )
-        reports_max_pages_row = _window_row(
-            "Report maximum source pages per window",
-            "reports_max_pages",
-            DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
-        )
+        if hasattr(reports_target_words_row, "set_subtitle"):
+            reports_target_words_row.set_subtitle(word_target_subtitle)
+        else:
+            reports_target_words_row.set_tooltip_text(word_target_subtitle)
+        synthesize_group.add(reports_target_words_row)
 
         # --- Minute orders (direct API) ---
         minute_group = Adw.PreferencesGroup(
             title="Minute orders (direct API)",
             description=(
                 "Minute-order summaries still use the direct API path. These "
-                "credentials apply only to minute orders."
+                "credentials and window settings apply only to minute orders."
             ),
         )
         minute_group.add_css_class("list-stack")
         minute_group.set_hexpand(True)
         page_box.append(minute_group)
+
+        def _window_row(title: str, key: str, default_value: int) -> Adw.EntryRow:
+            row = Adw.EntryRow(title=title)
+            row.set_text(settings.get(key, str(default_value)))
+            minute_group.add(row)
+            return row
 
         api_url_row = Adw.EntryRow(title="Minute-order API URL")
         api_url_row.set_text(settings.get("api_url", ""))
@@ -4862,21 +4786,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
             minute_group,
         )
-
-        reports_target_words_row = Adw.EntryRow(
-            title="Words per report (soft target)",
-        )
-        reports_target_words_row.set_text(settings.get("reports_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)))
-        word_target_subtitle = (
-            "Soft words-per-report guidance for synthesis output shape only; "
-            "0 disables it. Never a token cap, truncation, rejection, or "
-            "repair rule."
-        )
-        if hasattr(reports_target_words_row, "set_subtitle"):
-            reports_target_words_row.set_subtitle(word_target_subtitle)
-        else:
-            reports_target_words_row.set_tooltip_text(word_target_subtitle)
-        windows_group.add(reports_target_words_row)
 
         prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         prompt_section.set_hexpand(True)
@@ -4947,10 +4856,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
-            hearings_target_chars_row=hearings_target_chars_row,
-            hearings_max_pages_row=hearings_max_pages_row,
-            reports_target_chars_row=reports_target_chars_row,
-            reports_max_pages_row=reports_max_pages_row,
             reports_target_words_row=reports_target_words_row,
             minutes_target_chars_row=minutes_target_chars_row,
             minutes_max_pages_row=minutes_max_pages_row,
@@ -5467,10 +5372,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
         if summarize_widgets:
             summarize_error_row = _validate_summarize_window_rows(
-                hearings_target_chars=summarize_widgets.hearings_target_chars_row,
-                hearings_max_pages=summarize_widgets.hearings_max_pages_row,
-                reports_target_chars=summarize_widgets.reports_target_chars_row,
-                reports_max_pages=summarize_widgets.reports_max_pages_row,
                 reports_target_words=summarize_widgets.reports_target_words_row,
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row,
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row,
@@ -5517,10 +5418,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 model_id=summarize_widgets.model_row.get_text().strip(),
                 api_key=summarize_widgets.api_key_row.get_text().strip(),
                 disable_reasoning=bool(summarize_widgets.disable_reasoning_row.get_active()),
-                hearings_target_chars=summarize_widgets.hearings_target_chars_row.get_text().strip(),
-                hearings_max_pages=summarize_widgets.hearings_max_pages_row.get_text().strip(),
-                reports_target_chars=summarize_widgets.reports_target_chars_row.get_text().strip(),
-                reports_max_pages=summarize_widgets.reports_max_pages_row.get_text().strip(),
                 reports_target_words=summarize_widgets.reports_target_words_row.get_text().strip(),
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),

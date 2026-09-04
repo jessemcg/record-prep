@@ -278,18 +278,13 @@ class QuoteResolutionTests(unittest.TestCase):
                 f"{items[0].item_id}/parent_appearances/1/1",
             )
 
-    def test_quote_outside_boundary_and_ambiguity_are_rejected(self) -> None:
+    def test_page_scope_is_still_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
             builder.add_pages(1, 2, "aa bb")
             builder.finish([(1, 1, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config())
-            (root / "text_pages" / "0001.txt").write_text(
-                "the court considered the matter and the court also "
-                "QUOTEME:aa bb unique phrase here.\n",
-                encoding="utf-8",
-            )
 
             def candidate(page: int, quote: str) -> dict:
                 return {
@@ -310,34 +305,102 @@ class QuoteResolutionTests(unittest.TestCase):
                     ],
                 }
 
+            # Page scope (which page the quote claims) is still a hard rule.
             with self.assertRaises(ValueError) as context:
                 sa.canonicalize_extraction_candidate(
                     candidate(2, "Page 2 narrative"), items[0], root / "text_pages"
                 )
             self.assertIn("outside", str(context.exception))
-            with self.assertRaises(ValueError) as context:
-                sa.canonicalize_extraction_candidate(
-                    candidate(1, "the court"), items[0], root / "text_pages"
-                )
-            self.assertIn("distinctive", str(context.exception))
 
-            # A missing quote is rejected with page-specific guidance.
-            with self.assertRaises(ValueError) as context:
-                sa.canonicalize_extraction_candidate(
-                    candidate(1, "absent words"), items[0], root / "text_pages"
-                )
-            self.assertIn("verbatim", str(context.exception))
+    def test_quote_fidelity_is_best_effort_not_fatal(self) -> None:
+        """Slightly-off quotes are kept with verified=false, never rejected."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            page_text = (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
 
-    def test_quote_length_and_ellipsis_rules(self) -> None:
-        self.assertIsNone(sa.validate_quote_text("one two three four five six"))
-        self.assertIn("line break", sa.validate_quote_text("alpha\nbeta") or "")
-        self.assertIn("ellipsis", sa.validate_quote_text("alpha... beta") or "")
-        self.assertIn("at least", sa.validate_quote_text("solo") or "")
-        self.assertIn(
-            "at most",
-            sa.validate_quote_text(" ".join(["word"] * 13)) or "",
-        )
-        self.assertIsNone(sa.validate_quote_text("two words"))
+            def candidate(quote: str) -> dict:
+                return {
+                    "item_id": items[0].item_id,
+                    "categories": [
+                        {
+                            "id": "parent_appearances",
+                            "facts": [
+                                {"text": "F.", "evidence": [
+                                    {"text": quote, "file_page": 1}
+                                ]}
+                            ],
+                        }
+                    ]
+                    + [
+                        {"id": category.identifier, "facts": None}
+                        for category in sa.summary_category_definitions("hearings")[1:]
+                    ],
+                }
+
+            warnings: list[str] = []
+
+            # Exact normalized match: verified with original offsets.
+            row = sa.canonicalize_extraction_candidate(
+                candidate("unique phrase"), items[0], root / "text_pages",
+                warnings=warnings,
+            )
+            first = row["categories"][0]["facts"][0]["evidence"][0]
+            self.assertTrue(first["verified"])
+            self.assertEqual(
+                page_text[first["source_start"] : first["source_end"]],
+                "unique phrase",
+            )
+            self.assertEqual(warnings, [])
+
+            # Ambiguous matches keep the first occurrence.
+            (root / "text_pages" / "0001.txt").write_text(
+                "the court considered the matter and the court also "
+                "QUOTEME:aa bb unique phrase here.\n",
+                encoding="utf-8",
+            )
+            items = sa.build_work_items(root, _extraction_config())
+            row = sa.canonicalize_extraction_candidate(
+                candidate("the court"), items[0], root / "text_pages",
+                warnings=warnings,
+            )
+            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            self.assertTrue(evidence["verified"])
+            self.assertEqual(evidence["source_start"], 0)
+            self.assertEqual(warnings, [])
+
+            # Typography-only differences (case, marks, dashes) verify via
+            # the relaxed matcher.
+            row = sa.canonicalize_extraction_candidate(
+                candidate("Aa Bb"), items[0], root / "text_pages",
+                warnings=warnings,
+            )
+            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            self.assertTrue(evidence["verified"])
+
+            # A quote that does not appear at all is kept as submitted,
+            # flagged unverified, with a sanitized count warning — never a
+            # stage failure.
+            row = sa.canonicalize_extraction_candidate(
+                candidate("absent words"), items[0], root / "text_pages",
+                warnings=warnings,
+            )
+            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            self.assertFalse(evidence["verified"])
+            self.assertNotIn("source_start", evidence)
+            self.assertEqual(
+                evidence["source_sha256"],
+                sa.sha256_text(
+                    (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
+                ),
+            )
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("kept as submitted", warnings[0])
+            # No case text in the warning.
+            self.assertNotIn("absent", warnings[0])
 
     def test_quote_matching_survives_ligatures_and_hyphen_wraps(self) -> None:
         page = " disposi-\ntion of the \ufb01nal order. "

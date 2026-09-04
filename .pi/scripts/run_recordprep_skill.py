@@ -1284,6 +1284,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         candidate_cache,
                     )
                     _check_stop()
+                    row_warnings: list[str] = []
                     row = sa.canonicalize_extraction_candidate(
                         candidate,
                         item,
@@ -1296,7 +1297,10 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                             if item.proposal_marker is not None
                             else None
                         ),
+                        warnings=row_warnings,
                     )
+                    for warning in row_warnings:
+                        _line(f"\033[33m[warn]\033[0m {warning}")
                 except _StopRequested:
                     raise
                 except ValueError:

@@ -145,20 +145,9 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
               `category ${category.id}: every fact needs at least one evidence quote`
             );
           }
+          // Quote text is validated best-effort by Python against the
+          // declared page; only page scope is enforced here.
           for (const quote of fact.evidence) {
-            const text = String(quote.text || "");
-            if (/[\r\n]/.test(text) || text.includes("…") || text.includes("...")) {
-              return fail(
-                `category ${category.id}: quotes must be contiguous spans with no ` +
-                  "ellipsis or line break"
-              );
-            }
-            const words = text.trim().split(/\s+/).filter(Boolean).length;
-            if (words < 2 || words > 12) {
-              return fail(
-                `category ${category.id}: quotes must be two to twelve words`
-              );
-            }
             const page = Number(quote.file_page);
             if (page < spec.start_page || page > spec.end_page) {
               return fail(

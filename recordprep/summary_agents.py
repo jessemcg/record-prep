@@ -61,8 +61,6 @@ def _report_length_guidance_section(target_words: int) -> str:
 
 NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
 
-QUOTE_MIN_WORDS = 2
-QUOTE_MAX_WORDS = 12
 REPORT_DUPLICATION_SHINGLE_WORDS = 15
 
 
@@ -255,11 +253,12 @@ DEFAULT_HEARING_EXTRACTION_GUIDANCE = (
     "proposed or recommended templates. Attribute every position to the party "
     "or role that stated it.\n\n"
     "Evidence rules: every fact needs at least one short verbatim quote copied "
-    "exactly from a source page, an uninterrupted two-to-twelve-word sequence "
-    "with no ellipsis or line break, taken from the page you declare. Choose "
-    "quotes distinctive enough to appear exactly once on that page. Never "
-    "invent, alter, or paraphrase quoted text, and never quote proposed "
-    "findings or orders excluded by the scope boundary.\n\n"
+    "from a source page — an uninterrupted span of a few words taken from the "
+    "page you declare, with no ellipsis or line break. Prefer quotes "
+    "distinctive enough to appear exactly once on that page, and copy the "
+    "source text as exactly as you can. Never invent or paraphrase quoted "
+    "text, and never quote proposed findings or orders excluded by the scope "
+    "boundary.\n\n"
     "Record only what the hearing record shows; add no legal conclusions "
     "beyond the record."
 )
@@ -279,10 +278,11 @@ DEFAULT_REPORT_EXTRACTION_GUIDANCE = (
     "proposed or recommended findings and orders offered for adoption; never "
     "quote excluded proposal material.\n\n"
     "Evidence rules: every fact needs at least one short verbatim quote copied "
-    "exactly from a source page, an uninterrupted two-to-twelve-word sequence "
-    "with no ellipsis or line break, taken from the page you declare. Choose "
-    "quotes distinctive enough to appear exactly once on that page. Never "
-    "invent, alter, or paraphrase quoted text.\n\n"
+    "from a source page — an uninterrupted span of a few words taken from the "
+    "page you declare, with no ellipsis or line break. Prefer quotes "
+    "distinctive enough to appear exactly once on that page, and copy the "
+    "source text as exactly as you can. Never invent or paraphrase quoted "
+    "text.\n\n"
     "Record only what the report shows; add no legal conclusions beyond the "
     "record."
 )
@@ -1112,47 +1112,49 @@ def _normalize_for_match(text: str) -> tuple[str, list[int], list[int]]:
 def find_quote_span(
     quote: str,
     page_text: str,
+    *,
+    allow_ambiguous: bool = False,
 ) -> tuple[int, int] | None:
     """Locate ``quote`` in ``page_text`` after normalization.
 
-    Returns original ``(start, end)`` character offsets, ``None`` when the
-    quote does not appear, and raises ``ValueError`` when the match is
-    ambiguous.
+    Returns original ``(start, end)`` character offsets and ``None`` when the
+    quote does not appear. Ambiguous matches return the first occurrence when
+    ``allow_ambiguous`` is set, otherwise raise ``ValueError``.
     """
     needle, _needle_starts, _needle_ends = _normalize_for_match(quote)
     if not needle:
         return None
     haystack, starts, ends = _normalize_for_match(page_text)
-    positions: list[int] = []
     position = haystack.find(needle)
-    while position != -1:
-        positions.append(position)
-        position = haystack.find(needle, position + 1)
-    if not positions:
+    if position == -1:
         return None
-    if len(positions) > 1:
+    if not allow_ambiguous and haystack.find(needle, position + 1) != -1:
         raise ValueError("quote matched more than once on the declared page")
-    first = positions[0]
-    last = first + len(needle) - 1
-    return starts[first], ends[last]
+    last = position + len(needle) - 1
+    return starts[position], ends[last]
 
 
-def quote_word_count(quote: str) -> int:
-    return len([token for token in re.split(r"\s+", quote.strip()) if token])
+def _relax_typography(text: str) -> str:
+    """Casefold and unify typographic quotation marks, apostrophes, dashes."""
+    replacements = {
+        "’": "'",
+        "‘": "'",
+        "“": '"',
+        "”": '"',
+        "–": "-",
+        "—": "-",
+        "‑": "-",
+    }
+    return "".join(replacements.get(char, char) for char in text).casefold()
 
 
-def validate_quote_text(quote: str) -> str | None:
-    """Return a rejection reason for an invalid quote string, or None."""
-    if "\n" in quote or "\r" in quote:
-        return "quote must not contain a line break"
-    if "…" in quote or "..." in quote:
-        return "quote must not contain an ellipsis"
-    words = quote_word_count(quote)
-    if words < QUOTE_MIN_WORDS:
-        return f"quote must be at least {QUOTE_MIN_WORDS} words"
-    if words > QUOTE_MAX_WORDS:
-        return f"quote must be at most {QUOTE_MAX_WORDS} words"
-    return None
+def find_quote_span_relaxed(quote: str, page_text: str) -> bool:
+    """Best-effort typography-, case-, and whitespace-insensitive check."""
+    relaxed_quote = re.sub(r"\s+", " ", _relax_typography(quote)).strip()
+    if not relaxed_quote:
+        return False
+    relaxed_page = re.sub(r"\s+", " ", _relax_typography(page_text))
+    return relaxed_page.find(relaxed_quote) != -1
 
 
 def canonical_quote_id(
@@ -1169,13 +1171,18 @@ def canonicalize_extraction_candidate(
     item: SummaryWorkItem,
     text_dir: Path,
     report_cutoff: tuple[int, int] | None = None,
+    warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """Validate an extraction candidate and return the canonical JSONL row.
 
     ``report_cutoff`` is a ``(page, offset)`` position; evidence on later
     positions is out of scope for reports with a formal proposal package.
-    Raises ``ValueError`` with a sanitized, agent-addressable message on any
-    validation failure.
+
+    Quote fidelity is best-effort: quotes that cannot be located on their
+    declared page are kept as submitted and flagged ``verified: false``
+    rather than rejected — the pipeline never fails on quote matching.
+    Structural problems (shape, category ids/order, page scope) and the
+    proposal cutoff are still hard requirements.
     """
     kind = item.kind
     expected_ids = list(SUMMARY_CATEGORY_IDS[kind])
@@ -1199,6 +1206,7 @@ def canonicalize_extraction_candidate(
         raise ValueError("categories must appear exactly once in the configured order")
 
     page_text = _page_text_map(text_dir, item.start_page, item.end_page)
+    unverified_count = 0
     canonical_categories: list[dict[str, Any]] = []
     for entry in categories:
         category_id = entry["id"]
@@ -1237,9 +1245,6 @@ def canonicalize_extraction_candidate(
                         "and file_page"
                     )
                 quote_text = str(quote.get("text") or "")
-                reason = validate_quote_text(quote_text)
-                if reason:
-                    raise ValueError(f"category {category_id}: {reason}")
                 try:
                     file_page = int(quote.get("file_page") or 0)
                 except (TypeError, ValueError):
@@ -1255,29 +1260,37 @@ def canonicalize_extraction_candidate(
                         f"category {category_id}: evidence page {file_page} is inside "
                         "the excluded formal proposed findings/orders package"
                     )
-                try:
-                    span = find_quote_span(quote_text, page_text[file_page])
-                except ValueError:
-                    raise ValueError(
-                        f"category {category_id}: a quote matches more than once on "
-                        f"page {file_page}; choose a more distinctive phrase"
-                    ) from None
-                if span is None:
-                    raise ValueError(
-                        f"category {category_id}: a quote does not appear exactly on "
-                        f"page {file_page}; copy it verbatim from that page"
-                    )
-                canonical_evidence.append(
-                    {
-                        "text": quote_text.strip(),
-                        "file_page": file_page,
-                        "source_start": span[0],
-                        "source_end": span[1],
-                        "source_sha256": sha256_text(page_text[file_page]),
-                    }
+                # Best-effort quote verification: exact normalized match first
+                # (ambiguity keeps the first occurrence), then a typography-
+                # and case-insensitive fallback; otherwise keep as submitted.
+                span = find_quote_span(
+                    quote_text, page_text[file_page], allow_ambiguous=True
                 )
+                verified = span is not None
+                if not verified and find_quote_span_relaxed(
+                    quote_text, page_text[file_page]
+                ):
+                    verified = True
+                evidence_entry: dict[str, Any] = {
+                    "text": quote_text.strip(),
+                    "file_page": file_page,
+                    "source_sha256": sha256_text(page_text[file_page]),
+                    "verified": verified,
+                }
+                if span is not None:
+                    evidence_entry["source_start"] = span[0]
+                    evidence_entry["source_end"] = span[1]
+                if not verified:
+                    unverified_count += 1
+                canonical_evidence.append(evidence_entry)
             canonical_facts.append({"text": fact_text, "evidence": canonical_evidence})
         canonical_categories.append({"id": category_id, "facts": canonical_facts})
+
+    if unverified_count and warnings is not None:
+        warnings.append(
+            f"{unverified_count} quote(s) in {item.item_id} could not be matched "
+            "to their declared page and were kept as submitted"
+        )
 
     row: dict[str, Any] = {
         "artifact": SUMMARY_FACTS_ARTIFACT,
@@ -1470,6 +1483,7 @@ def validate_facts_row(row: dict[str, Any], kind: str | None = None) -> list[str
                     "source_start",
                     "source_end",
                     "source_sha256",
+                    "verified",
                 }:
                     issues.append(
                         f"category {category_id}: evidence has unexpected or missing keys"

@@ -33,9 +33,10 @@ category ids in order with per-category guidance.
    for adoption. Source after the proposal scope delimiter is excluded; never
    quote it.
 5. Support every fact with at least one evidence quote: a short contiguous
-   verbatim span of two to twelve words, no ellipsis, no line break, copied
-   exactly from the page you declare, and distinctive enough to appear exactly
-   once on that page. Page numbers must fall inside the declared page range.
+   verbatim span of a few words, no ellipsis, no line break, copied as
+   exactly as you can from the page you declare, and distinctive enough to
+   appear exactly once on that page. Page numbers must fall inside the
+   declared page range.
 6. Submit with `recordprep_submit_extraction`. If the tool rejects the
    submission, fix the stated problem and resubmit; never restate case text in
    your replies.

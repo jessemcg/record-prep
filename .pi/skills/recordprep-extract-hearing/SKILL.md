@@ -27,9 +27,9 @@ category ids in order with per-category guidance.
    absence. A non-null category contains one or more concise,
    source-grounded facts.
 3. Support every fact with at least one evidence quote: a short contiguous
-   verbatim span of two to twelve words, no ellipsis, no line break, copied
-   exactly from the page you declare, and distinctive enough to appear exactly
-   once on that page. Page numbers must fall inside the declared page range,
+   verbatim span of a few words, no ellipsis, no line break, copied as
+   exactly as you can from the page you declare, and distinctive enough to
+   appear exactly once on that page. Page numbers must fall inside the declared page range,
    and quotes must come from the original hearing pages, never from the
    participant-index context.
 4. Attribution rules: counsel-only appearances are not parent appearances; Q/A

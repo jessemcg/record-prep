@@ -42,6 +42,8 @@ class PiModel:
     provider: str
     model_id: str
     name: str
+    context_window: int | None = None
+    max_output_tokens: int | None = None
 
     @property
     def label(self) -> str:
@@ -291,7 +293,27 @@ def available_pi_models(
         if not provider or not model_id:
             continue
         name = str(raw_model.get("name") or model_id).strip() or model_id
-        model = PiModel(provider=provider, model_id=model_id, name=name)
+
+        def _optional_int(raw_value: Any) -> int | None:
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return None
+            return value if value > 0 else None
+
+        context_window = _optional_int(
+            raw_model.get("contextWindow", raw_model.get("context_window"))
+        )
+        max_output = _optional_int(
+            raw_model.get("maxOutputTokens", raw_model.get("max_output_tokens"))
+        )
+        model = PiModel(
+            provider=provider,
+            model_id=model_id,
+            name=name,
+            context_window=context_window,
+            max_output_tokens=max_output,
+        )
         models[model.settings_key] = model
     return sorted(
         models.values(),
@@ -378,3 +400,35 @@ def save_project_pi_thinking_level(
             raise PiSettingsError(f"Unsupported PI thinking level: {level}")
         settings["defaultThinkingLevel"] = normalized
     _write_pi_settings(settings, path)
+
+
+SUMMARY_CONTEXT_CAPACITY_FRACTION = 0.8
+SUMMARY_CHARS_PER_TOKEN = 4
+
+
+def preflight_summary_context(
+    model: PiModel,
+    input_chars: int,
+    output_chars: int,
+    *,
+    label: str = "summary request",
+) -> None:
+    """Conservatively preflight one complete request against context capacity.
+
+    Fails before a paid call with an actionable message when the estimated
+    complete item/dataset plus expected output exceeds 80% of the model's
+    context window. Models without metadata pass through so PI enforces its
+    own limit without damaging existing artifacts.
+    """
+    if not model.context_window or model.context_window <= 0:
+        return
+    input_tokens = max(0, int(input_chars)) // SUMMARY_CHARS_PER_TOKEN
+    output_tokens = max(0, int(output_chars)) // SUMMARY_CHARS_PER_TOKEN
+    capacity = int(model.context_window * SUMMARY_CONTEXT_CAPACITY_FRACTION)
+    if input_tokens + output_tokens > capacity:
+        raise PiRuntimeError(
+            f"{label} does not fit conservatively within 80% of "
+            f"{model.label}'s context window (estimated {input_tokens + output_tokens} "
+            f"tokens vs capacity {capacity}). Choose a larger-context model for "
+            "this stage in Settings."
+        )

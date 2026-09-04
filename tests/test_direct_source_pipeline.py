@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from recordprep import summary_agents as _summary_agents
 from recordprep.ui.main_window import (
     DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
@@ -74,11 +75,11 @@ class DirectSourcePipelineTests(unittest.TestCase):
 
         self.assertEqual(
             settings["hearings_prompt"],
-            DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+            _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
         )
         self.assertEqual(
             settings["reports_prompt"],
-            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
         )
         # The untouched legacy default pair leaves hearings and minute orders
         # at 6000/6 while reports initialize to the new 10000/10 recommendation.
@@ -511,20 +512,24 @@ class DirectSourcePipelineTests(unittest.TestCase):
             },
         ):
             migrated = load_summarize_settings()
-        self.assertEqual(migrated["hearings_prompt"], DEFAULT_SUMMARIZE_HEARINGS_PROMPT)
-        self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertEqual(
+            migrated["hearings_prompt"],
+            _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
+        )
+        self.assertEqual(
+            migrated["reports_prompt"],
+            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
+        )
 
         custom_prompt = "My genuinely customized hearing prompt."
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={
                 "summarize_hearings_prompt": custom_prompt,
-                "summarize_reports_prompt": DEFAULT_SUMMARIZE_REPORTS_PROMPT,
             },
         ):
             preserved = load_summarize_settings()
         self.assertEqual(preserved["hearings_prompt"], custom_prompt)
-        self.assertEqual(preserved["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
     def test_cleanup_removes_only_known_legacy_generated_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

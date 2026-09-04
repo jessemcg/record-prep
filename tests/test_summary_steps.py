@@ -12,6 +12,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.summary_agent_fixtures import (
+    publish_valid_summary,
+    synthetic_facts_row,
+)
 from recordprep.ui.main_window import (
     CONFIG_KEY_RUN_UNTIL_STEP,
     CONFIG_KEY_SUMMARIZE_API_KEY,
@@ -191,6 +195,8 @@ class RunUntilMigrationTests(unittest.TestCase):
 
 class SummaryCompletionTests(unittest.TestCase):
     def test_each_summary_step_observes_only_its_own_output(self) -> None:
+        """Hearing/report completion requires validated agent artifacts;
+        minute completion requires only its own text file."""
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
             hearings, reports, minutes = _seed_summaries(root)
@@ -199,6 +205,28 @@ class SummaryCompletionTests(unittest.TestCase):
                 return RecordPrepWindow._step_artifact_complete(
                     mock.Mock(), step_id, root, []
                 )
+
+            # Legacy text alone is pending under the two-stage contract.
+            self.assertFalse(complete("create_hearing_summaries"))
+            self.assertFalse(complete("create_report_summaries"))
+            self.assertTrue(complete("create_minute_order_summaries"))
+
+            hearing_row = synthetic_facts_row("hearings", start=1, end=1)
+            report_row = synthetic_facts_row("reports", start=2, end=2)
+            publish_valid_summary(
+                root,
+                "hearings",
+                [hearing_row],
+                "Hearings Summary\n\nMarch 3, 2025 [Hearing](page:0001)\n\n"
+                "A [\u201csynthetic quote\u201d](page:0001) appears here.\n",
+            )
+            publish_valid_summary(
+                root,
+                "reports",
+                [report_row],
+                "Reports Summary\n\nMarch 3, 2025 - Report [Report](page:0002)\n\n"
+                "A [\u201csynthetic quote\u201d](page:0002) appears here.\n",
+            )
 
             self.assertTrue(complete("create_hearing_summaries"))
             self.assertTrue(complete("create_report_summaries"))
@@ -218,6 +246,46 @@ class SummaryCompletionTests(unittest.TestCase):
             self.assertFalse(complete("create_hearing_summaries"))
             self.assertFalse(complete("create_report_summaries"))
             self.assertFalse(complete("create_minute_order_summaries"))
+
+
+class SummaryStepDelegationTests(unittest.TestCase):
+    """Hearing/report handlers are thin wrappers around the PI skill runner."""
+
+    def _run(self, harness: mock.Mock, handler_name: str) -> bool:
+        with tempfile.TemporaryDirectory() as config_temporary:
+            config_path = Path(config_temporary) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ), mock.patch(
+                "recordprep.ui.main_window.GLib.idle_add", side_effect=_idle_now
+            ):
+                handler = getattr(RecordPrepWindow, handler_name)
+                return handler(harness)
+
+    def test_hearing_handler_delegates_with_step_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            harness = _make_harness(root)
+            delegate = mock.Mock(return_value=True)
+            harness._run_pi_skill_step = delegate
+
+            self.assertTrue(self._run(harness, "_run_step_create_hearing_summaries"))
+
+            delegate.assert_called_once()
+            self.assertEqual(delegate.call_args.args[0], "create_hearing_summaries")
+
+    def test_report_handler_delegates_with_step_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            harness = _make_harness(root)
+            delegate = mock.Mock(return_value=True)
+            harness._run_pi_skill_step = delegate
+
+            self.assertTrue(self._run(harness, "_run_step_create_report_summaries"))
+
+            delegate.assert_called_once()
+            self.assertEqual(delegate.call_args.args[0], "create_report_summaries")
 
 
 class SummaryStepIsolationTests(unittest.TestCase):
@@ -241,58 +309,6 @@ class SummaryStepIsolationTests(unittest.TestCase):
             ):
                 handler = getattr(RecordPrepWindow, handler_name)
                 return handler(harness)
-
-    def test_rerunning_hearings_preserves_report_and_minute_files(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = _build_bundle(temporary)
-            hearings, reports, minutes = _seed_summaries(root)
-            harness = _make_harness(root)
-
-            self.assertTrue(
-                self._run(harness, "_run_step_create_hearing_summaries")
-            )
-
-            self.assertNotEqual(
-                hearings.read_text(encoding="utf-8"), "OLD HEARINGS"
-            )
-            self.assertIn("Hearings Summary", hearings.read_text(encoding="utf-8"))
-            self.assertEqual(reports.read_text(encoding="utf-8"), "OLD REPORTS")
-            self.assertEqual(minutes.read_text(encoding="utf-8"), "OLD MINUTES")
-            self.assertEqual(
-                harness._safe_update_manifest.call_args.args[1][
-                    "last_completed_step"
-                ],
-                "create_hearing_summaries",
-            )
-            harness.show_toast.assert_called_with(
-                "Create hearing summaries complete."
-            )
-
-    def test_rerunning_reports_preserves_hearing_and_minute_files(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = _build_bundle(temporary)
-            hearings, reports, minutes = _seed_summaries(root)
-            harness = _make_harness(root)
-
-            self.assertTrue(
-                self._run(harness, "_run_step_create_report_summaries")
-            )
-
-            self.assertEqual(hearings.read_text(encoding="utf-8"), "OLD HEARINGS")
-            self.assertNotEqual(
-                reports.read_text(encoding="utf-8"), "OLD REPORTS"
-            )
-            self.assertIn("Reports Summary", reports.read_text(encoding="utf-8"))
-            self.assertEqual(minutes.read_text(encoding="utf-8"), "OLD MINUTES")
-            self.assertEqual(
-                harness._safe_update_manifest.call_args.args[1][
-                    "last_completed_step"
-                ],
-                "create_report_summaries",
-            )
-            harness.show_toast.assert_called_with(
-                "Create report summaries complete."
-            )
 
     def test_rerunning_minutes_preserves_hearing_and_report_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -320,52 +336,14 @@ class SummaryStepIsolationTests(unittest.TestCase):
                 "Create minute-order summaries complete."
             )
 
-    def test_report_and_minute_runs_do_not_require_participant_index(self) -> None:
+    def test_minute_run_does_not_require_participant_index(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = _build_bundle(
-                temporary, participant_index=False
-            )
+            root = _build_bundle(temporary, participant_index=False)
             harness = _make_harness(root)
 
-            self.assertTrue(
-                self._run(harness, "_run_step_create_report_summaries")
-            )
             self.assertTrue(
                 self._run(harness, "_run_step_create_minute_order_summaries")
             )
-
-    def test_hearing_run_requires_participant_index_and_preserves_file(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = _build_bundle(temporary, participant_index=False)
-            hearings, _reports, _minutes = _seed_summaries(root)
-            harness = _make_harness(root)
-
-            self.assertFalse(
-                self._run(harness, "_run_step_create_hearing_summaries")
-            )
-
-            self.assertEqual(hearings.read_text(encoding="utf-8"), "OLD HEARINGS")
-            harness._safe_update_manifest.assert_not_called()
-            self.assertIn(
-                "Participant index validation failed",
-                harness.show_toast.call_args.args[0],
-            )
-
-    def test_hearing_stop_preserves_existing_file_and_blocks_completion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = _build_bundle(temporary)
-            hearings, _reports, _minutes = _seed_summaries(root)
-            # First call passes in _prepare_summary_step; second call is the
-            # hearing loop guard, then the window guard raises.
-            harness = _make_harness(root, stop_after=2)
-
-            completed = self._run(harness, "_run_step_create_hearing_summaries")
-
-            self.assertFalse(completed)
-            self.assertEqual(hearings.read_text(encoding="utf-8"), "OLD HEARINGS")
-            harness._safe_update_manifest.assert_not_called()
-            finish_success = harness._finish_step.call_args.args[-1]
-            self.assertIsNone(finish_success)
 
 
 if __name__ == "__main__":

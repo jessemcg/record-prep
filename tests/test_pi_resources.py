@@ -109,12 +109,29 @@ class PiResourceTests(unittest.TestCase):
         extensions = sorted(
             path.name for path in (PI_DIR / "extensions").iterdir()
         )
-        self.assertEqual(extensions, ["recordprep-auto-exit.ts"])
+        self.assertEqual(
+            extensions,
+            [
+                "recordprep-auto-exit.ts",
+                "recordprep-summary-tools.ts",
+            ],
+        )
         extension_text = (
             PI_DIR / "extensions" / "recordprep-auto-exit.ts"
         ).read_text(encoding="utf-8")
         self.assertIn('pi.on("agent_end"', extension_text)
         self.assertIn("ctx.shutdown()", extension_text)
+        summary_tools = (
+            PI_DIR / "extensions" / "recordprep-summary-tools.ts"
+        ).read_text(encoding="utf-8")
+        for tool_name in (
+            "recordprep_get_window",
+            "recordprep_submit_extraction",
+            "recordprep_get_facts",
+            "recordprep_submit_summary_section",
+            "recordprep_finish_summary",
+        ):
+            self.assertIn(f'"{tool_name}"', summary_tools)
         skills = sorted(path.parent.name for path in (PI_DIR / "skills").glob("*/SKILL.md"))
         self.assertEqual(
             skills,
@@ -123,7 +140,11 @@ class PiResourceTests(unittest.TestCase):
                 "recordprep-build-source-map",
                 "recordprep-create-case-overview",
                 "recordprep-detect-transcript-layout",
+                "recordprep-extract-hearing",
+                "recordprep-extract-report",
                 "recordprep-number-transcript-pages",
+                "recordprep-synthesize-hearings",
+                "recordprep-synthesize-reports",
             ],
         )
 

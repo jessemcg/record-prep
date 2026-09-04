@@ -19,6 +19,7 @@ from recordprep.pi_bundle import (
     validate_transcript_numbering_outputs,
 )
 from recordprep.transcript_layout import apply_manual_override
+from tests.summary_agent_fixtures import publish_valid_summary, synthetic_facts_row
 
 
 def _build_layout_artifact(root: Path) -> None:
@@ -73,10 +74,29 @@ class PiBundleTests(unittest.TestCase):
         (root / "text_pages/0001.txt").write_text("record page 1", encoding="utf-8")
         (root / "image_pages/0001.png").write_bytes(b"image")
         apply_manual_override(root, mode="ct_only")
+        (root / "case_name.txt").write_text("case", encoding="utf-8")
+        hearing_row = synthetic_facts_row(
+            "hearings", ordinal=1, label="March 3, 2025", start=1, end=1
+        )
+        report_row = synthetic_facts_row(
+            "reports", ordinal=1, label="Report", start=1, end=1
+        )
+        publish_valid_summary(
+            root,
+            "hearings",
+            [hearing_row],
+            "Hearings Summary\n\nMarch 3, 2025 [Hearing](page:0001)\n\n"
+            "A [“synthetic quote”](page:0001) appears here.\n",
+        )
+        publish_valid_summary(
+            root,
+            "reports",
+            [report_row],
+            "Reports Summary\n\nMarch 3, 2025 - Report [Report](page:0001)\n\n"
+            "A [“synthetic quote”](page:0001) appears here.\n",
+        )
         hearing = root / "summaries/hearings_sum_case.txt"
         reports = root / "summaries/reports_sum_case.txt"
-        hearing.write_text("hearing summary", encoding="utf-8")
-        reports.write_text("report summary", encoding="utf-8")
         transcript = root / "artifacts/transcript_page_numbers.json"
         transcript.write_text(
             json.dumps(
@@ -239,7 +259,7 @@ class PiBundleTests(unittest.TestCase):
 
             issues = validate_summary_source_outputs(root)
 
-            self.assertIn("the source report summary is missing or ambiguous.", issues)
+            self.assertIn("the source report summary is missing.", issues)
 
     def _add_transcript_numbering(self, root: Path) -> None:
         (root / "artifacts/transcript_page_numbers.json").write_text(

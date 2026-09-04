@@ -79,6 +79,30 @@ from recordprep.transcript_layout import (
     read_resolved_layout,
     resolve_rt_ct_split as resolve_layout_rt_ct_split,
 )
+from recordprep import summary_agents as _summary_agents
+from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
+    DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
+    DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
+    NO_SUMMARIZABLE_REPORT_CONTENT,
+    REPORT_PROPOSAL_MARKER_FIND_ORDER,
+    REPORT_PROPOSAL_MARKER_LEAD_IN,
+    REPORT_PROPOSAL_MARKER_SPLIT,
+    REPORT_PROPOSAL_MARKER_TITLE,
+    REPORT_PROPOSAL_SCOPE_DELIMITER,
+    REPORT_PROPOSAL_SCOPE_HEADING,
+    ReportProposalMarker,
+    _detect_report_proposal_marker,
+    _insert_report_proposal_delimiter,
+    _report_proposal_scope_note,
+    _summary_page_windows,
+)
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
     PiModel,
@@ -89,9 +113,11 @@ from recordprep.pi_runtime import (
     current_project_pi_thinking_level,
     discover_pi_agent_command,
     incompatible_pi_agent_flag,
+    preflight_summary_context,
     resolve_pi_agent_argv,
     save_project_pi_model,
     save_project_pi_thinking_level,
+    PI_THINKING_LEVELS,
 )
 
 STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
@@ -564,6 +590,14 @@ CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES = "summarize_reports_window_max_pa
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = "summarize_minutes_window_target_chars"
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = "summarize_minutes_window_max_pages"
 CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = "summarize_reports_window_target_words"
+CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER = "summary_extract_pi_provider"
+CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL = "summary_extract_pi_model"
+CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING = "summary_extract_pi_thinking"
+CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER = "summary_synthesize_pi_provider"
+CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL = "summary_synthesize_pi_model"
+CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING = "summary_synthesize_pi_thinking"
+CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT = "summarize_hearings_synthesis_prompt"
+CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT = "summarize_reports_synthesis_prompt"
 LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS = "summarize_window_target_chars"
 LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES = "summarize_window_max_pages"
 LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE = "summarize_chunk_size"
@@ -686,7 +720,6 @@ DEFAULT_SUMMARIZE_HEARINGS_PROMPT = PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT.r
     "does not claim that testimony occurred at the current hearing. Q/A formatting "
     "alone does not establish testimony. Describe unsworn ",
 )
-NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
 PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "You are summarizing one window of source pages from a report in a juvenile dependency "
     "case. The user message is organized into these labeled sections:\n\n"
@@ -813,17 +846,8 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "worker reports into evidence and heard testimony from mother. The juvenile court "
     "terminated parental rights.\n\nOkay, here is the minute order:"
 )
-DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES = 6
-DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS = 6000
-DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS = 12000
-DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS = 6000
-DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES = 6
-DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS = 10000
-DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES = 10
-DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = 6000
-DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = 6
-DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = 250
 SUMMARY_WINDOW_CATEGORIES = ("hearings", "reports", "minutes")
+DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = 250
 SUMMARY_TEST_MODE_CATEGORIES = {
     "summarize_hearings": "hearings",
     "summarize_reports": "reports",
@@ -1566,222 +1590,6 @@ def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
             path.unlink()
         removed.append(path.relative_to(root).as_posix())
     return removed
-
-
-# --- Formal proposed findings/orders detection (report summaries only) ---
-# These markers are ephemeral and never persisted: they only drive per-window
-# scope hints to the summarization model. Detection is deliberately conservative
-# and fires only on bounded structural signatures of a formal package of
-# proposed/recommended advisements, findings, and orders offered for court
-# adoption. A bare "Recommendation" heading, a change-in-recommendation note, a
-# substantive treatment/assessment recommendation, a singular request for an
-# assessment order, and narrative references to orders the court already made
-# are all deliberately out of scope.
-
-REPORT_PROPOSAL_MARKER_TITLE = "proposed_findings_and_orders_title"
-REPORT_PROPOSAL_MARKER_LEAD_IN = "proposed_findings_and_orders_lead_in"
-REPORT_PROPOSAL_MARKER_SPLIT = "proposed_findings_then_orders_split"
-REPORT_PROPOSAL_MARKER_FIND_ORDER = "proposed_find_and_order_template"
-
-REPORT_PROPOSAL_SCOPE_HEADING = "REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY"
-REPORT_PROPOSAL_SCOPE_DELIMITER = (
-    "\n\n<<< FORMAL PROPOSED FINDINGS/ORDERS START HERE "
-    "— EXCLUDED FROM REPORT SUMMARY >>>\n\n"
-)
-
-
-@dataclass(frozen=True)
-class ReportProposalMarker:
-    source_page: int
-    offset: int
-    line_number: int
-    kind: str
-
-
-_RE_PROPOSED_FINDINGS_ORDERS_TITLE = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s+"
-    r"(?:AND\s+|/)\s*ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_FINDINGS_HEADING = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_ORDERS_HEADING = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_LEAD_IN = re.compile(
-    r"\b(?:(?:respectfully|humbly)\s+)?recommends?\s+(?:that\s+)?the\s+court\s+"
-    r"(?:make|enter|adopt|issue)\s+the\s+following\s+"
-    r"(?:proposed\s+|recommended\s+)?findings?\s+and\s+orders?\b",
-    re.IGNORECASE,
-)
-_RE_PROPOSED_FIND_ORDER = re.compile(
-    r"\b(?:recommends?|requests?)\b[^.\n]{0,200}?\bthe\s+court\b[^.\n]{0,200}?\bfind\b[^.\n]{0,200}?\band\s+order\b",
-    re.IGNORECASE,
-)
-
-
-def _detect_report_proposal_marker(
-    page_text: dict[int, str],
-    start_page: int,
-    end_page: int,
-) -> ReportProposalMarker | None:
-    """Return the first high-confidence formal proposal marker in a report range.
-
-    Scans the already-loaded page text for one report range and returns the
-    earliest structural marker, or ``None`` when no formal package is present.
-    Marker text is never returned or emitted; only the page, offset, line
-    number, and a non-sensitive kind are carried through.
-    """
-    best: ReportProposalMarker | None = None
-
-    def _consider(page: int, offset: int, kind: str) -> None:
-        nonlocal best
-        if best is None or (page, offset) < (best.source_page, best.offset):
-            line_number = page_text[page].count("\n", 0, offset) + 1
-            best = ReportProposalMarker(page, offset, line_number, kind)
-
-    # Split template: a formal proposed-findings heading followed later in the
-    # same report by a formal proposed-orders heading.
-    findings_at: tuple[int, int] | None = None
-    for page in range(start_page, end_page + 1):
-        text = page_text.get(page) or ""
-        match = _RE_PROPOSED_FINDINGS_HEADING.search(text)
-        if match:
-            findings_at = (page, match.start())
-            break
-    if findings_at is not None:
-        findings_page, findings_offset = findings_at
-        for page in range(findings_page, end_page + 1):
-            text = page_text.get(page) or ""
-            search_from = findings_offset if page == findings_page else 0
-            match = _RE_PROPOSED_ORDERS_HEADING.search(text, search_from)
-            if match:
-                orders_at = (page, match.start())
-                if orders_at > findings_at:
-                    _consider(
-                        findings_at[0],
-                        findings_at[1],
-                        REPORT_PROPOSAL_MARKER_SPLIT,
-                    )
-                break
-
-    # Single-page structural markers, earliest offset within each page wins.
-    for page in range(start_page, end_page + 1):
-        text = page_text.get(page)
-        if not text:
-            continue
-        for kind, pattern in (
-            (REPORT_PROPOSAL_MARKER_TITLE, _RE_PROPOSED_FINDINGS_ORDERS_TITLE),
-            (REPORT_PROPOSAL_MARKER_LEAD_IN, _RE_PROPOSED_LEAD_IN),
-            (REPORT_PROPOSAL_MARKER_FIND_ORDER, _RE_PROPOSED_FIND_ORDER),
-        ):
-            match = pattern.search(text)
-            if match:
-                _consider(page, match.start(), kind)
-
-    return best
-
-
-def _report_proposal_scope_note(
-    window: dict[str, Any],
-    report_marker: ReportProposalMarker | None,
-) -> str:
-    """Return the scope-only instruction for a window relative to the marker."""
-    if report_marker is None:
-        return ""
-    primary_pages = window.get("primary_pages") or []
-    if not primary_pages:
-        return ""
-    marker_page = report_marker.source_page
-    if marker_page in primary_pages:
-        return (
-            "A scope delimiter in the source text below marks where a formal package "
-            "of proposed or recommended advisements, findings, and orders, with "
-            "associated boilerplate, begins. Omit that formal package from your summary; "
-            "summarize only the eligible report narrative that precedes the delimiter."
-        )
-    if primary_pages[0] > marker_page:
-        return (
-            "A formal package of proposed or recommended findings and orders began on an "
-            "earlier page and may still be continuing. Summarize only clearly separate "
-            "factual narrative or clearly separate attachments; omit any continuing "
-            "proposed findings or orders."
-        )
-    return ""
-
-
-def _insert_report_proposal_delimiter(text: str, offset: int) -> str:
-    bounded = max(0, min(offset, len(text)))
-    return f"{text[:bounded]}{REPORT_PROPOSAL_SCOPE_DELIMITER}{text[bounded:]}"
-
-
-def _summary_page_windows(
-    text_dir: Path,
-    start_page: int,
-    end_page: int,
-    *,
-    max_pages: int = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
-    target_chars: int = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS,
-    max_chars: int = DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-    preferred_breaks: set[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Create adaptive, page-aligned, exactly-once primary-page windows."""
-    if start_page <= 0 or end_page < start_page:
-        raise ValueError("Invalid summary source page range.")
-    page_text: dict[int, str] = {}
-    for number in range(start_page, end_page + 1):
-        path = text_dir / f"{number:04d}.txt"
-        if not path.is_file():
-            raise FileNotFoundError(f"Missing text file {path.name}.")
-        page_text[number] = path.read_text(encoding="utf-8", errors="ignore")
-    breaks = sorted(
-        value
-        for value in (preferred_breaks or set())
-        if start_page < value <= end_page
-    )
-    page_limit = max(1, max_pages)
-    character_limit = max(1, max_chars)
-    character_target = min(max(1, target_chars), character_limit)
-    windows: list[dict[str, Any]] = []
-    current = start_page
-    while current <= end_page:
-        candidate_end = min(end_page, current + page_limit - 1)
-        chars = 0
-        primary_end = current - 1
-        for number in range(current, candidate_end + 1):
-            page_chars = len(page_text[number])
-            combined = chars + page_chars
-            if primary_end >= current:
-                if combined > character_limit:
-                    break
-                if combined > character_target:
-                    under_distance = character_target - chars
-                    over_distance = combined - character_target
-                    if over_distance > under_distance:
-                        break
-            chars = combined
-            primary_end = number
-        if primary_end < current:
-            primary_end = current
-        examination_breaks = [
-            value for value in breaks if current < value <= primary_end
-        ]
-        if examination_breaks:
-            primary_end = examination_breaks[0] - 1
-        windows.append(
-            {
-                "primary_start": current,
-                "primary_end": primary_end,
-                "primary_pages": list(range(current, primary_end + 1)),
-                "context_page": current - 1 if current > start_page else None,
-                "page_text": page_text,
-            }
-        )
-        current = primary_end + 1
-    return windows
 
 
 def _summary_window_limits(settings: dict[str, Any], category: str) -> tuple[int, int]:
@@ -2625,6 +2433,11 @@ def _reset_generated_case_bundle(root_dir: Path) -> None:
             shutil.rmtree(path)
     for name in GENERATED_CASE_BUNDLE_FILES:
         path = root_dir / name
+        if path.exists():
+            path.unlink()
+    # Two-stage summary artifacts (facts JSONL and metadata sidecars) are
+    # generated data cleared with the bundle restart scope.
+    for path in _summary_agents.summary_generated_artifact_paths(root_dir).values():
         if path.exists():
             path.unlink()
 
@@ -3948,6 +3761,12 @@ class SummarizeSettingsWidgets:
     hearings_prompt_buffer: Gtk.TextBuffer
     reports_prompt_buffer: Gtk.TextBuffer
     minutes_prompt_buffer: Gtk.TextBuffer
+    extract_model_row: Adw.ComboRow
+    extract_thinking_row: Adw.ComboRow
+    synthesize_model_row: Adw.ComboRow
+    synthesize_thinking_row: Adw.ComboRow
+    hearings_synthesis_prompt_buffer: Gtk.TextBuffer
+    reports_synthesis_prompt_buffer: Gtk.TextBuffer
 
 
 
@@ -3980,29 +3799,30 @@ def load_summarize_settings() -> dict[str, Any]:
     reports_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, DEFAULT_SUMMARIZE_REPORTS_PROMPT) or ""
     ).strip()
-    if hearings_prompt == PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT or hearings_prompt.startswith(
-        (
-            "Summarize the following court hearing in one very concise paragraph",
-            "Summarize the primary court-hearing source pages in one concise paragraph",
-            "I need to understand the factual and procedural history of this juvenile "
-            "dependency case. Therefore, summarize the following court hearing",
+    # Recognized historical built-in summarization prompts migrate to the
+    # current extraction guidance; genuinely custom text is preserved as
+    # lower-priority additional guidance. Migration is applied in memory only
+    # until the user saves Settings.
+    hearings_prompt = _summary_agents.migrate_extraction_prompt(
+        "hearings", hearings_prompt, _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE
+    )
+    reports_prompt = _summary_agents.migrate_extraction_prompt(
+        "reports", reports_prompt, _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
+    )
+    hearings_synthesis_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT,
+            _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE,
         )
-    ):
-        hearings_prompt = DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    if (
-        reports_prompt == PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT
-        or reports_prompt == PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT
-        or reports_prompt == PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT
-        or reports_prompt.startswith(
-            (
-                "Summarize the following reports in one very concise paragraph",
-                "Summarize the primary report source pages in one concise paragraph",
-                "I need to understand the factual and procedural history of this juvenile "
-                "dependency case. Therefore, summarize the following report",
-            )
+        or ""
+    ).strip() or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+    reports_synthesis_prompt = str(
+        config.get(
+            CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT,
+            _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE,
         )
-    ):
-        reports_prompt = DEFAULT_SUMMARIZE_REPORTS_PROMPT
+        or ""
+    ).strip() or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
     ).strip()
@@ -4076,7 +3896,7 @@ def load_summarize_settings() -> dict[str, Any]:
     # migrates as disabled so custom behavior does not silently change.
     default_word_target = (
         DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
-        if reports_prompt == DEFAULT_SUMMARIZE_REPORTS_PROMPT
+        if reports_prompt == _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
         else 0
     )
     word_target_raw = str(
@@ -4107,6 +3927,14 @@ def load_summarize_settings() -> dict[str, Any]:
         "hearings_prompt": hearings_prompt,
         "reports_prompt": reports_prompt,
         "minutes_prompt": minutes_prompt,
+        "hearings_synthesis_prompt": hearings_synthesis_prompt,
+        "reports_synthesis_prompt": reports_synthesis_prompt,
+        "extract_provider": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER, "") or "").strip(),
+        "extract_model": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL, "") or "").strip(),
+        "extract_thinking": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING, "") or "").strip(),
+        "synthesize_provider": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER, "") or "").strip(),
+        "synthesize_model": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL, "") or "").strip(),
+        "synthesize_thinking": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING, "") or "").strip(),
     }
 
 
@@ -4144,6 +3972,14 @@ def save_summarize_settings(
     hearings_prompt: str,
     reports_prompt: str,
     minutes_prompt: str,
+    hearings_synthesis_prompt: str = "",
+    reports_synthesis_prompt: str = "",
+    extract_provider: str = "",
+    extract_model: str = "",
+    extract_thinking: str = "",
+    synthesize_provider: str = "",
+    synthesize_model: str = "",
+    synthesize_thinking: str = "",
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_SUMMARIZE_API_URL] = api_url
@@ -4169,6 +4005,22 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT] = (
         minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT
     )
+    config[CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT] = (
+        hearings_synthesis_prompt
+        or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+    )
+    config[CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT] = (
+        reports_synthesis_prompt
+        or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+    )
+    # Stage overrides never mutate the project PI settings; an empty value
+    # means "use the project PI model/reasoning".
+    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER] = extract_provider
+    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL] = extract_model
+    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING] = extract_thinking
+    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER] = synthesize_provider
+    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL] = synthesize_model
+    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING] = synthesize_thinking
     _write_config(config)
 
 
@@ -4216,6 +4068,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._text_source_values: list[str] = []
         self._agent_widgets: AgentSettingsWidgets | None = None
         self._pi_model_options: list[PiModel | None] = []
+        self._summary_model_rows: list[tuple[Adw.ComboRow, str]] = []
         self._pi_model_generation = 0
         self._pi_model_closed = False
         self._pi_model_applying = False
@@ -4879,50 +4732,71 @@ class SettingsWindow(Adw.ApplicationWindow):
         title_label.add_css_class("title-3")
         page_box.append(title_label)
 
-        credentials_group = Adw.PreferencesGroup(title="Credentials")
-        credentials_group.add_css_class("list-stack")
-        credentials_group.set_hexpand(True)
-        page_box.append(credentials_group)
-
-        api_url_row = Adw.EntryRow(title="API URL")
-        api_url_row.set_text(settings.get("api_url", ""))
-        credentials_group.add(api_url_row)
-
-        model_row = Adw.EntryRow(title="Model ID")
-        model_row.set_text(settings.get("model_id", ""))
-        credentials_group.add(model_row)
-
-        api_key_row = self._build_password_row("API Key")
-        api_key_row.set_text(settings.get("api_key", ""))
-        credentials_group.add(api_key_row)
-
-        disable_reasoning_row = Adw.SwitchRow(
-            title="Disable reasoning",
-            subtitle="Leave off to use the model's default behavior.",
-        )
-        disable_reasoning_row.set_active(
-            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
-        )
-        credentials_group.add(disable_reasoning_row)
-
-        windows_group = Adw.PreferencesGroup(
-            title="Summary windows",
+        # --- PI extraction ---
+        extract_group = Adw.PreferencesGroup(
+            title="PI extraction",
             description=(
-                "Adaptive page-intact windows per category. RecordPrep adds complete "
-                "source pages toward the character target and stops at the maximum "
-                "page count or the 12,000-character primary-source safety limit; a "
-                "character target above the safety limit is normalized to it, and one "
-                "oversized source page always remains intact."
+                "Model and reasoning for stage one: one fresh PI process per "
+                "hearing or report extracts quote-verified facts. Empty means "
+                "use the project PI model."
+            ),
+        )
+        extract_group.add_css_class("list-stack")
+        extract_group.set_hexpand(True)
+        page_box.append(extract_group)
+
+        extract_model_row = self._build_summary_model_row(
+            "Extraction model", settings.get("extract_model", "")
+        )
+        extract_group.add(extract_model_row)
+        extract_thinking_row = self._build_summary_thinking_row(
+            "Extraction reasoning level", settings.get("extract_thinking", "")
+        )
+        extract_group.add(extract_thinking_row)
+
+        # --- PI synthesis ---
+        synthesize_group = Adw.PreferencesGroup(
+            title="PI synthesis",
+            description=(
+                "Independent model and reasoning for stage two: one fresh PI "
+                "process per completed facts file renders the final narrative. "
+                "Use a stronger model here if desired."
+            ),
+        )
+        synthesize_group.add_css_class("list-stack")
+        synthesize_group.set_hexpand(True)
+        page_box.append(synthesize_group)
+
+        synthesize_model_row = self._build_summary_model_row(
+            "Synthesis model", settings.get("synthesize_model", "")
+        )
+        synthesize_group.add(synthesize_model_row)
+        synthesize_thinking_row = self._build_summary_thinking_row(
+            "Synthesis reasoning level", settings.get("synthesize_thinking", "")
+        )
+        synthesize_group.add(synthesize_thinking_row)
+
+        # --- PI extraction windows ---
+        windows_group = Adw.PreferencesGroup(
+            title="PI extraction windows",
+            description=(
+                "Adaptive page-intact transport windows per category. Each "
+                "document's windows are served inside one PI session; they "
+                "batch source pages and are never an output-length rule. "
+                "RecordPrep adds complete source pages toward the character "
+                "target and stops at the maximum page count or the 12,000-"
+                "character primary-source safety limit; one oversized source "
+                "page always remains intact."
             ),
         )
         windows_group.add_css_class("list-stack")
         windows_group.set_hexpand(True)
         page_box.append(windows_group)
 
-        def _window_row(title: str, key: str, default_value: int) -> Adw.EntryRow:
+        def _window_row(title: str, key: str, default_value: int, group: Adw.PreferencesGroup | None = None) -> Adw.EntryRow:
             row = Adw.EntryRow(title=title)
             row.set_text(settings.get(key, str(default_value)))
-            windows_group.add(row)
+            (group or windows_group).add(row)
             return row
 
         hearings_target_chars_row = _window_row(
@@ -4945,24 +4819,61 @@ class SettingsWindow(Adw.ApplicationWindow):
             "reports_max_pages",
             DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
         )
+
+        # --- Minute orders (direct API) ---
+        minute_group = Adw.PreferencesGroup(
+            title="Minute orders (direct API)",
+            description=(
+                "Minute-order summaries still use the direct API path. These "
+                "credentials apply only to minute orders."
+            ),
+        )
+        minute_group.add_css_class("list-stack")
+        minute_group.set_hexpand(True)
+        page_box.append(minute_group)
+
+        api_url_row = Adw.EntryRow(title="Minute-order API URL")
+        api_url_row.set_text(settings.get("api_url", ""))
+        minute_group.add(api_url_row)
+
+        model_row = Adw.EntryRow(title="Minute-order model ID")
+        model_row.set_text(settings.get("model_id", ""))
+        minute_group.add(model_row)
+
+        api_key_row = self._build_password_row("Minute-order API key")
+        api_key_row.set_text(settings.get("api_key", ""))
+        minute_group.add(api_key_row)
+
+        disable_reasoning_row = Adw.SwitchRow(
+            title="Disable reasoning",
+            subtitle="Leave off to use the model's default behavior.",
+        )
+        disable_reasoning_row.set_active(
+            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
+        )
+        minute_group.add(disable_reasoning_row)
+
         minutes_target_chars_row = _window_row(
             "Minute-order window target (source characters)",
             "minutes_target_chars",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
+            minute_group,
         )
         minutes_max_pages_row = _window_row(
             "Minute-order maximum source pages per window",
             "minutes_max_pages",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
+            minute_group,
         )
 
         reports_target_words_row = Adw.EntryRow(
-            title="Report summary target (words per window)",
+            title="Words per report (soft target)",
         )
         reports_target_words_row.set_text(settings.get("reports_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)))
         word_target_subtitle = (
-            "Approximate model guidance for report output shape only; 0 disables it. "
-            "This never cuts off or mechanically rejects an answer."
+            "Soft words-per-report guidance for synthesis output shape only; "
+            "0 disables it. Never a token cap, truncation, rejection, or "
+            "repair rule."
         )
         if hasattr(reports_target_words_row, "set_subtitle"):
             reports_target_words_row.set_subtitle(word_target_subtitle)
@@ -4975,19 +4886,41 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_vexpand(True)
 
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
-            settings.get("hearings_prompt") or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
+            settings.get("hearings_prompt") or _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE
         )
         self._set_prompt_editor_height(hearings_scroller, 240)
         prompt_section.append(
-            self._build_disclosure("Summarize hearings prompt", hearings_scroller)
+            self._build_disclosure("Hearing extraction guidance", hearings_scroller)
         )
 
         reports_scroller, reports_buffer = self._build_prompt_editor(
-            settings.get("reports_prompt") or DEFAULT_SUMMARIZE_REPORTS_PROMPT
+            settings.get("reports_prompt") or _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
         )
         self._set_prompt_editor_height(reports_scroller, 240)
         prompt_section.append(
-            self._build_disclosure("Summarize reports prompt", reports_scroller)
+            self._build_disclosure("Report extraction guidance", reports_scroller)
+        )
+
+        hearings_synthesis_scroller, hearings_synthesis_buffer = self._build_prompt_editor(
+            settings.get("hearings_synthesis_prompt")
+            or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+        )
+        self._set_prompt_editor_height(hearings_synthesis_scroller, 240)
+        prompt_section.append(
+            self._build_disclosure(
+                "Hearing synthesis guidance", hearings_synthesis_scroller
+            )
+        )
+
+        reports_synthesis_scroller, reports_synthesis_buffer = self._build_prompt_editor(
+            settings.get("reports_synthesis_prompt")
+            or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+        )
+        self._set_prompt_editor_height(reports_synthesis_scroller, 240)
+        prompt_section.append(
+            self._build_disclosure(
+                "Report synthesis guidance", reports_synthesis_scroller
+            )
         )
 
         minutes_scroller, minutes_buffer = self._build_prompt_editor(
@@ -4995,14 +4928,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         self._set_prompt_editor_height(minutes_scroller, 240)
         prompt_section.append(
-            self._build_disclosure("Summarize minute orders prompt", minutes_scroller)
+            self._build_disclosure("Minute orders prompt", minutes_scroller)
         )
 
         page_box.append(
             self._build_disclosure(
                 "Prompts",
                 prompt_section,
-                subtitle="Hearings, reports, and minute orders",
+                subtitle="Extraction, synthesis, and minute orders",
             )
         )
 
@@ -5027,8 +4960,55 @@ class SettingsWindow(Adw.ApplicationWindow):
             hearings_prompt_buffer=hearings_buffer,
             reports_prompt_buffer=reports_buffer,
             minutes_prompt_buffer=minutes_buffer,
+            extract_model_row=extract_model_row,
+            extract_thinking_row=extract_thinking_row,
+            synthesize_model_row=synthesize_model_row,
+            synthesize_thinking_row=synthesize_thinking_row,
+            hearings_synthesis_prompt_buffer=hearings_synthesis_buffer,
+            reports_synthesis_prompt_buffer=reports_synthesis_buffer,
         )
+        self._refresh_summary_model_rows()
         return page
+
+    def _build_summary_model_row(self, title: str, configured: str) -> Adw.ComboRow:
+        row = Adw.ComboRow(title=title)
+        row.set_model(Gtk.StringList.new(["Use project PI model"]))
+        row.set_selected(0)
+        self._summary_model_rows.append((row, configured))
+        return row
+
+    def _build_summary_thinking_row(self, title: str, configured: str) -> Adw.ComboRow:
+        labels = ["Use project PI reasoning"] + [
+            level for level in PI_THINKING_LEVELS
+        ]
+        row = Adw.ComboRow(title=title)
+        row.set_model(Gtk.StringList.new(labels))
+        selected = 0
+        if configured:
+            candidate = configured.strip().lower()
+            if candidate in PI_THINKING_LEVELS:
+                selected = 1 + PI_THINKING_LEVELS.index(candidate)
+        row.set_selected(selected)
+        return row
+
+    def _refresh_summary_model_rows(self) -> None:
+        """Populate the summary model dropdowns from authenticated PI models."""
+        options = getattr(self, "_pi_model_options", None)
+        for row, configured in self._summary_model_rows:
+            labels = ["Use project PI model"]
+            selected = 0
+            if options:
+                models = [model for model in options if model is not None]
+                labels.extend(model.label for model in models)
+                if configured:
+                    for index, model in enumerate(models, start=1):
+                        if model.model_id == configured or (
+                            f"{model.provider}/{model.model_id}" == configured
+                        ):
+                            selected = index
+                            break
+            row.set_model(Gtk.StringList.new(labels))
+            row.set_selected(selected)
 
 
 
@@ -5312,6 +5292,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._pi_model_row.set_model(Gtk.StringList.new(labels))
         self._pi_model_row.set_selected(selected_index)
         self._pi_model_applying = False
+        self._refresh_summary_model_rows()
         selected_model = self._selected_pi_model()
         self._pi_model_selection_changed = bool(
             selected_model is not None
@@ -5502,6 +5483,38 @@ class SettingsWindow(Adw.ApplicationWindow):
                 error_row.set_subtitle(detail)
                 self._select_settings_page("summarize")
                 return
+
+            def _summary_stage_values(
+                model_row: Adw.ComboRow, thinking_row: Adw.ComboRow
+            ) -> tuple[str, str, str]:
+                options = [
+                    model
+                    for model in getattr(self, "_pi_model_options", [])
+                    if model is not None
+                ]
+                selected_index = int(model_row.get_selected())
+                provider = model = ""
+                if selected_index > 0 and selected_index <= len(options):
+                    chosen = options[selected_index - 1]
+                    provider, model = chosen.provider, chosen.model_id
+                thinking_index = int(thinking_row.get_selected())
+                thinking = (
+                    PI_THINKING_LEVELS[thinking_index - 1]
+                    if thinking_index > 0 and thinking_index <= len(PI_THINKING_LEVELS)
+                    else ""
+                )
+                return provider, model, thinking
+
+            extract_provider, extract_model, extract_thinking = _summary_stage_values(
+                summarize_widgets.extract_model_row,
+                summarize_widgets.extract_thinking_row,
+            )
+            synthesize_provider, synthesize_model, synthesize_thinking = (
+                _summary_stage_values(
+                    summarize_widgets.synthesize_model_row,
+                    summarize_widgets.synthesize_thinking_row,
+                )
+            )
             save_summarize_settings(
                 api_url=summarize_widgets.api_url_row.get_text().strip(),
                 model_id=summarize_widgets.model_row.get_text().strip(),
@@ -5517,6 +5530,18 @@ class SettingsWindow(Adw.ApplicationWindow):
                 hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
                 reports_prompt=self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
                 minutes_prompt=self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
+                hearings_synthesis_prompt=self._prompt_text(
+                    summarize_widgets.hearings_synthesis_prompt_buffer
+                ).strip(),
+                reports_synthesis_prompt=self._prompt_text(
+                    summarize_widgets.reports_synthesis_prompt_buffer
+                ).strip(),
+                extract_provider=extract_provider,
+                extract_model=extract_model,
+                extract_thinking=extract_thinking,
+                synthesize_provider=synthesize_provider,
+                synthesize_model=synthesize_model,
+                synthesize_thinking=synthesize_thinking,
             )
         if agent_widgets:
             pi_command = agent_widgets.pi_agent_command_row.get_text().strip()
@@ -7287,9 +7312,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 and (artifacts_dir / "report_boundaries.json").exists()
             )
         if step_id == "create_hearing_summaries":
-            return summaries_path.exists()
+            return _summary_agents.summary_stage_complete(root_dir, "hearings")
         if step_id == "create_report_summaries":
-            return reports_path.exists()
+            return _summary_agents.summary_stage_complete(root_dir, "reports")
         if step_id == "create_minute_order_summaries":
             return minutes_path.exists()
         if step_id == "add_hearing_date_links":
@@ -10936,229 +10961,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
 
     def _run_step_create_hearing_summaries(self) -> bool:
-        """Create hearing summaries through nonpersisted page windows."""
-        success: bool | None = False
-        root_dir: Path | None = None
-        try:
-            step = self._prepare_summary_step(
-                require_participant_index=True, category="hearings"
-            )
-            root_dir = step.root_dir
-            hearing_boundaries = _load_json_entries(
-                step.artifacts_dir / "hearing_boundaries.json"
-            )
-            hearing_output = [
-                "Hearings Summary",
-                *([step.display_case_name] if step.display_case_name else []),
-                "",
-            ]
-            total_hearings = len(hearing_boundaries)
-            for hearing_number, boundary in enumerate(hearing_boundaries, start=1):
-                self._raise_if_stop_requested()
-                start = _page_number_from_label(
-                    _extract_entry_value(boundary, "start_page", "start")
-                )
-                end = _page_number_from_label(
-                    _extract_entry_value(boundary, "end_page", "end")
-                )
-                if start is None or end is None:
-                    raise ValueError("Hearing boundary is missing a page range.")
-                participant = step.participant_by_range.get((start, end))
-                if participant is None:
-                    raise ValueError(
-                        f"Participant index has no hearing for source pages {start}-{end}."
-                    )
-                date_value = _normalize_hearing_date(
-                    _extract_entry_value(boundary, "date", "hearing_date")
-                    or str(participant.get("date") or "HEARING")
-                )
-                participant_context = _hearing_participant_context(participant)
-                preferred_breaks: set[int] = set()
-                for witness in participant.get("witnesses", []):
-                    if not isinstance(witness, dict):
-                        continue
-                    for exam in witness.get("examinations", []):
-                        if isinstance(exam, dict):
-                            try:
-                                value = int(exam.get("start_file_page") or 0)
-                            except (TypeError, ValueError):
-                                value = 0
-                            if value:
-                                preferred_breaks.add(value)
-                windows = _summary_page_windows(
-                    step.text_dir,
-                    start,
-                    end,
-                    max_pages=step.max_pages,
-                    target_chars=step.target_chars,
-                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-                    preferred_breaks=preferred_breaks,
-                )
-                hearing_output.extend([date_value or "HEARING", ""])
-                for window_number, window in enumerate(windows, start=1):
-                    self._raise_if_stop_requested()
-                    self._report_step_progress(
-                        self.step_hearing_summaries_row,
-                        f"Hearing {hearing_number}/{total_hearings} window {window_number}/{len(windows)}",
-                        f"Create hearing summaries: direct-source hearing pages {window['primary_start']}-{window['primary_end']}.",
-                    )
-                    payload = _render_summary_window_payload(
-                        window, step.citation_by_page, participant_context=participant_context
-                    )
-                    response = step.request_window(
-                        step.settings["hearings_prompt"], payload
-                    )
-                    if response:
-                        _append_summary_paragraph(hearing_output, response)
-                hearing_output.append("")
-            summaries_dir = root_dir / "summaries"
-            summaries_dir.mkdir(parents=True, exist_ok=True)
-            summaries_path, _reports_path = _summary_output_paths(root_dir)
-            summaries_path.write_text(
-                _collapse_blank_lines("\n".join(hearing_output)), encoding="utf-8"
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create hearing summaries failed: {exc}")
-        else:
-            success = True
-            assert root_dir is not None
-            remove_summary_edition(summaries_path)
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_hearing_summaries",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create hearing summaries complete.")
-        finally:
-            GLib.idle_add(self.step_hearing_summaries_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_hearing_summaries_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        """Create hearing summaries through the two-stage PI pipeline."""
+        return self._run_pi_skill_step(
+            "create_hearing_summaries",
+            self.step_hearing_summaries_row,
+        )
 
     def _run_step_create_report_summaries(self) -> bool:
-        """Create report summaries through nonpersisted page windows."""
-        success: bool | None = False
-        root_dir: Path | None = None
-        try:
-            step = self._prepare_summary_step(
-                require_participant_index=False, category="reports"
-            )
-            root_dir = step.root_dir
-            report_boundaries = _load_json_entries(
-                step.artifacts_dir / "report_boundaries.json"
-            )
-            report_length_guidance = _report_length_guidance_section(step.target_words)
-            report_output = [
-                "Reports Summary",
-                *([step.display_case_name] if step.display_case_name else []),
-                "",
-            ]
-            total_reports = len(report_boundaries)
-            reports_with_proposals = 0
-            proposal_only_windows_skipped = 0
-            for report_number, boundary in enumerate(report_boundaries, start=1):
-                start = _page_number_from_label(
-                    _extract_entry_value(boundary, "start_page", "start")
-                )
-                end = _page_number_from_label(
-                    _extract_entry_value(boundary, "end_page", "end")
-                )
-                if start is None or end is None:
-                    raise ValueError("Report boundary is missing a page range.")
-                label = (
-                    _extract_entry_value(boundary, "report_label", "report_name")
-                    or f"Report {report_number}"
-                )
-                windows = _summary_page_windows(
-                    step.text_dir,
-                    start,
-                    end,
-                    max_pages=step.max_pages,
-                    target_chars=step.target_chars,
-                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-                )
-                report_marker = (
-                    _detect_report_proposal_marker(windows[0]["page_text"], start, end)
-                    if windows
-                    else None
-                )
-                if report_marker is not None:
-                    reports_with_proposals += 1
-                    GLib.idle_add(
-                        self._append_log_message,
-                        f"Report {report_number}: formal proposed findings/orders "
-                        f"detected on source page {report_marker.source_page}.",
-                        "INFO",
-                    )
-                report_paragraphs: list[str] = []
-                for window_number, window in enumerate(windows, start=1):
-                    self._raise_if_stop_requested()
-                    self._report_step_progress(
-                        self.step_report_summaries_row,
-                        f"Report {report_number}/{total_reports} window {window_number}/{len(windows)}",
-                        f"Create report summaries: direct-source report pages {window['primary_start']}-{window['primary_end']}.",
-                    )
-                    response = step.request_window(
-                        step.settings["reports_prompt"],
-                        _render_summary_window_payload(
-                            window,
-                            step.citation_by_page,
-                            report_marker=report_marker,
-                            report_length_guidance=report_length_guidance,
-                        ),
-                    )
-                    if response == NO_SUMMARIZABLE_REPORT_CONTENT:
-                        proposal_only_windows_skipped += 1
-                        continue
-                    if response:
-                        report_paragraphs.append(response)
-                if report_paragraphs:
-                    report_output.extend([label, ""])
-                    for paragraph in report_paragraphs:
-                        _append_summary_paragraph(report_output, paragraph)
-                    report_output.append("")
-            summaries_dir = root_dir / "summaries"
-            summaries_dir.mkdir(parents=True, exist_ok=True)
-            _summaries_path, reports_path = _summary_output_paths(root_dir)
-            reports_path.write_text(
-                _collapse_blank_lines("\n".join(report_output)), encoding="utf-8"
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Create report summaries failed: {exc}")
-        else:
-            success = True
-            assert root_dir is not None
-            remove_summary_edition(reports_path)
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_report_summaries",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            completion = "Create report summaries complete."
-            if reports_with_proposals or proposal_only_windows_skipped:
-                completion += (
-                    f" Excluded formal proposed findings/orders in "
-                    f"{reports_with_proposals} report(s); skipped "
-                    f"{proposal_only_windows_skipped} proposal-only window(s)."
-                )
-            GLib.idle_add(self.show_toast, completion)
-        finally:
-            GLib.idle_add(self.step_report_summaries_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_report_summaries_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        """Create report summaries through the two-stage PI pipeline."""
+        return self._run_pi_skill_step(
+            "create_report_summaries",
+            self.step_report_summaries_row,
+        )
 
     def _run_step_create_minute_order_summaries(self) -> bool:
         """Create minute-order summaries through nonpersisted page windows."""
@@ -11309,6 +11123,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     minute_entries,
                 )
             )
+            if linked_hearings == summaries_path.read_text(
+                encoding="utf-8", errors="ignore"
+            ):
+                success = "Skipped"
+                GLib.idle_add(
+                    self.show_toast,
+                    "Add links to summaries: links are already correct; nothing changed.",
+                )
+                return True
             summaries_path.write_text(linked_hearings, encoding="utf-8")
         except StopRequested:
             success = None

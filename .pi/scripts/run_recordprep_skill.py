@@ -19,7 +19,31 @@ from typing import Any, Sequence
 
 
 MINIMUM_PI_MINOR = 80
+SUMMARY_RESOURCE_MINIMUM_PI_MINOR = 85
 AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
+SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
+
+SUMMARY_STAGE_KINDS = {
+    "create_hearing_summaries": "hearings",
+    "create_report_summaries": "reports",
+}
+SUMMARY_SKILL_NAMES = {
+    "hearings": {
+        "extract": "recordprep-extract-hearing",
+        "synthesize": "recordprep-synthesize-hearings",
+    },
+    "reports": {
+        "extract": "recordprep-extract-report",
+        "synthesize": "recordprep-synthesize-reports",
+    },
+}
+SUMMARY_TOOL_ALLOWLISTS = {
+    "extract": "recordprep_get_window,recordprep_submit_extraction",
+    "synthesize": (
+        "recordprep_get_facts,recordprep_submit_summary_section,"
+        "recordprep_finish_summary"
+    ),
+}
 
 STAGE_STATUS_ARTIFACT = "recordprep-pi-stage-status"
 STAGE_STATUS_RELATIVE = Path("temp") / ".pi_stage_status.json"
@@ -149,6 +173,11 @@ def _resource_issues(project_dir: Path) -> list[str]:
         skill = project_dir / "skills" / stage.skill_name / "SKILL.md"
         if not skill.is_file():
             issues.append(f"{stage.skill_name}/SKILL.md is missing.")
+    for kind_skills in SUMMARY_SKILL_NAMES.values():
+        for skill_name in kind_skills.values():
+            skill = project_dir / "skills" / skill_name / "SKILL.md"
+            if not skill.is_file():
+                issues.append(f"{skill_name}/SKILL.md is missing.")
     extension_dir = project_dir / "extensions"
     auto_exit_extension = extension_dir / AUTO_EXIT_EXTENSION_NAME
     if not auto_exit_extension.is_file():
@@ -157,8 +186,13 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME}:
-        issues.append("unexpected project-local PI extension resources are present.")
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME}:
+        issues.append(
+            "unexpected project-local PI extension resources are present."
+        )
+    summary_extension = extension_dir / SUMMARY_EXTENSION_NAME
+    if not summary_extension.is_file():
+        issues.append(f"extensions/{SUMMARY_EXTENSION_NAME} is missing.")
     for obsolete in ("agents", "workflows"):
         if (project_dir / obsolete).exists():
             issues.append(f"obsolete .pi/{obsolete}/ resources are still present.")
@@ -181,6 +215,48 @@ def _check_pi_version(command: Sequence[str]) -> None:
             f"RecordPrep requires PI 0.{MINIMUM_PI_MINOR} or newer; "
             f"found {first_line or 'unknown'}."
         )
+
+
+def _resolve_pi_command() -> list[str]:
+    """Harden executable resolution before any --version or agent spawn.
+
+    A nonexistent configured path is never attempted. Only `pi` or a known
+    legacy default location triggers rediscovery; an arbitrary missing custom
+    command fails early with the discovered alternative named.
+    """
+    command = _pi_command()
+    if not command or not command[0]:
+        raise ValueError("PI command is empty. Set the PI command in Settings.")
+    executable = Path(command[0]).expanduser()
+    if str(executable) == "pi":
+        from recordprep.pi_runtime import discover_pi_agent_command
+
+        discovered = discover_pi_agent_command(path_env=os.environ.get("PATH"))
+        resolved = shutil.which("pi", path=os.environ.get("PATH"))
+        command[0] = resolved or discovered
+        executable = Path(command[0])
+    if os.path.sep in str(executable) or executable.is_absolute():
+        if not executable.is_file() or not os.access(executable, os.X_OK):
+            raise ValueError(
+                f"PI executable not found at the configured path: {executable}. "
+                "Install PI or set the PI command in Settings."
+            )
+    elif shutil.which(str(executable)) is None:
+        from recordprep.pi_runtime import discover_pi_agent_command
+
+        discovered = discover_pi_agent_command(path_env=os.environ.get("PATH"))
+        if Path(discovered).is_file():
+            raise ValueError(
+                f"PI executable {executable!r} was not found on PATH, but the "
+                f"discovered PI installation at {discovered} is available; "
+                "set the PI command in Settings to that path."
+            )
+        raise ValueError(
+            f"PI executable not found: {executable}. Install PI or set the PI "
+            "command in Settings."
+        )
+    command[0] = str(executable)
+    return command
 
 
 def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
@@ -517,6 +593,762 @@ def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[st
     return validate_pi_step_outputs(stage.step_id, root)
 
 
+# --- Two-stage summary pipeline ---
+
+
+def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
+    """Read stage-specific summary overrides from RecordPrep config.json."""
+    config_path = project_dir.parent / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    config = config if isinstance(config, dict) else {}
+
+    def value(key: str) -> str:
+        return str(config.get(key, "") or "").strip()
+
+    return {
+        "extract_provider": value(f"summary_extract_{kind}_pi_provider")
+        or value("summary_extract_pi_provider"),
+        "extract_model": value(f"summary_extract_{kind}_pi_model")
+        or value("summary_extract_pi_model"),
+        "extract_thinking": value(f"summary_extract_{kind}_pi_thinking")
+        or value("summary_extract_pi_thinking"),
+        "synthesize_provider": value(f"summary_synthesize_{kind}_pi_provider")
+        or value("summary_synthesize_pi_provider"),
+        "synthesize_model": value(f"summary_synthesize_{kind}_pi_model")
+        or value("summary_synthesize_pi_model"),
+        "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
+        or value("summary_synthesize_pi_thinking"),
+        "target_chars": value(f"summarize_{kind}_window_target_chars"),
+        "max_pages": value(f"summarize_{kind}_window_max_pages"),
+        "extract_prompt": value(f"summarize_{kind}_prompt"),
+        "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
+    }
+
+
+def _extraction_config(
+    project_dir: Path,
+    kind: str,
+    settings: dict[str, Any],
+) -> Any:
+    from recordprep import summary_agents as sa
+
+    defaults = {
+        "hearings": (
+            sa.DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
+            sa.DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
+        ),
+        "reports": (
+            sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
+            sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
+        ),
+    }
+    default_chars, default_pages = defaults[kind]
+    try:
+        target_chars = max(1, int(settings["target_chars"] or default_chars))
+    except (TypeError, ValueError):
+        target_chars = default_chars
+    try:
+        max_pages = max(1, int(settings["max_pages"] or default_pages))
+    except (TypeError, ValueError):
+        max_pages = default_pages
+    target_chars = min(target_chars, sa.DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS)
+    default_guidance = (
+        sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
+        if kind == "hearings"
+        else sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE
+    )
+    guidance = sa.migrate_extraction_prompt(
+        kind, settings["extract_prompt"], default_guidance
+    )
+    additional = ""
+    if guidance != (settings["extract_prompt"] or "").strip() and settings[
+        "extract_prompt"
+    ].strip() not in ("", default_guidance):
+        additional = settings["extract_prompt"].strip()
+    return sa.ExtractionConfig(
+        kind=kind,
+        target_chars=target_chars,
+        max_pages=max_pages,
+        guidance=guidance,
+        additional_guidance=additional,
+        provider=settings["extract_provider"],
+        model=settings["extract_model"],
+        thinking=settings["extract_thinking"],
+    )
+
+
+def _model_override_flags(phase: str, settings: dict[str, Any]) -> list[str]:
+    flags: list[str] = []
+    provider = str(settings.get(f"{phase}_provider") or "")
+    model = str(settings.get(f"{phase}_model") or "")
+    thinking = str(settings.get(f"{phase}_thinking") or "")
+    if provider:
+        flags.extend(["--provider", provider])
+    if model:
+        flags.extend(["--model", model])
+    if thinking:
+        flags.extend(["--thinking", thinking])
+    return flags
+
+
+def _citation_map(root: Path) -> dict[int, str]:
+    path = root / "artifacts" / "transcript_page_numbers.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    mapping: dict[int, str] = {}
+    for item in payload.get("entries", []):
+        if not isinstance(item, dict):
+            continue
+        page = item.get("file_page")
+        try:
+            page_number = int(page)
+        except (TypeError, ValueError):
+            continue
+        mapping[page_number] = str(item.get("citation_label") or "")
+    return mapping
+
+
+class _SummaryChildRunner:
+    """Run one JSON-mode PI child with sanitized event reporting."""
+
+    def __init__(
+        self,
+        command: Sequence[str],
+        label: str,
+        workspace: Path,
+        poll_interval: float,
+        stall_timeout: float,
+    ) -> None:
+        self.command = list(command)
+        self.label = label
+        self.workspace = workspace
+        self.poll_interval = poll_interval
+        self.stall_timeout = stall_timeout
+        self.process: subprocess.Popen[str] | None = None
+        self._stall_reported = False
+
+    def run(self) -> int:
+        global _active_process
+        env = os.environ.copy()
+        env["TMPDIR"] = str(self.workspace / "tmp")
+        env["PI_CODING_AGENT_SESSION_DIR"] = str(self.workspace / "sessions")
+        (self.workspace / "sessions").mkdir(parents=True, exist_ok=True)
+        (self.workspace / "tmp").mkdir(parents=True, exist_ok=True)
+        started = time.monotonic()
+        self.process = subprocess.Popen(
+            self.command,
+            cwd=self.workspace,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            process_group=0,
+        )
+        _active_process = self.process
+        assert self.process.stdout is not None
+        last_activity = time.monotonic()
+        while True:
+            line = self.process.stdout.readline()
+            if line:
+                last_activity = time.monotonic()
+                self._handle_event(line)
+            elif self.process.poll() is not None:
+                break
+            else:
+                time.sleep(self.poll_interval)
+            if (
+                not self._stall_reported
+                and time.monotonic() - last_activity >= self.stall_timeout
+            ):
+                self._stall_reported = True
+                _line(
+                    "\033[33m[stalled]\033[0m "
+                    f"{self.label}: no PI event activity for "
+                    f"{time.monotonic() - last_activity:.0f}s. Use the Stop "
+                    "button to terminate it; RecordPrep will not kill "
+                    "potentially valid work automatically."
+                )
+            if _stopped and self.process.poll() is None:
+                _terminate_active_process()
+        remaining = self.process.stdout.read()
+        if remaining:
+            for line in remaining.splitlines():
+                self._handle_event(line)
+        return_code = self.process.wait()
+        elapsed = time.monotonic() - started
+        _line(
+            f"[{self.label}] child exited with code {return_code} after "
+            f"{elapsed:.0f}s."
+        )
+        _active_process = None
+        if _stopped:
+            return 130
+        return return_code
+
+    def _handle_event(self, line: str) -> None:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(event, dict):
+            return
+        event_type = str(event.get("type") or "")
+        if event_type == "tool_execution_start":
+            _line(f"[{self.label}] tool call: {event.get('toolName', 'unknown')}")
+        elif event_type in {"agent_start", "turn_end", "agent_end"}:
+            _line(f"[{self.label}] {event_type}")
+
+
+def _check_stop() -> None:
+    if _stopped:
+        raise _StopRequested()
+
+
+class _StopRequested(Exception):
+    pass
+
+
+def _staged_workspace(
+    project_dir: Path,
+    skill_name: str,
+    workspace_parent: Path,
+) -> tuple[Path, Path, Path]:
+    """Stage SYSTEM.md, one skill, and the summary extension into a workspace."""
+    workspace = Path(tempfile.mkdtemp(prefix="summary.", dir=workspace_parent))
+    staged_pi = workspace / ".pi"
+    staged_skill = staged_pi / "skills" / skill_name
+    staged_skill.parent.mkdir(parents=True)
+    (staged_pi / "extensions").mkdir(parents=True)
+    shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
+    shutil.copy2(project_dir / "SYSTEM.md", staged_pi / "SYSTEM.md")
+    shutil.copytree(project_dir / "skills" / skill_name, staged_skill)
+    shutil.copy2(
+        project_dir / "extensions" / SUMMARY_EXTENSION_NAME,
+        staged_pi / "extensions" / SUMMARY_EXTENSION_NAME,
+    )
+    return workspace, staged_pi, staged_skill
+
+
+def _base_child_command(
+    pi_command: Sequence[str],
+    staged_pi: Path,
+    staged_skill: Path,
+    tools: str,
+    prompt: str,
+    settings: dict[str, Any],
+    phase: str,
+) -> list[str]:
+    return [
+        *pi_command,
+        "--mode",
+        "json",
+        "--no-session",
+        "--approve",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-themes",
+        "--no-context-files",
+        "--system-prompt",
+        str(staged_pi / "SYSTEM.md"),
+        "--extension",
+        str(staged_pi / "extensions" / SUMMARY_EXTENSION_NAME),
+        "--skill",
+        str(staged_skill / "SKILL.md"),
+        "--tools",
+        tools,
+        *_model_override_flags(phase, settings),
+        prompt,
+    ]
+
+
+def _preflight_context(
+    pi_command: Sequence[str],
+    label: str,
+    input_chars: int,
+    output_chars: int,
+) -> None:
+    """Conservatively preflight context capacity when model metadata exists."""
+    from recordprep import pi_runtime as runtime
+
+    try:
+        models = runtime.available_pi_models(pi_command)
+    except (runtime.PiRuntimeError, OSError, subprocess.SubprocessError) as exc:
+        _line(
+            f"\033[33m[warn]\033[0m could not query PI model metadata for the "
+            f"context preflight ({exc}); PI will enforce its own limit."
+        )
+        return
+    settings_model = str(
+        os.environ.get("RECORDPREP_SUMMARY_ACTIVE_MODEL", "") or ""
+    ).strip()
+    model = None
+    if settings_model:
+        pattern = settings_model.split("/")[-1].lower()
+        model = next(
+            (entry for entry in models if entry.model_id.lower() == pattern),
+            None,
+        )
+    if model is None:
+        _line(
+            "\033[33m[warn]\033[0m model context metadata is unavailable; PI will "
+            "enforce its own limit."
+        )
+        return
+    try:
+        runtime.preflight_summary_context(
+            model, input_chars, output_chars, label=label
+        )
+    except runtime.PiRuntimeError as exc:
+        raise ValueError(str(exc)) from None
+
+
+def _run_extraction_child(
+    root: Path,
+    project_dir: Path,
+    pi_command: Sequence[str],
+    item: Any,
+    extraction_config: Any,
+    settings: dict[str, Any],
+    workspace_parent: Path,
+    cache_candidate: Path,
+) -> dict[str, Any]:
+    from recordprep import summary_agents as sa
+
+    kind = extraction_config.kind
+    skill_name = SUMMARY_SKILL_NAMES[kind]["extract"]
+    workspace, staged_pi, staged_skill = _staged_workspace(
+        project_dir, skill_name, workspace_parent
+    )
+    try:
+        spec = sa.build_work_spec(
+            item, extraction_config, root, cache_candidate, citation_by_page=_citation_map(root)
+        )
+        spec_path = workspace / "work_spec.json"
+        spec_path.write_text(json.dumps(spec, ensure_ascii=True), encoding="utf-8")
+        prompt_parts = [
+            f"/skill:{skill_name}",
+            "Run the loaded extraction skill now for the current document.",
+            f"item_id: {item.item_id}",
+            f"ordinal: {item.ordinal}",
+            f"label: {item.label}",
+            f"page range: {item.start_page}-{item.end_page}",
+            f"window_count: {len(item.windows)}",
+            f"candidate_path: {cache_candidate}",
+            "category ids in order: "
+            + ", ".join(sa.SUMMARY_CATEGORY_IDS[kind]),
+        ]
+        if extraction_config.additional_guidance:
+            prompt_parts.extend(
+                [
+                    "ADDITIONAL USER GUIDANCE — lower priority than the built-in "
+                    "contracts above:",
+                    extraction_config.additional_guidance,
+                ]
+            )
+        prompt_parts.append(
+            "The work specification file is available to your tools; request every "
+            "window, then submit once."
+        )
+        prompt = "\n".join(prompt_parts)
+        command = _base_child_command(
+            pi_command,
+            staged_pi,
+            staged_skill,
+            SUMMARY_TOOL_ALLOWLISTS["extract"],
+            prompt,
+            settings,
+            "extract",
+        )
+        payload_chars = sum(len(window) for window in spec["windows"]) + len(prompt)
+        _preflight_context(
+            pi_command,
+            f"{item.item_id} extraction",
+            payload_chars,
+            output_chars=6000,
+        )
+        child = _SummaryChildRunner(
+            command=command,
+            label=f"{kind} extract {item.ordinal}",
+            workspace=workspace,
+            poll_interval=_float_env(
+                "RECORDPREP_PI_STALL_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS
+            ),
+            stall_timeout=_float_env(
+                "RECORDPREP_PI_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS
+            ),
+        )
+        return_code = child.run()
+        if _stopped:
+            raise _StopRequested()
+        if return_code != 0:
+            raise ValueError(
+                f"Extraction for {item.item_id} failed (exit code {return_code}); "
+                "the canonical row is unchanged."
+            )
+        if not cache_candidate.is_file():
+            raise ValueError(
+                f"Extraction for {item.item_id} produced no candidate; "
+                "the canonical row is unchanged."
+            )
+        try:
+            candidate = json.loads(cache_candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Extraction candidate for {item.item_id} is unreadable: {exc}"
+            ) from exc
+        return candidate
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _run_synthesis_child(
+    root: Path,
+    project_dir: Path,
+    pi_command: Sequence[str],
+    rows: list[dict[str, Any]],
+    synthesis_config: dict[str, Any],
+    settings: dict[str, Any],
+    kind: str,
+    workspace_parent: Path,
+    cache_candidate: Path,
+) -> list[Any]:
+    from recordprep import summary_agents as sa
+
+    skill_name = SUMMARY_SKILL_NAMES[kind]["synthesize"]
+    workspace, staged_pi, staged_skill = _staged_workspace(
+        project_dir, skill_name, workspace_parent
+    )
+    try:
+        dataset = {
+            "artifact": "recordprep-summary-facts-dataset",
+            "total_rows": len(rows),
+            "rows": rows,
+            "candidate_path": str(cache_candidate),
+            "kind": kind,
+        }
+        dataset_path = workspace / "dataset.json"
+        dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
+        guidance = str(synthesis_config.get("guidance") or "")
+        prompt = "\n".join(
+            [
+                f"/skill:{skill_name}",
+                "Run the loaded synthesis skill now for the complete facts dataset.",
+                f"total rows: {len(rows)}",
+                "candidate_path: " + str(cache_candidate),
+                "",
+                guidance,
+            ]
+        )
+        command = _base_child_command(
+            pi_command,
+            staged_pi,
+            staged_skill,
+            SUMMARY_TOOL_ALLOWLISTS["synthesize"],
+            prompt,
+            settings,
+            "synthesize",
+        )
+        _preflight_context(
+            pi_command,
+            f"{kind} synthesis",
+            len(json.dumps(dataset)) + len(prompt),
+            output_chars=max(4000, len(rows) * 2500),
+        )
+        child = _SummaryChildRunner(
+            command=command,
+            label=f"{kind} synthesis",
+            workspace=workspace,
+            poll_interval=_float_env(
+                "RECORDPREP_PI_STALL_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS
+            ),
+            stall_timeout=_float_env(
+                "RECORDPREP_PI_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS
+            ),
+        )
+        return_code = child.run()
+        if _stopped:
+            raise _StopRequested()
+        if return_code != 0:
+            raise ValueError(
+                f"Synthesis failed (exit code {return_code}); the prior summary "
+                "is unchanged."
+            )
+        if not cache_candidate.is_file():
+            raise ValueError(
+                "Synthesis produced no candidate; the prior summary is unchanged."
+            )
+        try:
+            candidate = json.loads(cache_candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Synthesis candidate is unreadable: {exc}") from exc
+        sections_payload = candidate.get("sections")
+        if not isinstance(sections_payload, list):
+            raise ValueError("Synthesis candidate has no sections list.")
+        sections = [
+            sa.SynthesisSectionCandidate(
+                item_id=str(section.get("item_id") or ""),
+                paragraphs=[str(p) for p in section.get("paragraphs", [])],
+                covered_category_ids=[
+                    str(value) for value in section.get("covered_category_ids", [])
+                ],
+                suppressed_duplicate_category_ids=[
+                    str(value)
+                    for value in section.get("suppressed_duplicate_category_ids", [])
+                ],
+            )
+            for section in sections_payload
+            if isinstance(section, dict)
+        ]
+        return sections
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _minute_page_by_date(root: Path) -> dict[str, int]:
+    from recordprep import summary_agents as sa
+
+    try:
+        entries = json.loads(
+            (root / "artifacts" / "minutes_boundaries.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+    mapping: dict[str, int] = {}
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        raw_start = str(entry.get("start_page") or entry.get("start") or "")
+        match = re.search(r"\d+", raw_start)
+        if not match:
+            continue
+        date_value = str(entry.get("date") or "").strip()
+        if not date_value:
+            continue
+        key = sa.format_label_date(date_value).lower()
+        if key:
+            mapping.setdefault(key, int(match.group()))
+    return mapping
+
+
+def _render_and_validate(
+    root: Path,
+    kind: str,
+    rows: list[dict[str, Any]],
+    sections: list[Any],
+) -> tuple[str, dict[str, tuple[int, int | None]]]:
+    from recordprep import summary_agents as sa
+
+    stem = sa.summary_case_stem(root)
+    display_name = stem.replace("_", " ") if stem else ""
+    if kind == "hearings":
+        minutes_by_date = _minute_page_by_date(root)
+        heading_pages: dict[str, tuple[int, int | None]] = {}
+        for row in rows:
+            date_key = str(row.get("label") or "").lower()
+            heading_pages[str(row.get("item_id"))] = (
+                int(row.get("start_page") or 0),
+                minutes_by_date.get(date_key),
+            )
+    else:
+        heading_pages = {
+            str(row.get("item_id")): (int(row.get("start_page") or 0), None)
+            for row in rows
+        }
+    final_text = sa.render_final_summary(
+        kind, display_name, rows, sections, heading_pages
+    )
+    # Structural checks before replacing any prior summary.
+    if sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip() in final_text:
+        raise ValueError("rendered summary leaked proposal scope material.")
+    if "{{quote:" in final_text:
+        raise ValueError("rendered summary contains an unresolved quote placeholder.")
+    expected_headings = len(rows)
+    if kind == "hearings":
+        heading_count = len(re.findall(r"\[Hearing\]\(page:\d{4}\)", final_text))
+    else:
+        heading_count = len(re.findall(r"\[Report\]\(page:\d{4}\)", final_text))
+    if heading_count != expected_headings:
+        raise ValueError(
+            f"rendered summary has {heading_count} document headings; expected "
+            f"{expected_headings}."
+        )
+    return final_text, heading_pages
+
+
+def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
+    from recordprep import summary_agents as sa
+    from recordprep.summary_editions import remove_summary_edition
+
+    kind = SUMMARY_STAGE_KINDS[stage.step_id]
+    settings = _summary_stage_settings(project_dir, kind)
+    extraction_config = _extraction_config(project_dir, kind, settings)
+
+    pi_command = _resolve_pi_command()
+    _check_pi_version(pi_command)
+    version_result = subprocess.run(
+        [*pi_command, "--version"], text=True, capture_output=True, timeout=10
+    )
+    version_text = (version_result.stdout or version_result.stderr).strip()
+    version_match = re.match(r"^0\.(\d+)", version_text)
+    if version_match and int(version_match.group(1)) < SUMMARY_RESOURCE_MINIMUM_PI_MINOR:
+        raise ValueError(
+            f"The summary stages require PI 0.{SUMMARY_RESOURCE_MINIMUM_PI_MINOR} or "
+            f"newer; found {version_text or 'unknown'}."
+        )
+
+    try:
+        items = sa.build_work_items(root, extraction_config)
+    except ValueError as exc:
+        raise ValueError(
+            f"Create {SUMMARY_KIND_LABELS[kind]} summaries prerequisites failed: {exc}"
+        ) from exc
+
+    _line()
+    _line(f"\033[1;36m{stage.title}\033[0m")
+    _line(f"Case bundle: {root}")
+    _line(f"Documents: {len(items)}")
+
+    cache_root = Path(
+        os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    ).expanduser()
+    workspace_parent = cache_root / "recordprep-pi-workspaces"
+    workspace_parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with sa.SummaryKindLock(root, kind):
+            rows, pending_ids = sa.validate_facts_state(
+                root, kind, items, extraction_config
+            )
+            items_by_id = {item.item_id: item for item in items}
+            for index, item_id in enumerate(pending_ids, start=1):
+                _check_stop()
+                item = items_by_id[item_id]
+                _line(
+                    f"[{kind}] extraction {index}/{len(pending_ids)}: document "
+                    f"{item.ordinal} ({item.item_id})"
+                )
+                candidate_cache = Path(
+                    tempfile.mkdtemp(prefix="candidate.", dir=workspace_parent)
+                ) / "candidate.json"
+                try:
+                    candidate = _run_extraction_child(
+                        root,
+                        project_dir,
+                        pi_command,
+                        item,
+                        extraction_config,
+                        settings,
+                        workspace_parent,
+                        candidate_cache,
+                    )
+                    _check_stop()
+                    row = sa.canonicalize_extraction_candidate(
+                        candidate,
+                        item,
+                        root / "text_pages",
+                        report_cutoff=(
+                            (
+                                item.proposal_marker.source_page,
+                                item.proposal_marker.offset,
+                            )
+                            if item.proposal_marker is not None
+                            else None
+                        ),
+                    )
+                except _StopRequested:
+                    raise
+                except ValueError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    raise ValueError(
+                        f"Extraction for {item.item_id} failed: "
+                        f"{type(exc).__name__}; the canonical row is unchanged."
+                    ) from exc
+                finally:
+                    shutil.rmtree(candidate_cache.parent, ignore_errors=True)
+                rows = sa.reconcile_facts_rows(
+                    [
+                        *[existing for existing in rows if existing.get("item_id") != item.item_id],
+                        row,
+                    ],
+                    items,
+                )[0]
+                sa.publish_facts(root, kind, items, extraction_config, rows)
+                _line(f"[{kind}] accepted row for {item.item_id}.")
+
+            # Metadata is re-derived even when every row was already current, so a
+            # crash between the JSONL and metadata writes self-heals.
+            sa.publish_facts(root, kind, items, extraction_config, rows)
+            synthesis_config = {
+                "kind": kind,
+                "guidance": settings["synthesize_prompt"]
+                or (
+                    sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+                    if kind == "hearings"
+                    else sa.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+                ),
+                "provider": settings["synthesize_provider"],
+                "model": settings["synthesize_model"],
+                "thinking": settings["synthesize_thinking"],
+            }
+            if items:
+                _check_stop()
+                candidate_cache = Path(
+                    tempfile.mkdtemp(prefix="candidate.", dir=workspace_parent)
+                ) / "candidate.json"
+                try:
+                    sections = _run_synthesis_child(
+                        root,
+                        project_dir,
+                        pi_command,
+                        rows,
+                        synthesis_config,
+                        settings,
+                        kind,
+                        workspace_parent,
+                        candidate_cache,
+                    )
+                    _check_stop()
+                    result = sa.validate_synthesis_sections(rows, sections)
+                    if result.errors:
+                        raise ValueError(
+                            "Synthesis validation failed: "
+                            + "; ".join(result.errors[:5])
+                        )
+                    final_text, heading_pages = _render_and_validate(
+                        root, kind, rows, sections
+                    )
+                finally:
+                    shutil.rmtree(candidate_cache.parent, ignore_errors=True)
+            else:
+                sections = []
+                final_text, heading_pages = _render_and_validate(
+                    root, kind, rows, sections
+                )
+            final_path = sa.summary_final_path(root, kind)
+            synthesis_config["renderer_version"] = sa.SUMMARY_RENDERER_VERSION
+            meta = sa.build_final_meta(
+                kind, rows, final_text, synthesis_config, heading_pages
+            )
+            sa._atomic_write(final_path, final_text)
+            sa._atomic_write(
+                sa.summary_final_meta_path(root, kind),
+                json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
+            )
+            remove_summary_edition(final_path)
+            _line(f"\033[32m{stage.title} complete.\033[0m")
+    except _StopRequested:
+        _line(f"\033[33m{stage.title} stopped; the current row stays Pending.\033[0m")
+        return 130
+    return 0
+
+
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
 
@@ -697,11 +1529,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         _line("RecordPrep sequential PI resources are valid.")
         return 0
-    if len(args) != 1 or args[0] not in STAGES:
-        choices = ", ".join(STAGES)
+    known_stages = {*STAGES, *SUMMARY_STAGE_KINDS}
+    if len(args) != 1 or args[0] not in known_stages:
+        choices = ", ".join(sorted(known_stages))
         _line(f"Usage: {Path(sys.argv[0]).name} <{choices}>")
         return 2
     try:
+        if args[0] in SUMMARY_STAGE_KINDS:
+            kind = SUMMARY_STAGE_KINDS[args[0]]
+            stage = SkillStage(
+                step_id=args[0],
+                title=(
+                    "Create hearing summaries"
+                    if kind == "hearings"
+                    else "Create report summaries"
+                ),
+                skill_name=SUMMARY_SKILL_NAMES[kind]["extract"],
+                tools=SUMMARY_TOOL_ALLOWLISTS["extract"],
+            )
+            return _run_summary_stage(stage, _case_bundle(), project_dir)
         return _run_stage(STAGES[args[0]], _case_bundle(), project_dir)
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         _line(f"\033[31mRecordPrep PI stage failed:\033[0m {exc}")

@@ -762,7 +762,16 @@ def _seed_boundaries(root: Path) -> None:
 
 
 class InvalidationTests(unittest.TestCase):
-    def test_hearing_summary_rerun_invalidates_only_hearing_edition(self) -> None:
+    """Hearing/report reruns now go through the PI runner; verify delegation.
+
+    The runner publishes only after full validation and invalidates the
+    matching edition (covered in tests/test_summary_agent_pipeline.py). Here
+    we confirm the GTK handlers are thin wrappers around the PI skill runner
+    and that the minute-order direct path still invalidates only its own
+    edition.
+    """
+
+    def test_hearing_summary_rerun_delegates_to_pi_skill_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
             _seed_boundaries(root)
@@ -777,14 +786,19 @@ class InvalidationTests(unittest.TestCase):
                 )
 
             harness = _make_harness(root)
-            self.assertTrue(_run_handler(harness, "_run_step_create_hearing_summaries"))
-
-            self.assertFalse(summary_edition_is_complete("hearings", hearings, root))
-            self.assertFalse((root / "summaries/editions" / f"{hearings.stem}.pdf").exists())
+            delegate = mock.Mock(return_value=True)
+            harness._run_pi_skill_step = delegate
+            self.assertTrue(
+                _run_handler(harness, "_run_step_create_hearing_summaries")
+            )
+            delegate.assert_called_once()
+            self.assertEqual(delegate.call_args.args[0], "create_hearing_summaries")
+            # Delegation alone does not disturb existing editions.
+            self.assertTrue(summary_edition_is_complete("hearings", hearings, root))
             self.assertTrue(summary_edition_is_complete("reports", reports, root))
             self.assertTrue(summary_edition_is_complete("minutes", minutes, root))
 
-    def test_report_summary_rerun_invalidates_only_report_edition(self) -> None:
+    def test_report_summary_rerun_delegates_to_pi_skill_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
             _seed_boundaries(root)
@@ -793,10 +807,15 @@ class InvalidationTests(unittest.TestCase):
             minutes = _minutes_summary_output_path(root)
 
             harness = _make_harness(root)
-            self.assertTrue(_run_handler(harness, "_run_step_create_report_summaries"))
-
+            delegate = mock.Mock(return_value=True)
+            harness._run_pi_skill_step = delegate
+            self.assertTrue(
+                _run_handler(harness, "_run_step_create_report_summaries")
+            )
+            delegate.assert_called_once()
+            self.assertEqual(delegate.call_args.args[0], "create_report_summaries")
             self.assertTrue(summary_edition_is_complete("hearings", hearings, root))
-            self.assertFalse(summary_edition_is_complete("reports", reports, root))
+            self.assertTrue(summary_edition_is_complete("reports", reports, root))
             self.assertTrue(summary_edition_is_complete("minutes", minutes, root))
 
     def test_minute_summary_rerun_invalidates_only_minute_edition(self) -> None:

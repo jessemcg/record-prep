@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from recordprep.transcript_layout import input_signature
+from recordprep import summary_agents
 
 
 PARTICIPANT_TEMPLATE_WARNING = "Participant review has not been completed."
@@ -26,6 +27,10 @@ PI_STEP_IDS = (
     "create_case_overview",
     "build_source_map",
 )
+SUMMARY_STEP_KINDS = {
+    "create_hearing_summaries": "hearings",
+    "create_report_summaries": "reports",
+}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -278,20 +283,22 @@ def validate_participant_index_output(root: Path) -> list[str]:
 
 
 def validate_summary_source_outputs(root: Path) -> list[str]:
-    root = root.resolve(strict=False)
-    manifest = _read_json(root / "manifest.json") or {}
+    """Validate both PI summary stages' artifacts and final summaries.
+
+    Legacy summaries without validated facts/meta sidecars report Pending by
+    failing here; old text is never reverse-engineered into facts.
+    """
     issues: list[str] = []
-    for kind, label in (("hearings", "hearing"), ("reports", "report")):
-        source = _summary_source(root, manifest, kind)
-        if source is None:
-            issues.append(f"the source {label} summary is missing or ambiguous.")
+    for kind in summary_agents.SUMMARY_KINDS:
+        label = summary_agents.SUMMARY_KIND_LABELS[kind]
+        final_path = summary_agents.summary_final_path(root, kind)
+        if not final_path.exists():
+            issues.append(f"the source {label} summary is missing.")
             continue
-        try:
-            if not source.read_text(encoding="utf-8").strip():
-                issues.append(f"the source {label} summary is empty.")
-        except OSError:
-            issues.append(f"the source {label} summary is unreadable.")
-    return issues
+        issues.extend(
+            summary_agents.validate_summary_agent_outputs(root, kind)
+        )
+    return list(dict.fromkeys(issues))
 
 
 def validate_transcript_layout_output(root: Path) -> list[str]:
@@ -507,6 +514,10 @@ def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
         return validate_case_overview_output(root)
     if step_id == "build_source_map":
         return validate_prepare_bundle_outputs(root)
+    if step_id in SUMMARY_STEP_KINDS:
+        return summary_agents.validate_summary_agent_outputs(
+            root, SUMMARY_STEP_KINDS[step_id]
+        )
     return [f"Unknown PI step: {step_id}"]
 
 

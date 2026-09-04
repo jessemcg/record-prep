@@ -16,16 +16,19 @@ from recordprep.ui.main_window import (
     NO_SUMMARIZABLE_REPORT_CONTENT,
     PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
     PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT,
     REPORT_PROPOSAL_MARKER_FIND_ORDER,
     REPORT_PROPOSAL_MARKER_LEAD_IN,
     REPORT_PROPOSAL_MARKER_SPLIT,
     REPORT_PROPOSAL_MARKER_TITLE,
     REPORT_PROPOSAL_SCOPE_DELIMITER,
     REPORT_PROPOSAL_SCOPE_HEADING,
+    REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING,
     ReportProposalMarker,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
     _render_summary_window_payload,
+    _report_length_guidance_section,
     _report_proposal_scope_note,
     _summary_page_windows,
     load_summarize_settings,
@@ -272,6 +275,20 @@ class ReportPromptMigrationTests(unittest.TestCase):
             migrated = load_summarize_settings()
         self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
+    def test_previously_shipped_six_quote_prompt_migrates_to_new_prompt(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_reports_prompt": PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT,
+            },
+        ):
+            migrated = load_summarize_settings()
+        self.assertEqual(migrated["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        # The retired six-quote built-in still carries every historical contract.
+        self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Include at least six legally significant verbatim quotes", PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT)
+
     def test_older_builtin_report_prompts_also_migrate(self) -> None:
         with patch(
             "recordprep.ui.main_window._read_config",
@@ -310,6 +327,96 @@ class ReportPromptMigrationTests(unittest.TestCase):
         ):
             settings = load_summarize_settings()
         self.assertEqual(settings["reports_prompt"], DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+
+class ReportLengthGuidanceTests(unittest.TestCase):
+    def test_guidance_section_disabled_at_zero_and_negative(self) -> None:
+        self.assertEqual(_report_length_guidance_section(0), "")
+        self.assertEqual(_report_length_guidance_section(-10), "")
+
+    def test_guidance_section_states_target_and_nonbinding_contract(self) -> None:
+        section = _report_length_guidance_section(250)
+        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, section)
+        self.assertIn("approximately 250 words", section)
+        self.assertIn("output shape only", section)
+        self.assertIn("never cut off or mechanically reject an answer", section)
+        self.assertIn("Finish the summary coherently", section)
+
+    def test_report_payload_includes_guidance_only_when_enabled(self) -> None:
+        window = {
+            "primary_pages": [1],
+            "page_text": {1: "Narrative page one."},
+            "context_page": None,
+        }
+        with_guidance = _render_summary_window_payload(
+            window,
+            {1: "TEST 1"},
+            report_length_guidance=_report_length_guidance_section(250),
+        )
+        without_guidance = _render_summary_window_payload(window, {1: "TEST 1"})
+
+        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, with_guidance)
+        self.assertNotIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, without_guidance)
+        # The guidance section precedes the primary pages and never replaces them.
+        self.assertLess(
+            with_guidance.index(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING),
+            with_guidance.index("PRIMARY SOURCE PAGES"),
+        )
+        self.assertIn("Narrative page one.", with_guidance)
+
+    def test_hearing_and_minute_payloads_never_include_guidance(self) -> None:
+        window = {
+            "primary_pages": [1],
+            "page_text": {1: "Hearing page one."},
+            "context_page": None,
+        }
+        hearing_payload = _render_summary_window_payload(
+            window,
+            {1: "TEST 1"},
+            participant_context="Counsel: Mother’s counsel — Jane Smith",
+        )
+        minute_payload = _render_summary_window_payload(window, {1: "TEST 1"})
+
+        for payload in (hearing_payload, minute_payload):
+            self.assertNotIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, payload)
+            self.assertNotIn("words for this window", payload)
+
+    def test_guidance_coexists_with_proposal_scope_and_sentinel(self) -> None:
+        pages = {
+            1: "PROPOSED FINDINGS AND ORDERS",
+            2: "Narrative page two.",
+        }
+        marker = _detect_report_proposal_marker(pages, 1, 2)
+        self.assertIsNotNone(marker)
+        window = {
+            "primary_pages": [1],
+            "page_text": pages,
+            "context_page": None,
+        }
+        payload = _render_summary_window_payload(
+            window,
+            {1: "TEST 1"},
+            report_marker=marker,
+            report_length_guidance=_report_length_guidance_section(250),
+        )
+        self.assertIn(REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
+        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, payload)
+        # The built-in prompt keeps the exact sentinel contract alongside the
+        # length guidance section.
+        self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_new_prompt_treats_target_as_soft_guidance(self) -> None:
+        self.assertIn("nonbinding guidance about output shape", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("never a token cap, a truncation rule", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("use fewer words than the target when the eligible material warrants less", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("exceed the target rather than end mid-thought", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+
+    def test_new_prompt_prioritizes_and_synthesizes_content(self) -> None:
+        self.assertIn("favor new or changed legally significant facts", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Synthesize repeated history and substantially duplicative updates", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Omit routine administrative detail", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("Keep conflicting accounts and their attribution distinct", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
 
 class SentinelAndSkipTests(unittest.TestCase):

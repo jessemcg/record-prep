@@ -5,15 +5,26 @@ from unittest.mock import patch
 
 from recordprep.ui.main_window import (
     DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+    DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
     DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
+    DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS,
     PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+    SUMMARY_TEST_MODE_CATEGORIES,
+    SUMMARY_WINDOW_CATEGORIES,
     _append_summary_paragraph,
     _cleanup_legacy_generated_artifacts,
     _hearing_participant_context,
     _render_summary_window_payload,
-    load_summarize_settings,
     _summary_page_windows,
+    _summary_window_limits,
+    load_summarize_settings,
+    save_summarize_settings,
 )
 
 
@@ -69,8 +80,196 @@ class DirectSourcePipelineTests(unittest.TestCase):
             settings["reports_prompt"],
             DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         )
-        self.assertEqual(settings["target_chars"], "6000")
-        self.assertEqual(settings["max_pages"], "6")
+        # The untouched legacy default pair leaves hearings and minute orders
+        # at 6000/6 while reports initialize to the new 10000/10 recommendation.
+        self.assertEqual(settings["hearings_target_chars"], "6000")
+        self.assertEqual(settings["hearings_max_pages"], "6")
+        self.assertEqual(settings["reports_target_chars"], "10000")
+        self.assertEqual(settings["reports_max_pages"], "10")
+        self.assertEqual(settings["minutes_target_chars"], "6000")
+        self.assertEqual(settings["minutes_max_pages"], "6")
+
+    def test_default_summary_window_settings_are_category_specific(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={},
+        ):
+            settings = load_summarize_settings()
+
+        self.assertEqual(
+            settings["hearings_target_chars"],
+            str(DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS),
+        )
+        self.assertEqual(
+            settings["hearings_max_pages"],
+            str(DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES),
+        )
+        self.assertEqual(
+            settings["reports_target_chars"],
+            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS),
+        )
+        self.assertEqual(
+            settings["reports_max_pages"],
+            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES),
+        )
+        self.assertEqual(
+            settings["minutes_target_chars"],
+            str(DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS),
+        )
+        self.assertEqual(
+            settings["minutes_max_pages"],
+            str(DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES),
+        )
+        self.assertEqual(
+            settings["reports_target_words"],
+            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
+        )
+
+    def test_customized_legacy_pair_migrates_to_every_category(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_window_target_chars": "8000",
+                "summarize_window_max_pages": "8",
+            },
+        ):
+            settings = load_summarize_settings()
+
+        self.assertEqual(settings["hearings_target_chars"], "8000")
+        self.assertEqual(settings["hearings_max_pages"], "8")
+        self.assertEqual(settings["reports_target_chars"], "8000")
+        self.assertEqual(settings["reports_max_pages"], "8")
+        self.assertEqual(settings["minutes_target_chars"], "8000")
+        self.assertEqual(settings["minutes_max_pages"], "8")
+
+    def test_explicit_category_keys_win_over_legacy_pair(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_window_target_chars": "8000",
+                "summarize_window_max_pages": "8",
+                "summarize_reports_window_target_chars": "9000",
+                "summarize_minutes_window_max_pages": "4",
+            },
+        ):
+            settings = load_summarize_settings()
+
+        self.assertEqual(settings["hearings_target_chars"], "8000")
+        self.assertEqual(settings["hearings_max_pages"], "8")
+        self.assertEqual(settings["reports_target_chars"], "9000")
+        self.assertEqual(settings["reports_max_pages"], "8")
+        self.assertEqual(settings["minutes_target_chars"], "8000")
+        self.assertEqual(settings["minutes_max_pages"], "4")
+
+    def test_invalid_window_values_fall_back_to_defaults(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_window_target_chars": "not-a-number",
+                "summarize_window_max_pages": "0",
+                "summarize_reports_window_target_chars": "oops",
+                "summarize_minutes_window_max_pages": "-3",
+            },
+        ):
+            settings = load_summarize_settings()
+
+        self.assertEqual(settings["hearings_target_chars"], "6000")
+        self.assertEqual(settings["hearings_max_pages"], "6")
+        self.assertEqual(settings["reports_target_chars"], "10000")
+        self.assertEqual(settings["reports_max_pages"], "10")
+        self.assertEqual(settings["minutes_target_chars"], "6000")
+        # Numeric values clamp to the minimum like the legacy loader; only
+        # non-numeric text falls back to the default.
+        self.assertEqual(settings["minutes_max_pages"], "1")
+
+    def test_report_word_target_explicit_values_and_zero_disable(self) -> None:
+        cases = (
+            ("0", "0"),
+            ("300", "300"),
+            ("-5", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)),
+            ("junk", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)),
+        )
+        for raw, expected in cases:
+            with patch(
+                "recordprep.ui.main_window._read_config",
+                return_value={"summarize_reports_window_target_words": raw},
+            ):
+                settings = load_summarize_settings()
+            self.assertEqual(settings["reports_target_words"], expected, raw)
+
+    def test_custom_report_prompt_migrates_word_target_as_disabled(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_prompt": "A genuinely custom prompt."},
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["reports_prompt"], "A genuinely custom prompt.")
+        self.assertEqual(settings["reports_target_words"], "0")
+
+    def test_save_summarize_settings_writes_new_keys_and_removes_legacy(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_read_config() -> dict[str, object]:
+            return {
+                "summarize_window_target_chars": "6000",
+                "summarize_window_max_pages": "6",
+                "summarize_chunk_size": "15",
+            }
+
+        def fake_write_config(config: dict[str, object]) -> None:
+            captured.update(config)
+
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            side_effect=fake_read_config,
+        ), patch(
+            "recordprep.ui.main_window._write_config",
+            side_effect=fake_write_config,
+        ):
+            save_summarize_settings(
+                api_url="https://example.test/v1",
+                model_id="test-model",
+                api_key="key",
+                disable_reasoning=False,
+                hearings_target_chars="6000",
+                hearings_max_pages="6",
+                reports_target_chars="10000",
+                reports_max_pages="10",
+                reports_target_words="250",
+                minutes_target_chars="6000",
+                minutes_max_pages="6",
+                hearings_prompt="hearing prompt",
+                reports_prompt="report prompt",
+                minutes_prompt="minute prompt",
+            )
+
+        self.assertEqual(captured["summarize_hearings_window_target_chars"], "6000")
+        self.assertEqual(captured["summarize_hearings_window_max_pages"], "6")
+        self.assertEqual(captured["summarize_reports_window_target_chars"], "10000")
+        self.assertEqual(captured["summarize_reports_window_max_pages"], "10")
+        self.assertEqual(captured["summarize_reports_window_target_words"], "250")
+        self.assertEqual(captured["summarize_minutes_window_target_chars"], "6000")
+        self.assertEqual(captured["summarize_minutes_window_max_pages"], "6")
+        self.assertNotIn("summarize_window_target_chars", captured)
+        self.assertNotIn("summarize_window_max_pages", captured)
+        self.assertNotIn("summarize_chunk_size", captured)
+
+    def test_summary_window_limits_are_per_category_and_normalized(self) -> None:
+        settings = {
+            "hearings_target_chars": "5000",
+            "hearings_max_pages": "5",
+            "reports_target_chars": "20000",
+            "reports_max_pages": "12",
+            "minutes_target_chars": "4000",
+            "minutes_max_pages": "4",
+        }
+        self.assertEqual(_summary_window_limits(settings, "hearings"), (5000, 5))
+        # A target above the 12,000-character safety ceiling normalizes to it.
+        self.assertEqual(_summary_window_limits(settings, "reports"), (12000, 12))
+        self.assertEqual(_summary_window_limits(settings, "minutes"), (4000, 4))
+        with self.assertRaises(ValueError):
+            _summary_window_limits(settings, "forms")
+        self.assertEqual(SUMMARY_WINDOW_CATEGORIES, ("hearings", "reports", "minutes"))
 
     def test_summary_windows_cover_every_primary_page_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -128,6 +327,89 @@ class DirectSourcePipelineTests(unittest.TestCase):
             self.assertEqual(windows[1]["context_page"], 3)
             primary = [page for window in windows for page in window["primary_pages"]]
             self.assertEqual(primary, list(range(1, 7)))
+
+    def test_category_limits_produce_different_boundaries_with_exact_coverage(self) -> None:
+        page_sizes = (1200,) * 20
+        with tempfile.TemporaryDirectory() as temporary:
+            text_dir = Path(temporary) / "text_pages"
+            text_dir.mkdir()
+            for page, size in enumerate(page_sizes, start=1):
+                (text_dir / f"{page:04d}.txt").write_text("x" * size, encoding="utf-8")
+
+            settings = {
+                "hearings_target_chars": "6000",
+                "hearings_max_pages": "6",
+                "reports_target_chars": "10000",
+                "reports_max_pages": "10",
+                "minutes_target_chars": "6000",
+                "minutes_max_pages": "6",
+            }
+            category_windows = {
+                category: _summary_page_windows(
+                    text_dir,
+                    1,
+                    20,
+                    max_pages=max_pages,
+                    target_chars=target_chars,
+                    max_chars=12_000,
+                )
+                for category, (target_chars, max_pages) in (
+                    (category, _summary_window_limits(settings, category))
+                    for category in SUMMARY_WINDOW_CATEGORIES
+                )
+            }
+
+        hearing_sizes = [
+            len(window["primary_pages"])
+            for window in category_windows["hearings"]
+        ]
+        report_sizes = [
+            len(window["primary_pages"])
+            for window in category_windows["reports"]
+        ]
+        minute_sizes = [
+            len(window["primary_pages"])
+            for window in category_windows["minutes"]
+        ]
+        # 1200-char pages: hearings/minutes pack five pages per 6,000-character
+        # window; reports pack eight pages per 10,000-character window.
+        self.assertEqual(hearing_sizes, [5, 5, 5, 5])
+        self.assertEqual(minute_sizes, [5, 5, 5, 5])
+        self.assertEqual(report_sizes, [8, 8, 4])
+        for category, windows in category_windows.items():
+            primary = [
+                page for window in windows for page in window["primary_pages"]
+            ]
+            self.assertEqual(primary, list(range(1, 21)), category)
+            self.assertEqual(len(primary), len(set(primary)), category)
+
+    def test_prompt_test_mode_maps_each_mode_to_its_category(self) -> None:
+        self.assertEqual(
+            SUMMARY_TEST_MODE_CATEGORIES,
+            {
+                "summarize_hearings": "hearings",
+                "summarize_reports": "reports",
+                "summarize_minutes": "minutes",
+            },
+        )
+        settings = {
+            "hearings_target_chars": "5000",
+            "hearings_max_pages": "5",
+            "reports_target_chars": "10000",
+            "reports_max_pages": "10",
+            "minutes_target_chars": "4000",
+            "minutes_max_pages": "4",
+        }
+        for mode_id, category in SUMMARY_TEST_MODE_CATEGORIES.items():
+            self.assertEqual(
+                _summary_window_limits(settings, category),
+                {
+                    "hearings": (5000, 5),
+                    "reports": (10000, 10),
+                    "minutes": (4000, 4),
+                }[category],
+                mode_id,
+            )
 
     def test_private_context_distinguishes_counsel_participants_and_testimony(self) -> None:
         hearing = {

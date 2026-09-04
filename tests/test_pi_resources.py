@@ -218,6 +218,68 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             )
             self.assertIn("/sessions", session_line)
 
+    def test_runner_appends_per_stage_model_overrides(self) -> None:
+        """Native stages carry --provider/--model/--thinking from config."""
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            case_bundle = temp / "case_bundle"
+            (case_bundle / "text_pages").mkdir(parents=True)
+            (case_bundle / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            invocation = temp / "fake-pi-invocation.txt"
+            fake_pi = temp / "pi"
+            fake_pi.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '0.85.0\\n'
+  exit 0
+fi
+printf '%s\\n' "$@" > "$FAKE_PI_INVOCATION"
+mkdir -p "$RECORDPREP_CASE_BUNDLE/artifacts"
+printf '%s\\n' '{"schema_version":2,"entries":[{}],"citation_series":[]}' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_page_numbers.json"
+printf '# Citation series\\n' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_page_number_series.md"
+""",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            # Stage a full copy of the tracked .pi resources so the config
+            # written next to it is a temp file, never the repository's.
+            staged_project = temp / "staged-project"
+            shutil.copytree(PI_DIR, staged_project / ".pi")
+            env = _runner_environment(case_bundle, fake_pi, temp / "cache")
+            env["RECORDPREP_PI_PROJECT_DIR"] = str(staged_project / ".pi")
+            env["FAKE_PI_INVOCATION"] = str(invocation)
+            config_path = staged_project / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "pi_stage_number_transcript_pages_pi_provider": "synthetic",
+                        "pi_stage_number_transcript_pages_pi_model": "cheap-fast-model",
+                        "pi_stage_number_transcript_pages_pi_thinking": "minimal",
+                        "pi_stage_detect_transcript_layout_pi_model": "",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["python3", str(RUNNER), "number_transcript_pages"],
+                cwd=PROJECT_DIR,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            argv = invocation.read_text(encoding="utf-8")
+            self.assertIn("--provider", argv)
+            self.assertIn("synthetic", argv)
+            self.assertIn("--model", argv)
+            self.assertIn("cheap-fast-model", argv)
+            self.assertIn("--thinking", argv)
+            self.assertIn("minimal", argv)
+
     def test_runner_accepts_detect_layout_needs_review_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)

@@ -1391,6 +1391,35 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     return 0
 
 
+def _native_stage_override_flags(project_dir: Path, step_id: str) -> list[str]:
+    """Per-stage --provider/--model/--thinking flags from RecordPrep config.
+
+    Empty values mean "use the project PI model/reasoning" from the staged
+    .pi/settings.json, so no flags are emitted.
+    """
+    config_path = project_dir.parent / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    config = config if isinstance(config, dict) else {}
+
+    def value(key: str) -> str:
+        return str(config.get(key, "") or "").strip()
+
+    flags: list[str] = []
+    provider = value(f"pi_stage_{step_id}_pi_provider")
+    model = value(f"pi_stage_{step_id}_pi_model")
+    thinking = value(f"pi_stage_{step_id}_pi_thinking")
+    if provider:
+        flags.extend(["--provider", provider])
+    if model:
+        flags.extend(["--model", model])
+    if thinking:
+        flags.extend(["--thinking", thinking])
+    return flags
+
+
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
 
@@ -1460,6 +1489,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             str(staged_skill / "SKILL.md"),
             "--tools",
             stage.tools,
+            *_native_stage_override_flags(project_dir, stage.step_id),
             _stage_prompt(stage, root, project_dir),
         ]
         _line()

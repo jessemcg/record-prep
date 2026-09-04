@@ -3879,6 +3879,55 @@ def save_summarize_settings(
 
 
 
+PI_STAGE_SETTING_STEPS: tuple[tuple[str, str], ...] = (
+    ("detect_transcript_layout", "Detect transcript layout"),
+    ("number_transcript_pages", "Number transcript pages"),
+    ("build_participant_index", "Build participant and witness index"),
+    ("create_case_overview", "Create case overview"),
+    ("build_source_map", "Build source map"),
+)
+
+
+def load_pi_stage_settings() -> dict[str, dict[str, str]]:
+    """Per-native-stage PI model/reasoning overrides from RecordPrep config.
+
+    Empty values mean "use the project PI model/reasoning" from project
+    `.pi/settings.json`. Stored under `pi_stage_<step>_pi_provider/_pi_model/
+    _pi_thinking`; never written to `.pi/settings.json`.
+    """
+    config = _read_config()
+    result: dict[str, dict[str, str]] = {}
+    for step_id, _label in PI_STAGE_SETTING_STEPS:
+        result[step_id] = {
+            "provider": str(
+                config.get(f"pi_stage_{step_id}_pi_provider", "") or ""
+            ).strip(),
+            "model": str(
+                config.get(f"pi_stage_{step_id}_pi_model", "") or ""
+            ).strip(),
+            "thinking": str(
+                config.get(f"pi_stage_{step_id}_pi_thinking", "") or ""
+            ).strip(),
+        }
+    return result
+
+
+def save_pi_stage_settings(stage_settings: dict[str, dict[str, str]]) -> None:
+    config = _read_config()
+    for step_id, _label in PI_STAGE_SETTING_STEPS:
+        values = stage_settings.get(step_id, {})
+        config[f"pi_stage_{step_id}_pi_provider"] = str(
+            values.get("provider", "") or ""
+        ).strip()
+        config[f"pi_stage_{step_id}_pi_model"] = str(
+            values.get("model", "") or ""
+        ).strip()
+        config[f"pi_stage_{step_id}_pi_thinking"] = str(
+            values.get("thinking", "") or ""
+        ).strip()
+    _write_config(config)
+
+
 def load_pi_agent_command_setting() -> str:
     config = _read_config()
     command = str(config.get(CONFIG_KEY_PI_AGENT_COMMAND, "") or "").strip()
@@ -3916,6 +3965,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._agent_widgets: AgentSettingsWidgets | None = None
         self._pi_model_options: list[PiModel | None] = []
         self._summary_model_rows: list[tuple[Adw.ComboRow, str]] = []
+        self._stage_model_rows: list[tuple[str, Adw.ComboRow, Adw.ComboRow | None]] = []
         self._pi_model_generation = 0
         self._pi_model_closed = False
         self._pi_model_applying = False
@@ -4813,6 +4863,88 @@ class SettingsWindow(Adw.ApplicationWindow):
             row.set_model(Gtk.StringList.new(labels))
             row.set_selected(selected)
 
+    def _build_stage_model_row(
+        self, step_id: str, label: str, configured: str
+    ) -> Adw.ComboRow:
+        row = Adw.ComboRow(title=f"{label} — model")
+        row.set_model(Gtk.StringList.new(["Use project PI model"]))
+        row.set_selected(0)
+        self._stage_model_rows.append((step_id, row, None))
+        return row
+
+    def _build_stage_thinking_row(
+        self, step_id: str, label: str, configured: str
+    ) -> Adw.ComboRow:
+        row = Adw.ComboRow(title=f"{label} — reasoning level")
+        row.set_model(
+            Gtk.StringList.new(
+                ["Use project PI reasoning"] + list(PI_THINKING_LEVELS)
+            )
+        )
+        selected = 0
+        if configured:
+            candidate = configured.strip().lower()
+            if candidate in PI_THINKING_LEVELS:
+                selected = 1 + PI_THINKING_LEVELS.index(candidate)
+        row.set_selected(selected)
+        for index, (row_step_id, model_row, _thinking) in enumerate(
+            self._stage_model_rows
+        ):
+            if row_step_id == step_id and _thinking is None:
+                self._stage_model_rows[index] = (step_id, model_row, row)
+                break
+        return row
+
+    def _refresh_stage_model_rows(self) -> None:
+        """Populate the per-stage model dropdowns from authenticated models."""
+        options = [
+            model
+            for model in getattr(self, "_pi_model_options", [])
+            if model is not None
+        ]
+        for _step_id, model_row, _thinking in self._stage_model_rows:
+            labels = ["Use project PI model"]
+            selected = 0
+            if options:
+                labels.extend(model.label for model in options)
+            model_row.set_model(Gtk.StringList.new(labels))
+            model_row.set_selected(selected)
+
+    def _stage_override_values(self) -> dict[str, dict[str, str]]:
+        """Read per-stage provider/model/thinking from the PI stage rows."""
+        stage_settings: dict[str, dict[str, str]] = {}
+        for step_id, model_row, thinking_row in self._stage_model_rows:
+            provider, model, thinking = self._override_row_values(
+                model_row, thinking_row
+            )
+            stage_settings[step_id] = {
+                "provider": provider,
+                "model": model,
+                "thinking": thinking,
+            }
+        return stage_settings
+
+    def _override_row_values(
+        self, model_row: Adw.ComboRow, thinking_row: Adw.ComboRow
+    ) -> tuple[str, str, str]:
+        options = [
+            model
+            for model in getattr(self, "_pi_model_options", [])
+            if model is not None
+        ]
+        selected_index = int(model_row.get_selected())
+        provider = model = ""
+        if selected_index > 0 and selected_index <= len(options):
+            chosen = options[selected_index - 1]
+            provider, model = chosen.provider, chosen.model_id
+        thinking_index = int(thinking_row.get_selected())
+        thinking = (
+            PI_THINKING_LEVELS[thinking_index - 1]
+            if thinking_index > 0 and thinking_index <= len(PI_THINKING_LEVELS)
+            else ""
+        )
+        return provider, model, thinking
+
 
 
     def _build_pi_settings_page(self) -> Gtk.Widget:
@@ -4828,10 +4960,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.append(title_label)
 
         launch_group = Adw.PreferencesGroup(
-            title="Agent Refinement",
+            title="Project default",
             description=(
-                "PI runs four project-local skills sequentially in the final "
-                "pipeline group."
+                "PI runs five project-local skills sequentially in the final "
+                "pipeline group. This default applies whenever a stage below "
+                "is left on \"Use project PI model\"."
             ),
         )
         launch_group.add_css_class("list-stack")
@@ -4844,7 +4977,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         launch_group.add(command_row)
 
         model_row = Adw.ComboRow(
-            title="PI model",
+            title="Project default PI model",
             subtitle=self._pi_model_settings_error or "Loading models authorized in PI…",
         )
         model_row.set_model(Gtk.StringList.new(["Loading PI models…"]))
@@ -4862,7 +4995,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         launch_group.add(model_row)
 
         thinking_level_row = Adw.ComboRow(
-            title="PI reasoning level",
+            title="Project default PI reasoning level",
             subtitle=(
                 "Applied to each new RecordPrep PI session; PI adjusts levels "
                 "unsupported by the selected model."
@@ -4886,8 +5019,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         configuration_row = Adw.ActionRow(
             title="PI configuration",
             subtitle=(
-                "Provider, model, and reasoning level are saved in project "
-                ".pi/settings.json. Credentials remain in your global PI configuration."
+                "The project default provider, model, and reasoning level are "
+                "saved in project .pi/settings.json. Per-stage overrides are "
+                "saved in RecordPrep config.json. Credentials remain in your "
+                "global PI configuration."
             ),
         )
         launch_group.add(configuration_row)
@@ -4895,11 +5030,41 @@ class SettingsWindow(Adw.ApplicationWindow):
         access_row = Adw.ActionRow(
             title="Skill access",
             subtitle=(
-                "Four project skills use narrow local-file tools; no web-search "
+                "Five project skills use narrow local-file tools; no web-search "
                 "tools are enabled."
             ),
         )
         launch_group.add(access_row)
+
+        stage_group = Adw.PreferencesGroup(
+            title="Per-stage models",
+            description=(
+                "Independent model and reasoning level for each PI skill "
+                "stage. Empty means use the project default above. Overrides "
+                "are passed to that stage's PI session only."
+            ),
+        )
+        stage_group.add_css_class("list-stack")
+        stage_group.set_hexpand(True)
+        page_box.append(stage_group)
+
+        stage_settings = load_pi_stage_settings()
+        for step_id, label in PI_STAGE_SETTING_STEPS:
+            stage_values = stage_settings.get(step_id, {})
+            stage_group.add(
+                self._build_stage_model_row(
+                    step_id,
+                    label,
+                    str(stage_values.get("model", "")),
+                )
+            )
+            stage_group.add(
+                self._build_stage_thinking_row(
+                    step_id,
+                    label,
+                    str(stage_values.get("thinking", "")),
+                )
+            )
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5096,6 +5261,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._pi_model_row.set_selected(selected_index)
         self._pi_model_applying = False
         self._refresh_summary_model_rows()
+        self._refresh_stage_model_rows()
         selected_model = self._selected_pi_model()
         self._pi_model_selection_changed = bool(
             selected_model is not None
@@ -5283,33 +5449,14 @@ class SettingsWindow(Adw.ApplicationWindow):
                 self._select_settings_page("summarize")
                 return
 
-            def _summary_stage_values(
-                model_row: Adw.ComboRow, thinking_row: Adw.ComboRow
-            ) -> tuple[str, str, str]:
-                options = [
-                    model
-                    for model in getattr(self, "_pi_model_options", [])
-                    if model is not None
-                ]
-                selected_index = int(model_row.get_selected())
-                provider = model = ""
-                if selected_index > 0 and selected_index <= len(options):
-                    chosen = options[selected_index - 1]
-                    provider, model = chosen.provider, chosen.model_id
-                thinking_index = int(thinking_row.get_selected())
-                thinking = (
-                    PI_THINKING_LEVELS[thinking_index - 1]
-                    if thinking_index > 0 and thinking_index <= len(PI_THINKING_LEVELS)
-                    else ""
+            extract_provider, extract_model, extract_thinking = (
+                self._override_row_values(
+                    summarize_widgets.extract_model_row,
+                    summarize_widgets.extract_thinking_row,
                 )
-                return provider, model, thinking
-
-            extract_provider, extract_model, extract_thinking = _summary_stage_values(
-                summarize_widgets.extract_model_row,
-                summarize_widgets.extract_thinking_row,
             )
             synthesize_provider, synthesize_model, synthesize_thinking = (
-                _summary_stage_values(
+                self._override_row_values(
                     summarize_widgets.synthesize_model_row,
                     summarize_widgets.synthesize_thinking_row,
                 )
@@ -5383,6 +5530,9 @@ class SettingsWindow(Adw.ApplicationWindow):
                 return
             self._original_pi_thinking_level = thinking_level
             save_pi_agent_command_setting(pi_command)
+            # Per-stage model/reasoning overrides live in RecordPrep
+            # config.json and never touch .pi/settings.json.
+            save_pi_stage_settings(self._stage_override_values())
         if self._on_saved:
             self._on_saved()
         self.close()

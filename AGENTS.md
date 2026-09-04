@@ -8,7 +8,7 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 
 - `recordprep/cli.py`: command parser.
 - `python -m recordprep app`: GTK application entry.
-- `recordprep/ui/main_window.py`: Libadwaita UI, settings, direct-source pipeline (minute orders), summary stage settings, and step handlers (hearing/report summary handlers are thin wrappers around `_run_pi_skill_step`).
+- `recordprep/ui/main_window.py`: Libadwaita UI, settings (including per-PI-stage model/reasoning overrides), direct-source pipeline (minute orders), summary stage settings, and step handlers (hearing/report summary handlers are thin wrappers around `_run_pi_skill_step`).
 - `recordprep/classification.py`: classification worker pool.
 - `recordprep/config.py`: supported settings import surface.
 - `recordprep/manifest.py`: manifest import surface.
@@ -79,6 +79,7 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - Stop signals the runner, terminates the active child's complete process group, escalates to SIGKILL only when SIGTERM fails, releases locks, restores the row to Pending, and prevents the next child or downstream stages from starting.
 - PI launch logs the immutable bundle root. RecordPrep warns when a parent folder's apparent appellate case number conflicts with manifest/PDF identity, but never moves or renames private case data. Summary child output never contains prompts, source text, tool arguments/results, model prose, or JSONL facts — only phase, ordinal/count, event class, PID, elapsed/stall information, and sanitized error codes.
 - Harden executable resolution before any `--version` or agent spawn: never attempt a nonexistent configured path; rediscover only for `pi` or a known legacy default location and fail early with the discovered alternative for an arbitrary missing custom command. The summary-resource minimum is PI 0.85 while Node 20+ stays a documentation-level dependency; never hard-code an absolute installer path.
+- Each native PI stage accepts per-stage `--provider/--model/--thinking` overrides from RecordPrep `config.json` keys (`pi_stage_<step>_pi_*`); empty values mean use the project PI model from `.pi/settings.json`.
 - The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion.
 - Transcript numbering, participant, and summary stages must not update `manifest.json`.
 - The case-overview skill writes only `artifacts/case_overview.md`.

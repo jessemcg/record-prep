@@ -108,6 +108,7 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     _report_length_guidance_section,
     _report_proposal_scope_note,
     _summary_page_windows,
+    summary_length_guidance_section,
 )
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
@@ -217,7 +218,6 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "create_hearing_summaries",
             "create_report_summaries",
             "create_minute_order_summaries",
-            "add_hearing_date_links",
             "build_summary_editions",
         ),
     ),
@@ -595,7 +595,11 @@ CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS = "summarize_reports_window_tar
 CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES = "summarize_reports_window_max_pages"
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = "summarize_minutes_window_target_chars"
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = "summarize_minutes_window_max_pages"
-CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = "summarize_reports_window_target_words"
+CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS = "summarize_hearings_target_words"
+CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS = "summarize_reports_target_words"
+LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = (
+    "summarize_reports_window_target_words"
+)
 CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER = "summary_extract_pi_provider"
 CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL = "summary_extract_pi_model"
 CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING = "summary_extract_pi_thinking"
@@ -1607,13 +1611,18 @@ def _summary_window_limits(settings: dict[str, Any], category: str) -> tuple[int
     return target_chars, max_pages
 
 
-def _summary_report_target_words(settings: dict[str, Any]) -> int:
-    """Return the report word target (0 disables density guidance)."""
+def _summary_kind_target_words(settings: dict[str, Any], category: str) -> int:
+    """Return the kind's soft word target (0 disables density guidance)."""
     try:
-        value = int(str(settings.get("reports_target_words") or 0).strip())
+        value = int(str(settings.get(f"{category}_target_words") or 0).strip())
     except (TypeError, ValueError):
         return 0
     return value if value > 0 else 0
+
+
+def _summary_report_target_words(settings: dict[str, Any]) -> int:
+    """Back-compat wrapper for the report soft word target."""
+    return _summary_kind_target_words(settings, "reports")
 
 
 def _validate_summarize_window_rows(**rows: Any) -> tuple[Any, str] | None:
@@ -1751,214 +1760,6 @@ def _report_id_from_start_page(start_page: str) -> str:
         return f"report:{page_number:04d}"
     normalized = re.sub(r"[^A-Za-z0-9]+", "_", start_page.strip()).strip("_")
     return f"report:{normalized}" if normalized else ""
-
-
-def _extract_start_page_for_date_links(entry: dict[str, Any]) -> str | None:
-    start_label = _extract_entry_value(entry, "start_page", "start", "starte_page").strip()
-    if not start_label:
-        return None
-    start_page = _page_number_from_label(start_label)
-    if start_page is None:
-        return None
-    return f"{start_page:04d}"
-
-
-def _has_page_markdown_links(path: Path) -> bool:
-    if not path.exists():
-        return False
-    try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return False
-    return bool(re.search(r"\]\(page:\d{4}\)", text))
-
-
-def _strip_page_markdown_links(text: str) -> str:
-    return re.sub(r"\s*\[[^\]]+\]\(page:\d{4}\)", "", text).strip()
-
-
-def _strip_minute_order_body_links(body_lines: list[str]) -> list[str]:
-    cleaned_lines: list[str] = []
-    for line in body_lines:
-        cleaned = re.sub(r"^\s*\[(?:MO|M>)\]\(page:\d{4}\)\s*", "", line).strip()
-        cleaned = re.sub(r"\s*\[:M\]\(page:\d{4}\)\s*$", "", cleaned).strip()
-        if not cleaned:
-            cleaned_lines.append(line)
-        else:
-            cleaned_lines.append(cleaned)
-    return cleaned_lines
-
-
-def _split_summary_sections(
-    lines: list[str],
-    heading_key_for_line: Callable[[str], str | None],
-) -> tuple[list[str], list[dict[str, Any]]]:
-    preamble_lines: list[str] = []
-    sections: list[dict[str, Any]] = []
-    current_section: dict[str, Any] | None = None
-
-    for line in lines:
-        key = heading_key_for_line(line)
-        if key:
-            current_section = {
-                "key": key,
-                "heading": _strip_page_markdown_links(line.strip()) or line.strip(),
-                "body_lines": [],
-            }
-            sections.append(current_section)
-            continue
-        if current_section is None:
-            preamble_lines.append(line)
-        else:
-            current_section["body_lines"].append(line)
-
-    return preamble_lines, sections
-
-
-def _render_summary_sections(
-    preamble_lines: list[str],
-    sections: list[dict[str, Any]],
-) -> str:
-    rendered: list[str] = list(preamble_lines)
-    for section in sections:
-        heading = str(section.get("heading", "")).strip()
-        if not heading:
-            continue
-        if rendered and rendered[-1].strip():
-            rendered.append("")
-        rendered.append(heading)
-        body_lines = list(section.get("body_lines", []))
-        if body_lines:
-            if body_lines[0].strip():
-                rendered.append("")
-            rendered.extend(body_lines)
-    return _collapse_blank_lines("\n".join(rendered))
-
-
-def _add_page_links_to_hearing_summary_text(
-    hearing_summary_text: str,
-    hearing_entries: list[dict[str, Any]],
-    minute_entries: list[dict[str, Any]],
-) -> tuple[str, int, int]:
-    hearing_page_by_date: dict[str, str] = {}
-    minute_page_by_date: dict[str, str] = {}
-    display_date_by_key: dict[str, str] = {}
-
-    for entry in hearing_entries:
-        date_value = _extract_entry_value(entry, "date").strip()
-        if not date_value:
-            continue
-        page_str = _extract_start_page_for_date_links(entry)
-        if not page_str:
-            continue
-        date_key = _hearing_date_key(date_value)
-        if not date_key:
-            continue
-        hearing_page_by_date.setdefault(date_key, page_str)
-        display_date_by_key.setdefault(date_key, _format_long_us_date(date_value))
-
-    for entry in minute_entries:
-        date_value = _extract_entry_value(entry, "date").strip()
-        if not date_value:
-            continue
-        page_str = _extract_start_page_for_date_links(entry)
-        if not page_str:
-            continue
-        date_key = _hearing_date_key(date_value)
-        if not date_key:
-            continue
-        minute_page_by_date.setdefault(date_key, page_str)
-        display_date_by_key.setdefault(date_key, _format_long_us_date(date_value))
-
-    def _heading_date_key(line: str) -> str | None:
-        stripped = line.strip()
-        if not stripped:
-            return None
-        without_links = _strip_page_markdown_links(stripped)
-        without_links = re.sub(r"\s+", " ", without_links).strip()
-        date_key = _hearing_date_key(without_links)
-        if not date_key or date_key not in display_date_by_key:
-            return None
-        return date_key
-
-    def _date_sort_tuple(date_key: str) -> tuple[int, datetime.datetime, str]:
-        display = display_date_by_key.get(date_key, "").strip()
-        try:
-            parsed = datetime.datetime.strptime(display, "%B %d, %Y")
-        except ValueError:
-            return (1, datetime.datetime.max, date_key)
-        return (0, parsed, date_key)
-
-    def _render_heading_line(date_key: str) -> str:
-        display_date = display_date_by_key.get(date_key, "")
-        hearing_page = hearing_page_by_date.get(date_key)
-        minute_page = minute_page_by_date.get(date_key)
-        pieces = [display_date or date_key]
-        if hearing_page:
-            pieces.append(f"[Hearing](page:{hearing_page})")
-        if minute_page:
-            pieces.append(f"[Minute Order](page:{minute_page})")
-        return " ".join(pieces).strip()
-
-    preamble_lines: list[str] = []
-    sections: list[dict[str, Any]] = []
-    current_section: dict[str, Any] | None = None
-
-    for line in hearing_summary_text.splitlines():
-        date_key = _heading_date_key(line)
-        if date_key:
-            current_section = {"date_key": date_key, "body_lines": []}
-            sections.append(current_section)
-            continue
-        if current_section is None:
-            preamble_lines.append(line)
-        else:
-            current_section["body_lines"].append(line)
-
-    existing_section_keys = [str(section["date_key"]) for section in sections]
-    missing_minute_keys = [
-        key for key in minute_page_by_date if key not in set(existing_section_keys)
-    ]
-    missing_minute_keys.sort(key=_date_sort_tuple)
-
-    for missing_key in missing_minute_keys:
-        missing_sort = _date_sort_tuple(missing_key)
-        insert_at = len(sections)
-        for index, section in enumerate(sections):
-            current_key = str(section["date_key"])
-            if _date_sort_tuple(current_key) > missing_sort:
-                insert_at = index
-                break
-        sections.insert(insert_at, {"date_key": missing_key, "body_lines": []})
-
-    if not sections:
-        raise ValueError("No date headings found and no minute dates available to add links.")
-
-    linked_lines: list[str] = list(preamble_lines)
-    modified = 0
-    inserted = 0
-    existing_key_set = set(existing_section_keys)
-
-    for section in sections:
-        date_key = str(section["date_key"])
-        body_lines = list(section["body_lines"])
-        heading_line = _render_heading_line(date_key)
-        if not heading_line:
-            continue
-        if linked_lines and linked_lines[-1].strip():
-            linked_lines.append("")
-        linked_lines.append(heading_line)
-        if date_key not in existing_key_set:
-            inserted += 1
-        else:
-            modified += 1
-        if body_lines:
-            linked_lines.extend(_strip_minute_order_body_links(body_lines))
-
-    if modified == 0 and inserted == 0:
-        raise ValueError("No hearing/minute date headings matched boundary dates.")
-
-    return _collapse_blank_lines("\n".join(linked_lines)), modified, inserted
 
 
 def _remove_standalone_date_lines(text: str) -> str:
@@ -2749,6 +2550,9 @@ def load_run_until_step_setting() -> str | None:
         "create_summaries": "create_minute_order_summaries",
         "case_overview": "create_case_overview",
         "create_rag_index": "build_source_map",
+        # The Add-links pipeline step was retired; its old stopping point was
+        # the minute-order summaries, before edition generation.
+        "add_hearing_date_links": "create_minute_order_summaries",
     }.get(normalized, normalized)
     if migrated != normalized:
         config[CONFIG_KEY_RUN_UNTIL_STEP] = migrated
@@ -3636,6 +3440,7 @@ class SummarizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
+    hearings_target_words_row: Adw.EntryRow
     reports_target_words_row: Adw.EntryRow
     minutes_target_chars_row: Adw.EntryRow
     minutes_max_pages_row: Adw.EntryRow
@@ -3741,32 +3546,40 @@ def load_summarize_settings() -> dict[str, Any]:
         category_default=DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
     )
 
-    # Report density guidance defaults on for recognized built-in report
-    # prompts; a genuinely custom report prompt with no saved word target
-    # migrates as disabled so custom behavior does not silently change.
-    default_word_target = (
-        DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
-        if reports_prompt == _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
-        else 0
-    )
-    word_target_raw = str(
-        config.get(CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS, "") or ""
-    ).strip()
-    if word_target_raw:
+    # Soft per-kind word targets: 250 words per hearing and per report by
+    # default in both digest and synthesis stages; 0 disables the guidance.
+    # The retired summarize_reports_window_target_words value migrates to the
+    # new report key; an explicitly stored 0 is always honored.
+    def _soft_target(primary_key: str, migrated_value: str | None) -> int:
+        raw = str(config.get(primary_key, "") or "").strip()
+        if not raw and migrated_value is not None:
+            raw = migrated_value
+        if not raw:
+            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
         try:
-            reports_words = int(word_target_raw)
+            value = int(raw)
         except ValueError:
-            reports_words = default_word_target
-        if reports_words < 0:
-            reports_words = default_word_target
-    else:
-        reports_words = default_word_target
+            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
+        if value < 0:
+            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
+        return value
+
+    legacy_word_target_raw = str(
+        config.get(LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS, "") or ""
+    ).strip()
+    hearings_words = _soft_target(
+        CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS, None
+    )
+    reports_words = _soft_target(
+        CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS, legacy_word_target_raw or None
+    )
 
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
+        "hearings_target_words": str(hearings_words),
         "reports_target_words": str(reports_words),
         "minutes_target_chars": str(minutes_target),
         "minutes_max_pages": str(minutes_pages),
@@ -3808,6 +3621,7 @@ def save_summarize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
+    hearings_target_words: str,
     reports_target_words: str,
     minutes_target_chars: str,
     minutes_max_pages: str,
@@ -3828,7 +3642,11 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
     config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS] = reports_target_words
+    config[CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS] = hearings_target_words
+    config[CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS] = reports_target_words
+    # The retired report window-target key migrates to the new report soft
+    # target and is removed on save.
+    config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS, None)
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS] = minutes_target_chars
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES] = minutes_max_pages
     # Retired per-category PI extraction window keys: PI extraction sends each
@@ -4631,11 +4449,12 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         # --- PI extraction ---
         extract_group = Adw.PreferencesGroup(
-            title="PI extraction",
+            title="PI extraction + digest",
             description=(
                 "Model and reasoning for stage one: one fresh PI process per "
-                "hearing or report extracts quote-verified facts. Empty means "
-                "use the project PI model."
+                "hearing or report reads the complete source pages and writes "
+                "concise per-category digests. Empty means use the project PI "
+                "model."
             ),
         )
         extract_group.add_css_class("list-stack")
@@ -4656,8 +4475,9 @@ class SettingsWindow(Adw.ApplicationWindow):
             title="PI synthesis",
             description=(
                 "Independent model and reasoning for stage two: one fresh PI "
-                "process per completed facts file renders the final narrative. "
-                "Use a stronger model here if desired."
+                "process per completed digest file synthesizes the final "
+                "narrative from the category digests. Use a stronger model "
+                "here if desired."
             ),
         )
         synthesize_group.add_css_class("list-stack")
@@ -4673,14 +4493,33 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         synthesize_group.add(synthesize_thinking_row)
 
+        hearings_target_words_row = Adw.EntryRow(
+            title="Words per hearing (soft target)",
+        )
+        hearings_target_words_row.set_text(
+            settings.get(
+                "hearings_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)
+            )
+        )
+        hearings_target_subtitle = (
+            "Soft words-per-hearing guidance for the combined category digest "
+            "text and the final narrative; output shape only, 0 disables it. "
+            "Never a token cap, truncation, rejection, or repair rule."
+        )
+        if hasattr(hearings_target_words_row, "set_subtitle"):
+            hearings_target_words_row.set_subtitle(hearings_target_subtitle)
+        else:
+            hearings_target_words_row.set_tooltip_text(hearings_target_subtitle)
+        synthesize_group.add(hearings_target_words_row)
+
         reports_target_words_row = Adw.EntryRow(
             title="Words per report (soft target)",
         )
         reports_target_words_row.set_text(settings.get("reports_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)))
         word_target_subtitle = (
-            "Soft words-per-report guidance for synthesis output shape only; "
-            "0 disables it. Never a token cap, truncation, rejection, or "
-            "repair rule."
+            "Soft words-per-report guidance for the combined category digest "
+            "text and the final narrative; output shape only, 0 disables it. "
+            "Never a token cap, truncation, rejection, or repair rule."
         )
         if hasattr(reports_target_words_row, "set_subtitle"):
             reports_target_words_row.set_subtitle(word_target_subtitle)
@@ -4807,6 +4646,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
+            hearings_target_words_row=hearings_target_words_row,
             reports_target_words_row=reports_target_words_row,
             minutes_target_chars_row=minutes_target_chars_row,
             minutes_max_pages_row=minutes_max_pages_row,
@@ -5439,6 +5279,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
         if summarize_widgets:
             summarize_error_row = _validate_summarize_window_rows(
+                hearings_target_words=summarize_widgets.hearings_target_words_row,
                 reports_target_words=summarize_widgets.reports_target_words_row,
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row,
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row,
@@ -5466,6 +5307,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 model_id=summarize_widgets.model_row.get_text().strip(),
                 api_key=summarize_widgets.api_key_row.get_text().strip(),
                 disable_reasoning=bool(summarize_widgets.disable_reasoning_row.get_active()),
+                hearings_target_words=summarize_widgets.hearings_target_words_row.get_text().strip(),
                 reports_target_words=summarize_widgets.reports_target_words_row.get_text().strip(),
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),
@@ -6343,20 +6185,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_minute_order_summaries_row)
 
-        self.step_add_hearing_date_links_row = Adw.ActionRow(
-            title="Add links to summaries",
-            subtitle="Add Markdown page links for hearing and minute-order first pages.",
-        )
-        self.step_add_hearing_date_links_row.set_activatable(False)
-        self._attach_step_controls(
-            "add_hearing_date_links",
-            self.step_add_hearing_date_links_row,
-            lambda _btn: self.on_step_add_hearing_date_links_clicked(
-                self.step_add_hearing_date_links_row
-            ),
-        )
-        self._attach_step_status(self.step_add_hearing_date_links_row)
-
         self.step_build_summary_editions_row = Adw.ActionRow(
             title="Build paginated summary editions",
             subtitle="Create page-matched Letter PDFs and Focus page maps.",
@@ -6714,11 +6542,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     participant_context=participant_context,
                     report_marker=report_marker,
                     report_length_guidance=(
-                        _report_length_guidance_section(
-                            _summary_report_target_words(settings)
+                        summary_length_guidance_section(
+                            _summary_kind_target_words(settings, "reports"),
+                            "reports",
+                            "narrative",
                         )
                         if mode_id == "summarize_reports"
-                        else ""
+                        else summary_length_guidance_section(
+                            _summary_kind_target_words(settings, "hearings"),
+                            "hearings",
+                            "narrative",
+                        )
                     ),
                 )
                 responses: list[str] = []
@@ -7262,8 +7096,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return _summary_agents.summary_stage_complete(root_dir, "reports")
         if step_id == "create_minute_order_summaries":
             return minutes_path.exists()
-        if step_id == "add_hearing_date_links":
-            return _has_page_markdown_links(summaries_path)
         if step_id == "build_summary_editions":
             return (
                 _summary_editions_complete(root_dir)
@@ -8151,11 +7983,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._run_step_create_minute_order_summaries,
             ),
             (
-                "add_hearing_date_links",
-                self.step_add_hearing_date_links_row,
-                self._run_step_add_hearing_date_links,
-            ),
-            (
                 "build_summary_editions",
                 self.step_build_summary_editions_row,
                 self._run_step_build_summary_editions,
@@ -8901,19 +8728,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._launch_single_step(
             self.step_minute_order_summaries_row,
             self._run_step_create_minute_order_summaries,
-        )
-
-    def on_step_add_hearing_date_links_clicked(self, _row: Adw.ActionRow) -> None:
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            if self.selected_pdfs:
-                self.show_toast("Selected PDFs must be in the same folder.")
-            else:
-                self.show_toast("Choose PDF files or select a saved case first.")
-            return
-        self._launch_single_step(
-            self.step_add_hearing_date_links_row,
-            self._run_step_add_hearing_date_links,
         )
 
     def on_step_build_summary_editions_clicked(self, _row: Adw.ActionRow) -> None:
@@ -10872,7 +10686,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "Configure Summarize API URL, model ID, and API key in Settings."
             )
         target_chars, max_pages = _summary_window_limits(settings, category)
-        target_words = _summary_report_target_words(settings) if category == "reports" else 0
+        # Direct-API preview guidance for hearings and reports; minute orders
+        # have no digest word target.
+        target_words = (
+            _summary_kind_target_words(settings, category)
+            if category in {"hearings", "reports"}
+            else 0
+        )
         request_base = {
             "api_url": settings["api_url"],
             "model_id": settings["model_id"],
@@ -11024,82 +10844,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ),
             "prompt": prompt,
         }
-
-    def _run_step_add_hearing_date_links(self) -> bool:
-        success: bool | str | None = False
-        try:
-            self._raise_if_stop_requested()
-            root_dir = self._resolve_case_root()
-            if root_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            artifacts_dir = root_dir / "artifacts"
-            summaries_path, _reports_path = _summary_output_paths(root_dir)
-            if not summaries_path.exists():
-                raise FileNotFoundError(
-                    "Run Create hearing summaries to generate hearing summaries first."
-                )
-            hearing_boundaries_path = artifacts_dir / "hearing_boundaries.json"
-            minutes_boundaries_path = artifacts_dir / "minutes_boundaries.json"
-            if (
-                not hearing_boundaries_path.exists()
-                or not minutes_boundaries_path.exists()
-            ):
-                raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing and minute boundaries first."
-                )
-
-            hearing_entries = _load_json_entries(hearing_boundaries_path)
-            minute_entries = _load_json_entries(minutes_boundaries_path)
-            if not hearing_entries and not minute_entries:
-                GLib.idle_add(
-                    self.show_toast,
-                    "No hearing or minute boundaries found. Skipping Add links to summaries.",
-                    "WARN",
-                )
-                success = "Skipped"
-                return True
-
-            linked_hearings, _modified, _inserted = (
-                _add_page_links_to_hearing_summary_text(
-                    summaries_path.read_text(encoding="utf-8", errors="ignore"),
-                    hearing_entries,
-                    minute_entries,
-                )
-            )
-            if linked_hearings == summaries_path.read_text(
-                encoding="utf-8", errors="ignore"
-            ):
-                success = "Skipped"
-                GLib.idle_add(
-                    self.show_toast,
-                    "Add links to summaries: links are already correct; nothing changed.",
-                )
-                return True
-            summaries_path.write_text(linked_hearings, encoding="utf-8")
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Add links to summaries failed: {exc}")
-        else:
-            success = True
-            remove_summary_edition(summaries_path)
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "add_hearing_date_links",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Add links to summaries complete.")
-        finally:
-            GLib.idle_add(self.step_add_hearing_date_links_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_add_hearing_date_links_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True or success == "Skipped"
 
     def _run_step_build_summary_editions(self) -> bool:
         """Build and publish page-matched Letter PDFs and Focus page maps.

@@ -19,13 +19,21 @@ orientation aid and must never be represented as source evidence. Do not use web
 research or unrelated local sources.
 
 Summary stages run with only the custom tools named by the runner; you have no
-read, bash, write, or edit capability in those stages. In extraction stages a
-category with no responsive information is recorded as exactly `null` facts —
-never an empty list and never an explanation of absence. Every fact's evidence
-is a short contiguous verbatim quote copied exactly from the declared source
-page. Never state legal conclusions beyond the record, and never present a
-proposed or recommended finding or order as if the court actually made it;
-only actual orders and historically recited findings qualify.
+read, bash, write, or edit capability in those stages. In extraction stages
+each category receives one concise, salience-based digest — a synthesized
+account, not an inventory of atomized facts. A category with no material
+orientation-worthy content is recorded as exactly `null` digest — never an
+empty list and never an explanation of absence. Collapse related incidents,
+examples, interviews, positions, and chronology into one account per
+category, use representative examples, and put a development in its best
+category once. Evidence is a short contiguous verbatim quote copied exactly
+from the declared source page; aim for roughly six useful short quotations
+per document when the source supports them, with no quota. Never state legal
+conclusions beyond the record, and never present a proposed or recommended
+finding or order as if the court actually made it; only actual orders and
+historically recited findings qualify. In synthesis stages, write
+chronological flowing prose with grammatically integrated short direct
+quotations, never category lists or duplicated paraphrase-plus-quote pairs.
 
 Use `read`, `grep`, `find`, and `ls` for evidence gathering; use `bash` only for
 documented RecordPrep helpers; use `write` or `edit` only for the active stage's

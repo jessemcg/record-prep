@@ -5,10 +5,13 @@ from .summary_agents import (  # noqa: F401
     SUMMARY_KINDS,
     NO_SUMMARIZABLE_REPORT_CONTENT,
     canonicalize_extraction_candidate,
-    parse_facts_rows,
-    publish_facts,
-    summary_facts_meta_path,
-    summary_facts_path,
+    cleanup_legacy_facts_artifacts,
+    legacy_summary_facts_meta_path,
+    legacy_summary_facts_path,
+    parse_digest_rows,
+    publish_digests,
+    summary_digest_meta_path,
+    summary_digest_path,
     summary_final_meta_path,
     summary_final_path,
     validate_summary_agent_outputs,
@@ -25,7 +28,6 @@ from .summary_editions import (  # noqa: F401
     validate_summary_edition_files,
 )
 from .ui.main_window import (  # noqa: F401
-    _add_page_links_to_hearing_summary_text,
     _minutes_summary_output_path,
     _summary_output_paths,
 )

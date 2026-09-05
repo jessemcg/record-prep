@@ -835,7 +835,9 @@ class InvalidationTests(unittest.TestCase):
             self.assertTrue(summary_edition_is_complete("reports", reports, root))
             self.assertFalse(summary_edition_is_complete("minutes", minutes, root))
 
-    def test_add_links_invalidates_hearing_edition(self) -> None:
+    def test_hearing_summary_text_change_invalidates_hearing_edition(self) -> None:
+        """The retired Add-links step is gone; a source text change still
+        invalidates only that category's edition."""
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
             _seed_boundaries(root)
@@ -843,10 +845,13 @@ class InvalidationTests(unittest.TestCase):
             hearings, _reports = _summary_output_paths(root)
             self.assertTrue(summary_edition_is_complete("hearings", hearings, root))
 
-            harness = _make_harness(root)
-            self.assertTrue(_run_handler(harness, "_run_step_add_hearing_date_links"))
+            hearings.write_text(
+                hearings.read_text(encoding="utf-8") + "\nAdditional paragraph.\n",
+                encoding="utf-8",
+            )
 
             self.assertFalse(summary_edition_is_complete("hearings", hearings, root))
+            _reports = None
 
 
 class StepHandlerTests(unittest.TestCase):
@@ -903,9 +908,12 @@ class PipelineAndManifestTests(unittest.TestCase):
             if phase_id == "summarize"
         ][0]
         self.assertIn("build_summary_editions", summarize_ids)
+        # The Add-links step was retired; editions build directly after the
+        # three summary stages.
+        self.assertNotIn("add_hearing_date_links", summarize_ids)
         self.assertEqual(
             summarize_ids.index("build_summary_editions"),
-            summarize_ids.index("add_hearing_date_links") + 1,
+            summarize_ids.index("create_minute_order_summaries") + 1,
         )
         self.assertEqual(
             PIPELINE_STEP_PHASE["build_summary_editions"], "summarize"

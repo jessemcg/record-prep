@@ -1,7 +1,7 @@
 """Synthetic summary-agent fixtures shared by pipeline tests.
 
 Everything here is synthetic: no real case material. The helpers publish
-canonical-shape facts rows, metadata sidecars, and final summaries so tests
+canonical-shape digest rows, metadata sidecars, and final summaries so tests
 can build valid or deliberately malformed bundles without paid calls.
 """
 
@@ -25,24 +25,29 @@ def synthetic_facts_row(
     generation_sha256: str = "g" * 64,
     input_sha256: str = "i" * 64,
 ) -> dict[str, Any]:
-    """Build one canonical facts row. ``facts`` maps category id to evidence."""
+    """Build one canonical digest row.
+
+    ``facts`` maps category id to a list of ``{"text", "evidence"}`` fact
+    dicts (test readability only); the canonical digest text joins the fact
+    texts and the evidence bank flattens their quotes with fresh quote ids.
+    """
     if item_id is None:
         item_id = f"{sa.SUMMARY_ITEM_PREFIXES[kind]}:{start:04d}"
     categories: list[dict[str, Any]] = []
     for definition in sa.summary_category_definitions(kind):
-        entry: dict[str, Any] = {"id": definition.identifier, "facts": None}
+        entry: dict[str, Any] = {"id": definition.identifier, "digest": None}
         if facts and definition.identifier in facts:
-            canonical: list[dict[str, Any]] = []
-            for fact_ordinal, fact in enumerate(facts[definition.identifier], start=1):
-                evidence: list[dict[str, Any]] = []
-                for evidence_ordinal, quote in enumerate(fact["evidence"], start=1):
+            digest_texts: list[str] = []
+            evidence: list[dict[str, Any]] = []
+            for fact in facts[definition.identifier]:
+                digest_texts.append(str(fact.get("text") or ""))
+                for quote in fact.get("evidence", []):
                     evidence.append(
                         {
                             "quote_id": sa.canonical_quote_id(
                                 item_id,
                                 definition.identifier,
-                                fact_ordinal,
-                                evidence_ordinal,
+                                len(evidence) + 1,
                             ),
                             "text": quote["text"],
                             "file_page": quote["file_page"],
@@ -51,8 +56,10 @@ def synthetic_facts_row(
                             "source_sha256": quote.get("source_sha256", "s" * 64),
                         }
                     )
-                canonical.append({"text": fact["text"], "evidence": evidence})
-            entry["facts"] = canonical
+            entry["digest"] = {
+                "text": " ".join(text for text in digest_texts if text),
+                "evidence": evidence,
+            }
         categories.append(entry)
     return {
         "artifact": sa.SUMMARY_FACTS_ARTIFACT,
@@ -65,6 +72,7 @@ def synthetic_facts_row(
         "end_page": end,
         "input_sha256": input_sha256,
         "generation_sha256": generation_sha256,
+        "quality_flags": [],
         "categories": categories,
     }
 
@@ -76,10 +84,10 @@ def write_facts_bundle(
     *,
     complete: bool = True,
 ) -> None:
-    """Publish a facts JSONL and a matching metadata sidecar."""
-    jsonl_path = sa.summary_facts_path(root, kind)
-    meta_path = sa.summary_facts_meta_path(root, kind)
-    sa.write_facts_jsonl(jsonl_path, list(rows))
+    """Publish a digest JSONL and a matching metadata sidecar."""
+    jsonl_path = sa.summary_digest_path(root, kind)
+    meta_path = sa.summary_digest_meta_path(root, kind)
+    sa.write_digest_jsonl(jsonl_path, list(rows))
     meta = {
         "artifact": sa.SUMMARY_FACTS_META_ARTIFACT,
         "schema_version": sa.SUMMARY_FACTS_META_SCHEMA_VERSION,
@@ -90,7 +98,8 @@ def write_facts_bundle(
         "category_schema_sha256": "c" * 64,
         "source_boundary_fingerprint": "b" * 64,
         "extraction_config_sha256": "e" * 64,
-        "jsonl_sha256": sa.facts_jsonl_sha256(list(rows)),
+        "jsonl_sha256": sa.digest_jsonl_sha256(list(rows)),
+        "quality_flags": {},
         "complete": complete,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")

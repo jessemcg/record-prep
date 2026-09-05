@@ -156,7 +156,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
         # non-numeric text falls back to the default.
         self.assertEqual(settings["minutes_max_pages"], "1")
 
-    def test_report_word_target_explicit_values_and_zero_disable(self) -> None:
+    def test_soft_word_targets_explicit_values_and_zero_disable(self) -> None:
         cases = (
             ("0", "0"),
             ("300", "300"),
@@ -166,19 +166,34 @@ class DirectSourcePipelineTests(unittest.TestCase):
         for raw, expected in cases:
             with patch(
                 "recordprep.ui.main_window._read_config",
-                return_value={"summarize_reports_window_target_words": raw},
+                return_value={"summarize_reports_target_words": raw},
             ):
                 settings = load_summarize_settings()
             self.assertEqual(settings["reports_target_words"], expected, raw)
+            self.assertEqual(
+                settings["hearings_target_words"],
+                str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
+            )
 
-    def test_custom_report_prompt_migrates_word_target_as_disabled(self) -> None:
+    def test_retired_report_window_target_migrates_to_new_key(self) -> None:
+        with patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_window_target_words": "300"},
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["reports_target_words"], "300")
+
+    def test_custom_report_prompt_keeps_default_word_target(self) -> None:
         with patch(
             "recordprep.ui.main_window._read_config",
             return_value={"summarize_reports_prompt": "A genuinely custom prompt."},
         ):
             settings = load_summarize_settings()
         self.assertEqual(settings["reports_prompt"], "A genuinely custom prompt.")
-        self.assertEqual(settings["reports_target_words"], "0")
+        self.assertEqual(
+            settings["reports_target_words"],
+            str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
+        )
 
     def test_save_summarize_settings_writes_new_keys_and_removes_legacy(self) -> None:
         captured: dict[str, object] = {}
@@ -205,6 +220,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
                 model_id="test-model",
                 api_key="key",
                 disable_reasoning=False,
+                hearings_target_words="250",
                 reports_target_words="250",
                 minutes_target_chars="6000",
                 minutes_max_pages="6",
@@ -213,7 +229,9 @@ class DirectSourcePipelineTests(unittest.TestCase):
                 minutes_prompt="minute prompt",
             )
 
-        self.assertEqual(captured["summarize_reports_window_target_words"], "250")
+        self.assertEqual(captured["summarize_hearings_target_words"], "250")
+        self.assertEqual(captured["summarize_reports_target_words"], "250")
+        self.assertNotIn("summarize_reports_window_target_words", captured)
         self.assertEqual(captured["summarize_minutes_window_target_chars"], "6000")
         self.assertEqual(captured["summarize_minutes_window_max_pages"], "6")
         self.assertNotIn("summarize_window_target_chars", captured)

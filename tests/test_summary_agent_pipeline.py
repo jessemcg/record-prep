@@ -1,16 +1,18 @@
 """Two-stage summary-agent pipeline tests.
 
-Synthetic only: no real case material and no paid calls. Covers category
-contracts, quote resolution, window coverage, atomic JSONL publication,
-resume semantics, synthesis validation (including recurrence), deterministic
-rendering, settings persistence without .pi/settings.json mutation, and an
-end-to-end runner acceptance run against a fake PI executable.
+Synthetic only: no real case material and no paid calls. Covers the category
+digest contracts, permissive candidate normalization, quote resolution,
+window coverage, atomic JSONL publication, resume semantics, synthesis
+normalization (deterministic fallback and warning codes), deterministic
+plain-text rendering, settings persistence without .pi/settings.json
+mutation, and end-to-end runner acceptance runs against a fake PI executable.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -147,6 +149,8 @@ def _extraction_config(kind: str = "hearings", **overrides) -> sa.ExtractionConf
         "model": "synthetic-model",
         "provider": "synthetic",
         "thinking": "low",
+        "hearing_target_words": 250,
+        "report_target_words": 250,
     }
     defaults.update(overrides)
     return sa.ExtractionConfig(**defaults)
@@ -183,41 +187,164 @@ class CategoryContractTests(unittest.TestCase):
             ),
         )
 
-    def test_all_null_row_is_valid_and_facts_null_is_preserved(self) -> None:
+    def test_digest_schema_contract(self) -> None:
+        self.assertEqual(sa.SUMMARY_FACTS_SCHEMA_VERSION, 2)
+        self.assertEqual(sa.SUMMARY_FACTS_ARTIFACT, "recordprep-summary-digest")
+        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-2")
         row = synthetic_facts_row("hearings")
-        self.assertEqual(sa.validate_facts_row(row), [])
+        self.assertEqual(sa.validate_digest_row(row), [])
         for category in row["categories"]:
-            self.assertIsNone(category["facts"])
+            self.assertIsNone(category["digest"])
 
-    def test_unknown_duplicate_and_reordered_categories_are_rejected(self) -> None:
-        row = synthetic_facts_row("hearings")
-        row["categories"][0]["id"] = "not_a_category"
-        self.assertTrue(
-            any("configured order" in issue for issue in sa.validate_facts_row(row))
-        )
-        row = synthetic_facts_row("hearings")
-        swapped = [row["categories"][1], row["categories"][0]] + row["categories"][2:]
-        row["categories"] = swapped
-        self.assertTrue(
-            any("configured order" in issue for issue in sa.validate_facts_row(row))
-        )
-        row = synthetic_facts_row("hearings")
-        duplicate = list(row["categories"])
-        duplicate[1] = dict(duplicate[0])
-        row["categories"] = duplicate
-        self.assertTrue(
-            any("configured order" in issue for issue in sa.validate_facts_row(row))
-        )
+    def test_digest_paths_use_new_names_and_lock_path_is_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "case_name.txt").write_text("SynCase", encoding="utf-8")
+            self.assertEqual(
+                sa.summary_digest_path(root, "hearings").name,
+                "hearings_digests_SynCase.jsonl",
+            )
+            self.assertEqual(
+                sa.summary_digest_meta_path(root, "reports").name,
+                "reports_digests_SynCase.meta.json",
+            )
+            self.assertEqual(
+                sa.legacy_summary_facts_path(root, "hearings").name,
+                "hearings_facts_SynCase.jsonl",
+            )
+            self.assertEqual(
+                sa.SummaryKindLock(root, "hearings")._path.name,
+                ".hearings_facts.lock",
+            )
 
-    def test_empty_facts_array_and_extra_keys_are_rejected(self) -> None:
-        row = synthetic_facts_row("hearings")
-        row["categories"][0]["facts"] = []
-        issues = sa.validate_facts_row(row)
-        self.assertTrue(any("null or nonempty" in issue for issue in issues))
-        row = synthetic_facts_row("hearings")
-        row["unexpected"] = "value"
-        self.assertTrue(any("unexpected" not in issue for issue in sa.validate_facts_row(row)) or True)
-        # Empty array is also rejected at canonicalization time.
+    def test_canonical_row_orders_and_fills_categories(self) -> None:
+        """Exactly one null-or-object digest per category in canonical order."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            candidate = {
+                # A wrong submitted item_id is ignored and re-owned.
+                "item_id": "hearing:9999",
+                "categories": [
+                    {"id": "testimony", "digest": {"text": "Later category."}},
+                    {"id": "not_a_category", "digest": {"text": "Unknown."}},
+                    {"id": "parent_appearances", "digest": None},
+                    {"id": "parent_appearances", "digest": {"text": "Duplicate."}},
+                ],
+            }
+            warnings: list[str] = []
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], root / "text_pages", warnings=warnings
+            )
+            ids = [category["id"] for category in row["categories"]]
+            self.assertEqual(ids, list(sa.SUMMARY_CATEGORY_IDS["hearings"]))
+            by_id = {category["id"]: category for category in row["categories"]}
+            # First usable duplicate wins.
+            self.assertEqual(
+                by_id["parent_appearances"]["digest"],
+                {"text": "Duplicate.", "evidence": []},
+            )
+            self.assertEqual(by_id["testimony"]["digest"]["text"], "Later category.")
+            # Missing/malformed/unknown categories fill with null.
+            self.assertIsNone(by_id["evidence_considered"]["digest"])
+            flags = " ".join(row["quality_flags"])
+            self.assertIn("unknown_categories_ignored:1", flags)
+            self.assertIn("duplicate_categories:1", flags)
+            self.assertIn("missing_categories_filled_null:", flags)
+            self.assertIn("candidate_item_id_ignored", " ".join(warnings) + flags)
+
+    def test_malformed_candidate_normalizes_with_flags_not_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            text_dir = root / "text_pages"
+
+            # Wholly unusable candidates publish all-null rows with flags.
+            for unusable in (None, {"categories": "not-a-list"}, [1, 2, 3]):
+                warnings: list[str] = []
+                row = sa.canonicalize_extraction_candidate(
+                    unusable, items[0], text_dir, warnings=warnings
+                )
+                self.assertTrue(
+                    all(category["digest"] is None for category in row["categories"])
+                )
+                self.assertTrue(
+                    any("candidate_unusable" in flag for flag in row["quality_flags"])
+                )
+
+            # Whitespace is collapsed in digest text; malformed digests fill null.
+            candidate = {
+                "categories": [
+                    {
+                        "id": "parent_appearances",
+                        "digest": {"text": "Spaced   out\t text.\n"},
+                    },
+                    {"id": "evidence_considered", "digest": ["not an object"]},
+                    {"id": "testimony", "digest": {"text": "   "}},
+                ]
+            }
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], text_dir
+            )
+            by_id = {category["id"]: category for category in row["categories"]}
+            self.assertEqual(
+                by_id["parent_appearances"]["digest"]["text"],
+                "Spaced out text.",
+            )
+            self.assertEqual(by_id["parent_appearances"]["digest"]["evidence"], [])
+            self.assertIsNone(by_id["evidence_considered"]["digest"])
+            self.assertIsNone(by_id["testimony"]["digest"])
+            flags = " ".join(row["quality_flags"])
+            self.assertIn("empty_evidence_kept:parent_appearances", flags)
+            self.assertIn("malformed_digest_filled_null:evidence_considered", flags)
+
+    def test_flattened_string_digest_variant_is_accepted(self) -> None:
+        """The common flattened model shape normalizes to the canonical form."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config())
+            candidate = {
+                "item_id": "ignored",
+                "categories": [
+                    {
+                        "id": "parent_appearances",
+                        "digest": "Mother appeared remotely for the hearing.",
+                        "text": "Mother appeared remotely for the hearing.",
+                        "evidence": [
+                            {"text": "unique phrase", "file_page": "1"}
+                        ],
+                    },
+                    {"id": "testimony", "digest": None, "evidence": []},
+                ],
+            }
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], root / "text_pages"
+            )
+            by_id = {category["id"]: category for category in row["categories"]}
+            self.assertEqual(
+                by_id["parent_appearances"]["digest"]["text"],
+                "Mother appeared remotely for the hearing.",
+            )
+            evidence = by_id["parent_appearances"]["digest"]["evidence"]
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(evidence[0]["file_page"], 1)
+            self.assertTrue(evidence[0]["verified"])
+            self.assertIsNone(by_id["testimony"]["digest"])
+            flags = " ".join(row["quality_flags"])
+            self.assertIn("candidate_item_id_ignored", flags)
+            self.assertNotIn("malformed_digest", flags)
+
+    def test_empty_facts_shape_is_normalized_not_rejected(self) -> None:
+        """The old empty-facts rejection is now normalization with flags."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -227,14 +354,37 @@ class CategoryContractTests(unittest.TestCase):
             candidate = {
                 "item_id": items[0].item_id,
                 "categories": [
-                    {"id": category.identifier, "facts": []}
+                    {"id": category.identifier, "digest": None}
                     for category in sa.summary_category_definitions("hearings")
                 ],
             }
-            with self.assertRaises(ValueError):
-                sa.canonicalize_extraction_candidate(
-                    candidate, items[0], root / "text_pages"
-                )
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], root / "text_pages"
+            )
+            self.assertEqual(
+                [category["id"] for category in row["categories"]],
+                list(sa.SUMMARY_CATEGORY_IDS["hearings"]),
+            )
+            # A submitted empty-list digest is unusable and fills null.
+            candidate["categories"][0]["digest"] = []
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], root / "text_pages"
+            )
+            self.assertIsNone(row["categories"][0]["digest"])
+
+    def test_length_guidance_and_fingerprints_include_targets(self) -> None:
+        config_one = _extraction_config(
+            "hearings", hearing_target_words=250, report_target_words=250
+        )
+        config_two = _extraction_config(
+            "hearings", hearing_target_words=300, report_target_words=250
+        )
+        self.assertNotEqual(config_one.fingerprint, config_two.fingerprint)
+        self.assertEqual(config_one.target_words, 250)
+        reports_config = _extraction_config(
+            "reports", hearing_target_words=250, report_target_words=0
+        )
+        self.assertEqual(reports_config.target_words, 0)
 
 
 class QuoteResolutionTests(unittest.TestCase):
@@ -246,71 +396,66 @@ class QuoteResolutionTests(unittest.TestCase):
             builder.finish([(1, 1, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config())
             page_text = (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
-            evidence = {"text": "unique phrase", "file_page": 1}
             candidate = {
                 "item_id": items[0].item_id,
                 "categories": [
                     {
                         "id": "parent_appearances",
-                        "facts": [
-                            {"text": "A fact.", "evidence": [evidence]}
-                        ],
+                        "digest": {
+                            "text": "A parent appeared.",
+                            "evidence": [{"text": "unique phrase", "file_page": 1}],
+                        },
                     }
-                ]
-                + [
-                    {"id": category.identifier, "facts": None}
-                    for category in sa.summary_category_definitions("hearings")[1:]
                 ],
             }
             row = sa.canonicalize_extraction_candidate(
                 candidate, items[0], root / "text_pages"
             )
-            first = row["categories"][0]["facts"][0]["evidence"][0]
+            digest = row["categories"][0]["digest"]
+            first = digest["evidence"][0]
             self.assertEqual(
                 page_text[first["source_start"] : first["source_end"]],
                 "unique phrase",
             )
-            self.assertEqual(
-                first["source_sha256"], sa.sha256_text(page_text)
-            )
+            self.assertEqual(first["source_sha256"], sa.sha256_text(page_text))
+            self.assertTrue(first["verified"])
             self.assertEqual(
                 first["quote_id"],
-                f"{items[0].item_id}/parent_appearances/1/1",
+                f"{items[0].item_id}/parent_appearances/1",
             )
 
-    def test_page_scope_is_still_enforced(self) -> None:
+    def test_out_of_document_evidence_is_discarded_with_flags(self) -> None:
+        """Page scope discards the evidence entry, never the run."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
             builder.add_pages(1, 2, "aa bb")
             builder.finish([(1, 1, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config())
-
-            def candidate(page: int, quote: str) -> dict:
-                return {
-                    "item_id": items[0].item_id,
-                    "categories": [
-                        {
-                            "id": "parent_appearances",
-                            "facts": [
-                                {"text": "F.", "evidence": [
-                                    {"text": quote, "file_page": page}
-                                ]}
+            candidate = {
+                "item_id": items[0].item_id,
+                "categories": [
+                    {
+                        "id": "parent_appearances",
+                        "digest": {
+                            "text": "A parent appeared.",
+                            "evidence": [
+                                {"text": "Page 2 narrative", "file_page": 2},
+                                {"text": "malformed"},
+                                {"text": "", "file_page": 1},
                             ],
-                        }
-                    ]
-                    + [
-                        {"id": category.identifier, "facts": None}
-                        for category in sa.summary_category_definitions("hearings")[1:]
-                    ],
-                }
-
-            # Page scope (which page the quote claims) is still a hard rule.
-            with self.assertRaises(ValueError) as context:
-                sa.canonicalize_extraction_candidate(
-                    candidate(2, "Page 2 narrative"), items[0], root / "text_pages"
-                )
-            self.assertIn("outside", str(context.exception))
+                        },
+                    }
+                ],
+            }
+            row = sa.canonicalize_extraction_candidate(
+                candidate, items[0], root / "text_pages"
+            )
+            digest = row["categories"][0]["digest"]
+            self.assertEqual(digest["evidence"], [])
+            flags = " ".join(row["quality_flags"])
+            self.assertIn("evidence_discarded:3", flags)
+            self.assertIn("empty_evidence_kept:parent_appearances", flags)
 
     def test_quote_fidelity_is_best_effort_not_fatal(self) -> None:
         """Slightly-off quotes are kept with verified=false, never rejected."""
@@ -320,7 +465,6 @@ class QuoteResolutionTests(unittest.TestCase):
             builder.add_pages(1, 1, "aa bb")
             builder.finish([(1, 1, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config())
-            page_text = (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
 
             def candidate(quote: str) -> dict:
                 return {
@@ -328,16 +472,13 @@ class QuoteResolutionTests(unittest.TestCase):
                     "categories": [
                         {
                             "id": "parent_appearances",
-                            "facts": [
-                                {"text": "F.", "evidence": [
+                            "digest": {
+                                "text": "A parent appeared.",
+                                "evidence": [
                                     {"text": quote, "file_page": 1}
-                                ]}
-                            ],
+                                ],
+                            },
                         }
-                    ]
-                    + [
-                        {"id": category.identifier, "facts": None}
-                        for category in sa.summary_category_definitions("hearings")[1:]
                     ],
                 }
 
@@ -348,13 +489,14 @@ class QuoteResolutionTests(unittest.TestCase):
                 candidate("unique phrase"), items[0], root / "text_pages",
                 warnings=warnings,
             )
-            first = row["categories"][0]["facts"][0]["evidence"][0]
-            self.assertTrue(first["verified"])
+            evidence = row["categories"][0]["digest"]["evidence"][0]
+            page_text = (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
+            self.assertTrue(evidence["verified"])
             self.assertEqual(
-                page_text[first["source_start"] : first["source_end"]],
+                page_text[evidence["source_start"] : evidence["source_end"]],
                 "unique phrase",
             )
-            self.assertEqual(warnings, [])
+            self.assertNotIn("quotes_unverified", " ".join(warnings))
 
             # Ambiguous matches keep the first occurrence.
             (root / "text_pages" / "0001.txt").write_text(
@@ -367,10 +509,9 @@ class QuoteResolutionTests(unittest.TestCase):
                 candidate("the court"), items[0], root / "text_pages",
                 warnings=warnings,
             )
-            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            evidence = row["categories"][0]["digest"]["evidence"][0]
             self.assertTrue(evidence["verified"])
             self.assertEqual(evidence["source_start"], 0)
-            self.assertEqual(warnings, [])
 
             # Typography-only differences (case, marks, dashes) verify via
             # the relaxed matcher.
@@ -378,7 +519,7 @@ class QuoteResolutionTests(unittest.TestCase):
                 candidate("Aa Bb"), items[0], root / "text_pages",
                 warnings=warnings,
             )
-            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            evidence = row["categories"][0]["digest"]["evidence"][0]
             self.assertTrue(evidence["verified"])
 
             # A quote that does not appear at all is kept as submitted,
@@ -388,19 +529,14 @@ class QuoteResolutionTests(unittest.TestCase):
                 candidate("absent words"), items[0], root / "text_pages",
                 warnings=warnings,
             )
-            evidence = row["categories"][0]["facts"][0]["evidence"][0]
+            evidence = row["categories"][0]["digest"]["evidence"][0]
             self.assertFalse(evidence["verified"])
             self.assertNotIn("source_start", evidence)
-            self.assertEqual(
-                evidence["source_sha256"],
-                sa.sha256_text(
-                    (root / "text_pages" / "0001.txt").read_text(encoding="utf-8")
-                ),
-            )
-            self.assertEqual(len(warnings), 1)
-            self.assertIn("kept as submitted", warnings[0])
-            # No case text in the warning.
-            self.assertNotIn("absent", warnings[0])
+            flags = " ".join(row["quality_flags"])
+            self.assertIn("quotes_unverified:1", flags)
+            self.assertIn("quotes_unverified", " ".join(warnings))
+            # No case text in the warning output.
+            self.assertNotIn("absent", " ".join(warnings))
 
     def test_quote_matching_survives_ligatures_and_hyphen_wraps(self) -> None:
         page = " disposi-\ntion of the \ufb01nal order. "
@@ -411,7 +547,7 @@ class QuoteResolutionTests(unittest.TestCase):
         self.assertIn("disposi", page[start:end])
         self.assertIn("nal order", page[start:end])
 
-    def test_report_proposal_cutoff_clips_evidence(self) -> None:
+    def test_report_proposal_cutoff_discards_category_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -431,16 +567,13 @@ class QuoteResolutionTests(unittest.TestCase):
                     "categories": [
                         {
                             "id": "agency_recommendations",
-                            "facts": [
-                                {"text": "F.", "evidence": [
+                            "digest": {
+                                "text": "Agency recommendation digest.",
+                                "evidence": [
                                     {"text": quote, "file_page": page}
-                                ]}
-                            ],
+                                ],
+                            },
                         }
-                    ]
-                    + [
-                        {"id": category.identifier, "facts": None}
-                        for category in sa.summary_category_definitions("reports")[1:]
                     ],
                 }
 
@@ -450,15 +583,22 @@ class QuoteResolutionTests(unittest.TestCase):
                 root / "text_pages",
                 report_cutoff=(items[0].proposal_marker.source_page, 0),
             )
-            self.assertEqual(row["categories"][0]["facts"][0]["evidence"][0]["file_page"], 1)
-            with self.assertRaises(ValueError) as context:
-                sa.canonicalize_extraction_candidate(
-                    candidate(3, "unique phrase"),
-                    items[0],
-                    root / "text_pages",
-                    report_cutoff=(items[0].proposal_marker.source_page, 0),
-                )
-            self.assertIn("proposed findings", str(context.exception))
+            self.assertEqual(
+                row["categories"][0]["digest"]["evidence"][0]["file_page"], 1
+            )
+            # Evidence past the cutoff conservatively discards the whole
+            # category digest so excluded proposal material is not published.
+            row = sa.canonicalize_extraction_candidate(
+                candidate(3, "unique phrase"),
+                items[0],
+                root / "text_pages",
+                report_cutoff=(items[0].proposal_marker.source_page, 0),
+            )
+            self.assertIsNone(row["categories"][0]["digest"])
+            self.assertIn(
+                "digest_discarded_proposal_cutoff:agency_recommendations",
+                row["quality_flags"],
+            )
 
 
 class SourcePayloadTests(unittest.TestCase):
@@ -518,81 +658,7 @@ class SourcePayloadTests(unittest.TestCase):
             self.assertIn("Participants:", payload)
             self.assertIn("Testimony:", payload)
 
-    def test_hearing_payload_carries_witness_and_testimony_lines(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            builder = BundleBuilder(root)
-            builder.add_pages(1, 3, "aa bb")
-            builder.finish([(1, 3, "March 3, 2025")], [])
-            # A verified witness with a mapped, cited examination.
-            (root / "artifacts" / "participant_index.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "source": "record-participant-index",
-                        "warnings": [],
-                        "hearings": [
-                            {
-                                "id": "hearing:0001",
-                                "date": "March 3, 2025",
-                                "start_page": 1,
-                                "end_page": 3,
-                                "witness_status": "verified",
-                                "witness_evidence": [
-                                    {
-                                        "text_path": "text_pages/0001.txt",
-                                        "file_page": 1,
-                                        "citation_label": "RT 1",
-                                        "citation_key": "RT:1",
-                                        "note": "Synthetic.",
-                                    }
-                                ],
-                                "witnesses": [
-                                    {
-                                        "name": "Casey Specialist",
-                                        "description": "agency social worker",
-                                        "examinations": [
-                                            {
-                                                "type": "direct_examination",
-                                                "examiner_role_id": "minors_counsel",
-                                                "start_file_page": 1,
-                                                "end_file_page": 2,
-                                                "start_citation_label": "RT 1",
-                                                "end_citation_label": "RT 2",
-                                            }
-                                        ],
-                                    }
-                                ],
-                                "counsel": [
-                                    {
-                                        "role_id": "minors_counsel",
-                                        "name": "Alex Attorney",
-                                        "aliases": [],
-                                        "organization": "",
-                                        "appearance_status": "present",
-                                        "evidence": [
-                                            {"file_page": 1, "citation_label": "RT 1"}
-                                        ],
-                                    }
-                                ],
-                                "participants": [],
-                                "warnings": [],
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            items = sa.build_work_items(root, _extraction_config())
-            payload = sa.item_source_payload(items[0], root / "text_pages", {})
-            self.assertIn("Minor’s counsel — Alex Attorney", payload)
-            self.assertIn("direct examination by Minor’s counsel", payload)
-            self.assertIn("; RT 1–RT 2)", payload)
-            self.assertIn(
-                "Testimony: Casey Specialist (agency social worker)", payload
-            )
-
-    def test_work_spec_shape_is_single_source(self) -> None:
+    def test_work_spec_carries_digest_contract_and_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -601,9 +667,18 @@ class SourcePayloadTests(unittest.TestCase):
             items = sa.build_work_items(root, _extraction_config())
             spec = sa.build_work_spec(items[0], _extraction_config(), root, Path("c.json"))
             self.assertNotIn("windows", spec)
-            self.assertNotIn("window_count", spec)
             self.assertIn("source", spec)
-            self.assertEqual(spec["schema_version"], 2)
+            self.assertEqual(spec["schema_version"], 3)
+            self.assertIn("length_guidance", spec)
+            self.assertIn("250", spec["length_guidance"])
+            self.assertIn("salience", spec["guidance"])
+            disabled = sa.build_work_spec(
+                items[0],
+                _extraction_config(hearing_target_words=0, report_target_words=0),
+                root,
+                Path("c.json"),
+            )
+            self.assertNotIn("length_guidance", disabled)
 
 
 class JsonlStoreTests(unittest.TestCase):
@@ -628,8 +703,8 @@ class JsonlStoreTests(unittest.TestCase):
                     generation_sha256=items[0].generation_sha256,
                 )
             ]
-            sa.publish_facts(root, "hearings", items, _extraction_config(), rows)
-            meta = sa.load_facts_meta(root, "hearings")
+            sa.publish_digests(root, "hearings", items, _extraction_config(), rows)
+            meta = sa.load_digest_meta(root, "hearings")
             self.assertEqual(meta["complete"], False)
             self.assertEqual(meta["total"], 2)
             self.assertEqual(meta["completed"], 1)
@@ -643,20 +718,42 @@ class JsonlStoreTests(unittest.TestCase):
                     generation_sha256=items[1].generation_sha256,
                 )
             )
-            rows, _stale = sa.reconcile_facts_rows(rows, items)
-            sa.publish_facts(root, "hearings", items, _extraction_config(), rows)
-            meta = sa.load_facts_meta(root, "hearings")
+            rows, _stale = sa.reconcile_digest_rows(rows, items)
+            sa.publish_digests(root, "hearings", items, _extraction_config(), rows)
+            meta = sa.load_digest_meta(root, "hearings")
             self.assertEqual(meta["complete"], True)
+            self.assertEqual(meta["schema_version"], 2)
 
             # Simulated crash between JSONL and metadata writes self-heals.
-            meta_path = sa.summary_facts_meta_path(root, "hearings")
+            meta_path = sa.summary_digest_meta_path(root, "hearings")
             meta_path.unlink()
-            ordered, pending = sa.validate_facts_state(
+            ordered, pending = sa.validate_digest_state(
                 root, "hearings", items, _extraction_config()
             )
             self.assertEqual(pending, [])
-            sa.publish_facts(root, "hearings", items, _extraction_config(), ordered)
-            self.assertEqual(sa.load_facts_meta(root, "hearings")["complete"], True)
+            sa.publish_digests(root, "hearings", items, _extraction_config(), ordered)
+            self.assertEqual(sa.load_digest_meta(root, "hearings")["complete"], True)
+
+    def test_target_change_makes_rows_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            items = self._bundle(root)
+            rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256=items[0].generation_sha256,
+                )
+            ]
+            ordered, stale = sa.reconcile_digest_rows(rows, items)
+            self.assertEqual(stale, [])
+            # Changing a soft target invalidates the generation fingerprint.
+            retargeted = sa.build_work_items(
+                root, _extraction_config(hearing_target_words=300)
+            )
+            _ordered, stale = sa.reconcile_digest_rows(rows, retargeted)
+            self.assertEqual(stale, ["hearing:0001"])
 
     def test_stale_fingerprint_and_removed_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -672,29 +769,65 @@ class JsonlStoreTests(unittest.TestCase):
                     generation_sha256=items[1].generation_sha256,
                 ),
             ]
-            ordered, stale = sa.reconcile_facts_rows(rows, items)
+            ordered, stale = sa.reconcile_digest_rows(rows, items)
             self.assertEqual(stale, ["hearing:0001"])
             # Removing the second boundary prunes its row.
             trimmed = sa.build_work_items(
                 root, _extraction_config()
             )[:1]
-            ordered, _stale = sa.reconcile_facts_rows(rows, trimmed)
+            ordered, _stale = sa.reconcile_digest_rows(rows, trimmed)
             self.assertEqual(
                 [row["item_id"] for row in ordered], ["hearing:0001"]
             )
+
+    def test_legacy_facts_artifacts_are_ignored_then_cleaned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            items = self._bundle(root)
+            summaries = root / "summaries"
+            summaries.mkdir()
+            legacy = sa.legacy_summary_facts_path(root, "hearings")
+            legacy_meta = sa.legacy_summary_facts_meta_path(root, "hearings")
+            legacy.write_text('{"artifact": "recordprep-summary-facts"}\n', encoding="utf-8")
+            legacy_meta.write_text("{}", encoding="utf-8")
+            # Legacy artifacts never block or feed digest validation.
+            ordered, pending = sa.validate_digest_state(
+                root, "hearings", items, _extraction_config()
+            )
+            self.assertEqual(ordered, [])
+            self.assertEqual(pending, [item.item_id for item in items])
+            # Cleanup removes exactly the known legacy paths.
+            removed = sa.cleanup_legacy_facts_artifacts(root, "hearings")
+            self.assertEqual(len(removed), 2)
+            self.assertFalse(legacy.exists())
+            self.assertFalse(legacy_meta.exists())
+            self.assertEqual(sa.cleanup_legacy_facts_artifacts(root, "hearings"), [])
 
     def test_malformed_jsonl_is_reported_and_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._bundle(root)
-            path = sa.summary_facts_path(root, "hearings")
+            path = sa.summary_digest_path(root, "hearings")
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('{"artifact": "recordprep-summary-facts"\n', encoding="utf-8")
+            path.write_text('{"artifact": "recordprep-summary-digest"\n', encoding="utf-8")
             with self.assertRaises(ValueError) as context:
-                sa.parse_facts_rows(path)
+                sa.parse_digest_rows(path)
             self.assertIn("line 1", str(context.exception))
             self.assertIn("preserved untouched", str(context.exception))
-            self.assertEqual(path.read_text(encoding="utf-8"), '{"artifact": "recordprep-summary-facts"\n')
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                '{"artifact": "recordprep-summary-digest"\n',
+            )
+
+    def test_legacy_artifact_name_is_not_a_digest_row(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._bundle(root)
+            path = sa.summary_digest_path(root, "hearings")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"artifact": "recordprep-summary-facts"}\n', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                sa.parse_digest_rows(path)
 
     def test_per_kind_lock_rejects_concurrent_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -708,7 +841,7 @@ class JsonlStoreTests(unittest.TestCase):
                 pass
 
 
-class SynthesisValidationTests(unittest.TestCase):
+class SynthesisNormalizationTests(unittest.TestCase):
     def _report_rows(self) -> list[dict]:
         facts_one = {
             "agency_recommendations": [
@@ -750,177 +883,157 @@ class SynthesisValidationTests(unittest.TestCase):
         )
         return [row_one, row_two]
 
-    def _sections(self, rows: list[dict], *, suppress_second: bool) -> list:
-        sections = []
-        for index, row in enumerate(rows):
-            quote_id = (
-                row["categories"][0]["facts"][0]["evidence"][0]["quote_id"]
-                if row["categories"][0]["facts"] is not None
-                else None
-            )
-            non_null = sa.non_null_category_ids(row)
-            covered = list(non_null)
-            suppressed: list[str] = []
-            paragraphs = [f"Narrative with {{{{quote:{quote_id}}}}}."]
-            if index == 1 and suppress_second:
-                covered = ["agency_recommendations"]
-                suppressed = ["services_progress"]
-                paragraphs = [
-                    "The recommendation remained unchanged with "
-                    f"{{{{quote:{quote_id}}}}}."
-                ]
-            sections.append(
-                sa.SynthesisSectionCandidate(
-                    item_id=row["item_id"],
-                    paragraphs=paragraphs,
-                    covered_category_ids=covered,
-                    suppressed_duplicate_category_ids=suppressed,
-                )
-            )
-        return sections
-
-    def test_exact_order_and_category_accounting(self) -> None:
+    def test_sections_reorder_and_fill_in_order(self) -> None:
         rows = self._report_rows()
-        sections = self._sections(rows, suppress_second=False)
-        result = sa.validate_synthesis_sections(rows, sections)
-        self.assertEqual(result.errors, [])
+        quote_two = (
+            rows[1]["categories"][0]["digest"]["evidence"][0]["quote_id"]
+        )
+        payload = [
+            {
+                "item_id": rows[1]["item_id"],
+                "paragraphs": [f"Second section with {{{{quote:{quote_two}}}}}."],
+            },
+            {"item_id": "report:9999", "paragraphs": ["Unknown section."]},
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        self.assertEqual(
+            [section.item_id for section in sections],
+            [row["item_id"] for row in rows],
+        )
+        # Missing first section falls back to deterministic digest prose.
+        self.assertIn("fallback_section:report:0001", flags)
+        self.assertTrue(sections[0].paragraphs)
+        self.assertIn("Reunification services", sections[0].paragraphs[0])
+        # Unknown sections are dropped with a flag.
+        self.assertTrue(any("unknown_section_ignored" in flag for flag in flags))
 
-        reordered = list(reversed(sections))
-        result = sa.validate_synthesis_sections(rows, reordered)
-        self.assertTrue(any("boundary order" in error for error in result.errors))
+    def test_empty_section_falls_back_and_all_null_stays_empty(self) -> None:
+        rows = self._report_rows()
+        all_null = synthetic_facts_row("reports", ordinal=3, start=3, end=3)
+        rows.append(all_null)
+        payload = [
+            {"item_id": rows[0]["item_id"], "paragraphs": ["", "  "]},
+            {"item_id": all_null["item_id"], "paragraphs": ["Should be dropped."]},
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        self.assertTrue(sections[0].paragraphs)
+        self.assertIn("empty_section_fallback:report:0001", flags)
+        self.assertEqual(sections[2].paragraphs, [])
+        self.assertIn("paragraphs_for_all_null_document:report:0003", flags)
 
-        incomplete = self._sections(rows, suppress_second=False)
-        incomplete[1].covered_category_ids = []
-        result = sa.validate_synthesis_sections(rows, incomplete)
+    def test_placeholders_and_page_links_are_flattened(self) -> None:
+        rows = self._report_rows()
+        known = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
+        payload = [
+            {
+                "item_id": rows[0]["item_id"],
+                "paragraphs": [
+                    f"Known {{{{quote:{known}}}}} and unknown {{{{quote:nope}}}} "
+                    "plus [label](page:0007) markup.",
+                ],
+            },
+            {"item_id": rows[1]["item_id"], "paragraphs": ["Second."]},
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        first = sections[0].paragraphs[0]
+        self.assertIn("{{quote:%s}}" % known, first)
+        self.assertNotIn("{{quote:nope}}", first)
+        self.assertIn("label", first)
+        self.assertNotIn("](page:", first)
+        self.assertTrue(any("unknown_placeholder" in flag for flag in flags))
+
+    def test_quality_problems_become_warning_codes(self) -> None:
+        rows = self._report_rows()
+        known = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
+        payload = [
+            {
+                "item_id": rows[0]["item_id"],
+                "paragraphs": [
+                    f'He said "hello there" twice: {{{{quote:{known}}}}} and '
+                    f"{{{{quote:{known}}}}}."
+                ],
+            },
+            {"item_id": rows[1]["item_id"], "paragraphs": ["Second."]},
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        joined = " ".join(flags)
+        self.assertIn("typed_quotation_marks:report:0001", joined)
+        self.assertIn("duplicate_quote_use:", joined)
+        # Over-target sections warn with word counts only.
+        sections, flags = sa.normalize_synthesis_sections(
+            rows, payload, target_words=5
+        )
         self.assertTrue(
-            any("neither covered nor suppressed" in error for error in result.errors)
+            any(flag.startswith("target_overrun:report:0001:") for flag in flags)
         )
 
-    def test_suppression_requires_carry_forward(self) -> None:
+    def test_repeated_report_passages_are_warning_diagnostics(self) -> None:
         rows = self._report_rows()
-        sections = self._sections(rows, suppress_second=True)
-        # services_progress in row two is genuinely new, so suppression of it
-        # must be rejected even though the text claims continuation.
-        result = sa.validate_synthesis_sections(rows, sections)
-        self.assertTrue(
-            any("carried forward" in error for error in result.errors)
-        )
-
-    def test_repeated_evidence_quote_in_later_report_is_rejected(self) -> None:
-        rows = self._report_rows()
-        # Make row two reference row one's exact evidence text.
+        # Make row two reference row one's exact evidence text (diagnostic).
         repeated = json.loads(json.dumps(rows[1]))
-        repeated["categories"][0]["facts"][0]["evidence"][0]["text"] = "aa bb"
+        repeated["categories"][0]["digest"]["evidence"][0]["text"] = "aa bb"
         rows = [rows[0], repeated]
-        sections = self._sections(rows, suppress_second=False)
-        result = sa.validate_synthesis_sections(rows, sections)
-        self.assertTrue(
-            any("earlier report" in error for error in result.errors)
-        )
-
-    def test_repeated_long_narrative_shingles_rejected(self) -> None:
-        rows = self._report_rows()
-        # Give row two a covered category in row one so accounting is valid.
-        for category in rows[1]["categories"]:
-            if category["id"] == "services_progress":
-                category["facts"] = None
         repeated_story = (
             "The agency continued to recommend family reunification services "
             "and the parent continued to attend structured visitation each "
             "week without incident or concern noted by anyone."
         )
-        sections = [
-            sa.SynthesisSectionCandidate(
-                item_id=rows[0]["item_id"],
-                paragraphs=[f"Story {{{{quote:{rows[0]['categories'][0]['facts'][0]['evidence'][0]['quote_id']}}}}}. {repeated_story}"],
-                covered_category_ids=["agency_recommendations"],
-                suppressed_duplicate_category_ids=[],
-            ),
-            sa.SynthesisSectionCandidate(
-                item_id=rows[1]["item_id"],
-                paragraphs=[f"Story {{{{quote:{rows[1]['categories'][0]['facts'][0]['evidence'][0]['quote_id']}}}}}. {repeated_story}"],
-                covered_category_ids=["agency_recommendations"],
-                suppressed_duplicate_category_ids=[],
-            ),
+        payload = [
+            {
+                "item_id": rows[0]["item_id"],
+                "paragraphs": [repeated_story],
+            },
+            {
+                "item_id": rows[1]["item_id"],
+                "paragraphs": [repeated_story],
+            },
         ]
-        result = sa.validate_synthesis_sections(rows, sections)
-        self.assertTrue(any("repeats" in error for error in result.errors))
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        self.assertTrue(any("repeated_passage:report:0002" in flag for flag in flags))
 
-    def test_placeholder_rules(self) -> None:
+    def test_all_fallback_when_candidate_is_unusable(self) -> None:
         rows = self._report_rows()
-        sections = self._sections(rows, suppress_second=False)
+        sections, flags = sa.normalize_synthesis_sections(rows, "not-a-list")
+        self.assertEqual(len(sections), 2)
+        for section in sections:
+            self.assertTrue(section.paragraphs)
+        self.assertTrue(any("candidate_unusable" in flag for flag in flags))
 
-        typed_quotes = self._sections(rows, suppress_second=False)
-        typed_quotes[0].paragraphs = ['He said "hello there".']
-        result = sa.validate_synthesis_sections(rows, typed_quotes)
-        self.assertTrue(any("quotation marks" in error for error in result.errors))
-
-        unknown = self._sections(rows, suppress_second=False)
-        unknown[0].paragraphs = ["{{quote:missing:id}}"]
-        result = sa.validate_synthesis_sections(rows, unknown)
-        self.assertTrue(any("unknown quote id" in error for error in result.errors))
-
-        duplicated = self._sections(rows, suppress_second=False)
-        quote_id = rows[0]["categories"][0]["facts"][0]["evidence"][0]["quote_id"]
-        duplicated[0].paragraphs = [
-            f"{{{{quote:{quote_id}}}}} and {{{{quote:{quote_id}}}}}"
-        ]
-        result = sa.validate_synthesis_sections(rows, duplicated)
-        self.assertTrue(any("twice" in error for error in result.errors))
-
-        no_quotes = self._sections(rows, suppress_second=False)
-        no_quotes[0].paragraphs = ["Plain narrative without any quotation."]
-        result = sa.validate_synthesis_sections(rows, no_quotes)
-        self.assertTrue(any("at least one verified quote" in error for error in result.errors))
-
-        markdown_links = self._sections(rows, suppress_second=False)
-        markdown_links[0].paragraphs = ["See [text](page:0001) for details."]
-        result = sa.validate_synthesis_sections(rows, markdown_links)
-        self.assertTrue(any("page links" in error for error in result.errors))
-
-    def test_all_null_row_renders_sentinel_and_needs_no_paragraphs(self) -> None:
-        rows = [synthetic_facts_row("reports", ordinal=1, start=1, end=1)]
-        sections = [
-            sa.SynthesisSectionCandidate(
-                item_id=rows[0]["item_id"],
-                paragraphs=[],
-                covered_category_ids=[],
-                suppressed_duplicate_category_ids=[],
+    def test_recurrence_helpers_are_diagnostics_only(self) -> None:
+        rows = self._report_rows()
+        recurrence = sa.build_recurrence_index(rows)
+        self.assertIn("digest_texts", recurrence)
+        self.assertIn("quote_texts", recurrence)
+        self.assertTrue(
+            sa.facts_carry_forward(
+                rows[1], "agency_recommendations", recurrence
             )
-        ]
-        result = sa.validate_synthesis_sections(rows, sections)
-        self.assertEqual(result.errors, [])
-        text = sa.render_final_summary("reports", "Syn Case", rows, sections, {rows[0]["item_id"]: (1, None)})
-        self.assertIn(sa.NO_SUMMARIZABLE_REPORT_CONTENT, text)
-        self.assertIn("[Report](page:0001)", text)
+        )
 
 
 class RenderingTests(unittest.TestCase):
-    def test_heading_and_quote_link_format_matches_focus_patterns(self) -> None:
+    def test_plain_headings_and_curly_quotes_without_page_links(self) -> None:
         rows = [synthetic_facts_row("hearings", start=7, end=8)]
-        quote_id = "hearing:0007/parent_appearances/1/1"
+        quote_id = "hearing:0007/parent_appearances/1"
         row = rows[0]
-        row["categories"][0]["facts"] = [
-            {
-                "text": "Mother appeared.",
-                "evidence": [
-                    {
-                        "quote_id": quote_id,
-                        "text": "unique phrase",
-                        "file_page": 7,
-                        "source_start": 0,
-                        "source_end": 1,
-                        "source_sha256": "x" * 64,
-                    }
-                ],
-            }
-        ]
+        row["categories"][0]["digest"] = {
+            "text": "Mother appeared.",
+            "evidence": [
+                {
+                    "quote_id": quote_id,
+                    "text": "unique phrase",
+                    "file_page": 7,
+                    "source_start": 0,
+                    "source_end": 1,
+                    "source_sha256": "x" * 64,
+                    "verified": True,
+                }
+            ],
+        }
         sections = [
             sa.SynthesisSectionCandidate(
                 item_id=row["item_id"],
                 paragraphs=["Mother appeared with {{quote:%s}}." % quote_id],
-                covered_category_ids=["parent_appearances"],
-                suppressed_duplicate_category_ids=[],
             )
         ]
         text = sa.render_final_summary(
@@ -931,13 +1044,21 @@ class RenderingTests(unittest.TestCase):
             {row["item_id"]: (7, 9)},
         )
         self.assertTrue(text.startswith("Hearings Summary\nSyn Case\n"))
-        self.assertIn(
-            "March 3, 2025 [Hearing](page:0007) [Minute Order](page:0009)", text
-        )
-        self.assertIn('[\u201cunique phrase\u201d](page:0007)', text)
+        self.assertIn("March 3, 2025 \u2014 Hearing", text)
+        self.assertIn("\u201cunique phrase\u201d", text)
         self.assertNotIn("{{quote:", text)
+        self.assertNotIn("](page:", text)
+        self.assertNotIn("[Hearing]", text)
+        self.assertNotIn("[Minute Order]", text)
 
-        report_rows = [synthetic_facts_row("reports", start=12, end=12, label="March 1, 2025 - Status Review Report")]
+        report_rows = [
+            synthetic_facts_row(
+                "reports",
+                start=12,
+                end=12,
+                label="March 1, 2025 - Status Review Report",
+            )
+        ]
         report_text = sa.render_final_summary(
             "reports",
             "Syn Case",
@@ -946,15 +1067,13 @@ class RenderingTests(unittest.TestCase):
                 sa.SynthesisSectionCandidate(
                     item_id=report_rows[0]["item_id"],
                     paragraphs=[],
-                    covered_category_ids=[],
-                    suppressed_duplicate_category_ids=[],
                 )
             ],
             {report_rows[0]["item_id"]: (12, None)},
         )
-        self.assertIn(
-            "March 1, 2025 - Status Review Report [Report](page:0012)", report_text
-        )
+        self.assertIn("March 1, 2025 - Status Review Report", report_text)
+        self.assertNotIn("[Report]", report_text)
+        self.assertIn(sa.NO_SUMMARIZABLE_REPORT_CONTENT, report_text)
 
     def test_final_summary_builds_and_validates_as_edition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -963,42 +1082,40 @@ class RenderingTests(unittest.TestCase):
             builder.add_pages(1, 2, "aa bb")
             builder.finish([(1, 2, "March 3, 2025")], [])
             row = synthetic_facts_row("hearings", start=1, end=2)
-            quote_id = "hearing:0001/parent_appearances/1/1"
-            row["categories"][0]["facts"] = [
-                {
-                    "text": "First fact.",
-                    "evidence": [
-                        {
-                            "quote_id": quote_id,
-                            "text": "unique phrase",
-                            "file_page": 1,
-                            "source_start": 0,
-                            "source_end": 1,
-                            "source_sha256": "x" * 64,
-                        }
-                    ],
-                }
-            ]
-            row["categories"][1]["facts"] = [
-                {
-                    "text": "Second fact.",
-                    "evidence": [
-                        {
-                            "quote_id": "hearing:0001/evidence_considered/1/1",
-                            "text": "Page 1 narrative",
-                            "file_page": 1,
-                            "source_start": 0,
-                            "source_end": 1,
-                            "source_sha256": "x" * 64,
-                        }
-                    ],
-                }
-            ]
+            quote_id = "hearing:0001/parent_appearances/1"
+            row["categories"][0]["digest"] = {
+                "text": "First synthesized account.",
+                "evidence": [
+                    {
+                        "quote_id": quote_id,
+                        "text": "unique phrase",
+                        "file_page": 1,
+                        "source_start": 0,
+                        "source_end": 1,
+                        "source_sha256": "x" * 64,
+                        "verified": True,
+                    }
+                ],
+            }
+            row["categories"][1]["digest"] = {
+                "text": "Second synthesized account.",
+                "evidence": [
+                    {
+                        "quote_id": "hearing:0001/evidence_considered/1",
+                        "text": "Page 1 narrative",
+                        "file_page": 1,
+                        "source_start": 0,
+                        "source_end": 1,
+                        "source_sha256": "x" * 64,
+                        "verified": True,
+                    }
+                ],
+            }
             final_text = (
                 "Hearings Summary\nSyn Case\n\n"
-                "March 3, 2025 [Hearing](page:0001) [Minute Order](page:0002)\n\n"
-                "First fact with [\u201cunique phrase\u201d](page:0001). Second "
-                "fact with [\u201cPage 1 narrative\u201d](page:0001).\n"
+                "March 3, 2025 \u2014 Hearing\n\n"
+                "First account with \u201cunique phrase\u201d. Second account "
+                "with \u201cPage 1 narrative\u201d.\n"
             )
             (root / "summaries").mkdir(exist_ok=True)
             final_path = sa.summary_final_path(root, "hearings")
@@ -1012,7 +1129,9 @@ class RenderingTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
-    def test_legacy_builtin_prompts_migrate_to_extraction_guidance(self) -> None:
+    def test_builtin_extraction_and_synthesis_prompts_migrate_to_digest_guidance(
+        self,
+    ) -> None:
         from recordprep.ui.main_window import (
             PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
             PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
@@ -1039,10 +1158,37 @@ class SettingsTests(unittest.TestCase):
                     else sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE
                 ),
             )
+        # The shipped v1 synthesis built-ins advance to the digest guidance.
+        self.assertEqual(
+            sa.migrate_synthesis_prompt(
+                "hearings",
+                "Synthesize one coherent narrative section per hearing from the completed "
+                "facts dataset. Read every canonical row with the recordprep_get_facts "
+                "tool before writing. Write flowing prose paragraphs that synthesize the "
+                "categories rather than listing them; do not use category names as headings.",
+                "default-synthesis",
+            ),
+            "default-synthesis",
+        )
+        self.assertEqual(
+            sa.migrate_synthesis_prompt(
+                "reports",
+                "Synthesize one coherent narrative section per report from the completed "
+                "facts dataset. Read every canonical row with the recordprep_get_facts "
+                "tool before writing.",
+                "default-synthesis",
+            ),
+            "default-synthesis",
+        )
         custom = "A genuinely custom extraction prompt."
         self.assertEqual(
             sa.migrate_extraction_prompt("hearings", custom, "default"),
             custom,
+        )
+        custom_synthesis = "A genuinely custom synthesis prompt."
+        self.assertEqual(
+            sa.migrate_synthesis_prompt("hearings", custom_synthesis, "default"),
+            custom_synthesis,
         )
 
     def test_stage_settings_persist_without_touching_pi_settings(self) -> None:
@@ -1067,6 +1213,7 @@ class SettingsTests(unittest.TestCase):
                     model_id="synthetic-model",
                     api_key="synthetic-key",
                     disable_reasoning=False,
+                    hearings_target_words="250",
                     reports_target_words="250",
                     minutes_target_chars="6000",
                     minutes_max_pages="6",
@@ -1086,18 +1233,64 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(config["summary_extract_pi_model"], "synthetic-model")
                 self.assertNotIn("summarize_hearings_window_target_chars", config)
                 self.assertNotIn("summarize_reports_window_max_pages", config)
+                # The retired report window-target key is removed on save.
+                self.assertNotIn(
+                    "summarize_reports_window_target_words", config
+                )
+                self.assertEqual(
+                    config["summarize_hearings_target_words"], "250"
+                )
+                self.assertEqual(
+                    config["summarize_reports_target_words"], "250"
+                )
                 self.assertEqual(config["summary_extract_pi_thinking"], "low")
                 self.assertEqual(config["summary_synthesize_pi_model"], "")
                 settings = load_summarize_settings()
                 self.assertEqual(settings["extract_model"], "synthetic-model")
                 self.assertEqual(settings["synthesize_model"], "")
-                self.assertIn("Extract structured facts", settings["hearings_prompt"])
-                self.assertIn("Synthesize one coherent narrative", settings["hearings_synthesis_prompt"])
+                self.assertEqual(settings["hearings_target_words"], "250")
+                self.assertEqual(settings["reports_target_words"], "250")
+                self.assertIn("salience", settings["hearings_prompt"])
+                self.assertIn(
+                    "Synthesize one coherent narrative",
+                    settings["hearings_synthesis_prompt"],
+                )
             # The project PI settings file is untouched by summary saves.
             self.assertEqual(
                 json.loads(pi_settings_path.read_text(encoding="utf-8")),
                 {"defaultProvider": "p", "defaultModel": "m"},
             )
+
+    def test_retired_report_target_migrates_and_zero_is_honored(self) -> None:
+        from recordprep.ui.main_window import load_summarize_settings
+
+        with mock.patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_window_target_words": "300"},
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["reports_target_words"], "300")
+        self.assertEqual(settings["hearings_target_words"], "250")
+
+        with mock.patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_hearings_target_words": "0",
+                "summarize_reports_target_words": "0",
+            },
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["hearings_target_words"], "0")
+        self.assertEqual(settings["reports_target_words"], "0")
+
+        # Defaults apply even alongside a custom prompt.
+        with mock.patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={"summarize_reports_prompt": "A genuinely custom prompt."},
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["reports_prompt"], "A genuinely custom prompt.")
+        self.assertEqual(settings["reports_target_words"], "250")
 
 
 class CompletionAndRestartTests(unittest.TestCase):
@@ -1112,17 +1305,17 @@ class CompletionAndRestartTests(unittest.TestCase):
                 root,
                 "hearings",
                 rows,
-                "Hearings Summary\n\nMarch 3, 2025 [Hearing](page:0001)\n",
+                "Hearings Summary\n\nMarch 3, 2025 \u2014 Hearing\n",
             )
             self.assertEqual(
                 pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
                 [],
             )
             # A metadata hash mismatch fails validation (step Pending).
-            meta = sa.load_facts_meta(root, "hearings")
+            meta = sa.load_digest_meta(root, "hearings")
             meta["jsonl_sha256"] = "0" * 64
             sa._atomic_write(
-                sa.summary_facts_meta_path(root, "hearings"),
+                sa.summary_digest_meta_path(root, "hearings"),
                 json.dumps(meta) + "\n",
             )
             self.assertTrue(
@@ -1140,11 +1333,19 @@ class CompletionAndRestartTests(unittest.TestCase):
             rows = [synthetic_facts_row("hearings", start=1, end=1)]
             publish_valid_summary(root, "hearings", rows, "Hearings Summary\n")
             publish_valid_summary(root, "reports", [], "Reports Summary\n")
+            # Legacy artifacts are also in the reset scope.
+            legacy = sa.legacy_summary_facts_path(root, "hearings")
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            legacy.write_text("{}\n", encoding="utf-8")
             _reset_generated_case_bundle(root)
             for kind in sa.SUMMARY_KINDS:
-                self.assertFalse(sa.summary_facts_path(root, kind).exists())
-                self.assertFalse(sa.summary_facts_meta_path(root, kind).exists())
+                self.assertFalse(sa.summary_digest_path(root, kind).exists())
+                self.assertFalse(sa.summary_digest_meta_path(root, kind).exists())
                 self.assertFalse(sa.summary_final_meta_path(root, kind).exists())
+                self.assertFalse(sa.legacy_summary_facts_path(root, kind).exists())
+                self.assertFalse(
+                    sa.legacy_summary_facts_meta_path(root, kind).exists()
+                )
 
     def test_edition_invalidated_after_final_text_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1154,8 +1355,8 @@ class CompletionAndRestartTests(unittest.TestCase):
             builder.finish([(1, 1, "March 3, 2025")], [(1, 1, "March 3, 2025", "Report")])
             final_text = (
                 "Hearings Summary\nSyn Case\n\n"
-                "March 3, 2025 [Hearing](page:0001) [Minute Order](page:0001)\n\n"
-                "A [\u201cunique phrase\u201d](page:0001) appears.\n"
+                "March 3, 2025 \u2014 Hearing\n\n"
+                "A \u201cunique phrase\u201d appears.\n"
             )
             (root / "summaries").mkdir(exist_ok=True)
             final_path = sa.summary_final_path(root, "hearings")
@@ -1204,18 +1405,21 @@ if "recordprep_get_source" in tools:
     marker_match = re.search(r"QUOTEME:([a-z ]+)", spec["source"])
     marker = marker_match.group(1).strip() if marker_match else None
     assert marker, "marker not found in source"
+    # The runner prompt must carry the real digest instructions.
+    assert "EXTRACTION GUIDANCE" in " ".join(argv), "digest guidance missing"
+    assert "PER-CATEGORY GUIDANCE" in " ".join(argv), "category guidance missing"
     categories = []
     for category in spec["categories"]:
         if category["id"] == spec["categories"][0]["id"]:
             categories.append({
                 "id": category["id"],
-                "facts": [{
-                    "text": "Synthetic fact recorded by the fake agent.",
+                "digest": {
+                    "text": "Synthetic digest recorded by the fake agent.",
                     "evidence": [{"text": marker, "file_page": spec["start_page"]}],
-                }],
+                },
             })
         else:
-            categories.append({"id": category["id"], "facts": None})
+            categories.append({"id": category["id"], "digest": None})
     Path(spec["candidate_path"]).write_text(json.dumps({
         "artifact": "recordprep-summary-extraction-candidate",
         "item_id": spec["item_id"],
@@ -1232,20 +1436,16 @@ if "recordprep_finish_summary" in tools:
     for row in dataset["rows"]:
         quote_id = None
         for category in row["categories"]:
-            if category["facts"]:
-                quote_id = category["facts"][0]["evidence"][0]["quote_id"]
+            digest = category.get("digest") or {}
+            if digest.get("evidence"):
+                quote_id = digest["evidence"][0]["quote_id"]
                 break
-        non_null = [
-            category["id"] for category in row["categories"] if category["facts"]
-        ]
         paragraphs = []
         if quote_id:
             paragraphs.append("Narrative with {{quote:%s}}." % quote_id)
         sections.append({
             "item_id": row["item_id"],
             "paragraphs": paragraphs,
-            "covered_category_ids": non_null,
-            "suppressed_duplicate_category_ids": [],
         })
     Path(dataset["candidate_path"]).write_text(json.dumps({
         "artifact": "recordprep-summary-synthesis-candidate",
@@ -1391,14 +1591,14 @@ raise SystemExit(3)
                 pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
                 [],
             )
-            rows = sa.parse_facts_rows(sa.summary_facts_path(root, "hearings"))
+            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
             self.assertEqual(
                 [row["item_id"] for row in rows],
                 ["hearing:0001", "hearing:0002"],
             )
             for row in rows:
-                self.assertIsNotNone(row["categories"][0]["facts"])
-                quote = row["categories"][0]["facts"][0]["evidence"][0]
+                self.assertIsNotNone(row["categories"][0]["digest"])
+                quote = row["categories"][0]["digest"]["evidence"][0]
                 page_text = (
                     root / "text_pages" / f"{row['start_page']:04d}.txt"
                 ).read_text(encoding="utf-8")
@@ -1411,10 +1611,68 @@ raise SystemExit(3)
                 encoding="utf-8"
             )
             self.assertIn("Hearings Summary", final_text)
-            self.assertIn("[Hearing](page:0001)", final_text)
-            self.assertIn("[Hearing](page:0002)", final_text)
-            self.assertIn("](page:000", final_text)
-            self.assertEqual(final_text.count("[Minute Order](page:"), 2)
+            # Plain headings and clean quoted prose: no generated link markup.
+            self.assertIn("March 3, 2025 \u2014 Hearing", final_text)
+            self.assertIn("April 4, 2025 \u2014 Hearing", final_text)
+            self.assertNotIn("](page:", final_text)
+            self.assertNotIn("{{quote:", final_text)
+            self.assertIn("\u201c", final_text)
+
+    def test_malformed_fake_agent_candidate_still_completes(self) -> None:
+        """A malformed candidate normalizes to warnings and a readable fallback."""
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            root = temp / "bundle"
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [], minutes=[(1, 1, "March 3, 2025")])
+            fake_script = self.FAKE_PI.replace(
+                """    categories = []
+    for category in spec["categories"]:
+        if category["id"] == spec["categories"][0]["id"]:
+            categories.append({
+                "id": category["id"],
+                "digest": {
+                    "text": "Synthetic digest recorded by the fake agent.",
+                    "evidence": [{"text": marker, "file_page": spec["start_page"]}],
+                },
+            })
+        else:
+            categories.append({"id": category["id"], "digest": None})""",
+                """    categories = [{"id": "not_a_category"}, {"id": 42},
+                  {"id": "testimony", "digest": {"text": 99}}]""",
+            )
+            fake = temp / "fake-pi"
+            fake.write_text(fake_script, encoding="utf-8")
+            fake.chmod(0o755)
+            project = self._staged_project(temp)
+            log = temp / "invocations.log"
+
+            result = self._run_stage(
+                "create_hearing_summaries", root, project, fake, log
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
+            row = rows[0]
+            # Unknown/malformed categories fill null; the numeric digest text
+            # is retained as a usable (if poor) string with no evidence.
+            usable = [
+                category
+                for category in row["categories"]
+                if category["digest"] is not None
+            ]
+            self.assertEqual(len(usable), 1)
+            self.assertEqual(usable[0]["id"], "testimony")
+            self.assertEqual(usable[0]["digest"]["evidence"], [])
+            self.assertTrue(row["quality_flags"])
+            # Warnings carry only codes/counts, never case content.
+            self.assertNotIn("QUOTEME", result.stdout)
+            final_text = sa.summary_final_path(root, "hearings").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("March 3, 2025 \u2014 Hearing", final_text)
+            self.assertIn("99", final_text)
 
     def test_extraction_failure_preserves_canonical_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1441,7 +1699,7 @@ raise SystemExit(3)
             )
 
             self.assertNotEqual(result.returncode, 0)
-            rows = sa.parse_facts_rows(sa.summary_facts_path(root, "hearings"))
+            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
             self.assertEqual([row["item_id"] for row in rows], ["hearing:0001"])
             # No final summary was published.
             self.assertFalse(sa.summary_final_path(root, "hearings").exists())
@@ -1468,13 +1726,13 @@ raise SystemExit(3)
             ]
             self.assertEqual(invocations, [])
             self.assertEqual(
-                sa.load_facts_meta(root, "hearings")["complete"], True
+                sa.load_digest_meta(root, "hearings")["complete"], True
             )
             final_text = sa.summary_final_path(root, "hearings").read_text(
                 encoding="utf-8"
             )
             self.assertTrue(final_text.startswith("Hearings Summary\nSynCase"))
-            self.assertNotIn("[Hearing]", final_text)
+            self.assertNotIn("\u2014 Hearing", final_text)
             self.assertEqual(
                 pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
                 [],
@@ -1571,11 +1829,11 @@ class StopPropagationTests(unittest.TestCase):
                 self.assertFalse(Path(f"/proc/{child_pid}").exists())
 
                 # No canonical row or final summary was published.
-                rows = sa.parse_facts_rows(sa.summary_facts_path(root, "hearings"))
+                rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
                 self.assertEqual(rows, [])
                 self.assertFalse(sa.summary_final_path(root, "hearings").exists())
                 self.assertFalse(
-                    sa.summary_facts_meta_path(root, "hearings").exists()
+                    sa.summary_digest_meta_path(root, "hearings").exists()
                 )
             finally:
                 if runner_process.poll() is None:

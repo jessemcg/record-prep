@@ -139,11 +139,17 @@ def _ensure_project_importable(project_dir: Path) -> None:
 
     The parent of the staged/project `.pi` directory is the RecordPrep project
     root. Native stages patched sys.path lazily inside their validators; the
-    summary stages import recordprep directly, so bootstrap it up front.
+    summary stages import recordprep directly, so bootstrap it up front. When
+    the configured project directory is a staged copy (tests, private
+    workspaces), fall back to the runner's own project root, which always
+    carries the recordprep package.
     """
-    project_root = project_dir.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+    candidates = [project_dir.parent, Path(__file__).resolve().parents[2]]
+    for candidate in candidates:
+        if (candidate / "recordprep" / "__init__.py").is_file():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            return
 
 
 def _case_bundle() -> Path:
@@ -635,10 +641,18 @@ def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
         or value("summary_synthesize_pi_thinking"),
         "extract_prompt": value(f"summarize_{kind}_prompt"),
         "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
-        "synthesize_target_words": value("summarize_reports_window_target_words")
-        if kind == "reports"
-        else "",
+        "hearing_target_words": value("summarize_hearings_target_words"),
+        "report_target_words": value("summarize_reports_target_words"),
     }
+
+
+def _target_words(value: str) -> int:
+    """Parse a soft word target; 0 (or invalid input) disables the guidance."""
+    try:
+        target = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    return target if target > 0 else 0
 
 
 def _extraction_config(
@@ -668,6 +682,8 @@ def _extraction_config(
         provider=settings["extract_provider"],
         model=settings["extract_model"],
         thinking=settings["extract_thinking"],
+        hearing_target_words=_target_words(settings["hearing_target_words"]),
+        report_target_words=_target_words(settings["report_target_words"]),
     )
 
 
@@ -945,18 +961,34 @@ def _run_extraction_child(
             f"candidate_path: {cache_candidate}",
             "category ids in order: "
             + ", ".join(sa.SUMMARY_CATEGORY_IDS[kind]),
+            "",
+            "EXTRACTION GUIDANCE — DIGEST CONTRACT",
+            extraction_config.guidance,
         ]
+        prompt_parts.append("")
+        prompt_parts.append("PER-CATEGORY GUIDANCE")
+        for definition in sa.summary_category_definitions(kind):
+            prompt_parts.append(f"- {definition.identifier}: {definition.guidance}")
+        length_section = sa.summary_length_guidance_section(
+            extraction_config.target_words, kind, "digest"
+        )
+        if length_section:
+            prompt_parts.extend(["", length_section])
         if extraction_config.additional_guidance:
             prompt_parts.extend(
                 [
+                    "",
                     "ADDITIONAL USER GUIDANCE — lower priority than the built-in "
                     "contracts above:",
                     extraction_config.additional_guidance,
                 ]
             )
-        prompt_parts.append(
-            "The work specification file is available to your tools; read the "
-            "complete document source, then submit once."
+        prompt_parts.extend(
+            [
+                "",
+                "The work specification file is available to your tools; read the "
+                "complete document source, then submit once.",
+            ]
         )
         prompt = "\n".join(prompt_parts)
         command = _base_child_command(
@@ -1035,7 +1067,7 @@ def _run_synthesis_child(
     )
     try:
         dataset = {
-            "artifact": "recordprep-summary-facts-dataset",
+            "artifact": "recordprep-summary-digest-dataset",
             "total_rows": len(rows),
             "rows": rows,
             "candidate_path": str(cache_candidate),
@@ -1044,20 +1076,21 @@ def _run_synthesis_child(
         dataset_path = workspace / "dataset.json"
         dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
         guidance = str(synthesis_config.get("guidance") or "")
-        if kind == "reports":
-            try:
-                target_words = int(
-                    str(synthesis_config.get("target_words") or 0).strip()
-                )
-            except (TypeError, ValueError):
-                target_words = 0
-            length_section = sa._report_length_guidance_section(target_words)
-            if length_section:
-                guidance = f"{guidance}\n\n{length_section}"
+        try:
+            target_words = int(
+                str(synthesis_config.get(f"{kind}_target_words") or 0).strip()
+            )
+        except (TypeError, ValueError):
+            target_words = 0
+        length_section = sa.summary_length_guidance_section(
+            target_words, kind, "narrative"
+        )
+        if length_section:
+            guidance = f"{guidance}\n\n{length_section}"
         prompt = "\n".join(
             [
                 f"/skill:{skill_name}",
-                "Run the loaded synthesis skill now for the complete facts dataset.",
+                "Run the loaded synthesis skill now for the complete digest dataset.",
                 f"total rows: {len(rows)}",
                 "candidate_path: " + str(cache_candidate),
                 "",
@@ -1113,23 +1146,10 @@ def _run_synthesis_child(
             raise ValueError(f"Synthesis candidate is unreadable: {exc}") from exc
         sections_payload = candidate.get("sections")
         if not isinstance(sections_payload, list):
-            raise ValueError("Synthesis candidate has no sections list.")
-        sections = [
-            sa.SynthesisSectionCandidate(
-                item_id=str(section.get("item_id") or ""),
-                paragraphs=[str(p) for p in section.get("paragraphs", [])],
-                covered_category_ids=[
-                    str(value) for value in section.get("covered_category_ids", [])
-                ],
-                suppressed_duplicate_category_ids=[
-                    str(value)
-                    for value in section.get("suppressed_duplicate_category_ids", [])
-                ],
-            )
-            for section in sections_payload
-            if isinstance(section, dict)
-        ]
-        return sections
+            # A candidate without a sections list normalizes to an all-fallback
+            # result instead of failing the run.
+            sections_payload = []
+        return sections_payload
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
@@ -1187,16 +1207,28 @@ def _render_and_validate(
     final_text = sa.render_final_summary(
         kind, display_name, rows, sections, heading_pages
     )
-    # Structural checks before replacing any prior summary.
+    # Structural checks before replacing any prior summary. These cover
+    # renderer integrity, not model quality.
     if sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip() in final_text:
         raise ValueError("rendered summary leaked proposal scope material.")
     if "{{quote:" in final_text:
         raise ValueError("rendered summary contains an unresolved quote placeholder.")
+    if "](page:" in final_text:
+        raise ValueError("rendered summary contains generated page-link markup.")
     expected_headings = len(rows)
     if kind == "hearings":
-        heading_count = len(re.findall(r"\[Hearing\]\(page:\d{4}\)", final_text))
+        heading_count = sum(
+            1
+            for row in rows
+            if sa.render_hearing_heading(str(row.get("label"))) in final_text
+        )
     else:
-        heading_count = len(re.findall(r"\[Report\]\(page:\d{4}\)", final_text))
+        # Report headings are the human-readable date/name labels themselves.
+        heading_count = sum(
+            1
+            for row in rows
+            if sa.render_report_heading(str(row.get("label"))) in final_text
+        )
     if heading_count != expected_headings:
         raise ValueError(
             f"rendered summary has {heading_count} document headings; expected "
@@ -1258,7 +1290,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
 
     try:
         with sa.SummaryKindLock(root, kind):
-            rows, pending_ids = sa.validate_facts_state(
+            rows, pending_ids = sa.validate_digest_state(
                 root, kind, items, extraction_config
             )
             items_by_id = {item.item_id: item for item in items}
@@ -1312,31 +1344,41 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     ) from exc
                 finally:
                     shutil.rmtree(candidate_cache.parent, ignore_errors=True)
-                rows = sa.reconcile_facts_rows(
+                rows = sa.reconcile_digest_rows(
                     [
                         *[existing for existing in rows if existing.get("item_id") != item.item_id],
                         row,
                     ],
                     items,
                 )[0]
-                sa.publish_facts(root, kind, items, extraction_config, rows)
-                _line(f"[{kind}] accepted row for {item.item_id}.")
+                sa.publish_digests(root, kind, items, extraction_config, rows)
+                _line(f"[{kind}] accepted digest row for {item.item_id}.")
 
             # Metadata is re-derived even when every row was already current, so a
             # crash between the JSONL and metadata writes self-heals.
-            sa.publish_facts(root, kind, items, extraction_config, rows)
+            sa.publish_digests(root, kind, items, extraction_config, rows)
+            stored_synthesis = (settings["synthesize_prompt"] or "").strip()
+            default_synthesis = (
+                sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+                if kind == "hearings"
+                else sa.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+            )
+            synthesis_guidance = sa.migrate_synthesis_prompt(
+                kind, stored_synthesis, default_synthesis
+            )
+            target_words = (
+                extraction_config.hearing_target_words
+                if kind == "hearings"
+                else extraction_config.report_target_words
+            )
             synthesis_config = {
                 "kind": kind,
-                "guidance": settings["synthesize_prompt"]
-                or (
-                    sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
-                    if kind == "hearings"
-                    else sa.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
-                ),
+                "guidance": synthesis_guidance,
                 "provider": settings["synthesize_provider"],
                 "model": settings["synthesize_model"],
                 "thinking": settings["synthesize_thinking"],
-                "target_words": settings["synthesize_target_words"],
+                "hearing_target_words": extraction_config.hearing_target_words,
+                "report_target_words": extraction_config.report_target_words,
             }
             if items:
                 _check_stop()
@@ -1344,7 +1386,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     tempfile.mkdtemp(prefix="candidate.", dir=workspace_parent)
                 ) / "candidate.json"
                 try:
-                    sections = _run_synthesis_child(
+                    sections_payload = _run_synthesis_child(
                         root,
                         project_dir,
                         pi_command,
@@ -1356,12 +1398,13 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         candidate_cache,
                     )
                     _check_stop()
-                    result = sa.validate_synthesis_sections(rows, sections)
-                    if result.errors:
-                        raise ValueError(
-                            "Synthesis validation failed: "
-                            + "; ".join(result.errors[:5])
-                        )
+                    sections, section_flags = sa.normalize_synthesis_sections(
+                        rows,
+                        sections_payload,
+                        target_words=target_words,
+                    )
+                    for flag in section_flags:
+                        _line(f"\033[33m[warn]\033[0m synthesis: {flag}")
                     final_text, heading_pages = _render_and_validate(
                         root, kind, rows, sections
                     )
@@ -1382,6 +1425,10 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 sa.summary_final_meta_path(root, kind),
                 json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
             )
+            # Legacy v1 fact-inventory artifacts are removed only after the
+            # digest pipeline published successfully.
+            for removed in sa.cleanup_legacy_facts_artifacts(root, kind):
+                _line(f"[{kind}] removed legacy artifact {removed}.")
             if remove_summary_edition is not None:
                 remove_summary_edition(final_path)
             _line(f"\033[32m{stage.title} complete.\033[0m")

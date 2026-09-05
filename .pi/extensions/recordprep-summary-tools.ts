@@ -3,9 +3,14 @@
  *
  * Narrowly scoped custom tools for the two-stage summary pipeline. Extraction
  * children may only read the current document's complete source payload and
- * submit one extraction candidate; synthesis children may only read canonical
- * fact rows, submit sections, and finalize. There is no filesystem, shell, or
- * arbitrary-path capability here.
+ * submit one digest candidate; synthesis children may only read canonical
+ * digest rows, submit sections, and finalize. There is no filesystem, shell,
+ * or arbitrary-path capability here.
+ *
+ * Intake schemas are deliberately permissive: malformed nested model output
+ * still reaches Python (which normalizes it deterministically and flags
+ * sanitized warnings) and terminates the child. The desired digest shape is
+ * described here and in the skills rather than enforced by rejection loops.
  */
 
 import { Type } from "typebox";
@@ -24,6 +29,7 @@ interface WorkSpec {
   candidate_path: string;
   guidance: string;
   additional_guidance: string;
+  length_guidance?: string;
   categories: { id: string; guidance: string }[];
 }
 
@@ -95,74 +101,42 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     name: "recordprep_submit_extraction",
     label: "Submit extraction",
     description:
-      "Submit the completed structured extraction for the current document. " +
-      "This terminates the session on success.",
+      "Submit the completed category digest for the current document. " +
+      "This terminates the session on success.\n\n" +
+      "Desired shape: one entry per configured category id, in the configured " +
+      "order. Preferred form per entry: { \"id\": string, \"digest\": {\n" +
+      "  \"text\": \"one concise synthesized digest paragraph\",\n" +
+      "  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\n" +
+      "Set digest to exactly null when the category has no material " +
+      "orientation-worthy content. Aim for roughly six useful short quotations " +
+      "across the whole document when the source supports them; there is no " +
+      "quota. A flattened variant (digest as a string plus a category-level " +
+      "evidence array) is also accepted. Python normalizes any deviation, so " +
+      "always submit once and never restate case text.",
     parameters: Type.Object({
-      item_id: Type.String(),
+      item_id: Type.Optional(Type.String()),
       categories: Type.Array(
         Type.Object({
           id: Type.String(),
-          facts: Type.Union([
-            Type.Null(),
-            Type.Array(
-              Type.Object({
-                text: Type.String(),
-                evidence: Type.Array(
-                  Type.Object({
-                    text: Type.String(),
-                    file_page: Type.Integer({ minimum: 1 }),
-                  })
-                ),
-              })
-            ),
-          ]),
+          digest: Type.Optional(Type.Any()),
         })
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const spec = requireSpec();
-      if (params.item_id !== spec.item_id) {
-        return fail(`item_id must be ${spec.item_id}`);
-      }
-      const expected = spec.categories.map((category) => category.id);
-      const submitted = params.categories.map((category) => category.id);
-      if (JSON.stringify(submitted) !== JSON.stringify(expected)) {
-        return fail(
-          "categories must appear exactly once each, in the configured order: " +
-            expected.join(", ")
-        );
-      }
-      for (const category of params.categories) {
-        if (category.facts === null) continue;
-        if (!Array.isArray(category.facts) || category.facts.length === 0) {
-          return fail(
-            `category ${category.id}: facts must be null or a nonempty list`
-          );
-        }
-        for (const fact of category.facts) {
-          if (!fact.evidence || fact.evidence.length === 0) {
-            return fail(
-              `category ${category.id}: every fact needs at least one evidence quote`
-            );
-          }
-          // Quote text is validated best-effort by Python against the
-          // declared page; only page scope is enforced here.
-          for (const quote of fact.evidence) {
-            const page = Number(quote.file_page);
-            if (page < spec.start_page || page > spec.end_page) {
-              return fail(
-                `category ${category.id}: evidence page ${page} is outside this ` +
-                  `document's pages ${spec.start_page}-${spec.end_page}`
-              );
-            }
-          }
-        }
-      }
+      // The runner-owned item id is injected here; a submitted id is ignored.
+      // Nested content is passed through unmodified — Python normalizes it.
       try {
         writeFileSync(
           spec.candidate_path,
           JSON.stringify(
-            { artifact: "recordprep-summary-extraction-candidate", item_id: spec.item_id, categories: params.categories },
+            {
+              artifact: "recordprep-summary-extraction-candidate",
+              item_id: spec.item_id,
+              categories: Array.isArray(params.categories)
+                ? params.categories
+                : [],
+            },
             null,
             2
           ) + "\n"
@@ -188,32 +162,32 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "recordprep_get_facts",
-    label: "Get facts",
+    label: "Get digests",
     description:
-      "Return the dataset overview (omit ordinal) or one canonical fact row " +
-      "by ordinal. Read every row before finalizing.",
+      "Return the dataset overview (omit ordinal) or one canonical digest " +
+      "row by ordinal. Read every row before finalizing.",
     parameters: Type.Object({
       ordinal: Type.Optional(Type.Integer({ minimum: 1 })),
     }),
     async execute(_id, params) {
-      if (!dataset) return fail("facts dataset is unavailable");
+      if (!dataset) return fail("digests dataset is unavailable");
       if (params.ordinal === undefined) {
         const overview = {
-          artifact: "recordprep-summary-facts-overview",
-          schema_version: 1,
+          artifact: "recordprep-summary-digest-overview",
+          schema_version: 2,
           total_rows: dataset.total_rows,
           items: dataset.rows.map((row) => ({
             item_id: row.item_id,
             ordinal: row.ordinal,
             label: row.label,
             non_null_category_ids: (row.categories as any[])
-              .filter((category) => category.facts !== null)
+              .filter((category) => category.digest !== null)
               .map((category) => category.id),
             quote_ids: (row.categories as any[]).flatMap((category) =>
-              category.facts === null
+              category.digest === null || category.digest === undefined
                 ? []
-                : category.facts.flatMap((fact: any) =>
-                    fact.evidence.map((evidence: any) => evidence.quote_id)
+                : ((category.digest.evidence as any[]) || []).map(
+                    (evidence) => evidence.quote_id
                   )
             ),
           })),
@@ -239,24 +213,21 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     name: "recordprep_submit_summary_section",
     label: "Submit summary section",
     description:
-      "Submit or replace the narrative section for one document. Submit one " +
-      "section per document in boundary order before finalizing.",
+      "Submit or replace the narrative section for one document: item_id plus " +
+      "flowing prose paragraphs with {{quote:<quote_id>}} placeholders for " +
+      "direct quotations. Submit one section per document in boundary order " +
+      "before finalizing.",
     parameters: Type.Object({
       item_id: Type.String(),
       paragraphs: Type.Array(Type.String()),
-      covered_category_ids: Type.Array(Type.String()),
-      suppressed_duplicate_category_ids: Type.Array(Type.String()),
     }),
     async execute(_id, params) {
-      if (!dataset) return fail("facts dataset is unavailable");
+      if (!dataset) return fail("digests dataset is unavailable");
       const row = dataset.rows.find(
         (candidate) => candidate.item_id === params.item_id
       );
       if (!row) {
         return fail(`unknown item_id ${params.item_id}`);
-      }
-      if (requestedOrdinals.size < dataset.total_rows) {
-        return fail("read every canonical row before submitting sections");
       }
       sections.set(params.item_id, { ...params });
       return {
@@ -276,24 +247,17 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     name: "recordprep_finish_summary",
     label: "Finish summary",
     description:
-      "Finish the synthesis after every section has been submitted. This " +
-      "terminates the session.",
+      "Finish the synthesis after submitting your sections. This terminates " +
+      "the session. Always call this exactly once, even if you could not " +
+      "read every row or submit every section — Python fills any gaps.",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, ctx) {
-      if (!dataset) return fail("facts dataset is unavailable");
-      if (requestedOrdinals.size < dataset.total_rows) {
-        return fail(
-          `read every canonical row before finalizing (${requestedOrdinals.size} ` +
-            `of ${dataset.total_rows} read)`
-        );
-      }
-      const missing = dataset.rows
-        .map((row) => String(row.item_id))
-        .filter((item_id) => !sections.has(item_id));
-      if (missing.length > 0) {
-        return fail(`submit sections for: ${missing.join(", ")}`);
-      }
-      const ordered = dataset.rows.map((row) => sections.get(String(row.item_id)));
+      if (!dataset) return fail("digests dataset is unavailable");
+      // Always emit the sections recorded so far, in boundary order; Python
+      // deterministically fills missing sections and flags the gaps.
+      const ordered = dataset.rows
+        .map((row) => sections.get(String(row.item_id)))
+        .filter((section) => section !== undefined);
       try {
         writeFileSync(
           dataset.candidate_path,

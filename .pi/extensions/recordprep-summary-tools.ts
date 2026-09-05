@@ -3,9 +3,10 @@
  *
  * Narrowly scoped custom tools for the two-stage summary pipeline. Extraction
  * children may only read the current document's complete source payload and
- * submit one digest candidate; synthesis children may only read canonical
- * digest rows, submit sections, and finalize. There is no filesystem, shell,
- * or arbitrary-path capability here.
+ * submit one digest candidate; synthesis children may only read the Markdown
+ * digest presentation (overview or one document's Markdown block), submit
+ * sections, and finalize. There is no filesystem, shell, or arbitrary-path
+ * capability here.
  *
  * Intake schemas are deliberately permissive: malformed nested model output
  * still reaches Python (which normalizes it deterministically and flags
@@ -29,7 +30,6 @@ interface WorkSpec {
   candidate_path: string;
   guidance: string;
   additional_guidance: string;
-  length_guidance?: string;
   categories: { id: string; guidance: string }[];
 }
 
@@ -37,6 +37,7 @@ interface DatasetFile {
   artifact: string;
   total_rows: number;
   rows: Record<string, unknown>[];
+  documents: string[];
   candidate_path: string;
   kind: string;
 }
@@ -108,11 +109,13 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       "  \"text\": \"one concise synthesized digest paragraph\",\n" +
       "  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\n" +
       "Set digest to exactly null when the category has no material " +
-      "orientation-worthy content. Aim for roughly six useful short quotations " +
-      "across the whole document when the source supports them; there is no " +
-      "quota. A flattened variant (digest as a string plus a category-level " +
-      "evidence array) is also accepted. Python normalizes any deviation, so " +
-      "always submit once and never restate case text.",
+      "orientation-worthy content. Evidence quotes are continuous verbatim " +
+      "two-to-five-word source phrases, preferably distinctive " +
+      "three-to-five-word anchors, with no fixed count — a quotation should " +
+      "help locate source language, not pad the digest. A flattened variant " +
+      "(digest as a string plus a category-level evidence array) is also " +
+      "accepted. Python normalizes any deviation, so always submit once and " +
+      "never restate case text.",
     parameters: Type.Object({
       item_id: Type.Optional(Type.String()),
       categories: Type.Array(
@@ -164,8 +167,8 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     name: "recordprep_get_facts",
     label: "Get digests",
     description:
-      "Return the dataset overview (omit ordinal) or one canonical digest " +
-      "row by ordinal. Read every row before finalizing.",
+      "Return the dataset overview (omit ordinal) or one document's Markdown " +
+      "digest block by ordinal. Read every document before finalizing.",
     parameters: Type.Object({
       ordinal: Type.Optional(Type.Integer({ minimum: 1 })),
     }),
@@ -198,12 +201,13 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
         };
       }
       const row = dataset.rows[params.ordinal - 1];
-      if (!row || row.ordinal !== params.ordinal) {
+      const document = dataset.documents?.[params.ordinal - 1];
+      if (!row || row.ordinal !== params.ordinal || typeof document !== "string") {
         return fail(`ordinal ${params.ordinal} does not exist`);
       }
       requestedOrdinals.add(params.ordinal);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(row) }],
+        content: [{ type: "text" as const, text: document }],
         details: { ordinal: params.ordinal },
       };
     },

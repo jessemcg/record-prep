@@ -1039,10 +1039,9 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
                 widgets.minutes_target_chars_row.get_text(), "6000"
             )
             self.assertEqual(widgets.minutes_max_pages_row.get_text(), "6")
-            self.assertEqual(
-                widgets.reports_target_words_row.get_text(),
-                str(sa.DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS),
-            )
+            # Retired word-target rows no longer exist as fields.
+            self.assertFalse(hasattr(widgets, "hearings_target_words_row"))
+            self.assertFalse(hasattr(widgets, "reports_target_words_row"))
             # Retired hearing/report window rows no longer exist as fields.
             self.assertFalse(hasattr(widgets, "hearings_target_chars_row"))
             self.assertFalse(hasattr(widgets, "reports_max_pages_row"))

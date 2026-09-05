@@ -641,18 +641,7 @@ def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
         or value("summary_synthesize_pi_thinking"),
         "extract_prompt": value(f"summarize_{kind}_prompt"),
         "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
-        "hearing_target_words": value("summarize_hearings_target_words"),
-        "report_target_words": value("summarize_reports_target_words"),
     }
-
-
-def _target_words(value: str) -> int:
-    """Parse a soft word target; 0 (or invalid input) disables the guidance."""
-    try:
-        target = int(str(value or "").strip())
-    except (TypeError, ValueError):
-        return 0
-    return target if target > 0 else 0
 
 
 def _extraction_config(
@@ -682,8 +671,6 @@ def _extraction_config(
         provider=settings["extract_provider"],
         model=settings["extract_model"],
         thinking=settings["extract_thinking"],
-        hearing_target_words=_target_words(settings["hearing_target_words"]),
-        report_target_words=_target_words(settings["report_target_words"]),
     )
 
 
@@ -969,11 +956,6 @@ def _run_extraction_child(
         prompt_parts.append("PER-CATEGORY GUIDANCE")
         for definition in sa.summary_category_definitions(kind):
             prompt_parts.append(f"- {definition.identifier}: {definition.guidance}")
-        length_section = sa.summary_length_guidance_section(
-            extraction_config.target_words, kind, "digest"
-        )
-        if length_section:
-            prompt_parts.extend(["", length_section])
         if extraction_config.additional_guidance:
             prompt_parts.extend(
                 [
@@ -1070,23 +1052,13 @@ def _run_synthesis_child(
             "artifact": "recordprep-summary-digest-dataset",
             "total_rows": len(rows),
             "rows": rows,
+            "documents": [sa.document_markdown_block(row) for row in rows],
             "candidate_path": str(cache_candidate),
             "kind": kind,
         }
         dataset_path = workspace / "dataset.json"
         dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
         guidance = str(synthesis_config.get("guidance") or "")
-        try:
-            target_words = int(
-                str(synthesis_config.get(f"{kind}_target_words") or 0).strip()
-            )
-        except (TypeError, ValueError):
-            target_words = 0
-        length_section = sa.summary_length_guidance_section(
-            target_words, kind, "narrative"
-        )
-        if length_section:
-            guidance = f"{guidance}\n\n{length_section}"
         prompt = "\n".join(
             [
                 f"/skill:{skill_name}",
@@ -1290,6 +1262,15 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
 
     try:
         with sa.SummaryKindLock(root, kind):
+            # Legacy v2 digest JSONL converts losslessly to Markdown under the
+            # lock before validation; Markdown is authoritative once present.
+            migrated = sa.migrate_legacy_digest_jsonl(root, kind)
+            if migrated is not None:
+                _line(
+                    f"[{kind}] converting legacy digest JSONL to Markdown "
+                    f"({len(migrated)} rows) without model calls."
+                )
+                sa.publish_digests(root, kind, items, extraction_config, migrated)
             rows, pending_ids = sa.validate_digest_state(
                 root, kind, items, extraction_config
             )
@@ -1355,8 +1336,11 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 _line(f"[{kind}] accepted digest row for {item.item_id}.")
 
             # Metadata is re-derived even when every row was already current, so a
-            # crash between the JSONL and metadata writes self-heals.
+            # crash between the Markdown and metadata writes self-heals. Stage
+            # two then consumes the reloaded, validated on-disk Markdown rather
+            # than the pre-publication in-memory rows.
             sa.publish_digests(root, kind, items, extraction_config, rows)
+            rows = sa.reload_published_digest_rows(root, kind, items)
             stored_synthesis = (settings["synthesize_prompt"] or "").strip()
             default_synthesis = (
                 sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
@@ -1366,19 +1350,13 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             synthesis_guidance = sa.migrate_synthesis_prompt(
                 kind, stored_synthesis, default_synthesis
             )
-            target_words = (
-                extraction_config.hearing_target_words
-                if kind == "hearings"
-                else extraction_config.report_target_words
-            )
             synthesis_config = {
                 "kind": kind,
                 "guidance": synthesis_guidance,
                 "provider": settings["synthesize_provider"],
                 "model": settings["synthesize_model"],
                 "thinking": settings["synthesize_thinking"],
-                "hearing_target_words": extraction_config.hearing_target_words,
-                "report_target_words": extraction_config.report_target_words,
+                "content_contract": sa.SUMMARY_CONTENT_CONTRACT_VERSION,
             }
             if items:
                 _check_stop()
@@ -1401,24 +1379,34 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     sections, section_flags = sa.normalize_synthesis_sections(
                         rows,
                         sections_payload,
-                        target_words=target_words,
                     )
                     for flag in section_flags:
                         _line(f"\033[33m[warn]\033[0m synthesis: {flag}")
                     final_text, heading_pages = _render_and_validate(
                         root, kind, rows, sections
                     )
+                    quality_flags = [
+                        *section_flags,
+                        *sa.rendered_narrative_flags(final_text),
+                    ]
                 finally:
                     shutil.rmtree(candidate_cache.parent, ignore_errors=True)
             else:
                 sections = []
+                quality_flags: list[str] = []
                 final_text, heading_pages = _render_and_validate(
                     root, kind, rows, sections
                 )
             final_path = sa.summary_final_path(root, kind)
             synthesis_config["renderer_version"] = sa.SUMMARY_RENDERER_VERSION
             meta = sa.build_final_meta(
-                kind, rows, final_text, synthesis_config, heading_pages
+                root,
+                kind,
+                rows,
+                final_text,
+                synthesis_config,
+                heading_pages,
+                quality_flags=quality_flags,
             )
             sa._atomic_write(final_path, final_text)
             sa._atomic_write(
@@ -1426,9 +1414,13 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
             )
             # Legacy v1 fact-inventory artifacts are removed only after the
-            # digest pipeline published successfully.
+            # digest pipeline published successfully; the retired digest JSONL
+            # is removed only once the new Markdown, metadata, and final
+            # summary have all published.
             for removed in sa.cleanup_legacy_facts_artifacts(root, kind):
                 _line(f"[{kind}] removed legacy artifact {removed}.")
+            for removed in sa.cleanup_legacy_digest_jsonl(root, kind):
+                _line(f"[{kind}] removed legacy digest artifact {removed}.")
             if remove_summary_edition is not None:
                 remove_summary_edition(final_path)
             _line(f"\033[32m{stage.title} complete.\033[0m")

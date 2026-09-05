@@ -6,6 +6,7 @@ __pycache__/
 
 # App config and prompts
 config.json
+config_copy.json
 prompts/
 
 # Local assets and reference scripts

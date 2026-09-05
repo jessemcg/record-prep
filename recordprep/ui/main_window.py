@@ -90,7 +90,6 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
-    DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS,
     NO_SUMMARIZABLE_REPORT_CONTENT,
     REPORT_PROPOSAL_MARKER_FIND_ORDER,
     REPORT_PROPOSAL_MARKER_LEAD_IN,
@@ -98,17 +97,14 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     REPORT_PROPOSAL_MARKER_TITLE,
     REPORT_PROPOSAL_SCOPE_DELIMITER,
     REPORT_PROPOSAL_SCOPE_HEADING,
-    REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING,
     ReportProposalMarker,
     _hearing_context_lines,
     _hearing_participant_context,
     _participant_role_label,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
-    _report_length_guidance_section,
     _report_proposal_scope_note,
     _summary_page_windows,
-    summary_length_guidance_section,
 )
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
@@ -595,11 +591,11 @@ CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS = "summarize_reports_window_tar
 CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES = "summarize_reports_window_max_pages"
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = "summarize_minutes_window_target_chars"
 CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = "summarize_minutes_window_max_pages"
-CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS = "summarize_hearings_target_words"
-CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS = "summarize_reports_target_words"
-LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = (
-    "summarize_reports_window_target_words"
-)
+# Retired soft word-target keys (summarize_hearings_target_words,
+# summarize_reports_target_words, and the legacy
+# summarize_reports_window_target_words) remain stored but are inert: no
+# code reads them, the Settings-save flow preserves any existing values
+# untouched, and new configurations never create them.
 CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER = "summary_extract_pi_provider"
 CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL = "summary_extract_pi_model"
 CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING = "summary_extract_pi_thinking"
@@ -797,7 +793,8 @@ DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "case. The user message is organized into these labeled sections:\n\n"
     "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
     "only to understand a sentence or passage that continues into the primary pages.\n"
-    "2. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages. "
+    "2. PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION. "
+    "Summarize only these pages. "
     "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n"
     "3. REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY. When present, this section "
     "marks a formal package of proposed or recommended advisements, findings, and orders, "
@@ -811,31 +808,27 @@ DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
     "narrative, interviews, observations, assessments, procedural history, a high-level agency "
     "recommendation stated apart from the formal template with accurate agency attribution, "
     "and actual historical orders the report says the court already made, with accurate "
-    "attribution.\n"
-    "4. REPORT SUMMARY LENGTH GUIDANCE — FOR OUTPUT SHAPE ONLY. When present, this section "
-    "states an approximate word target for this window's summary paragraph. Treat the target "
-    "as nonbinding guidance about output shape: it is never a token cap, a truncation rule, "
-    "or a reason to reject or stop an answer.\n\n"
-    "Content priorities: favor new or changed legally significant facts, observations, "
-    "interviews, substantive assessments, procedural developments, and recommendations. "
+    "attribution.\n\n"
+    "Content priorities: retain what matters — new or changed legally significant facts, "
+    "observations, interviews, substantive assessments, procedural developments, and "
+    "recommendations, plus the reasons and evidence behind them. Retain information when "
+    "omitting it would materially change the reader's understanding of what happened, why "
+    "it happened, any dispute or conflicting account, important evidence or uncertainty, or "
+    "a meaningful change in safety, services, visitation, placement, or procedural posture. "
     "Synthesize repeated history and substantially duplicative updates instead of restating "
     "them. Omit routine administrative detail unless it changes the case posture or bears "
-    "materially on an issue. Keep conflicting accounts and their attribution distinct.\n\n"
+    "materially on an issue. Keep conflicting accounts and their attribution distinct. The "
+    "summary may be as short or as long as the material warrants; never impose a word, "
+    "sentence, or paragraph count.\n\n"
     "Output requirements: return exactly one concise prose paragraph in plain English, with "
     "no internal line breaks. RecordPrep inserts a blank line between this paragraph and each "
-    "adjacent summary-window paragraph. If a length-guidance section states a word target, "
-    "use fewer words than the target when the eligible material warrants less, and exceed the "
-    "target rather than end mid-thought; the guidance never authorizes truncating the summary "
-    "or omitting material facts. If a window mixes eligible narrative and formal proposed "
-    "material, summarize only the eligible narrative. Include at least six legally significant "
-    "verbatim quotes, each an uninterrupted two-to-five-word sequence in quotation marks, taken "
-    "only from eligible material, whenever the eligible primary pages contain at least six "
-    "suitable quotations. If fewer than six suitable quotations exist, include every suitable "
-    "quotation; never invent, alter, or pad the summary with insignificant or out-of-scope "
-    "quotations. Distribute the quotations across the material facts, observations, interviews, "
-    "and assessments rather than clustering them around one point, and never sacrifice material "
-    "factual coverage merely to reach the quotation target. Do not alter quoted text or use "
-    "ellipses. Do not begin with prefatory language, add commentary, or use Markdown. Do not "
+    "adjacent summary-window paragraph. If a window mixes eligible narrative and formal proposed "
+    "material, summarize only the eligible narrative. Include short verbatim quotes that anchor "
+    "the paragraph's important points to source language: each an uninterrupted two-to-five-word "
+    "sequence in quotation marks, taken only from eligible material, with no fixed count per "
+    "window and no quote invented when no suitable anchor exists. Do not alter quoted text or "
+    "use ellipses, and never bring sentence-ending punctuation inside the final quotation "
+    "marks. Do not begin with prefatory language, add commentary, or use Markdown. Do not "
     "summarize the optional preceding context page again. If, after omitting the formal proposed "
     "advisements, findings, orders, and associated boilerplate, a window contains no eligible "
     "report narrative, return exactly this value and nothing else: " + NO_SUMMARIZABLE_REPORT_CONTENT
@@ -857,7 +850,6 @@ DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "terminated parental rights.\n\nOkay, here is the minute order:"
 )
 SUMMARY_WINDOW_CATEGORIES = ("hearings", "reports", "minutes")
-DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS = 250
 SUMMARY_TEST_MODE_CATEGORIES = {
     "summarize_hearings": "hearings",
     "summarize_reports": "reports",
@@ -1490,7 +1482,6 @@ class _SummaryStepContext:
     category: str
     target_chars: int
     max_pages: int
-    target_words: int
     request_window: Callable[[str, str], str]
     display_case_name: str
     participant_by_range: dict[tuple[int, int], dict[str, Any]]
@@ -1611,20 +1602,6 @@ def _summary_window_limits(settings: dict[str, Any], category: str) -> tuple[int
     return target_chars, max_pages
 
 
-def _summary_kind_target_words(settings: dict[str, Any], category: str) -> int:
-    """Return the kind's soft word target (0 disables density guidance)."""
-    try:
-        value = int(str(settings.get(f"{category}_target_words") or 0).strip())
-    except (TypeError, ValueError):
-        return 0
-    return value if value > 0 else 0
-
-
-def _summary_report_target_words(settings: dict[str, Any]) -> int:
-    """Back-compat wrapper for the report soft word target."""
-    return _summary_kind_target_words(settings, "reports")
-
-
 def _validate_summarize_window_rows(**rows: Any) -> tuple[Any, str] | None:
     """Validate summary-window entry rows before persisting.
 
@@ -1634,20 +1611,16 @@ def _validate_summarize_window_rows(**rows: Any) -> tuple[Any, str] | None:
     value clears a previous error.
     """
     positive_invalid = "Enter a positive whole number."
-    word_invalid = "Enter a whole number of 0 or more (0 disables the guidance)."
     for row in rows.values():
         if hasattr(row, "set_subtitle"):
             row.set_subtitle("")
-    for name, row in rows.items():
+    for row in rows.values():
         raw = row.get_text().strip()
         try:
             value = int(raw)
         except (TypeError, ValueError):
-            return row, positive_invalid if "target_words" not in name else word_invalid
-        if "target_words" in name:
-            if value < 0:
-                return row, word_invalid
-        elif value < 1:
+            return row, positive_invalid
+        if value < 1:
             return row, positive_invalid
     return None
 
@@ -1658,7 +1631,6 @@ def _render_summary_window_payload(
     *,
     participant_context: str = "",
     report_marker: ReportProposalMarker | None = None,
-    report_length_guidance: str = "",
 ) -> str:
     page_text = window["page_text"]
     sections: list[str] = []
@@ -1684,9 +1656,9 @@ def _render_summary_window_payload(
             scope_note,
             "",
         ])
-    if report_length_guidance:
-        sections.extend([report_length_guidance, ""])
-    sections.append("PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS")
+    sections.append(
+        "PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION"
+    )
     for number in window["primary_pages"]:
         citation = citation_by_page.get(number, "")
         sections.append(f"[{citation or f'file page {number}'} | source text_pages/{number:04d}.txt]")
@@ -2501,8 +2473,20 @@ def _write_config(config: dict[str, Any]) -> None:
         if not isinstance(key, str) or key in OBSOLETE_PIPELINE_CONFIG_KEYS:
             continue
         serializable[key] = value
+    # Atomic replace: a crash or concurrent Dropbox sync mid-write must never
+    # leave a truncated config.json whose next read would look like an empty
+    # settings store.
     try:
-        CONFIG_FILE.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.{os.getpid()}.tmp")
+        try:
+            with temp.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(serializable, indent=2))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, CONFIG_FILE)
+        finally:
+            temp.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -3440,8 +3424,6 @@ class SummarizeSettingsWidgets:
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
     disable_reasoning_row: Adw.SwitchRow
-    hearings_target_words_row: Adw.EntryRow
-    reports_target_words_row: Adw.EntryRow
     minutes_target_chars_row: Adw.EntryRow
     minutes_max_pages_row: Adw.EntryRow
     hearings_prompt_buffer: Gtk.TextBuffer
@@ -3546,41 +3528,11 @@ def load_summarize_settings() -> dict[str, Any]:
         category_default=DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
     )
 
-    # Soft per-kind word targets: 250 words per hearing and per report by
-    # default in both digest and synthesis stages; 0 disables the guidance.
-    # The retired summarize_reports_window_target_words value migrates to the
-    # new report key; an explicitly stored 0 is always honored.
-    def _soft_target(primary_key: str, migrated_value: str | None) -> int:
-        raw = str(config.get(primary_key, "") or "").strip()
-        if not raw and migrated_value is not None:
-            raw = migrated_value
-        if not raw:
-            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
-        try:
-            value = int(raw)
-        except ValueError:
-            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
-        if value < 0:
-            return DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS
-        return value
-
-    legacy_word_target_raw = str(
-        config.get(LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS, "") or ""
-    ).strip()
-    hearings_words = _soft_target(
-        CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS, None
-    )
-    reports_words = _soft_target(
-        CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS, legacy_word_target_raw or None
-    )
-
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
-        "hearings_target_words": str(hearings_words),
-        "reports_target_words": str(reports_words),
         "minutes_target_chars": str(minutes_target),
         "minutes_max_pages": str(minutes_pages),
         "hearings_prompt": hearings_prompt,
@@ -3621,8 +3573,6 @@ def save_summarize_settings(
     model_id: str,
     api_key: str,
     disable_reasoning: bool,
-    hearings_target_words: str,
-    reports_target_words: str,
     minutes_target_chars: str,
     minutes_max_pages: str,
     hearings_prompt: str,
@@ -3642,11 +3592,8 @@ def save_summarize_settings(
     config[CONFIG_KEY_SUMMARIZE_MODEL_ID] = model_id
     config[CONFIG_KEY_SUMMARIZE_API_KEY] = api_key
     config[CONFIG_KEY_SUMMARIZE_DISABLE_REASONING] = bool(disable_reasoning)
-    config[CONFIG_KEY_SUMMARIZE_HEARINGS_TARGET_WORDS] = hearings_target_words
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_TARGET_WORDS] = reports_target_words
-    # The retired report window-target key migrates to the new report soft
-    # target and is removed on save.
-    config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS, None)
+    # Retired word-target keys are never written, migrated, or removed here:
+    # any stored values are preserved untouched and have no effect.
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS] = minutes_target_chars
     config[CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES] = minutes_max_pages
     # Retired per-category PI extraction window keys: PI extraction sends each
@@ -4493,39 +4440,23 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         synthesize_group.add(synthesize_thinking_row)
 
-        hearings_target_words_row = Adw.EntryRow(
-            title="Words per hearing (soft target)",
-        )
-        hearings_target_words_row.set_text(
-            settings.get(
-                "hearings_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)
+        # Summary length follows substantive complexity: conciseness comes
+        # from selecting significant information and avoiding repetition, not
+        # from a numerical target.
+        length_note = Adw.ActionRow(title="Summary length")
+        length_note.add_suffix(
+            Gtk.Label(
+                label=(
+                    "Summary length follows each document's substantive "
+                    "complexity; conciseness comes from selecting significant "
+                    "information and avoiding repetition."
+                ),
+                wrap=True,
+                xalign=0.0,
+                max_width_chars=48,
             )
         )
-        hearings_target_subtitle = (
-            "Soft words-per-hearing guidance for the combined category digest "
-            "text and the final narrative; output shape only, 0 disables it. "
-            "Never a token cap, truncation, rejection, or repair rule."
-        )
-        if hasattr(hearings_target_words_row, "set_subtitle"):
-            hearings_target_words_row.set_subtitle(hearings_target_subtitle)
-        else:
-            hearings_target_words_row.set_tooltip_text(hearings_target_subtitle)
-        synthesize_group.add(hearings_target_words_row)
-
-        reports_target_words_row = Adw.EntryRow(
-            title="Words per report (soft target)",
-        )
-        reports_target_words_row.set_text(settings.get("reports_target_words", str(DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_WORDS)))
-        word_target_subtitle = (
-            "Soft words-per-report guidance for the combined category digest "
-            "text and the final narrative; output shape only, 0 disables it. "
-            "Never a token cap, truncation, rejection, or repair rule."
-        )
-        if hasattr(reports_target_words_row, "set_subtitle"):
-            reports_target_words_row.set_subtitle(word_target_subtitle)
-        else:
-            reports_target_words_row.set_tooltip_text(word_target_subtitle)
-        synthesize_group.add(reports_target_words_row)
+        synthesize_group.add(length_note)
 
         # --- Minute orders (direct API) ---
         minute_group = Adw.PreferencesGroup(
@@ -4646,8 +4577,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             model_row=model_row,
             api_key_row=api_key_row,
             disable_reasoning_row=disable_reasoning_row,
-            hearings_target_words_row=hearings_target_words_row,
-            reports_target_words_row=reports_target_words_row,
             minutes_target_chars_row=minutes_target_chars_row,
             minutes_max_pages_row=minutes_max_pages_row,
             hearings_prompt_buffer=hearings_buffer,
@@ -5279,8 +5208,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
         if summarize_widgets:
             summarize_error_row = _validate_summarize_window_rows(
-                hearings_target_words=summarize_widgets.hearings_target_words_row,
-                reports_target_words=summarize_widgets.reports_target_words_row,
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row,
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row,
             )
@@ -5307,8 +5234,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 model_id=summarize_widgets.model_row.get_text().strip(),
                 api_key=summarize_widgets.api_key_row.get_text().strip(),
                 disable_reasoning=bool(summarize_widgets.disable_reasoning_row.get_active()),
-                hearings_target_words=summarize_widgets.hearings_target_words_row.get_text().strip(),
-                reports_target_words=summarize_widgets.reports_target_words_row.get_text().strip(),
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),
                 hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
@@ -6481,7 +6406,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         category: str,
         participant_context: str = "",
         report_marker: ReportProposalMarker | None = None,
-        report_length_guidance: str = "",
     ) -> list[str]:
         source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
         with tempfile.TemporaryDirectory(prefix="recordprep-summary-test.") as temporary:
@@ -6504,7 +6428,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     {page: f"TEST {page}" for page in range(1, len(source_pages) + 1)},
                     participant_context=participant_context,
                     report_marker=report_marker,
-                    report_length_guidance=report_length_guidance,
                 )
                 for window in windows
             ]
@@ -6541,19 +6464,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     category=SUMMARY_TEST_MODE_CATEGORIES[mode_id],
                     participant_context=participant_context,
                     report_marker=report_marker,
-                    report_length_guidance=(
-                        summary_length_guidance_section(
-                            _summary_kind_target_words(settings, "reports"),
-                            "reports",
-                            "narrative",
-                        )
-                        if mode_id == "summarize_reports"
-                        else summary_length_guidance_section(
-                            _summary_kind_target_words(settings, "hearings"),
-                            "hearings",
-                            "narrative",
-                        )
-                    ),
                 )
                 responses: list[str] = []
                 for payload in payloads:
@@ -10686,13 +10596,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "Configure Summarize API URL, model ID, and API key in Settings."
             )
         target_chars, max_pages = _summary_window_limits(settings, category)
-        # Direct-API preview guidance for hearings and reports; minute orders
-        # have no digest word target.
-        target_words = (
-            _summary_kind_target_words(settings, category)
-            if category in {"hearings", "reports"}
-            else 0
-        )
         request_base = {
             "api_url": settings["api_url"],
             "model_id": settings["model_id"],
@@ -10719,7 +10622,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             category=category,
             target_chars=target_chars,
             max_pages=max_pages,
-            target_words=target_words,
             request_window=request_window,
             display_case_name=display_case_name,
             participant_by_range=participant_by_range,

@@ -24,12 +24,10 @@ from recordprep.ui.main_window import (
     REPORT_PROPOSAL_MARKER_TITLE,
     REPORT_PROPOSAL_SCOPE_DELIMITER,
     REPORT_PROPOSAL_SCOPE_HEADING,
-    REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING,
     ReportProposalMarker,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
     _render_summary_window_payload,
-    _report_length_guidance_section,
     _report_proposal_scope_note,
     _summary_page_windows,
     load_summarize_settings,
@@ -226,44 +224,25 @@ class ReportPromptContractTests(unittest.TestCase):
         self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT)
 
 
-class ReportQuoteQuotaPromptTests(unittest.TestCase):
-    def test_new_prompt_states_numeric_minimum_of_six(self) -> None:
-        self.assertIn("Include at least six legally significant verbatim quotes", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertNotIn("Include several", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+class ReportQuoteConventionPromptTests(unittest.TestCase):
+    def test_prompt_has_no_quote_quota(self) -> None:
+        self.assertNotIn("at least six", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("fewer than six", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("quotation target", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
-    def test_new_prompt_includes_fewer_than_six_safeguard(self) -> None:
-        self.assertIn(
-            "If fewer than six suitable quotations exist, include every suitable quotation",
-            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
-        )
-
-    def test_new_prompt_forbids_invention_and_insignificant_padding(self) -> None:
-        self.assertIn(
-            "never invent, alter, or pad the summary with insignificant or out-of-scope quotations",
-            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
-        )
-
-    def test_new_prompt_preserves_quote_length_verbatim_and_no_ellipsis_rules(self) -> None:
+    def test_prompt_keeps_quote_convention_without_a_count(self) -> None:
         self.assertIn("two-to-five-word sequence in quotation marks", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("Do not alter quoted text or use ellipses", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("taken only from eligible material", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("no fixed count per window", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("no quote invented when no suitable anchor exists", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
-    def test_new_prompt_distributes_quotes_without_sacrificing_coverage(self) -> None:
-        self.assertIn("Distribute the quotations across the material facts, observations, interviews, and assessments", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn("never sacrifice material factual coverage merely to reach the quotation target", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-
-    def test_new_prompt_keeps_proposal_exclusion_from_satisfying_quote_requirement(self) -> None:
+    def test_prompt_keeps_proposal_exclusion_from_satisfying_quote_requirement(self) -> None:
         self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn(
             "never use proposed wording to satisfy the verbatim-quotation requirement",
             DEFAULT_SUMMARIZE_REPORTS_PROMPT,
         )
-
-    def test_new_prompt_retains_one_paragraph_and_sentinel_contracts(self) -> None:
-        self.assertIn("with no internal line breaks", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn("inserts a blank line", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-
 
 class ReportPromptMigrationTests(unittest.TestCase):
     def test_previously_shipped_proposal_scope_prompt_migrates_to_new_prompt(self) -> None:
@@ -345,42 +324,38 @@ class ReportPromptMigrationTests(unittest.TestCase):
         )
 
 
-class ReportLengthGuidanceTests(unittest.TestCase):
-    def test_guidance_section_disabled_at_zero_and_negative(self) -> None:
-        self.assertEqual(_report_length_guidance_section(0), "")
-        self.assertEqual(_report_length_guidance_section(-10), "")
+class ReportPromptContractTests(unittest.TestCase):
+    def test_prompt_has_no_length_guidance_section_or_word_targets(self) -> None:
+        self.assertNotIn("LENGTH GUIDANCE", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("word target", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertNotIn("at least six", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+        self.assertIn("never impose a word, sentence, or paragraph count", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
-    def test_guidance_section_states_target_and_nonbinding_contract(self) -> None:
-        section = _report_length_guidance_section(250)
-        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, section)
-        self.assertIn("approximately 250 words", section)
-        self.assertIn("output shape only", section)
-        self.assertIn("never cut off or mechanically reject an answer", section)
-        self.assertIn("Finish the summary coherently", section)
+    def test_prompt_keeps_material_information_focus(self) -> None:
+        self.assertIn(
+            "Retain information when omitting it would materially change the reader",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertIn(
+            "never bring sentence-ending punctuation inside the final quotation",
+            DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
 
-    def test_report_payload_includes_guidance_only_when_enabled(self) -> None:
+    def test_report_payload_has_no_guidance_section(self) -> None:
         window = {
             "primary_pages": [1],
             "page_text": {1: "Narrative page one."},
             "context_page": None,
         }
-        with_guidance = _render_summary_window_payload(
-            window,
-            {1: "TEST 1"},
-            report_length_guidance=_report_length_guidance_section(250),
+        payload = _render_summary_window_payload(window, {1: "TEST 1"})
+        self.assertIn("Narrative page one.", payload)
+        self.assertNotIn("LENGTH GUIDANCE", payload)
+        self.assertIn(
+            "PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION",
+            payload,
         )
-        without_guidance = _render_summary_window_payload(window, {1: "TEST 1"})
 
-        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, with_guidance)
-        self.assertNotIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, without_guidance)
-        # The guidance section precedes the primary pages and never replaces them.
-        self.assertLess(
-            with_guidance.index(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING),
-            with_guidance.index("PRIMARY SOURCE PAGES"),
-        )
-        self.assertIn("Narrative page one.", with_guidance)
-
-    def test_hearing_and_minute_payloads_never_include_guidance(self) -> None:
+    def test_hearing_and_minute_payloads_have_no_guidance_section(self) -> None:
         window = {
             "primary_pages": [1],
             "page_text": {1: "Hearing page one."},
@@ -394,10 +369,10 @@ class ReportLengthGuidanceTests(unittest.TestCase):
         minute_payload = _render_summary_window_payload(window, {1: "TEST 1"})
 
         for payload in (hearing_payload, minute_payload):
-            self.assertNotIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, payload)
+            self.assertNotIn("LENGTH GUIDANCE", payload)
             self.assertNotIn("words for this window", payload)
 
-    def test_guidance_coexists_with_proposal_scope_and_sentinel(self) -> None:
+    def test_proposal_scope_and_sentinel_coexist_without_guidance(self) -> None:
         pages = {
             1: "PROPOSED FINDINGS AND ORDERS",
             2: "Narrative page two.",
@@ -413,27 +388,15 @@ class ReportLengthGuidanceTests(unittest.TestCase):
             window,
             {1: "TEST 1"},
             report_marker=marker,
-            report_length_guidance=_report_length_guidance_section(250),
         )
         self.assertIn(REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
-        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, payload)
-        # The built-in prompt keeps the exact sentinel contract alongside the
-        # length guidance section.
         self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn(REPORT_SUMMARY_LENGTH_GUIDANCE_HEADING, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 
-    def test_new_prompt_treats_target_as_soft_guidance(self) -> None:
-        self.assertIn("nonbinding guidance about output shape", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn("never a token cap, a truncation rule", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn("use fewer words than the target when the eligible material warrants less", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-        self.assertIn("exceed the target rather than end mid-thought", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-
-    def test_new_prompt_prioritizes_and_synthesizes_content(self) -> None:
-        self.assertIn("favor new or changed legally significant facts", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
+    def test_prompt_prioritizes_and_synthesizes_content(self) -> None:
+        self.assertIn("retain what matters", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("Synthesize repeated history and substantially duplicative updates", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("Omit routine administrative detail", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("Keep conflicting accounts and their attribution distinct", DEFAULT_SUMMARIZE_REPORTS_PROMPT)
-
 
 class SentinelAndSkipTests(unittest.TestCase):
     def test_delimiter_helper_bounds_offset(self) -> None:

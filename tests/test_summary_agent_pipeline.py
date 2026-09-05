@@ -2,7 +2,7 @@
 
 Synthetic only: no real case material and no paid calls. Covers the category
 digest contracts, permissive candidate normalization, quote resolution,
-window coverage, atomic JSONL publication, resume semantics, synthesis
+window coverage, atomic Markdown publication, resume semantics, synthesis
 normalization (deterministic fallback and warning codes), deterministic
 plain-text rendering, settings persistence without .pi/settings.json
 mutation, and end-to-end runner acceptance runs against a fake PI executable.
@@ -32,6 +32,7 @@ from tests.summary_agent_fixtures import (
     publish_valid_summary,
     synthetic_facts_row,
     write_facts_bundle,
+    write_legacy_digest_jsonl,
 )
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -149,8 +150,6 @@ def _extraction_config(kind: str = "hearings", **overrides) -> sa.ExtractionConf
         "model": "synthetic-model",
         "provider": "synthetic",
         "thinking": "low",
-        "hearing_target_words": 250,
-        "report_target_words": 250,
     }
     defaults.update(overrides)
     return sa.ExtractionConfig(**defaults)
@@ -190,7 +189,7 @@ class CategoryContractTests(unittest.TestCase):
     def test_digest_schema_contract(self) -> None:
         self.assertEqual(sa.SUMMARY_FACTS_SCHEMA_VERSION, 2)
         self.assertEqual(sa.SUMMARY_FACTS_ARTIFACT, "recordprep-summary-digest")
-        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-2")
+        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-4")
         row = synthetic_facts_row("hearings")
         self.assertEqual(sa.validate_digest_row(row), [])
         for category in row["categories"]:
@@ -202,11 +201,15 @@ class CategoryContractTests(unittest.TestCase):
             (root / "case_name.txt").write_text("SynCase", encoding="utf-8")
             self.assertEqual(
                 sa.summary_digest_path(root, "hearings").name,
-                "hearings_digests_SynCase.jsonl",
+                "hearings_digests_SynCase.md",
             )
             self.assertEqual(
                 sa.summary_digest_meta_path(root, "reports").name,
                 "reports_digests_SynCase.meta.json",
+            )
+            self.assertEqual(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").name,
+                "hearings_digests_SynCase.jsonl",
             )
             self.assertEqual(
                 sa.legacy_summary_facts_path(root, "hearings").name,
@@ -372,19 +375,53 @@ class CategoryContractTests(unittest.TestCase):
             )
             self.assertIsNone(row["categories"][0]["digest"])
 
-    def test_length_guidance_and_fingerprints_include_targets(self) -> None:
-        config_one = _extraction_config(
-            "hearings", hearing_target_words=250, report_target_words=250
-        )
+    def test_content_contract_in_fingerprint_and_label_in_item_fingerprint(self) -> None:
+        # The content-contract version participates in every generation
+        # fingerprint; guidance changes also change fingerprints.
+        config_one = _extraction_config("hearings")
         config_two = _extraction_config(
-            "hearings", hearing_target_words=300, report_target_words=250
+            "hearings",
+            guidance=config_one.guidance + "\n\nAdditional guidance.\n",
         )
         self.assertNotEqual(config_one.fingerprint, config_two.fingerprint)
-        self.assertEqual(config_one.target_words, 250)
-        reports_config = _extraction_config(
-            "reports", hearing_target_words=250, report_target_words=0
+        self.assertIn(
+            sa.SUMMARY_CONTENT_CONTRACT_VERSION,
+            list(config_one.fingerprint_payload().values()),
         )
-        self.assertEqual(reports_config.target_words, 0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            items = sa.build_work_items(root, _extraction_config("hearings"))
+            payload = config_one.fingerprint_payload()
+            payload.update(
+                {
+                    "item_id": items[0].item_id,
+                    "end_page": items[0].end_page,
+                    "input_sha256": items[0].input_sha256,
+                    "label": items[0].label,
+                }
+            )
+            self.assertEqual(items[0].generation_sha256, sa.sha256_json(payload))
+            # Relabeling the trusted document label re-extracts the row.
+            relabeled = sa.build_work_items(
+                root,
+                _extraction_config("hearings"),
+            )
+            relabeled[0].label = "March 3, 2025 - Relabeled"
+            fingerprint_payload = config_one.fingerprint_payload()
+            fingerprint_payload.update(
+                {
+                    "item_id": relabeled[0].item_id,
+                    "end_page": relabeled[0].end_page,
+                    "input_sha256": relabeled[0].input_sha256,
+                    "label": relabeled[0].label,
+                }
+            )
+            self.assertNotEqual(
+                items[0].generation_sha256, sa.sha256_json(fingerprint_payload)
+            )
 
 
 class QuoteResolutionTests(unittest.TestCase):
@@ -669,19 +706,14 @@ class SourcePayloadTests(unittest.TestCase):
             self.assertNotIn("windows", spec)
             self.assertIn("source", spec)
             self.assertEqual(spec["schema_version"], 3)
-            self.assertIn("length_guidance", spec)
-            self.assertIn("250", spec["length_guidance"])
-            self.assertIn("salience", spec["guidance"])
-            disabled = sa.build_work_spec(
-                items[0],
-                _extraction_config(hearing_target_words=0, report_target_words=0),
-                root,
-                Path("c.json"),
-            )
-            self.assertNotIn("length_guidance", disabled)
+            self.assertNotIn("length_guidance", spec)
+            self.assertIn("Relevance", spec["guidance"])
+            # No generated word/paragraph budgets in any spec section.
+            self.assertNotIn("target", spec["source"].lower())
+            self.assertNotIn("words", spec["source"].lower())
 
 
-class JsonlStoreTests(unittest.TestCase):
+class MarkdownStoreTests(unittest.TestCase):
     def _bundle(self, root: Path) -> list[sa.SummaryWorkItem]:
         builder = BundleBuilder(root)
         builder.add_pages(1, 1, "aa bb")
@@ -691,7 +723,7 @@ class JsonlStoreTests(unittest.TestCase):
         )
         return sa.build_work_items(root, _extraction_config())
 
-    def test_atomic_append_replace_and_metadata_recovery(self) -> None:
+    def test_publication_replace_and_metadata_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             items = self._bundle(root)
@@ -708,6 +740,11 @@ class JsonlStoreTests(unittest.TestCase):
             self.assertEqual(meta["complete"], False)
             self.assertEqual(meta["total"], 2)
             self.assertEqual(meta["completed"], 1)
+            self.assertEqual(meta["schema_version"], 3)
+            self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
+            self.assertFalse(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
+            )
 
             rows.append(
                 synthetic_facts_row(
@@ -722,9 +759,9 @@ class JsonlStoreTests(unittest.TestCase):
             sa.publish_digests(root, "hearings", items, _extraction_config(), rows)
             meta = sa.load_digest_meta(root, "hearings")
             self.assertEqual(meta["complete"], True)
-            self.assertEqual(meta["schema_version"], 2)
+            self.assertEqual(meta["schema_version"], 3)
 
-            # Simulated crash between JSONL and metadata writes self-heals.
+            # Simulated crash between Markdown and metadata writes self-heals.
             meta_path = sa.summary_digest_meta_path(root, "hearings")
             meta_path.unlink()
             ordered, pending = sa.validate_digest_state(
@@ -734,7 +771,7 @@ class JsonlStoreTests(unittest.TestCase):
             sa.publish_digests(root, "hearings", items, _extraction_config(), ordered)
             self.assertEqual(sa.load_digest_meta(root, "hearings")["complete"], True)
 
-    def test_target_change_makes_rows_stale(self) -> None:
+    def test_guidance_change_makes_rows_stale_but_targets_do_not_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             items = self._bundle(root)
@@ -748,11 +785,16 @@ class JsonlStoreTests(unittest.TestCase):
             ]
             ordered, stale = sa.reconcile_digest_rows(rows, items)
             self.assertEqual(stale, [])
-            # Changing a soft target invalidates the generation fingerprint.
-            retargeted = sa.build_work_items(
-                root, _extraction_config(hearing_target_words=300)
+            # A guidance change invalidates the generation fingerprint.
+            reguided = sa.build_work_items(
+                root,
+                _extraction_config(
+                    "hearings",
+                    guidance=_extraction_config("hearings").guidance
+                    + "\n\nMore guidance.\n",
+                ),
             )
-            _ordered, stale = sa.reconcile_digest_rows(rows, retargeted)
+            _ordered, stale = sa.reconcile_digest_rows(rows, reguided)
             self.assertEqual(stale, ["hearing:0001"])
 
     def test_stale_fingerprint_and_removed_boundaries(self) -> None:
@@ -803,31 +845,91 @@ class JsonlStoreTests(unittest.TestCase):
             self.assertFalse(legacy_meta.exists())
             self.assertEqual(sa.cleanup_legacy_facts_artifacts(root, "hearings"), [])
 
-    def test_malformed_jsonl_is_reported_and_preserved(self) -> None:
+    def test_malformed_markdown_is_reported_and_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._bundle(root)
             path = sa.summary_digest_path(root, "hearings")
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('{"artifact": "recordprep-summary-digest"\n', encoding="utf-8")
+            malformed = "# RecordPrep hearings digests — SynCase\ntruncated\n"
+            path.write_text(malformed, encoding="utf-8")
             with self.assertRaises(ValueError) as context:
-                sa.parse_digest_rows(path)
-            self.assertIn("line 1", str(context.exception))
+                sa.load_digest_markdown(root, "hearings")
             self.assertIn("preserved untouched", str(context.exception))
-            self.assertEqual(
-                path.read_text(encoding="utf-8"),
-                '{"artifact": "recordprep-summary-digest"\n',
-            )
+            self.assertEqual(path.read_text(encoding="utf-8"), malformed)
 
-    def test_legacy_artifact_name_is_not_a_digest_row(self) -> None:
+    def test_truncated_markdown_never_falls_back_to_legacy(self) -> None:
+        """A corrupt Markdown file is authoritative: no silent JSONL fallback."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            items = self._bundle(root)
+            rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256="g" * 64,
+                )
+            ]
+            write_facts_bundle(root, "hearings", rows)
+            text = sa.summary_digest_path(root, "hearings").read_text(
+                encoding="utf-8"
+            )
+            sa.summary_digest_path(root, "hearings").write_text(
+                text[: len(text) // 2], encoding="utf-8"
+            )
+            with self.assertRaises(ValueError):
+                sa.validate_digest_state(
+                    root, "hearings", items, _extraction_config()
+                )
+
+    def test_markdown_structure_rejects_duplicates_bad_versions_and_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._bundle(root)
-            path = sa.summary_digest_path(root, "hearings")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('{"artifact": "recordprep-summary-facts"}\n', encoding="utf-8")
+            rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256="g" * 64,
+                )
+            ]
+            text = sa.serialize_digest_markdown("hearings", "SynCase", rows)
+
+            # Duplicate document id: the appended heading reuses hearing:0001.
+            duplicated = text + "\n## March 3, 2025 — Hearing (hearing:0001)\n"
+            with self.assertRaises(ValueError) as context:
+                sa.parse_digest_markdown(duplicated, "hearings", "SynCase")
+            self.assertIn("duplicate", str(context.exception))
+
+            # Unsupported Markdown format version in the document comment.
+            with self.assertRaises(ValueError) as context:
+                sa.parse_digest_markdown(
+                    text.replace(
+                        '"format_version": 1',
+                        '"format_version": 99',
+                    ),
+                    "hearings",
+                    "SynCase",
+                )
+            self.assertIn("format version", str(context.exception))
+
+            # Visible heading and technical metadata disagree.
+            with self.assertRaises(ValueError) as context:
+                sa.parse_digest_markdown(
+                    text.replace(
+                        "Source pages: 1-1",
+                        "Source pages: 1-3",
+                    ),
+                    "hearings",
+                    "SynCase",
+                )
+            self.assertIn("disagrees", str(context.exception))
+
+            # Case-stem mismatch is rejected (cross-case contamination guard).
             with self.assertRaises(ValueError):
-                sa.parse_digest_rows(path)
+                sa.parse_digest_markdown(text, "hearings", "OtherCase")
 
     def test_per_kind_lock_rejects_concurrent_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -839,6 +941,240 @@ class JsonlStoreTests(unittest.TestCase):
             # Released cleanly for the next run.
             with sa.SummaryKindLock(root, "hearings"):
                 pass
+
+
+class MarkdownCodecRoundTripTests(unittest.TestCase):
+    """The codec preserves every row field, exact quote text, and structure."""
+
+    NASTY_TEXT = (
+        "Tricky: # heading\n"
+        "<!-- comment --> with </script> and &amp; entity\n"
+        "```\nfence\n```\n"
+        "[link](page:0002) ![img](x.png) and - dash\n"
+        "1. ordered 2) alt -minus +plus *star* _under_ = eq | pipe > gt \\ back\\"
+        "Tab\tchar and “curly” quotes — em-dash …"
+    )
+
+    def _row(self, kind: str) -> dict:
+        row = synthetic_facts_row(kind, start=7, end=9, ordinal=3)
+        category_id = (
+            "agency_recommendations" if kind == "reports" else "parent_appearances"
+        )
+        row["label"] = (
+            "March 3, 2025 - odd (label) #heading *stars* — em\nsecond line"
+            if kind == "hearings"
+            else "Report #1 - (od d) \\slash\nmulti"
+        )
+        row["categories"][0]["digest"] = {
+            "text": self.NASTY_TEXT,
+            "evidence": [
+                {
+                    "quote_id": f"{row['item_id']}/{category_id}/1",
+                    "text": "Line one\nLine two with <b>html</b>, `ticks`, and \\back\\",
+                    "file_page": 7,
+                    "source_sha256": "a" * 64,
+                    "source_start": 0,
+                    "source_end": 5,
+                    "verified": True,
+                },
+                {
+                    "quote_id": f"{row['item_id']}/{category_id}/2",
+                    "text": "No material content.",
+                    "file_page": 8,
+                    "source_sha256": "b" * 64,
+                    "verified": False,
+                },
+            ],
+        }
+        row["categories"][1]["digest"] = {
+            "text": "No direct quotes.",
+            "evidence": [],
+        }
+        row["categories"][2]["digest"] = None
+        row["quality_flags"] = ["empty_evidence_kept:testimony"]
+        return row
+
+    def test_round_trip_preserves_rows_exactly(self) -> None:
+        for kind in ("hearings", "reports"):
+            with self.subTest(kind=kind):
+                row = self._row(kind)
+                text = sa.serialize_digest_markdown(kind, "SynCase", [row])
+                parsed = sa.parse_digest_markdown(text, kind, "SynCase")
+                self.assertEqual(len(parsed), 1)
+                self.assertEqual(parsed[0], row)
+                self.assertEqual(
+                    sa.serialize_digest_markdown(kind, "SynCase", parsed), text
+                )
+
+    def test_marker_colliding_digests_stay_prose(self) -> None:
+        row = self._row("hearings")
+        row["categories"][3]["digest"] = {
+            "text": "No material content.",
+            "evidence": [],
+        }
+        text = sa.serialize_digest_markdown("hearings", "SynCase", [row])
+        parsed = sa.parse_digest_markdown(text, "hearings", "SynCase")
+        self.assertEqual(parsed[0], row)
+        # The null category after it still parses as null.
+        self.assertIsNone(parsed[0]["categories"][4]["digest"])
+
+    def test_zero_rows_produce_valid_header_only_document(self) -> None:
+        text = sa.serialize_digest_markdown("reports", "SynCase", [])
+        self.assertTrue(text.startswith("# RecordPrep reports digests — SynCase\n"))
+        self.assertTrue(text.endswith("\n"))
+        self.assertEqual(sa.parse_digest_markdown(text, "reports", "SynCase"), [])
+
+    def test_document_block_omits_comments_but_keeps_visible_content(self) -> None:
+        row = self._row("hearings")
+        block = sa.document_markdown_block(row)
+        self.assertNotIn("<!--", block)
+        self.assertIn("(hearing:0007)", block)
+        self.assertIn("### Testimony (testimony)", block)
+        self.assertIn(sa.DIGEST_NULL_MARKER, block)
+        self.assertIn("#### Direct quotes", block)
+        self.assertIn("Quote: `hearing:0007/parent_appearances/1` — File page 7 — Verified", block)
+        self.assertIn("— Unverified", block)
+        self.assertIn("> Line one", block)
+
+
+class LegacyDigestMigrationTests(unittest.TestCase):
+    """Valid v2 JSONL converts losslessly; inconsistent pairs stay preserved."""
+
+    def _bundle(self, root: Path) -> list[sa.SummaryWorkItem]:
+        builder = BundleBuilder(root)
+        builder.add_pages(1, 1, "aa bb")
+        builder.add_pages(2, 2, "cc dd")
+        builder.finish(
+            [(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")], []
+        )
+        return sa.build_work_items(root, _extraction_config())
+
+    def test_migration_preserves_rows_with_zero_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            items = self._bundle(root)
+            legacy_rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256=items[0].generation_sha256,
+                ),
+                synthetic_facts_row(
+                    "hearings",
+                    start=2,
+                    end=2,
+                    ordinal=2,
+                    generation_sha256="stale" * 16,
+                ),
+            ]
+            write_legacy_digest_jsonl(root, "hearings", legacy_rows)
+
+            migrated = sa.migrate_legacy_digest_jsonl(root, "hearings")
+            self.assertIsNotNone(migrated)
+            self.assertEqual(migrated, legacy_rows)
+            # The runner publishes through the normal Markdown path.
+            sa.publish_digests(root, "hearings", items, _extraction_config(), migrated)
+            # Reconciled against current items: only the stale row re-extracts.
+            ordered, pending = sa.validate_digest_state(
+                root, "hearings", items, _extraction_config()
+            )
+            self.assertEqual(pending, ["hearing:0002"])
+            self.assertEqual(ordered, legacy_rows)
+            # Migrated rows are byte-identical through the Markdown store.
+            self.assertEqual(
+                sa.load_digest_markdown(root, "hearings"), legacy_rows
+            )
+            # A rerun never re-migrates: Markdown is authoritative.
+            self.assertIsNone(sa.migrate_legacy_digest_jsonl(root, "hearings"))
+
+            # Success cleanup removes only the obsolete JSONL.
+            removed = sa.cleanup_legacy_digest_jsonl(root, "hearings")
+            self.assertEqual(removed, ["hearings_digests_SynCase.jsonl"])
+            self.assertFalse(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
+            )
+            self.assertTrue(sa.summary_digest_meta_path(root, "hearings").exists())
+
+    def test_inconsistent_legacy_pair_is_preserved_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._bundle(root)
+            rows = [
+                synthetic_facts_row("hearings", start=1, end=1, generation_sha256="g" * 64)
+            ]
+            write_legacy_digest_jsonl(
+                root, "hearings", rows, jsonl_sha256="0" * 64
+            )
+            with self.assertRaises(ValueError) as context:
+                sa.migrate_legacy_digest_jsonl(root, "hearings")
+            self.assertIn("disagree", str(context.exception))
+            # Both files preserved for deliberate recovery.
+            self.assertTrue(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
+            )
+            self.assertFalse(sa.summary_digest_path(root, "hearings").exists())
+
+    def test_malformed_legacy_jsonl_is_preserved_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._bundle(root)
+            path = sa.legacy_summary_digest_jsonl_path(root, "hearings")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"artifact": "recordprep-summary-digest"\n', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                sa.migrate_legacy_digest_jsonl(root, "hearings")
+            self.assertFalse(sa.summary_digest_path(root, "hearings").exists())
+
+    def test_final_text_is_byte_identical_across_migration(self) -> None:
+        """Same rows + same synthetic candidate render identical final text."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            items = self._bundle(root)
+            rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256=items[0].generation_sha256,
+                    facts={
+                        "parent_appearances": [
+                            {
+                                "text": "Mother appeared remotely.",
+                                "evidence": [
+                                    {"text": "unique phrase", "file_page": 1}
+                                ],
+                            }
+                        ]
+                    },
+                )
+            ]
+            write_legacy_digest_jsonl(root, "hearings", rows)
+            migrated = sa.migrate_legacy_digest_jsonl(root, "hearings")
+            sa.publish_digests(root, "hearings", items, _extraction_config(), migrated)
+            stored = sa.load_digest_markdown(root, "hearings")
+            quote_id = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
+            sections = [
+                sa.SynthesisSectionCandidate(
+                    item_id=rows[0]["item_id"],
+                    paragraphs=[f"Mother appeared with {{{{quote:{quote_id}}}}}."],
+                )
+            ]
+            heading_pages = {rows[0]["item_id"]: (1, None)}
+            migrated_text = sa.render_final_summary(
+                "hearings", "Syn Case", stored, sections, heading_pages
+            )
+            # The same render over the original in-memory rows is identical.
+            self.assertEqual(
+                migrated_text,
+                sa.render_final_summary(
+                    "hearings", "Syn Case", rows, sections, heading_pages
+                ),
+            )
+            self.assertIn("\u201cunique phrase\u201d", migrated_text)
+            self.assertNotIn(
+                sa.NO_SUMMARIZABLE_REPORT_CONTENT, migrated_text
+            )
 
 
 class SynthesisNormalizationTests(unittest.TestCase):
@@ -959,13 +1295,56 @@ class SynthesisNormalizationTests(unittest.TestCase):
         joined = " ".join(flags)
         self.assertIn("typed_quotation_marks:report:0001", joined)
         self.assertIn("duplicate_quote_use:", joined)
-        # Over-target sections warn with word counts only.
-        sections, flags = sa.normalize_synthesis_sections(
-            rows, payload, target_words=5
+        # No word-count or coverage diagnostics exist for any section.
+        self.assertFalse(any("target_overrun" in flag for flag in flags))
+        self.assertFalse(any("low_category_coverage" in flag for flag in flags))
+
+    def test_quote_convention_diagnostics_are_sanitized_warnings(self) -> None:
+        facts = {
+            "agency_recommendations": [
+                {
+                    "text": "Reunification services recommended for the parent.",
+                    "evidence": [
+                        {"text": "aa", "file_page": 1},
+                        {"text": "aa bb cc dd ee ff", "file_page": 1},
+                        {"text": "aa bb...", "file_page": 1},
+                        {"text": "aa bb.", "file_page": 1},
+                        {"text": "aa bb", "file_page": 1},
+                    ],
+                }
+            ]
+        }
+        row = synthetic_facts_row(
+            "reports", ordinal=1, label="March 1, 2025", start=1, end=1, facts=facts
         )
-        self.assertTrue(
-            any(flag.startswith("target_overrun:report:0001:") for flag in flags)
+        quote_ids = [
+            evidence["quote_id"]
+            for evidence in row["categories"][0]["digest"]["evidence"]
+        ]
+        one_word, six_word, ellipsis, terminal, compliant = quote_ids
+        payload = [
+            {
+                "item_id": row["item_id"],
+                "paragraphs": [
+                    " ".join(f"{{{{quote:{qid}}}}}" for qid in quote_ids)
+                ],
+            }
+        ]
+        sections, flags = sa.normalize_synthesis_sections([row], payload)
+        joined = " ".join(flags)
+        self.assertIn(f"quote_length_out_of_range:{row['item_id']}:{one_word}:1", joined)
+        self.assertIn(f"quote_length_out_of_range:{row['item_id']}:{six_word}:6", joined)
+        self.assertIn(f"quote_ellipsis:{row['item_id']}:{ellipsis}", joined)
+        self.assertIn(
+            f"quote_terminal_punctuation:{row['item_id']}:{terminal}", joined
         )
+        self.assertNotIn(
+            f"quote_length_out_of_range:{row['item_id']}:{compliant}", joined
+        )
+        # Apostrophes and hyphenated compounds count as one word.
+        self.assertEqual(len(sa._normalized_words("mother's in-home visit")), 3)
+        # Diagnostics never shorten or drop useful paragraphs.
+        self.assertEqual(len(sections[0].paragraphs), 1)
 
     def test_repeated_report_passages_are_warning_diagnostics(self) -> None:
         rows = self._report_rows()
@@ -1073,7 +1452,125 @@ class RenderingTests(unittest.TestCase):
         )
         self.assertIn("March 1, 2025 - Status Review Report", report_text)
         self.assertNotIn("[Report]", report_text)
-        self.assertIn(sa.NO_SUMMARIZABLE_REPORT_CONTENT, report_text)
+        # All-null documents keep the required heading without a sentinel
+        # paragraph or any technical narrative.
+        self.assertEqual(
+            report_text.strip(),
+            "Reports Summary\nSyn Case\n\nMarch 1, 2025 - Status Review Report",
+        )
+        self.assertNotIn(sa.NO_SUMMARIZABLE_REPORT_CONTENT, report_text)
+
+    def test_all_null_documents_render_heading_only(self) -> None:
+        all_null = synthetic_facts_row("hearings", start=3, end=3)
+        text = sa.render_final_summary(
+            "hearings",
+            "Syn Case",
+            [all_null],
+            [sa.SynthesisSectionCandidate(item_id=all_null["item_id"], paragraphs=[])],
+            {all_null["item_id"]: (3, None)},
+        )
+        self.assertEqual(
+            text.strip(),
+            "Hearings Summary\nSyn Case\n\nMarch 3, 2025 \u2014 Hearing",
+        )
+        self.assertEqual(sa.rendered_narrative_flags(text), [])
+
+    def test_final_meta_enforces_renderer_version_and_quality_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rows = [synthetic_facts_row("hearings", start=1, end=1)]
+            final_text = "Hearings Summary\n\nMarch 3, 2025 \u2014 Hearing\n"
+            flags = ["typed_quotation_marks:hearing:0001"]
+            meta = sa.build_final_meta(
+                root,
+                "hearings",
+                rows,
+                final_text,
+                {},
+                {"hearing:0001": (1, None)},
+                quality_flags=flags,
+            )
+            self.assertEqual(meta["renderer_version"], sa.SUMMARY_RENDERER_VERSION)
+            self.assertEqual(meta["quality_flags"], flags)
+            sa._atomic_write(sa.summary_final_path(root, "hearings"), final_text)
+            sa._atomic_write(
+                sa.summary_final_meta_path(root, "hearings"),
+                json.dumps(meta) + "\n",
+            )
+            self.assertEqual(sa.validate_final_meta(root, "hearings", final_text), [])
+            # A retired renderer version makes the output regeneration-pending.
+            stale = dict(meta)
+            stale["renderer_version"] = "recordprep-summary-renderer-2"
+            sa._atomic_write(
+                sa.summary_final_meta_path(root, "hearings"),
+                json.dumps(stale) + "\n",
+            )
+            issues = sa.validate_final_meta(root, "hearings", final_text)
+            self.assertTrue(any("retired renderer" in issue for issue in issues))
+            # Omitting the optional quality_flags field stays valid.
+            valid_without_flags = dict(meta)
+            del valid_without_flags["quality_flags"]
+            sa._atomic_write(
+                sa.summary_final_meta_path(root, "hearings"),
+                json.dumps(valid_without_flags) + "\n",
+            )
+            self.assertEqual(sa.validate_final_meta(root, "hearings", final_text), [])
+            # A missing renderer version also counts as regeneration-pending.
+            missing_version = dict(valid_without_flags)
+            del missing_version["renderer_version"]
+            sa._atomic_write(
+                sa.summary_final_meta_path(root, "hearings"),
+                json.dumps(missing_version) + "\n",
+            )
+            issues = sa.validate_final_meta(root, "hearings", final_text)
+            self.assertTrue(any("retired renderer" in issue for issue in issues))
+
+    def test_rendered_narrative_flags_detect_technical_metadata(self) -> None:
+        clean = "Hearings Summary\n\nMarch 3, 2025 \u2014 Hearing\n\nMother appeared."
+        self.assertEqual(sa.rendered_narrative_flags(clean), [])
+        dirty = (
+            "Text with {{quote:hearing:0001/testimony/1}} placeholder, "
+            "a [label](page:0007) link, and a recordprep:digest-row comment."
+        )
+        flags = sa.rendered_narrative_flags(dirty)
+        self.assertIn("technical_metadata_in_narrative:placeholder", flags)
+        self.assertIn("technical_metadata_in_narrative:page_link", flags)
+        self.assertIn("technical_metadata_in_narrative:digest_marker", flags)
+
+    def test_doubled_model_quotes_around_placeholders_render_once(self) -> None:
+        """Model-typed straight quotes hugging a placeholder are dropped so the
+        resolved quotation is published once, in ordinary curly quotes."""
+        rows = [synthetic_facts_row("hearings", start=7, end=8)]
+        quote_id = "hearing:0007/parent_appearances/1"
+        row = rows[0]
+        row["categories"][0]["digest"] = {
+            "text": "Mother appeared.",
+            "evidence": [
+                {
+                    "quote_id": quote_id,
+                    "text": "unique phrase",
+                    "file_page": 7,
+                    "source_start": 0,
+                    "source_end": 1,
+                    "source_sha256": "x" * 64,
+                    "verified": True,
+                }
+            ],
+        }
+        rendered = sa.render_section_paragraphs(
+            row,
+            [f'The court said "{{{{quote:{quote_id}}}}}" and moved on.'],
+        )
+        self.assertEqual(
+            rendered,
+            ["The court said \u201cunique phrase\u201d and moved on."],
+        )
+        # Typed marks elsewhere in the paragraph are left untouched.
+        rendered_plain = sa.render_section_paragraphs(
+            row,
+            ['She said "good cause" plainly.'],
+        )
+        self.assertEqual(rendered_plain, ['She said "good cause" plainly.'])
 
     def test_final_summary_builds_and_validates_as_edition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1180,6 +1677,45 @@ class SettingsTests(unittest.TestCase):
             ),
             "default-synthesis",
         )
+        # The shipped digest built-ins (with their length and six-quote
+        # guidance) advance by exact historical text; broadly similar
+        # customized text is never treated as a default.
+        self.assertEqual(
+            sa.migrate_extraction_prompt(
+                "hearings", sa.PRIOR_HEARING_EXTRACTION_GUIDANCE, "default-x"
+            ),
+            "default-x",
+        )
+        self.assertEqual(
+            sa.migrate_extraction_prompt(
+                "reports", sa.PRIOR_REPORT_EXTRACTION_GUIDANCE, "default-x"
+            ),
+            "default-x",
+        )
+        self.assertEqual(
+            sa.migrate_synthesis_prompt(
+                "hearings", sa.PRIOR_HEARING_SYNTHESIS_GUIDANCE, "default-x"
+            ),
+            "default-x",
+        )
+        self.assertEqual(
+            sa.migrate_synthesis_prompt(
+                "reports", sa.PRIOR_REPORT_SYNTHESIS_GUIDANCE, "default-x"
+            ),
+            "default-x",
+        )
+        # A customized prompt that opens like a retired built-in but differs
+        # is preserved byte-for-byte, including obsolete length instructions.
+        similar_custom = sa.PRIOR_HEARING_EXTRACTION_GUIDANCE.replace(
+            "never impose word, sentence, or paragraph counts",
+            "keep digests near 200 words",
+        )
+        if similar_custom == sa.PRIOR_HEARING_EXTRACTION_GUIDANCE:
+            similar_custom = sa.PRIOR_HEARING_EXTRACTION_GUIDANCE + "\nCustom note."
+        self.assertEqual(
+            sa.migrate_extraction_prompt("hearings", similar_custom, "default-x"),
+            similar_custom,
+        )
         custom = "A genuinely custom extraction prompt."
         self.assertEqual(
             sa.migrate_extraction_prompt("hearings", custom, "default"),
@@ -1213,8 +1749,6 @@ class SettingsTests(unittest.TestCase):
                     model_id="synthetic-model",
                     api_key="synthetic-key",
                     disable_reasoning=False,
-                    hearings_target_words="250",
-                    reports_target_words="250",
                     minutes_target_chars="6000",
                     minutes_max_pages="6",
                     hearings_prompt=sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
@@ -1233,26 +1767,26 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(config["summary_extract_pi_model"], "synthetic-model")
                 self.assertNotIn("summarize_hearings_window_target_chars", config)
                 self.assertNotIn("summarize_reports_window_max_pages", config)
-                # The retired report window-target key is removed on save.
+                # Retired word-target keys are never created by a save.
                 self.assertNotIn(
                     "summarize_reports_window_target_words", config
                 )
-                self.assertEqual(
-                    config["summarize_hearings_target_words"], "250"
+                self.assertNotIn(
+                    "summarize_hearings_target_words", config
                 )
-                self.assertEqual(
-                    config["summarize_reports_target_words"], "250"
+                self.assertNotIn(
+                    "summarize_reports_target_words", config
                 )
                 self.assertEqual(config["summary_extract_pi_thinking"], "low")
                 self.assertEqual(config["summary_synthesize_pi_model"], "")
                 settings = load_summarize_settings()
                 self.assertEqual(settings["extract_model"], "synthetic-model")
                 self.assertEqual(settings["synthesize_model"], "")
-                self.assertEqual(settings["hearings_target_words"], "250")
-                self.assertEqual(settings["reports_target_words"], "250")
-                self.assertIn("salience", settings["hearings_prompt"])
+                self.assertNotIn("hearings_target_words", settings)
+                self.assertNotIn("reports_target_words", settings)
+                self.assertIn("Relevance", settings["hearings_prompt"])
                 self.assertIn(
-                    "Synthesize one coherent narrative",
+                    "Synthesize the final hearings narrative",
                     settings["hearings_synthesis_prompt"],
                 )
             # The project PI settings file is untouched by summary saves.
@@ -1261,27 +1795,65 @@ class SettingsTests(unittest.TestCase):
                 {"defaultProvider": "p", "defaultModel": "m"},
             )
 
-    def test_retired_report_target_migrates_and_zero_is_honored(self) -> None:
-        from recordprep.ui.main_window import load_summarize_settings
+    def test_retired_word_targets_are_inert_and_preserved(self) -> None:
+        from recordprep.ui.main_window import (
+            load_summarize_settings,
+            save_summarize_settings,
+        )
 
-        with mock.patch(
-            "recordprep.ui.main_window._read_config",
-            return_value={"summarize_reports_window_target_words": "300"},
+        # Absent, zero, positive, and malformed stored values are all inert:
+        # settings no longer expose target fields at all.
+        for stored in (
+            {},
+            {"summarize_hearings_target_words": "0"},
+            {"summarize_reports_target_words": "250"},
+            {"summarize_hearings_target_words": "junk"},
+            {"summarize_reports_window_target_words": "300"},
         ):
-            settings = load_summarize_settings()
-        self.assertEqual(settings["reports_target_words"], "300")
-        self.assertEqual(settings["hearings_target_words"], "250")
+            with mock.patch(
+                "recordprep.ui.main_window._read_config",
+                return_value=dict(stored),
+            ):
+                settings = load_summarize_settings()
+            self.assertNotIn("hearings_target_words", settings)
+            self.assertNotIn("reports_target_words", settings)
 
-        with mock.patch(
-            "recordprep.ui.main_window._read_config",
-            return_value={
-                "summarize_hearings_target_words": "0",
-                "summarize_reports_target_words": "0",
-            },
-        ):
-            settings = load_summarize_settings()
-        self.assertEqual(settings["hearings_target_words"], "0")
-        self.assertEqual(settings["reports_target_words"], "0")
+        # A Settings save preserves existing retired values untouched instead
+        # of migrating or zeroing them, and never creates new ones.
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "summarize_hearings_target_words": "0",
+                        "summarize_reports_target_words": "250",
+                        "summarize_reports_window_target_words": "300",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ):
+                save_summarize_settings(
+                    api_url="http://localhost:9999/v1/chat",
+                    model_id="synthetic-model",
+                    api_key="synthetic-key",
+                    disable_reasoning=False,
+                    minutes_target_chars="6000",
+                    minutes_max_pages="6",
+                    hearings_prompt=sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
+                    reports_prompt=sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
+                    minutes_prompt="minute prompt",
+                    hearings_synthesis_prompt=sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE,
+                    reports_synthesis_prompt=sa.DEFAULT_REPORT_SYNTHESIS_GUIDANCE,
+                )
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["summarize_hearings_target_words"], "0")
+            self.assertEqual(config["summarize_reports_target_words"], "250")
+            self.assertEqual(
+                config["summarize_reports_window_target_words"], "300"
+            )
 
         # Defaults apply even alongside a custom prompt.
         with mock.patch(
@@ -1290,7 +1862,6 @@ class SettingsTests(unittest.TestCase):
         ):
             settings = load_summarize_settings()
         self.assertEqual(settings["reports_prompt"], "A genuinely custom prompt.")
-        self.assertEqual(settings["reports_target_words"], "250")
 
 
 class CompletionAndRestartTests(unittest.TestCase):
@@ -1313,7 +1884,7 @@ class CompletionAndRestartTests(unittest.TestCase):
             )
             # A metadata hash mismatch fails validation (step Pending).
             meta = sa.load_digest_meta(root, "hearings")
-            meta["jsonl_sha256"] = "0" * 64
+            meta["digest_markdown_sha256"] = "0" * 64
             sa._atomic_write(
                 sa.summary_digest_meta_path(root, "hearings"),
                 json.dumps(meta) + "\n",
@@ -1337,11 +1908,16 @@ class CompletionAndRestartTests(unittest.TestCase):
             legacy = sa.legacy_summary_facts_path(root, "hearings")
             legacy.parent.mkdir(parents=True, exist_ok=True)
             legacy.write_text("{}\n", encoding="utf-8")
+            legacy_jsonl = sa.legacy_summary_digest_jsonl_path(root, "hearings")
+            legacy_jsonl.write_text("{}\n", encoding="utf-8")
             _reset_generated_case_bundle(root)
             for kind in sa.SUMMARY_KINDS:
                 self.assertFalse(sa.summary_digest_path(root, kind).exists())
                 self.assertFalse(sa.summary_digest_meta_path(root, kind).exists())
                 self.assertFalse(sa.summary_final_meta_path(root, kind).exists())
+                self.assertFalse(
+                    sa.legacy_summary_digest_jsonl_path(root, kind).exists()
+                )
                 self.assertFalse(sa.legacy_summary_facts_path(root, kind).exists())
                 self.assertFalse(
                     sa.legacy_summary_facts_meta_path(root, kind).exists()
@@ -1432,6 +2008,10 @@ if "recordprep_finish_summary" in tools:
     assert os.environ.get("RECORDPREP_SUMMARY_MODE") == "synthesize", \
         "RECORDPREP_SUMMARY_MODE must be set for synthesis children"
     dataset = json.loads(Path(os.environ["RECORDPREP_SUMMARY_DATASET"]).read_text(encoding="utf-8"))
+    assert len(dataset["documents"]) == len(dataset["rows"]), \
+        "the dataset must carry one Markdown block per row"
+    assert "<!--" not in dataset["documents"][0], \
+        "model-visible Markdown must omit fingerprint comments"
     sections = []
     for row in dataset["rows"]:
         quote_id = None
@@ -1591,7 +2171,13 @@ raise SystemExit(3)
                 pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
                 [],
             )
-            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
+            # Fresh runs publish Markdown and no canonical digest JSONL.
+            self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
+            self.assertEqual(sa.summary_digest_path(root, "hearings").suffix, ".md")
+            self.assertFalse(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
+            )
+            rows = sa.load_digest_markdown(root, "hearings")
             self.assertEqual(
                 [row["item_id"] for row in rows],
                 ["hearing:0001", "hearing:0002"],
@@ -1653,7 +2239,7 @@ raise SystemExit(3)
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
+            rows = sa.load_digest_markdown(root, "hearings")
             row = rows[0]
             # Unknown/malformed categories fill null; the numeric digest text
             # is retained as a usable (if poor) string with no evidence.
@@ -1699,10 +2285,157 @@ raise SystemExit(3)
             )
 
             self.assertNotEqual(result.returncode, 0)
-            rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
+            rows = sa.load_digest_markdown(root, "hearings")
             self.assertEqual([row["item_id"] for row in rows], ["hearing:0001"])
             # No final summary was published.
             self.assertFalse(sa.summary_final_path(root, "hearings").exists())
+
+    def test_legacy_jsonl_bundle_migrates_with_zero_extraction_calls(self) -> None:
+        """A valid v2 JSONL bundle converts and synthesizes without extraction."""
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            root = temp / "bundle"
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.add_pages(2, 2, "cc dd")
+            builder.finish(
+                [(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")],
+                [],
+                minutes=[(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")],
+            )
+            items = sa.build_work_items(root, _extraction_config())
+            legacy_rows = [
+                synthetic_facts_row(
+                    "hearings",
+                    start=1,
+                    end=1,
+                    generation_sha256=items[0].generation_sha256,
+                    facts={
+                        "parent_appearances": [
+                            {
+                                "text": "Mother appeared remotely.",
+                                "evidence": [
+                                    {"text": "unique phrase", "file_page": 1}
+                                ],
+                            }
+                        ]
+                    },
+                ),
+                synthetic_facts_row(
+                    "hearings",
+                    start=2,
+                    end=2,
+                    ordinal=2,
+                    generation_sha256=items[1].generation_sha256,
+                    facts={
+                        "parent_appearances": [
+                            {
+                                "text": "Father appeared in person.",
+                                "evidence": [
+                                    {"text": "unique phrase", "file_page": 2}
+                                ],
+                            }
+                        ]
+                    },
+                ),
+            ]
+            write_legacy_digest_jsonl(root, "hearings", legacy_rows)
+            fake_pi = self._write_fake_pi(temp)
+            project = self._staged_project(temp)
+            # Match the fixture extraction config so the migrated rows are
+            # current under the runner's own fingerprint computation.
+            (project / "config.json").write_text(
+                json.dumps(
+                    {
+                        "summary_extract_hearings_pi_provider": "synthetic",
+                        "summary_extract_hearings_pi_model": "synthetic-model",
+                        "summary_extract_hearings_pi_thinking": "low",
+                        "summarize_hearings_target_words": "250",
+                        "summarize_reports_target_words": "250",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            log = temp / "invocations.log"
+
+            result = self._run_stage(
+                "create_hearing_summaries", root, project, fake_pi, log
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            invocations = [
+                json.loads(line)
+                for line in log.read_text(encoding="utf-8").splitlines()
+                if "--version" not in line and "rpc" not in line
+            ]
+            # Migration is lossless: no extraction children ran at all, and
+            # exactly one synthesis child consumed the converted Markdown.
+            self.assertEqual(len(invocations), 1)
+            self.assertIn(
+                "recordprep_finish_summary",
+                invocations[0]["argv"][
+                    invocations[0]["argv"].index("--tools") + 1
+                ],
+            )
+            self.assertFalse(
+                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
+            )
+            self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
+            self.assertEqual(
+                sa.load_digest_markdown(root, "hearings"), legacy_rows
+            )
+            self.assertEqual(
+                pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
+                [],
+            )
+
+    def test_child_prompts_carry_no_length_budgets_or_quotas(self) -> None:
+        """Captured child prompts have no word budgets, length sections,
+        six-quote quotas, or the retired material-details header."""
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            root = temp / "bundle"
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.finish([(1, 1, "March 3, 2025")], [])
+            fake_pi = self._write_fake_pi(temp)
+            project = self._staged_project(temp)
+            # Stored retired word-target values are inert.
+            (project / "config.json").write_text(
+                json.dumps(
+                    {
+                        "summarize_hearings_target_words": "250",
+                        "summary_extract_hearings_pi_provider": "synthetic",
+                        "summary_extract_hearings_pi_model": "synthetic-model",
+                        "summary_extract_hearings_pi_thinking": "low",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            log = temp / "invocations.log"
+
+            result = self._run_stage(
+                "create_hearing_summaries", root, project, fake_pi, log
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            invocations = [
+                json.loads(line)
+                for line in log.read_text(encoding="utf-8").splitlines()
+                if "--version" not in line and "rpc" not in line
+            ]
+            self.assertTrue(invocations)
+            for entry in invocations:
+                prompt = " ".join(
+                    str(part) for part in entry["argv"]
+                )
+                self.assertNotIn("LENGTH GUIDANCE", prompt)
+                self.assertNotIn("SUMMARIZE ALL MATERIAL DETAILS", prompt)
+                self.assertNotIn("approximately 250 words", prompt)
+                self.assertNotIn("at least six", prompt)
+                self.assertNotIn("six useful short quotations", prompt)
+                self.assertNotIn("target words", prompt.lower())
+                self.assertNotIn("word target", prompt.lower())
 
     def test_zero_item_boundary_set_publishes_empty_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1829,7 +2562,7 @@ class StopPropagationTests(unittest.TestCase):
                 self.assertFalse(Path(f"/proc/{child_pid}").exists())
 
                 # No canonical row or final summary was published.
-                rows = sa.parse_digest_rows(sa.summary_digest_path(root, "hearings"))
+                rows = sa.load_digest_markdown(root, "hearings")
                 self.assertEqual(rows, [])
                 self.assertFalse(sa.summary_final_path(root, "hearings").exists())
                 self.assertFalse(

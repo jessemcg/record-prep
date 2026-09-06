@@ -26,6 +26,8 @@ STUB_TYPEBOX = """exports.Type = {
   Integer: () => "integer",
   Array: (t) => ["array", t],
   Any: () => "any",
+  Literal: (value) => ["literal", value],
+  Union: (options) => ["union", options],
 };
 """
 
@@ -111,6 +113,33 @@ import(pathToFileURL(process.argv[2]).href)
         undefined, undefined, { shutdown() {} }
       );
       results["cleanSection"] = clean.details;
+      // The scratchpad stores process-local notes and runner-owned progress.
+      const replace = await byName.recordprep_synthesis_scratchpad.execute(
+        "s1", { action: "replace", notes: "Narrated hearing:0001; watch dates." }, undefined, undefined, { shutdown() {} }
+      );
+      results["scratchpadReplace"] = replace.details;
+      const readBack = await byName.recordprep_synthesis_scratchpad.execute(
+        "s2", { action: "read" }, undefined, undefined, { shutdown() {} }
+      );
+      results["scratchpadRead"] = JSON.parse(readBack.content[0].text);
+      // An already-submitted draft is retrievable after compaction.
+      const draft = await byName.recordprep_get_facts.execute(
+        "s3", { ordinal: 1, view: "submitted_section" }, undefined, undefined, { shutdown() {} }
+      );
+      results["draftView"] = draft.content[0].text;
+      // An ordinal without a submission has no draft to retrieve.
+      const noDraft = await byName.recordprep_get_facts.execute(
+        "s4", { ordinal: 2, view: "submitted_section" }, undefined, undefined, { shutdown() {} }
+      );
+      results["noDraftDetail"] = noDraft.details;
+      const badView = await byName.recordprep_get_facts.execute(
+        "s5", { ordinal: 1, view: "bogus" }, undefined, undefined, { shutdown() {} }
+      );
+      results["badViewDetail"] = badView.details;
+      const badAction = await byName.recordprep_synthesis_scratchpad.execute(
+        "s6", { action: "append", notes: "x" }, undefined, undefined, { shutdown() {} }
+      );
+      results["badActionDetail"] = badAction.details;
       const finish = await byName.recordprep_finish_summary.execute(
         "id6", {}, undefined, undefined, { shutdown() {} }
       );
@@ -306,7 +335,32 @@ class SummaryToolsExtensionTests(unittest.TestCase):
             results["cleanSection"],
             {"item_id": "hearing:0001", "recorded": True, "advisory": []},
         )
-        self.assertEqual(results["finishDetail"], {"accepted": True})
+        # Scratchpad notes are process-local and retrievable with progress;
+        # submitted drafts are explicitly labeled and retrievable; invalid
+        # actions and views are rejected; finalize carries sanitized counts.
+        self.assertEqual(
+            results["scratchpadReplace"],
+            {"action": "replace", "notes_chars": 35},
+        )
+        scratchpad = results["scratchpadRead"]
+        self.assertEqual(scratchpad["artifact"], "recordprep-synthesis-scratchpad")
+        self.assertEqual(scratchpad["notes"], "Narrated hearing:0001; watch dates.")
+        self.assertEqual(scratchpad["progress"]["total_documents"], 1)
+        self.assertEqual(scratchpad["progress"]["read_ordinals"], [1])
+        self.assertEqual(scratchpad["progress"]["submitted_ordinals"], [1])
+        self.assertEqual(scratchpad["progress"]["pending_ordinals"], [])
+        self.assertIn("DRAFT SECTION", results["draftView"])
+        self.assertIn("Fixed {{quote:hearing:0001/parent_appearances/1}} only.", results["draftView"])
+        self.assertEqual(
+            results["noDraftDetail"],
+            {"rejected": True},
+        )
+        self.assertEqual(results["badViewDetail"], {"rejected": True})
+        self.assertEqual(results["badActionDetail"], {"rejected": True})
+        self.assertEqual(
+            results["finishDetail"],
+            {"accepted": True, "unread_documents": 0, "missing_sections": 0},
+        )
         self.assertEqual(
             results["candidate"],
             {
@@ -319,6 +373,7 @@ class SummaryToolsExtensionTests(unittest.TestCase):
                         ],
                     }
                 ],
+                "diagnostics": {"unread_documents": 0, "missing_sections": 0},
             },
         )
 

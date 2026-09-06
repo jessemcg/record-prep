@@ -92,6 +92,11 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
 
   const requestedOrdinals = new Set<number>();
   const sections = new Map<string, Record<string, unknown>>();
+  // Extension-owned synthesis scratchpad: process-local memory separate from
+  // conversation history, so notes survive context compaction within this
+  // child process. They are orientation aids, never evidence; they are never
+  // published, logged, or persisted beyond the process.
+  let scratchpadNotes = "";
 
   let workSpec: WorkSpec | null = null;
   let dataset: DatasetFile | null = null;
@@ -195,14 +200,93 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
 
   // --- Synthesis tools ---
 
+  // Runner-owned synthesis progress derived from actual tool activity.
+  function synthesisProgress(dataset: DatasetFile) {
+    const submittedIds = new Set(sections.keys());
+    const submitted: number[] = [];
+    const pending: number[] = [];
+    for (const row of dataset.rows) {
+      const ordinal = Number(row.ordinal);
+      if (submittedIds.has(String(row.item_id))) {
+        submitted.push(ordinal);
+      } else {
+        pending.push(ordinal);
+      }
+    }
+    return {
+      total_documents: dataset.total_rows,
+      read_ordinals: [...requestedOrdinals].sort((a, b) => a - b),
+      unread_ordinals: dataset.rows
+        .map((row) => Number(row.ordinal))
+        .filter((ordinal) => !requestedOrdinals.has(ordinal))
+        .sort((a, b) => a - b),
+      submitted_ordinals: submitted,
+      pending_ordinals: pending,
+    };
+  }
+
+  pi.registerTool({
+    name: "recordprep_synthesis_scratchpad",
+    label: "Synthesis scratchpad",
+    description:
+      "Your private synthesis scratchpad. It lives in extension memory " +
+      "separate from the conversation, so it survives context compaction " +
+      "within this process. action=\"read\" returns your notes plus " +
+      "runner-owned progress (read, submitted, and pending documents). " +
+      "action=\"replace\" swaps the entire notes value — replace the whole "
+      + "scratchpad after completing work rather than appending forever. " +
+      "Keep notes to orientation aids: what you already narrated, relevant " +
+      "event dates and attribution, unresolved issues, and developments " +
+      "whose change matters. Notes are never evidence and never published.",
+    parameters: Type.Object({
+      action: Type.Union([Type.Literal("read"), Type.Literal("replace")]),
+      notes: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params) {
+      if (!dataset) return fail("digests dataset is unavailable");
+      const action = String(params.action || "");
+      if (action === "read") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                artifact: "recordprep-synthesis-scratchpad",
+                notes: scratchpadNotes,
+                progress: synthesisProgress(dataset),
+              }),
+            },
+          ],
+          details: { action: "read" },
+        };
+      }
+      if (action === "replace") {
+        scratchpadNotes = String(params.notes ?? "");
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Scratchpad replaced.",
+            },
+          ],
+          details: { action: "replace", notes_chars: scratchpadNotes.length },
+        };
+      }
+      return fail("action must be \"read\" or \"replace\"");
+    },
+  });
+
   pi.registerTool({
     name: "recordprep_get_facts",
     label: "Get digests",
     description:
-      "Return the dataset overview (omit ordinal) or one document's Markdown " +
-      "digest block by ordinal. Read every document before finalizing.",
+      "Return the dataset overview (omit ordinal), one document's Markdown " +
+      "digest block by ordinal (default view=\"digest\"), or that document's " +
+      "already-submitted draft section (view=\"submitted_section\") after a "
+      + "context compaction. Cannot read arbitrary files or other cases.",
     parameters: Type.Object({
       ordinal: Type.Optional(Type.Integer({ minimum: 1 })),
+      view: Type.Optional(Type.String()),
     }),
     async execute(_id, params) {
       if (!dataset) return fail("digests dataset is unavailable");
@@ -236,6 +320,29 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       const document = dataset.documents?.[params.ordinal - 1];
       if (!row || row.ordinal !== params.ordinal || typeof document !== "string") {
         return fail(`ordinal ${params.ordinal} does not exist`);
+      }
+      const view = String(params.view || "digest");
+      if (view === "submitted_section") {
+        const section = sections.get(String(row.item_id));
+        if (section === undefined) {
+          return fail(
+            `ordinal ${params.ordinal} has no submitted draft section yet`
+          );
+        }
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                "DRAFT SECTION (already submitted — replace it by submitting " +
+                `the same item_id again):\n${JSON.stringify(section)}`,
+            },
+          ],
+          details: { ordinal: params.ordinal, view },
+        };
+      }
+      if (view !== "digest") {
+        return fail("view must be \"digest\" or \"submitted_section\"");
       }
       requestedOrdinals.add(params.ordinal);
       return {
@@ -360,11 +467,22 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       const ordered = dataset.rows
         .map((row) => sections.get(String(row.item_id)))
         .filter((section) => section !== undefined);
+      // Sanitized coverage diagnostics (counts only, never case text).
+      // Python validates the types and republishes only the counts.
+      const progress = synthesisProgress(dataset);
+      const diagnostics = {
+        unread_documents: progress.unread_ordinals.length,
+        missing_sections: progress.pending_ordinals.length,
+      };
       try {
         writeFileSync(
           dataset.candidate_path,
           JSON.stringify(
-            { artifact: "recordprep-summary-synthesis-candidate", sections: ordered },
+            {
+              artifact: "recordprep-summary-synthesis-candidate",
+              sections: ordered,
+              diagnostics,
+            },
             null,
             2
           ) + "\n"
@@ -377,10 +495,14 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
         content: [
           {
             type: "text" as const,
-            text: "Synthesis candidate accepted for independent validation.",
+            text:
+              "Synthesis candidate accepted for independent validation. " +
+              `Coverage: ${diagnostics.unread_documents} document(s) never ` +
+              `read, ${diagnostics.missing_sections} section(s) not ` +
+              "submitted; Python fills gaps deterministically.",
           },
         ],
-        details: { accepted: true },
+        details: { accepted: true, ...diagnostics },
         terminate: true,
       };
     },

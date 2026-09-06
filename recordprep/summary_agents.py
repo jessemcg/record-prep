@@ -68,13 +68,17 @@ SUMMARY_KIND_LABELS = {"hearings": "hearing", "reports": "report"}
 SUMMARY_ITEM_PREFIXES = {"hearings": "hearing", "reports": "report"}
 SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary"}
 
-# Version of the immutable relevance, scope, schema, quote, and safety
-# contract baked into every effective extraction/synthesis prompt. Changing
-# the contract changes generation fingerprints, so published rows re-extract
-# under the new guidance without any manual artifact surgery. Version 4
-# externalizes per-category guidance into tracked resource files and makes
-# custom prompts consistently subordinate to the immutable contract.
-SUMMARY_CONTENT_CONTRACT_VERSION = 4
+# Phase-specific versions of the immutable relevance, scope, schema, quote,
+# and safety contract baked into every effective prompt. Changing one
+# phase's contract changes only that phase's fingerprints, so synthesis-only
+# changes preserve extraction caches. Version 4 externalized per-category
+# guidance into tracked resource files and made custom prompts consistently
+# subordinate to the immutable contract; synthesis contract version 2 made
+# synthesis incremental and scratchpad-assisted.
+SUMMARY_EXTRACTION_CONTRACT_VERSION = 4
+SUMMARY_SYNTHESIS_CONTRACT_VERSION = 2
+# Retained name for compatibility with older references.
+SUMMARY_CONTENT_CONTRACT_VERSION = SUMMARY_EXTRACTION_CONTRACT_VERSION
 
 NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
 
@@ -797,8 +801,12 @@ PRIOR_DIGEST_REPORT_SYNTHESIS_GUIDANCE = (
 
 DEFAULT_HEARING_SYNTHESIS_GUIDANCE = (
     "Synthesize the final hearings narrative from the completed category-digest "
-    "dataset. Read the overview and every document block the recordprep_get_facts "
-    "tool serves before drafting any section.\n\n"
+    "dataset. Work incrementally: read the overview and your scratchpad, then "
+    "process documents in boundary order (or a logical group you choose), "
+    "submitting each section as you complete it and updating your scratchpad. "
+    "You do not need to read every document before drafting; read a prior "
+    "digest or your submitted sections again whenever continuity, repetition, "
+    "or a later development requires it.\n\n"
     "For each hearing, lead its section with the material outcome, development, "
     "or central issue, then explain the supporting reasons and evidence. "
     "Organize paragraphs around related substantive points, not category order "
@@ -831,13 +839,29 @@ DEFAULT_HEARING_SYNTHESIS_GUIDANCE = (
     "or conclusions that are not in the dataset. Include no hashes, source "
     "ranges, ids, paths, verification labels, tool output, or internal null "
     "markers in the narrative. A hearing whose categories are all null needs no "
-    "paragraphs."
+    "paragraphs.\n\n"
+    "Keep a private scratchpad with recordprep_synthesis_scratchpad: after "
+    "each submitted section, replace the notes with an orientation aid — what "
+    "you already narrated, relevant event dates and attribution, unresolved "
+    "issues, and developments whose change matters — never an exhaustive fact "
+    "inventory. If your context is ever compacted, reload the scratchpad and "
+    "progress with action=\"read\", reread the digest blocks you need with "
+    "recordprep_get_facts, and retrieve an already-submitted draft with "
+    "view=\"submitted_section\" rather than relying on the compaction summary. "
+    "A later hearing may clarify an earlier section: submitting the same "
+    "item_id again revises it, without moving later developments into earlier "
+    "event chronology. Finish after reviewing your coverage; Python fills any "
+    "gaps deterministically and reports unread or missing counts as warnings."
 )
 
 DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
     "Synthesize the final reports narrative from the completed category-digest "
-    "dataset. Read the overview and every document block the recordprep_get_facts "
-    "tool serves before drafting any section.\n\n"
+    "dataset. Work incrementally: read the overview and your scratchpad, then "
+    "process documents in boundary order (or a logical group you choose), "
+    "submitting each section as you complete it and updating your scratchpad. "
+    "You do not need to read every document before drafting; read a prior "
+    "digest or your submitted sections again whenever continuity, repetition, "
+    "or a later development requires it.\n\n"
     "For each report, lead its section with the material outcome, development, "
     "or central issue, then explain the supporting reasons and evidence. "
     "Organize paragraphs around related substantive points, not category order "
@@ -878,7 +902,19 @@ DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
     "or conclusions that are not in the dataset. Include no hashes, source "
     "ranges, ids, paths, verification labels, tool output, or internal null "
     "markers in the narrative. A report whose categories are all null needs no "
-    "paragraphs."
+    "paragraphs.\n\n"
+    "Keep a private scratchpad with recordprep_synthesis_scratchpad: after "
+    "each submitted section, replace the notes with an orientation aid — what "
+    "you already narrated, relevant event dates and attribution, unresolved "
+    "issues, and developments whose change matters — never an exhaustive fact "
+    "inventory. If your context is ever compacted, reload the scratchpad and "
+    "progress with action=\"read\", reread the digest blocks you need with "
+    "recordprep_get_facts, and retrieve an already-submitted draft with "
+    "view=\"submitted_section\" rather than relying on the compaction summary. "
+    "A later report may clarify an earlier section: submitting the same "
+    "item_id again revises it, without moving later developments into earlier "
+    "event chronology. Finish after reviewing your coverage; Python fills any "
+    "gaps deterministically and reports unread or missing counts as warnings."
 )
 
 
@@ -1630,7 +1666,7 @@ class ExtractionConfig:
             "model": self.model,
             "provider": self.provider,
             "thinking": self.thinking,
-            "content_contract": SUMMARY_CONTENT_CONTRACT_VERSION,
+            "content_contract": SUMMARY_EXTRACTION_CONTRACT_VERSION,
         }
 
     @property
@@ -3433,6 +3469,30 @@ def _repetition_flags(
     return flags
 
 
+def normalize_synthesis_diagnostics(payload: Any) -> list[str]:
+    """Validate private candidate diagnostics; publish sanitized codes only.
+
+    The extension may attach coverage counts to the synthesis candidate.
+    Only well-typed integer counts survive as sanitized warning codes; the
+    counts are advisory and never model-quality failure gates.
+    """
+    if not isinstance(payload, dict):
+        return []
+    flags: list[str] = []
+    for key, code in (
+        ("unread_documents", "synthesis_unread_documents"),
+        ("missing_sections", "synthesis_missing_sections"),
+    ):
+        value = payload.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            continue
+        if value:
+            flags.append(f"{code}:{value}")
+    return flags
+
+
 def normalize_synthesis_sections(
     rows: Sequence[dict[str, Any]],
     sections_payload: Any,
@@ -3873,7 +3933,7 @@ def effective_synthesis_config(project_dir: Path, kind: str) -> dict[str, Any]:
         "provider": identity.provider,
         "model": identity.model_id,
         "thinking": identity.thinking,
-        "content_contract": SUMMARY_CONTENT_CONTRACT_VERSION,
+        "content_contract": SUMMARY_SYNTHESIS_CONTRACT_VERSION,
         "skill_sha256": _resource_sha256(
             project_dir / "skills" / skill_names[kind] / "SKILL.md"
         ),

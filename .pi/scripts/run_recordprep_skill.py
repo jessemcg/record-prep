@@ -41,7 +41,7 @@ SUMMARY_TOOL_ALLOWLISTS = {
     "extract": "recordprep_get_source,recordprep_submit_extraction",
     "synthesize": (
         "recordprep_get_facts,recordprep_submit_summary_section,"
-        "recordprep_finish_summary"
+        "recordprep_finish_summary,recordprep_synthesis_scratchpad"
     ),
 }
 
@@ -1021,7 +1021,7 @@ def _run_synthesis_child(
     workspace_parent: Path,
     cache_candidate: Path,
     synthesize_capacity: Any | None = None,
-) -> list[Any]:
+) -> tuple[list[Any], list[str]]:
     from recordprep import summary_agents as sa
 
     skill_name = SUMMARY_SKILL_NAMES[kind]["synthesize"]
@@ -1127,7 +1127,12 @@ def _run_synthesis_child(
             # A candidate without a sections list normalizes to an all-fallback
             # result instead of failing the run.
             sections_payload = []
-        return sections_payload
+        # Private candidate diagnostics are validated and republished as
+        # sanitized counts only (advisory warnings, never failure gates).
+        diagnostics = sa.normalize_synthesis_diagnostics(
+            candidate.get("diagnostics")
+        )
+        return sections_payload, diagnostics
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
@@ -1386,7 +1391,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     tempfile.mkdtemp(prefix="candidate.", dir=workspace_parent)
                 ) / "candidate.json"
                 try:
-                    sections_payload = _run_synthesis_child(
+                    sections_payload, coverage_flags = _run_synthesis_child(
                         root,
                         project_dir,
                         pi_command,
@@ -1403,7 +1408,9 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         rows,
                         sections_payload,
                     )
-                    for flag in section_flags:
+                    # Sanitized coverage counts from the candidate diagnostics
+                    # lead the warnings; they are advisory, never gates.
+                    for flag in [*coverage_flags, *section_flags]:
                         _line(f"\033[33m[warn]\033[0m synthesis: {flag}")
                     final_text, heading_pages = _render_and_validate(
                         root, kind, rows, sections

@@ -211,6 +211,14 @@ def _resource_issues(project_dir: Path) -> list[str]:
     summary_extension = extension_dir / SUMMARY_EXTENSION_NAME
     if not summary_extension.is_file():
         issues.append(f"extensions/{SUMMARY_EXTENSION_NAME} is missing.")
+    # Category-guidance resources must parse strictly before any paid work.
+    from recordprep import summary_categories
+
+    for kind in summary_categories.CATEGORY_CONTRACTS:
+        try:
+            summary_categories.load_category_descriptions(kind)
+        except summary_categories.SummaryResourceError as exc:
+            issues.append(str(exc))
     for obsolete in ("agents", "workflows"):
         if (project_dir / obsolete).exists():
             issues.append(f"obsolete .pi/{obsolete}/ resources are still present.")
@@ -651,23 +659,15 @@ def _extraction_config(
 ) -> Any:
     from recordprep import summary_agents as sa
 
-    default_guidance = (
-        sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
-        if kind == "hearings"
-        else sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE
-    )
-    guidance = sa.migrate_extraction_prompt(
-        kind, settings["extract_prompt"], default_guidance
-    )
-    additional = ""
-    if guidance != (settings["extract_prompt"] or "").strip() and settings[
-        "extract_prompt"
-    ].strip() not in ("", default_guidance):
-        additional = settings["extract_prompt"].strip()
+    # One effective-guidance contract: the immutable built-in contract is
+    # always the main guidance; recognized historical built-ins advance to it
+    # without reattaching retired text, and genuinely custom text is preserved
+    # byte-for-byte as subordinate additional guidance.
+    resolution = sa.resolve_phase_guidance(kind, "extract", settings["extract_prompt"])
     return sa.ExtractionConfig(
         kind=kind,
-        guidance=guidance,
-        additional_guidance=additional,
+        guidance=resolution.immutable_guidance,
+        additional_guidance=resolution.custom_guidance,
         provider=settings["extract_provider"],
         model=settings["extract_model"],
         thinking=settings["extract_thinking"],
@@ -1059,16 +1059,25 @@ def _run_synthesis_child(
         dataset_path = workspace / "dataset.json"
         dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
         guidance = str(synthesis_config.get("guidance") or "")
-        prompt = "\n".join(
-            [
-                f"/skill:{skill_name}",
-                "Run the loaded synthesis skill now for the complete digest dataset.",
-                f"total rows: {len(rows)}",
-                "candidate_path: " + str(cache_candidate),
-                "",
-                guidance,
-            ]
-        )
+        additional_guidance = str(synthesis_config.get("additional_guidance") or "")
+        prompt_parts = [
+            f"/skill:{skill_name}",
+            "Run the loaded synthesis skill now for the complete digest dataset.",
+            f"total rows: {len(rows)}",
+            "candidate_path: " + str(cache_candidate),
+            "",
+            guidance,
+        ]
+        if additional_guidance.strip():
+            prompt_parts.extend(
+                [
+                    "",
+                    "ADDITIONAL USER GUIDANCE — lower priority than the built-in "
+                    "contracts above:",
+                    additional_guidance,
+                ]
+            )
+        prompt = "\n".join(prompt_parts)
         command = _base_child_command(
             pi_command,
             staged_pi,
@@ -1341,18 +1350,16 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             # than the pre-publication in-memory rows.
             sa.publish_digests(root, kind, items, extraction_config, rows)
             rows = sa.reload_published_digest_rows(root, kind, items)
-            stored_synthesis = (settings["synthesize_prompt"] or "").strip()
-            default_synthesis = (
-                sa.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
-                if kind == "hearings"
-                else sa.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
-            )
-            synthesis_guidance = sa.migrate_synthesis_prompt(
-                kind, stored_synthesis, default_synthesis
+            # One effective-guidance contract, shared with Settings and the
+            # freshness fingerprints: the immutable synthesis contract plus
+            # any byte-for-byte custom additional guidance.
+            resolution = sa.resolve_phase_guidance(
+                kind, "synthesize", settings["synthesize_prompt"]
             )
             synthesis_config = {
                 "kind": kind,
-                "guidance": synthesis_guidance,
+                "guidance": resolution.immutable_guidance,
+                "additional_guidance": resolution.custom_guidance,
                 "provider": settings["synthesize_provider"],
                 "model": settings["synthesize_model"],
                 "thinking": settings["synthesize_thinking"],

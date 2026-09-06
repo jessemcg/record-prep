@@ -1665,106 +1665,171 @@ class RenderingTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
-    def test_builtin_extraction_and_synthesis_prompts_migrate_to_digest_guidance(
+    def test_effective_guidance_resolution_migrates_builtins_and_preserves_custom(
         self,
     ) -> None:
-        from recordprep.ui.main_window import (
-            PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
-            PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
-            load_summarize_settings,
-        )
+        # Every exact historical built-in — the full tracked-history chain —
+        # advances to the current immutable contract for its phase.
+        for (kind, phase), historical in sa.HISTORICAL_BUILTIN_GUIDANCE.items():
+            self.assertTrue(historical, (kind, phase))
+            for text in historical:
+                resolution = sa.resolve_phase_guidance(kind, phase, text)
+                self.assertEqual(resolution.origin, "migrated", (kind, phase))
+                self.assertEqual(
+                    resolution.immutable_guidance,
+                    sa.default_guidance(kind, phase),
+                )
+                self.assertEqual(resolution.custom_guidance, "")
 
-        for legacy, kind in (
-            (PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT, "hearings"),
-            (PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT, "reports"),
-        ):
-            self.assertEqual(
-                sa.migrate_extraction_prompt(
-                    kind,
-                    legacy,
-                    (
-                        sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
-                        if kind == "hearings"
-                        else sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE
-                    ),
-                ),
-                (
-                    sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE
-                    if kind == "hearings"
-                    else sa.DEFAULT_REPORT_EXTRACTION_GUIDANCE
-                ),
-            )
-        # The shipped v1 synthesis built-ins advance to the digest guidance.
-        self.assertEqual(
-            sa.migrate_synthesis_prompt(
-                "hearings",
-                "Synthesize one coherent narrative section per hearing from the completed "
-                "facts dataset. Read every canonical row with the recordprep_get_facts "
-                "tool before writing. Write flowing prose paragraphs that synthesize the "
-                "categories rather than listing them; do not use category names as headings.",
-                "default-synthesis",
-            ),
-            "default-synthesis",
+        # The current defaults resolve directly.
+        for kind in ("hearings", "reports"):
+            for phase in ("extract", "synthesize"):
+                default = sa.default_guidance(kind, phase)
+                resolution = sa.resolve_phase_guidance(kind, phase, default)
+                self.assertEqual(resolution.origin, "default")
+                self.assertEqual(resolution.custom_guidance, "")
+                empty = sa.resolve_phase_guidance(kind, phase, "")
+                self.assertEqual(empty.origin, "default")
+
+        # A whitespace variant of an exact historical built-in still migrates.
+        historical_hearing = sa.HISTORICAL_BUILTIN_GUIDANCE[
+            ("hearings", "extract")
+        ][0]
+        resolution = sa.resolve_phase_guidance(
+            "hearings", "extract", f"  {historical_hearing}\n"
         )
-        self.assertEqual(
-            sa.migrate_synthesis_prompt(
-                "reports",
-                "Synthesize one coherent narrative section per report from the completed "
-                "facts dataset. Read every canonical row with the recordprep_get_facts "
-                "tool before writing.",
-                "default-synthesis",
-            ),
-            "default-synthesis",
-        )
-        # The shipped digest built-ins (with their length and six-quote
-        # guidance) advance by exact historical text; broadly similar
-        # customized text is never treated as a default.
-        self.assertEqual(
-            sa.migrate_extraction_prompt(
-                "hearings", sa.PRIOR_HEARING_EXTRACTION_GUIDANCE, "default-x"
-            ),
-            "default-x",
-        )
-        self.assertEqual(
-            sa.migrate_extraction_prompt(
-                "reports", sa.PRIOR_REPORT_EXTRACTION_GUIDANCE, "default-x"
-            ),
-            "default-x",
-        )
-        self.assertEqual(
-            sa.migrate_synthesis_prompt(
-                "hearings", sa.PRIOR_HEARING_SYNTHESIS_GUIDANCE, "default-x"
-            ),
-            "default-x",
-        )
-        self.assertEqual(
-            sa.migrate_synthesis_prompt(
-                "reports", sa.PRIOR_REPORT_SYNTHESIS_GUIDANCE, "default-x"
-            ),
-            "default-x",
-        )
+        self.assertEqual(resolution.origin, "migrated")
+
         # A customized prompt that opens like a retired built-in but differs
-        # is preserved byte-for-byte, including obsolete length instructions.
+        # is custom: its byte-for-byte text becomes subordinate additional
+        # guidance, including obsolete length instructions.
         similar_custom = sa.PRIOR_HEARING_EXTRACTION_GUIDANCE.replace(
             "never impose word, sentence, or paragraph counts",
             "keep digests near 200 words",
         )
         if similar_custom == sa.PRIOR_HEARING_EXTRACTION_GUIDANCE:
             similar_custom = sa.PRIOR_HEARING_EXTRACTION_GUIDANCE + "\nCustom note."
-        self.assertEqual(
-            sa.migrate_extraction_prompt("hearings", similar_custom, "default-x"),
-            similar_custom,
+        resolution = sa.resolve_phase_guidance(
+            "hearings", "extract", similar_custom
         )
-        custom = "A genuinely custom extraction prompt."
+        self.assertEqual(resolution.origin, "custom")
+        self.assertEqual(resolution.custom_guidance, similar_custom)
         self.assertEqual(
-            sa.migrate_extraction_prompt("hearings", custom, "default"),
-            custom,
+            resolution.immutable_guidance,
+            sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
         )
+
+        # Custom text is preserved byte-for-byte, including whitespace, and
+        # the stored representation is never rewritten.
+        custom_with_whitespace = "  A genuinely custom extraction prompt.\n"
+        resolution = sa.resolve_phase_guidance(
+            "hearings", "extract", custom_with_whitespace
+        )
+        self.assertEqual(resolution.origin, "custom")
+        self.assertEqual(resolution.custom_guidance, custom_with_whitespace)
         custom_synthesis = "A genuinely custom synthesis prompt."
-        self.assertEqual(
-            sa.migrate_synthesis_prompt("hearings", custom_synthesis, "default"),
-            custom_synthesis,
+        resolution = sa.resolve_phase_guidance(
+            "hearings", "synthesize", custom_synthesis
         )
+        self.assertEqual(resolution.origin, "custom")
+        self.assertEqual(resolution.custom_guidance, custom_synthesis)
+
+    def test_moved_direct_api_prompt_constants_match_summary_agents(self) -> None:
+        """The GTK aliases and the migration registry share one source text."""
+        from recordprep.ui import main_window
+
+        self.assertEqual(
+            main_window.DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+            sa.DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+        )
+        self.assertEqual(
+            main_window.PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+            sa.PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+        )
+        self.assertEqual(
+            main_window.DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            sa.DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertEqual(
+            main_window.PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            sa.PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertEqual(
+            main_window.PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+            sa.PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+        )
+        self.assertEqual(
+            main_window.PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT,
+            sa.PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT,
+        )
+        # The sandbox-era defaults are registered as historical built-ins so
+        # installations that stored them advance to the current contract.
+        self.assertIn(
+            sa.DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+            sa.HISTORICAL_BUILTIN_GUIDANCE[("hearings", "extract")],
+        )
+        self.assertIn(
+            sa.DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+            sa.HISTORICAL_BUILTIN_GUIDANCE[("reports", "extract")],
+        )
+
+    def test_settings_buffers_edit_custom_guidance_byte_for_byte(self) -> None:
+        """Settings exposes only custom additional guidance and stores it raw."""
+        from recordprep.ui.main_window import (
+            load_summarize_settings,
+            save_summarize_settings,
+        )
+
+        # A stored historical built-in surfaces no custom guidance.
+        with mock.patch(
+            "recordprep.ui.main_window._read_config",
+            return_value={
+                "summarize_hearings_prompt": sa.PRIOR_HEARING_EXTRACTION_GUIDANCE,
+                "summarize_reports_prompt": "",
+                "summarize_hearings_synthesis_prompt": "",
+                "summarize_reports_synthesis_prompt": "",
+            },
+        ):
+            settings = load_summarize_settings()
+        self.assertEqual(settings["hearings_prompt"], "")
+        self.assertEqual(settings["reports_prompt"], "")
+        self.assertEqual(settings["hearings_synthesis_prompt"], "")
+        self.assertEqual(settings["reports_synthesis_prompt"], "")
+
+        # A round trip through save preserves custom text byte-for-byte,
+        # including surrounding whitespace, and never substitutes defaults.
+        custom = "  Keep digests near 200 words.\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ):
+                save_summarize_settings(
+                    api_url="http://localhost:9999/v1/chat",
+                    model_id="synthetic-model",
+                    api_key="synthetic-key",
+                    disable_reasoning=False,
+                    minutes_target_chars="6000",
+                    minutes_max_pages="6",
+                    hearings_prompt=custom,
+                    reports_prompt="",
+                    minutes_prompt="minute prompt",
+                    hearings_synthesis_prompt="",
+                    reports_synthesis_prompt="",
+                )
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    config["summarize_hearings_prompt"], custom
+                )
+                self.assertEqual(config["summarize_reports_prompt"], "")
+                with mock.patch(
+                    "recordprep.ui.main_window._read_config",
+                    return_value=json.loads(config_path.read_text(encoding="utf-8")),
+                ):
+                    settings = load_summarize_settings()
+                self.assertEqual(settings["hearings_prompt"], custom)
+                self.assertEqual(settings["reports_prompt"], "")
 
     def test_stage_settings_persist_without_touching_pi_settings(self) -> None:
         from recordprep.ui.main_window import (
@@ -1823,11 +1888,11 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(settings["synthesize_model"], "")
                 self.assertNotIn("hearings_target_words", settings)
                 self.assertNotIn("reports_target_words", settings)
-                self.assertIn("Relevance", settings["hearings_prompt"])
-                self.assertIn(
-                    "Synthesize the final hearings narrative",
-                    settings["hearings_synthesis_prompt"],
-                )
+                # Built-in defaults are not custom guidance; the Settings
+                # buffers stay empty and the runner composes the immutable
+                # contract at run time.
+                self.assertEqual(settings["hearings_prompt"], "")
+                self.assertEqual(settings["hearings_synthesis_prompt"], "")
             # The project PI settings file is untouched by summary saves.
             self.assertEqual(
                 json.loads(pi_settings_path.read_text(encoding="utf-8")),

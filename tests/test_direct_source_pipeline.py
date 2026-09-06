@@ -72,14 +72,10 @@ class DirectSourcePipelineTests(unittest.TestCase):
         ):
             settings = load_summarize_settings()
 
-        self.assertEqual(
-            settings["hearings_prompt"],
-            _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
-        )
-        self.assertEqual(
-            settings["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        # Recognized historical built-ins resolve to no custom guidance; the
+        # runner composes the immutable contract at run time.
+        self.assertEqual(settings["hearings_prompt"], "")
+        self.assertEqual(settings["reports_prompt"], "")
         # The untouched legacy default pair leaves minute orders at 6000/6.
         self.assertEqual(settings["minutes_target_chars"], "6000")
         self.assertEqual(settings["minutes_max_pages"], "6")
@@ -483,14 +479,8 @@ class DirectSourcePipelineTests(unittest.TestCase):
             },
         ):
             migrated = load_summarize_settings()
-        self.assertEqual(
-            migrated["hearings_prompt"],
-            _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
-        )
-        self.assertEqual(
-            migrated["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(migrated["hearings_prompt"], "")
+        self.assertEqual(migrated["reports_prompt"], "")
 
         custom_prompt = "My genuinely customized hearing prompt."
         with patch(

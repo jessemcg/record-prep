@@ -253,10 +253,7 @@ class ReportPromptMigrationTests(unittest.TestCase):
             },
         ):
             migrated = load_summarize_settings()
-        self.assertEqual(
-            migrated["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(migrated["reports_prompt"], "")
 
     def test_previously_shipped_six_quote_prompt_migrates_to_new_prompt(self) -> None:
         with patch(
@@ -266,10 +263,7 @@ class ReportPromptMigrationTests(unittest.TestCase):
             },
         ):
             migrated = load_summarize_settings()
-        self.assertEqual(
-            migrated["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(migrated["reports_prompt"], "")
         # The retired six-quote built-in still carries every historical contract.
         self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn("Include at least six legally significant verbatim quotes", PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT)
@@ -283,10 +277,7 @@ class ReportPromptMigrationTests(unittest.TestCase):
             },
         ):
             migrated = load_summarize_settings()
-        self.assertEqual(
-            migrated["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(migrated["reports_prompt"], "")
 
         legacy = (
             "I need to understand the factual and procedural history of this juvenile "
@@ -298,10 +289,7 @@ class ReportPromptMigrationTests(unittest.TestCase):
             return_value={"summarize_reports_prompt": legacy},
         ):
             legacy_migrated = load_summarize_settings()
-        self.assertEqual(
-            legacy_migrated["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(legacy_migrated["reports_prompt"], "")
 
     def test_custom_prompt_remains_byte_for_byte_unchanged(self) -> None:
         custom = "A genuinely customized report prompt."
@@ -318,10 +306,8 @@ class ReportPromptMigrationTests(unittest.TestCase):
             return_value={"summarize_reports_prompt": ""},
         ):
             settings = load_summarize_settings()
-        self.assertEqual(
-            settings["reports_prompt"],
-            _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE,
-        )
+        # An empty stored prompt resolves to no custom guidance.
+        self.assertEqual(settings["reports_prompt"], "")
 
 
 class ReportPromptContractTests(unittest.TestCase):

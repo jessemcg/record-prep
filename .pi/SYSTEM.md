@@ -27,8 +27,9 @@ empty list and never an explanation of absence. Collapse related incidents,
 examples, interviews, positions, and chronology into one account per
 category, use representative examples, and put a development in its best
 category once. Evidence is a short contiguous verbatim quote copied exactly
-from the declared source page; aim for roughly six useful short quotations
-per document when the source supports them, with no quota. Never state legal
+from the declared source page; choose useful anchors for important points —
+there is no fixed count, and a quotation should help locate source language,
+not pad the digest. Never state legal
 conclusions beyond the record, and never present a proposed or recommended
 finding or order as if the court actually made it; only actual orders and
 historically recited findings qualify. In synthesis stages, write

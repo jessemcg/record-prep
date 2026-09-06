@@ -90,6 +90,15 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
+    # Historical direct-API extraction prompts: still the live defaults of
+    # the legacy "Test prompts" sandbox; frozen historical texts for PI
+    # guidance migration.
+    DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+    DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
+    PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT,
+    PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT,
     NO_SUMMARIZABLE_REPORT_CONTENT,
     REPORT_PROPOSAL_MARKER_FIND_ORDER,
     REPORT_PROPOSAL_MARKER_LEAD_IN,
@@ -687,151 +696,6 @@ DEFAULT_CASE_NAME_PROMPT = (
     "The case name should replace spaces with underscores, like In_re_Mark_T or "
     "Social_Services_v_Breanna_F. "
     "If unknown, use an empty string."
-)
-PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
-    "You are summarizing one window of source pages from a juvenile dependency court "
-    "hearing. The user message is organized into these labeled sections:\n\n"
-    "1. PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY. This is validated metadata "
-    "created in an earlier RecordPrep step. It identifies counsel roles, non-counsel "
-    "participants, witness status, and mapped examinations. Use it only to attribute "
-    "statements and classify sworn testimony; do not reproduce it as an appearance or "
-    "participant roster. The transcript pages remain the factual source. If the metadata "
-    "is unknown, conflicting, or inconsistent with the transcript, use neutral wording "
-    "rather than guessing.\n"
-    "2. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
-    "only to understand a sentence or exchange that continues into the primary pages.\n"
-    "3. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages.\n\n"
-    "Attribution rules: identify attorneys and non-counsel participants by hearing role "
-    "on every material attribution; a name may follow parenthetically but never replaces "
-    "the role. Use testified or testimony only for a verified witness within a mapped "
-    "examination. Q/A formatting alone does not establish testimony. Describe unsworn "
-    "colloquy with terms such as stated, answered, confirmed, or advised. Attribute "
-    "questions to the examiner and answers to the mapped witness.\n\n"
-    "Output requirements: return exactly one concise prose paragraph in plain English, "
-    "with no internal line breaks. RecordPrep inserts a blank line between this paragraph "
-    "and each adjacent summary-window paragraph. Include several legally significant "
-    "verbatim quotes, "
-    "each an uninterrupted two-to-five-word sequence in quotation marks. Do not alter "
-    "quoted text or use ellipses. Do not begin with prefatory language, include the hearing "
-    "date, add commentary, use Markdown, list appearances, recite the participant context, "
-    "or add a standalone statement about whether testimony occurred."
-)
-DEFAULT_SUMMARIZE_HEARINGS_PROMPT = PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT.replace(
-    "Use testified or testimony only for a verified witness within a mapped "
-    "examination. Q/A formatting alone does not establish testimony. Describe unsworn ",
-    "Use testified or testimony to describe testimony occurring at the current hearing "
-    "only for a verified witness within a mapped examination. A clearly qualified "
-    "reference to prior, future, proposed, anticipated, stipulated, conditional, "
-    "excluded, or absent testimony is permitted only when the wording unmistakably "
-    "does not claim that testimony occurred at the current hearing. Q/A formatting "
-    "alone does not establish testimony. Describe unsworn ",
-)
-PREVIOUS_DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
-    "You are summarizing one window of source pages from a report in a juvenile dependency "
-    "case. The user message is organized into these labeled sections:\n\n"
-    "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
-    "only to understand a sentence or passage that continues into the primary pages.\n"
-    "2. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages. "
-    "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n\n"
-    "Output requirements: return exactly one concise prose paragraph in plain English, "
-    "with no internal line breaks. RecordPrep inserts a blank line between this paragraph "
-    "and each adjacent summary-window paragraph. Preserve every material fact, recommendation, "
-    "and procedural development in the primary pages "
-    "at a consistent level of detail. Include several legally significant verbatim quotes, "
-    "each an uninterrupted two-to-five-word sequence in quotation marks. Do not alter "
-    "quoted text or use ellipses. Do not begin with prefatory language, add commentary, or "
-    "use Markdown. Do not summarize the optional preceding context page again."
-)
-PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT = (
-    "You are summarizing one window of source pages from a report in a juvenile dependency "
-    "case. The user message is organized into these labeled sections:\n\n"
-    "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
-    "only to understand a sentence or passage that continues into the primary pages.\n"
-    "2. PRIMARY SOURCE PAGES — SUMMARIZE ALL MATERIAL DETAILS. Summarize only these pages. "
-    "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n"
-    "3. REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY. When present, this section "
-    "marks a formal package of proposed or recommended advisements, findings, and orders, "
-    "together with associated boilerplate, offered for court adoption. A scope delimiter "
-    "in the source text marks exactly where that package begins; on a later window this "
-    "section instead warns that the formal proposal may still be continuing. Omit that "
-    "formal package from your summary entirely: do not qualify, disclaim, or restate it. "
-    "Never present a proposed or recommended finding or order as if it were a finding of "
-    "fact, an order the court actually made, or a settled factual conclusion, and never use "
-    "proposed wording to satisfy the verbatim-quotation requirement. Remain eligible: factual "
-    "narrative, interviews, observations, assessments, procedural history, a high-level agency "
-    "recommendation stated apart from the formal template with accurate agency attribution, "
-    "and actual historical orders the report says the court already made, with accurate "
-    "attribution.\n\n"
-    "Output requirements: return exactly one concise prose paragraph in plain English, with "
-    "no internal line breaks. RecordPrep inserts a blank line between this paragraph and each "
-    "adjacent summary-window paragraph. Preserve every material fact, substantive assessment, "
-    "and actual procedural development in the eligible portions of the primary pages at a "
-    "consistent level of detail. If a window mixes eligible narrative and formal proposed "
-    "material, summarize only the eligible narrative. Include several legally significant "
-    "verbatim quotes, each an uninterrupted two-to-five-word sequence in quotation marks, "
-    "taken only from eligible material. Do not alter quoted text or use ellipses. Do not begin "
-    "with prefatory language, add commentary, or use Markdown. Do not summarize the optional "
-    "preceding context page again. If, after omitting the formal proposed advisements, findings, "
-    "orders, and associated boilerplate, a window contains no eligible report narrative, return "
-    "exactly this value and nothing else: " + NO_SUMMARIZABLE_REPORT_CONTENT
-)
-PREVIOUS_SIX_QUOTE_SUMMARIZE_REPORTS_PROMPT = PREVIOUS_PROPOSAL_SCOPE_SUMMARIZE_REPORTS_PROMPT.replace(
-    "Include several legally significant "
-    "verbatim quotes, each an uninterrupted two-to-five-word sequence in quotation marks, "
-    "taken only from eligible material. Do not alter quoted text or use ellipses.",
-    "Include at least six legally significant verbatim quotes, each an uninterrupted "
-    "two-to-five-word sequence in quotation marks, taken only from eligible material, "
-    "whenever the eligible primary pages contain at least six suitable quotations. If fewer "
-    "than six suitable quotations exist, include every suitable quotation; never invent, "
-    "alter, or pad the summary with insignificant or out-of-scope quotations. Distribute the "
-    "quotations across the material facts, observations, interviews, and assessments rather "
-    "than clustering them around one point, and never sacrifice material factual coverage "
-    "merely to reach the quotation target. Do not alter quoted text or use ellipses.",
-)
-DEFAULT_SUMMARIZE_REPORTS_PROMPT = (
-    "You are summarizing one window of source pages from a report in a juvenile dependency "
-    "case. The user message is organized into these labeled sections:\n\n"
-    "1. OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE. When present, use this page "
-    "only to understand a sentence or passage that continues into the primary pages.\n"
-    "2. PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION. "
-    "Summarize only these pages. "
-    "The source pages, not headings or metadata added by RecordPrep, supply the facts.\n"
-    "3. REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY. When present, this section "
-    "marks a formal package of proposed or recommended advisements, findings, and orders, "
-    "together with associated boilerplate, offered for court adoption. A scope delimiter "
-    "in the source text marks exactly where that package begins; on a later window this "
-    "section instead warns that the formal proposal may still be continuing. Omit that "
-    "formal package from your summary entirely: do not qualify, disclaim, or restate it. "
-    "Never present a proposed or recommended finding or order as if it were a finding of "
-    "fact, an order the court actually made, or a settled factual conclusion, and never use "
-    "proposed wording to satisfy the verbatim-quotation requirement. Remain eligible: factual "
-    "narrative, interviews, observations, assessments, procedural history, a high-level agency "
-    "recommendation stated apart from the formal template with accurate agency attribution, "
-    "and actual historical orders the report says the court already made, with accurate "
-    "attribution.\n\n"
-    "Content priorities: retain what matters — new or changed legally significant facts, "
-    "observations, interviews, substantive assessments, procedural developments, and "
-    "recommendations, plus the reasons and evidence behind them. Retain information when "
-    "omitting it would materially change the reader's understanding of what happened, why "
-    "it happened, any dispute or conflicting account, important evidence or uncertainty, or "
-    "a meaningful change in safety, services, visitation, placement, or procedural posture. "
-    "Synthesize repeated history and substantially duplicative updates instead of restating "
-    "them. Omit routine administrative detail unless it changes the case posture or bears "
-    "materially on an issue. Keep conflicting accounts and their attribution distinct. The "
-    "summary may be as short or as long as the material warrants; never impose a word, "
-    "sentence, or paragraph count.\n\n"
-    "Output requirements: return exactly one concise prose paragraph in plain English, with "
-    "no internal line breaks. RecordPrep inserts a blank line between this paragraph and each "
-    "adjacent summary-window paragraph. If a window mixes eligible narrative and formal proposed "
-    "material, summarize only the eligible narrative. Include short verbatim quotes that anchor "
-    "the paragraph's important points to source language: each an uninterrupted two-to-five-word "
-    "sequence in quotation marks, taken only from eligible material, with no fixed count per "
-    "window and no quote invented when no suitable anchor exists. Do not alter quoted text or "
-    "use ellipses, and never bring sentence-ending punctuation inside the final quotation "
-    "marks. Do not begin with prefatory language, add commentary, or use Markdown. Do not "
-    "summarize the optional preceding context page again. If, after omitting the formal proposed "
-    "advisements, findings, orders, and associated boilerplate, a window contains no eligible "
-    "report narrative, return exactly this value and nothing else: " + NO_SUMMARIZABLE_REPORT_CONTENT
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
     "I will provide you with the pages of a minute order. Based on this information, "
@@ -3462,40 +3326,38 @@ def load_summarize_settings() -> dict[str, Any]:
         DEFAULT_DISABLE_REASONING,
     )
     hearings_prompt = str(
-        config.get(CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT, DEFAULT_SUMMARIZE_HEARINGS_PROMPT) or ""
-    ).strip()
-    reports_prompt = str(
-        config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, DEFAULT_SUMMARIZE_REPORTS_PROMPT) or ""
-    ).strip()
-    # Recognized historical built-in summarization prompts migrate to the
-    # current extraction guidance; genuinely custom text is preserved as
-    # lower-priority additional guidance. Migration is applied in memory only
-    # until the user saves Settings.
-    hearings_prompt = _summary_agents.migrate_extraction_prompt(
-        "hearings", hearings_prompt, _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE
+        config.get(CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT, "") or ""
     )
-    reports_prompt = _summary_agents.migrate_extraction_prompt(
-        "reports", reports_prompt, _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
+    reports_prompt = str(
+        config.get(CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT, "") or ""
+    )
+    # One effective-guidance contract: Settings edits only the custom
+    # additional guidance, preserved byte-for-byte and always subordinate to
+    # the immutable built-in contract the runner composes. Recognized
+    # historical built-ins (including the direct-API window-era prompts older
+    # installations stored) resolve to no custom guidance. Migration is
+    # applied in memory only until the user saves Settings.
+    hearings_guidance = _summary_agents.resolve_phase_guidance(
+        "hearings", "extract", hearings_prompt
+    )
+    reports_guidance = _summary_agents.resolve_phase_guidance(
+        "reports", "extract", reports_prompt
     )
     hearings_synthesis_prompt = str(
-        config.get(
-            CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT,
-            _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE,
-        )
-        or ""
-    ).strip() or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+        config.get(CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT, "") or ""
+    )
     reports_synthesis_prompt = str(
-        config.get(
-            CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT,
-            _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE,
-        )
-        or ""
-    ).strip() or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+        config.get(CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT, "") or ""
+    )
+    hearings_synthesis_guidance = _summary_agents.resolve_phase_guidance(
+        "hearings", "synthesize", hearings_synthesis_prompt
+    )
+    reports_synthesis_guidance = _summary_agents.resolve_phase_guidance(
+        "reports", "synthesize", reports_synthesis_prompt
+    )
     minutes_prompt = str(
         config.get(CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT, DEFAULT_SUMMARIZE_MINUTES_PROMPT) or ""
     ).strip()
-    hearings_prompt = hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    reports_prompt = reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT
     minutes_prompt = minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT
 
     legacy_pair = _legacy_summary_window_pair(config)
@@ -3535,11 +3397,11 @@ def load_summarize_settings() -> dict[str, Any]:
         "disable_reasoning": disable_reasoning,
         "minutes_target_chars": str(minutes_target),
         "minutes_max_pages": str(minutes_pages),
-        "hearings_prompt": hearings_prompt,
-        "reports_prompt": reports_prompt,
+        "hearings_prompt": hearings_guidance.custom_guidance,
+        "reports_prompt": reports_guidance.custom_guidance,
         "minutes_prompt": minutes_prompt,
-        "hearings_synthesis_prompt": hearings_synthesis_prompt,
-        "reports_synthesis_prompt": reports_synthesis_prompt,
+        "hearings_synthesis_prompt": hearings_synthesis_guidance.custom_guidance,
+        "reports_synthesis_prompt": reports_synthesis_guidance.custom_guidance,
         "extract_provider": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER, "") or "").strip(),
         "extract_model": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL, "") or "").strip(),
         "extract_thinking": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING, "") or "").strip(),
@@ -3608,23 +3470,16 @@ def save_summarize_settings(
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS, None)
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_MAX_PAGES, None)
     config.pop(LEGACY_CONFIG_KEY_SUMMARIZE_CHUNK_SIZE, None)
-    config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = (
-        hearings_prompt or DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-    )
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT] = (
-        reports_prompt or DEFAULT_SUMMARIZE_REPORTS_PROMPT
-    )
+    # Custom PI guidance is stored byte-for-byte; an empty value means "use
+    # the immutable built-in contract". The effective contract is composed at
+    # run time and never persisted back into these keys.
+    config[CONFIG_KEY_SUMMARIZE_HEARINGS_PROMPT] = hearings_prompt
+    config[CONFIG_KEY_SUMMARIZE_REPORTS_PROMPT] = reports_prompt
     config[CONFIG_KEY_SUMMARIZE_MINUTES_PROMPT] = (
         minutes_prompt or DEFAULT_SUMMARIZE_MINUTES_PROMPT
     )
-    config[CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT] = (
-        hearings_synthesis_prompt
-        or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
-    )
-    config[CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT] = (
-        reports_synthesis_prompt
-        or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
-    )
+    config[CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT] = hearings_synthesis_prompt
+    config[CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT] = reports_synthesis_prompt
     # Stage overrides never mutate the project PI settings; an empty value
     # means "use the project PI model/reasoning".
     config[CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER] = extract_provider
@@ -4512,43 +4367,62 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_section.set_hexpand(True)
         prompt_section.set_vexpand(True)
 
+        # Category guidance is a tracked, file-based resource; Settings only
+        # discloses it read-only. Editing remains file-based.
+        prompt_section.append(
+            self._build_category_guidance_disclosure()
+        )
+
+        def _custom_prompt_subtitle(kind_label: str, phase: str) -> str:
+            return (
+                f"Custom additional {phase} guidance for {kind_label} summaries "
+                "(subordinate to the immutable built-in contract). Empty uses "
+                "the built-in contract only."
+            )
+
         hearings_scroller, hearings_buffer = self._build_prompt_editor(
-            settings.get("hearings_prompt") or _summary_agents.DEFAULT_HEARING_EXTRACTION_GUIDANCE
+            settings.get("hearings_prompt") or ""
         )
         self._set_prompt_editor_height(hearings_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Hearing extraction guidance", hearings_scroller)
+        hearings_disclosure = self._build_disclosure(
+            "Hearing extraction custom guidance", hearings_scroller
         )
+        hearings_disclosure.set_subtitle(_custom_prompt_subtitle("hearing", "extraction"))
+        prompt_section.append(hearings_disclosure)
 
         reports_scroller, reports_buffer = self._build_prompt_editor(
-            settings.get("reports_prompt") or _summary_agents.DEFAULT_REPORT_EXTRACTION_GUIDANCE
+            settings.get("reports_prompt") or ""
         )
         self._set_prompt_editor_height(reports_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Report extraction guidance", reports_scroller)
+        reports_disclosure = self._build_disclosure(
+            "Report extraction custom guidance", reports_scroller
         )
+        reports_disclosure.set_subtitle(_custom_prompt_subtitle("report", "extraction"))
+        prompt_section.append(reports_disclosure)
 
         hearings_synthesis_scroller, hearings_synthesis_buffer = self._build_prompt_editor(
-            settings.get("hearings_synthesis_prompt")
-            or _summary_agents.DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+            settings.get("hearings_synthesis_prompt") or ""
         )
         self._set_prompt_editor_height(hearings_synthesis_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure(
-                "Hearing synthesis guidance", hearings_synthesis_scroller
-            )
+        hearings_synthesis_disclosure = self._build_disclosure(
+            "Hearing synthesis custom guidance", hearings_synthesis_scroller
         )
+        hearings_synthesis_disclosure.set_subtitle(
+            _custom_prompt_subtitle("hearing", "synthesis")
+        )
+        prompt_section.append(hearings_synthesis_disclosure)
 
         reports_synthesis_scroller, reports_synthesis_buffer = self._build_prompt_editor(
-            settings.get("reports_synthesis_prompt")
-            or _summary_agents.DEFAULT_REPORT_SYNTHESIS_GUIDANCE
+            settings.get("reports_synthesis_prompt") or ""
         )
         self._set_prompt_editor_height(reports_synthesis_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure(
-                "Report synthesis guidance", reports_synthesis_scroller
-            )
+        reports_synthesis_disclosure = self._build_disclosure(
+            "Report synthesis custom guidance", reports_synthesis_scroller
         )
+        reports_synthesis_disclosure.set_subtitle(
+            _custom_prompt_subtitle("report", "synthesis")
+        )
+        prompt_section.append(reports_synthesis_disclosure)
 
         minutes_scroller, minutes_buffer = self._build_prompt_editor(
             settings.get("minutes_prompt") or DEFAULT_SUMMARIZE_MINUTES_PROMPT
@@ -5121,6 +4995,59 @@ class SettingsWindow(Adw.ApplicationWindow):
             row.add_row(child)
         return row
 
+    def _build_category_guidance_disclosure(self) -> Adw.ExpanderRow:
+        """Read-only disclosure of the effective category-guidance resources.
+
+        Category guidance lives in tracked Markdown files; Settings never
+        saves these files — editing remains file-based.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        paths = _summary_agents.summary_category_resource_paths()
+        for kind in _summary_agents.SUMMARY_KINDS:
+            path = paths[kind]
+            header = Gtk.Label(
+                label=f"{kind.capitalize()} — {path}", xalign=0.0
+            )
+            header.add_css_class("heading")
+            header.set_ellipsize(3)
+            box.append(header)
+            try:
+                definitions = _summary_agents.summary_category_definitions(
+                    kind, reload=True
+                )
+            except Exception as exc:  # noqa: BLE001 — disclosure stays read-only
+                error_label = Gtk.Label(label=f"Resource error: {exc}", xalign=0.0)
+                error_label.set_wrap(True)
+                error_label.add_css_class("error")
+                box.append(error_label)
+                continue
+            for definition in definitions:
+                text = (
+                    f"{definition.identifier} — {definition.title}\n"
+                    f"{definition.guidance}"
+                )
+                label = Gtk.Label(label=text, xalign=0.0)
+                label.set_wrap(True)
+                label.set_selectable(True)
+                box.append(label)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(box)
+        scroller.set_max_content_height(320)
+        scroller.set_max_content_width(720)
+        scroller.set_propagate_natural_height(True)
+        return self._build_disclosure(
+            "Category guidance (tracked files)",
+            scroller,
+            subtitle=(
+                "Effective per-category extraction guidance loaded from tracked "
+                "repository files. Read-only here — edit the files directly; "
+                "changes take effect the next time a summary stage runs."
+            ),
+        )
+
     def _save_settings(self) -> None:
         case_widgets = self._prompt_editors.get("case-name")
         classify_basic_widgets = self._prompt_editors.get("classify-basic")
@@ -5236,15 +5163,17 @@ class SettingsWindow(Adw.ApplicationWindow):
                 disable_reasoning=bool(summarize_widgets.disable_reasoning_row.get_active()),
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),
-                hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer).strip(),
-                reports_prompt=self._prompt_text(summarize_widgets.reports_prompt_buffer).strip(),
+                # Custom PI guidance is preserved byte-for-byte from the
+                # buffers; only the direct-API minutes prompt normalizes.
+                hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer),
+                reports_prompt=self._prompt_text(summarize_widgets.reports_prompt_buffer),
                 minutes_prompt=self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
                 hearings_synthesis_prompt=self._prompt_text(
                     summarize_widgets.hearings_synthesis_prompt_buffer
-                ).strip(),
+                ),
                 reports_synthesis_prompt=self._prompt_text(
                     summarize_widgets.reports_synthesis_prompt_buffer
-                ).strip(),
+                ),
                 extract_provider=extract_provider,
                 extract_model=extract_model,
                 extract_thinking=extract_thinking,
@@ -6364,9 +6293,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "summarize_reports": "reports_prompt",
             "summarize_minutes": "minutes_prompt",
         }[mode_id]
-        prompt = settings[prompt_key]
         if mode_id == "summarize_minutes":
+            prompt = settings[prompt_key]
             prompt += MINUTE_SUMMARY_WINDOW_GUIDANCE
+        else:
+            # Legacy direct-API experiment: the sandbox always runs the
+            # shipped window-era built-in for hearings/reports and never
+            # exercises the PI summary pipeline or its custom guidance.
+            prompt = (
+                DEFAULT_SUMMARIZE_HEARINGS_PROMPT
+                if mode_id == "summarize_hearings"
+                else DEFAULT_SUMMARIZE_REPORTS_PROMPT
+            )
         return {**settings, "prompt": prompt}
 
     def run_test_classification(

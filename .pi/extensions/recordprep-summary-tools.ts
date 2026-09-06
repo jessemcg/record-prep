@@ -53,6 +53,38 @@ function fail(message: string) {
   };
 }
 
+const PLACEHOLDER_PATTERN = /\{\{quote:([^}]+)\}\}/g;
+const TYPED_QUOTE_PATTERN = /[\u201c\u201d"]/;
+
+// The exact quote ids of one document's digest rows, in canonical order.
+function rowQuoteIds(row: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const categories = Array.isArray(row.categories) ? row.categories : [];
+  for (const category of categories) {
+    const digest = (category as { digest?: unknown })?.digest;
+    const evidence =
+      digest && typeof digest === "object"
+        ? (digest as { evidence?: unknown }).evidence
+        : undefined;
+    if (!Array.isArray(evidence)) continue;
+    for (const item of evidence) {
+      const id = (item as { quote_id?: unknown })?.quote_id;
+      if (typeof id === "string" && id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function placeholderIds(paragraphs: string[]): string[] {
+  const ids = new Set<string>();
+  for (const paragraph of paragraphs) {
+    for (const match of paragraph.matchAll(PLACEHOLDER_PATTERN)) {
+      ids.add(match[1].trim());
+    }
+  }
+  return [...ids];
+}
+
 export default function recordprepSummaryTools(pi: ExtensionAPI) {
   const mode = String(process.env.RECORDPREP_SUMMARY_MODE || "");
   const specPath = String(process.env.RECORDPREP_SUMMARY_WORK_SPEC || "");
@@ -219,8 +251,11 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     description:
       "Submit or replace the narrative section for one document: item_id plus " +
       "flowing prose paragraphs with {{quote:<quote_id>}} placeholders for " +
-      "direct quotations. Submit one section per document in boundary order " +
-      "before finalizing.",
+      "direct quotations. Placeholders must reference this document's exact " +
+      "quote ids. The tool records the section and returns nonfatal feedback " +
+      "when a placeholder references an unknown quote id — fix the section " +
+      "and submit the same item_id again before finalizing. Submit one " +
+      "section per document in boundary order before finalizing.",
     parameters: Type.Object({
       item_id: Type.String(),
       paragraphs: Type.Array(Type.String()),
@@ -233,16 +268,79 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       if (!row) {
         return fail(`unknown item_id ${params.item_id}`);
       }
+      // Validate the section against this document's exact quote ids before
+      // recording. The candidate is always recorded (Python normalizes it and
+      // falls back deterministically), but structured, nonfatal feedback lets
+      // the model replace an invalid section before finishing. Feedback stays
+      // inside this private exchange: ids and counts only, never case text.
+      // Never guess an id, match by suffix, or borrow a quote from another
+      // document.
+      const paragraphs = Array.isArray(params.paragraphs)
+        ? params.paragraphs.filter(
+            (paragraph): paragraph is string => typeof paragraph === "string"
+          )
+        : [];
+      const allowed = rowQuoteIds(row);
+      const used = placeholderIds(paragraphs);
+      const invalid = used.filter((id) => !allowed.includes(id));
+      const advisory: string[] = [];
+      if (paragraphs.some((paragraph) => TYPED_QUOTE_PATTERN.test(paragraph))) {
+        advisory.push(
+          "The section text contains typed quotation marks; placeholders are " +
+            "rendered with quotation marks automatically, so never type " +
+            "quotation marks yourself."
+        );
+      }
+      if (allowed.length > 0 && used.length === 0) {
+        advisory.push(
+          "This document's digest includes direct quotes but the section has " +
+            "no {{quote:...}} placeholder; quotations are optional anchors, " +
+            "not a quota — use one only when the wording genuinely helps."
+        );
+      }
       sections.set(params.item_id, { ...params });
+      if (invalid.length > 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Section for ${params.item_id} recorded, but ${invalid.length} ` +
+                `placeholder id(s) do not exist in this document's digest: ` +
+                `${invalid.join(", ")}. Submit this item_id again with the ` +
+                "section corrected before finalizing; use only this " +
+                "document's quote ids exactly as provided" +
+                (allowed.length > 0
+                  ? `: ${allowed.join(", ")}.`
+                  : ". This document has no quote ids, so remove all " +
+                    "placeholders.") +
+                (advisory.length > 0 ? ` ${advisory.join(" ")}` : ""),
+            },
+          ],
+          details: {
+            item_id: params.item_id,
+            recorded: true,
+            invalid_quote_ids: invalid,
+            allowed_quote_ids: allowed,
+            advisory,
+          },
+        };
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: `Section for ${params.item_id} recorded. Replace it by submitting ` +
-              "the same item_id again; finalize when every section is complete.",
+            text:
+              `Section for ${params.item_id} recorded. Replace it by submitting ` +
+              "the same item_id again; finalize when every section is complete." +
+              (advisory.length > 0 ? ` ${advisory.join(" ")}` : ""),
           },
         ],
-        details: { item_id: params.item_id },
+        details: {
+          item_id: params.item_id,
+          recorded: true,
+          advisory,
+        },
       };
     },
   });

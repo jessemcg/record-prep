@@ -189,7 +189,7 @@ class CategoryContractTests(unittest.TestCase):
     def test_digest_schema_contract(self) -> None:
         self.assertEqual(sa.SUMMARY_FACTS_SCHEMA_VERSION, 2)
         self.assertEqual(sa.SUMMARY_FACTS_ARTIFACT, "recordprep-summary-digest")
-        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-4")
+        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-5")
         row = synthetic_facts_row("hearings")
         self.assertEqual(sa.validate_digest_row(row), [])
         for category in row["categories"]:
@@ -1257,7 +1257,26 @@ class SynthesisNormalizationTests(unittest.TestCase):
         self.assertEqual(sections[2].paragraphs, [])
         self.assertIn("paragraphs_for_all_null_document:report:0003", flags)
 
-    def test_placeholders_and_page_links_are_flattened(self) -> None:
+    def test_known_placeholders_survive_and_page_links_flatten(self) -> None:
+        rows = self._report_rows()
+        known = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
+        payload = [
+            {
+                "item_id": rows[0]["item_id"],
+                "paragraphs": [
+                    f"Known {{{{quote:{known}}}}} plus [label](page:0007) markup.",
+                ],
+            },
+            {"item_id": rows[1]["item_id"], "paragraphs": ["Second."]},
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        first = sections[0].paragraphs[0]
+        self.assertIn("{{quote:%s}}" % known, first)
+        self.assertIn("label", first)
+        self.assertNotIn("](page:", first)
+        self.assertFalse(any("unknown_placeholder" in flag for flag in flags))
+
+    def test_unknown_placeholders_fallback_to_whole_section(self) -> None:
         rows = self._report_rows()
         known = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
         payload = [
@@ -1271,12 +1290,32 @@ class SynthesisNormalizationTests(unittest.TestCase):
             {"item_id": rows[1]["item_id"], "paragraphs": ["Second."]},
         ]
         sections, flags = sa.normalize_synthesis_sections(rows, payload)
-        first = sections[0].paragraphs[0]
-        self.assertIn("{{quote:%s}}" % known, first)
+        joined = " ".join(flags)
+        # The affected section is replaced wholesale by deterministic digest
+        # prose — quoted wording is never silently deleted from a sentence.
+        self.assertIn("unknown_placeholder:report:0001:1", joined)
+        self.assertIn("unknown_placeholder_fallback:report:0001", joined)
+        first = " ".join(sections[0].paragraphs)
+        self.assertIn("Reunification services", first)
         self.assertNotIn("{{quote:nope}}", first)
-        self.assertIn("label", first)
-        self.assertNotIn("](page:", first)
-        self.assertTrue(any("unknown_placeholder" in flag for flag in flags))
+        # Unaffected sections pass through unchanged.
+        self.assertEqual(sections[1].paragraphs, ["Second."])
+
+    def test_unknown_placeholders_on_all_null_document_stay_empty(self) -> None:
+        rows = self._report_rows()
+        all_null = synthetic_facts_row("reports", ordinal=3, start=3, end=3)
+        rows.append(all_null)
+        payload = [
+            {
+                "item_id": all_null["item_id"],
+                "paragraphs": ["Narrative with {{{{quote:nope}}}} inside."],
+            },
+        ]
+        sections, flags = sa.normalize_synthesis_sections(rows, payload)
+        self.assertEqual(sections[2].paragraphs, [])
+        joined = " ".join(flags)
+        self.assertIn("unknown_placeholder:report:0003:1", joined)
+        self.assertIn("unknown_placeholder_fallback:report:0003", joined)
 
     def test_quality_problems_become_warning_codes(self) -> None:
         rows = self._report_rows()

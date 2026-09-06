@@ -80,6 +80,37 @@ import(pathToFileURL(process.argv[2]).href)
         "id5", { item_id: checks.firstItemId, paragraphs: ["Narrative."] }, undefined, undefined, { shutdown() {} }
       );
       results["goodSection"] = good.details;
+      // A placeholder-free section with a nonempty quote bank gets the
+      // advisory note — never a quota rejection.
+      const advisory = await byName.recordprep_submit_summary_section.execute(
+        "id7", { item_id: checks.firstItemId, paragraphs: ["No anchors here."] }, undefined, undefined, { shutdown() {} }
+      );
+      results["advisorySection"] = advisory.details;
+      // Unknown or cross-document ids are recorded but flagged with the
+      // document's allowed ids so the model can correct the section.
+      const invalid = await byName.recordprep_submit_summary_section.execute(
+        "id8",
+        {
+          item_id: checks.firstItemId,
+          paragraphs: [
+            "Bad {{quote:bogus}} and {{quote:hearing:9999/parent_appearances/1}} "
+              + "plus a \"typed\" mark.",
+          ],
+        },
+        undefined, undefined, { shutdown() {} }
+      );
+      results["invalidSection"] = invalid.details;
+      results["invalidText"] = invalid.content[0].text;
+      // A corrected resubmission replaces the earlier candidate.
+      const clean = await byName.recordprep_submit_summary_section.execute(
+        "id9",
+        {
+          item_id: checks.firstItemId,
+          paragraphs: ["Fixed {{quote:hearing:0001/parent_appearances/1}} only."],
+        },
+        undefined, undefined, { shutdown() {} }
+      );
+      results["cleanSection"] = clean.details;
       const finish = await byName.recordprep_finish_summary.execute(
         "id6", {}, undefined, undefined, { shutdown() {} }
       );
@@ -242,14 +273,51 @@ class SummaryToolsExtensionTests(unittest.TestCase):
         # Submission contracts: unknown item ids rejected, known ones accepted
         # in boundary order, and finalize emits exactly the recorded sections.
         self.assertEqual(results["badSection"], {"rejected": True})
-        self.assertEqual(results["goodSection"], {"item_id": "hearing:0001"})
+        self.assertEqual(
+            results["goodSection"],
+            {
+                "item_id": "hearing:0001",
+                "recorded": True,
+                "advisory": [
+                    "This document's digest includes direct quotes but the "
+                    "section has no {{quote:...}} placeholder; quotations are "
+                    "optional anchors, not a quota — use one only when the "
+                    "wording genuinely helps."
+                ],
+            },
+        )
+        self.assertEqual(results["advisorySection"], results["goodSection"])
+        self.assertEqual(results["invalidSection"]["item_id"], "hearing:0001")
+        self.assertTrue(results["invalidSection"]["recorded"])
+        self.assertEqual(
+            results["invalidSection"]["invalid_quote_ids"],
+            ["bogus", "hearing:9999/parent_appearances/1"],
+        )
+        self.assertEqual(
+            results["invalidSection"]["allowed_quote_ids"],
+            ["hearing:0001/parent_appearances/1"],
+        )
+        self.assertEqual(len(results["invalidSection"]["advisory"]), 1)
+        self.assertIn(
+            "do not exist in this document's digest", results["invalidText"]
+        )
+        self.assertIn("hearing:0001/parent_appearances/1", results["invalidText"])
+        self.assertEqual(
+            results["cleanSection"],
+            {"item_id": "hearing:0001", "recorded": True, "advisory": []},
+        )
         self.assertEqual(results["finishDetail"], {"accepted": True})
         self.assertEqual(
             results["candidate"],
             {
                 "artifact": "recordprep-summary-synthesis-candidate",
                 "sections": [
-                    {"item_id": "hearing:0001", "paragraphs": ["Narrative."]}
+                    {
+                        "item_id": "hearing:0001",
+                        "paragraphs": [
+                            "Fixed {{quote:hearing:0001/parent_appearances/1}} only."
+                        ],
+                    }
                 ],
             },
         )

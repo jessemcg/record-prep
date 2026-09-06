@@ -33,7 +33,10 @@ SUMMARY_FACTS_META_SCHEMA_VERSION = 3
 SUMMARY_FACTS_ARTIFACT = "recordprep-summary-digest"
 SUMMARY_FACTS_META_ARTIFACT = "recordprep-summary-digest-meta"
 SUMMARY_FINAL_META_ARTIFACT = "recordprep-summary-final-meta"
-SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-4"
+# Renderer 5: a submitted synthesis section that still references unknown
+# quote ids is replaced wholesale by the digest-prose fallback instead of
+# publishing sentences whose quoted wording was silently deleted.
+SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-5"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -480,7 +483,10 @@ DEFAULT_REPORT_EXTRACTION_GUIDANCE = (
     "record."
 )
 
-DEFAULT_HEARING_SYNTHESIS_GUIDANCE = (
+# The presently shipped digest-era synthesis built-ins, retained under
+# PRIOR_* names before being replaced by the corrected quote contract below,
+# so installations that stored them advance cleanly to the new guidance.
+PRIOR_DIGEST_HEARING_SYNTHESIS_GUIDANCE = (
     "Synthesize the final hearings narrative from the completed category-digest "
     "dataset. Read the overview and every document block the recordprep_get_facts "
     "tool serves before drafting any section.\n\n"
@@ -508,7 +514,7 @@ DEFAULT_HEARING_SYNTHESIS_GUIDANCE = (
     "paragraphs."
 )
 
-DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
+PRIOR_DIGEST_REPORT_SYNTHESIS_GUIDANCE = (
     "Synthesize the final reports narrative from the completed category-digest "
     "dataset. Read the overview and every document block the recordprep_get_facts "
     "tool serves before drafting any section.\n\n"
@@ -533,6 +539,92 @@ DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
     "never reuse a quote id already attached to an earlier report, never "
     "mechanically shorten a stored quotation, and never fabricate a quotation "
     "when no suitable anchor exists.\n\n"
+    "Preserve meaningful distinctions among witnesses, parties, allegations, "
+    "recommendations, and actual findings or orders; compression must not erase "
+    "conflicting evidence or material qualifications. Do not add facts, dates, "
+    "or conclusions that are not in the dataset. Include no hashes, source "
+    "ranges, ids, paths, verification labels, tool output, or internal null "
+    "markers in the narrative. A report whose categories are all null needs no "
+    "paragraphs."
+)
+
+DEFAULT_HEARING_SYNTHESIS_GUIDANCE = (
+    "Synthesize the final hearings narrative from the completed category-digest "
+    "dataset. Read the overview and every document block the recordprep_get_facts "
+    "tool serves before drafting any section.\n\n"
+    "For each hearing, lead its section with the material outcome, development, "
+    "or central issue, then explain the supporting reasons and evidence. "
+    "Organize paragraphs around related substantive points, not category order "
+    "or category headings, and use as many paragraphs as the distinct material "
+    "issues require. Integrate overlapping digests; never retell the same event "
+    "under multiple themes. A routine hearing may need only a very short "
+    "section, while a complex one may need a substantially longer one.\n\n"
+    "Write chronological, flowing prose. The digest prose supplies the meaning "
+    "and context for your narrative; a direct quote is only an exact-wording "
+    "anchor attached to its whole category, never independent proof of an "
+    "inferred proposition. Use a quotation only when its relationship to that "
+    "digest is unambiguous, and paraphrase otherwise. Weave short direct "
+    "quotations into your sentences as {{quote:<quote_id>}} placeholders, "
+    "copying each complete quote id exactly from the dataset — for example "
+    "{{quote:hearing:0004/testimony/2}} — never guessing, shortening, or "
+    "borrowing an id from another document. Integrate each quotation "
+    "grammatically instead of stating a paraphrase and then duplicating it as "
+    "a quotation, and preserve the digest's speaker attribution, denials, "
+    "uncertainty, and event dates around the quoted words. Never type "
+    "quotation marks or Markdown page links yourself, never reuse a placeholder "
+    "twice in one section, never mechanically shorten a stored quotation, and "
+    "never fabricate a quotation when no suitable anchor exists.\n\n"
+    "If the submission tool reports feedback — such as invalid quote ids or "
+    "typed quotation marks — correct the affected section and submit it again "
+    "before finishing; a section that still references unknown quote ids is "
+    "replaced by plain digest prose, losing its quotations.\n\n"
+    "Preserve meaningful distinctions among witnesses, parties, allegations, "
+    "recommendations, and actual findings or orders; compression must not erase "
+    "conflicting evidence or material qualifications. Do not add facts, dates, "
+    "or conclusions that are not in the dataset. Include no hashes, source "
+    "ranges, ids, paths, verification labels, tool output, or internal null "
+    "markers in the narrative. A hearing whose categories are all null needs no "
+    "paragraphs."
+)
+
+DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
+    "Synthesize the final reports narrative from the completed category-digest "
+    "dataset. Read the overview and every document block the recordprep_get_facts "
+    "tool serves before drafting any section.\n\n"
+    "For each report, lead its section with the material outcome, development, "
+    "or central issue, then explain the supporting reasons and evidence. "
+    "Organize paragraphs around related substantive points, not category order "
+    "or category headings, and use as many paragraphs as the distinct material "
+    "issues require. Integrate overlapping digests; never retell the same event "
+    "under multiple themes. A routine report may need only a very short "
+    "section, while a complex one may need a substantially longer one.\n\n"
+    "In later reports, emphasize new, changed, disputed, or newly significant "
+    "information. Restate prior history only when needed to understand a "
+    "current development, or briefly note that a recommendation remained "
+    "unchanged instead of restating copied history. Distinguish the date of an "
+    "event from the later date on which a report recounts it; never relabel "
+    "carried-forward history as a new occurrence.\n\n"
+    "Write chronological, flowing prose. The digest prose supplies the meaning "
+    "and context for your narrative; a direct quote is only an exact-wording "
+    "anchor attached to its whole category, never independent proof of an "
+    "inferred proposition. Use a quotation only when its relationship to that "
+    "digest is unambiguous, and paraphrase otherwise. Weave short direct "
+    "quotations into your sentences as {{quote:<quote_id>}} placeholders, "
+    "copying each complete quote id exactly from the dataset — for example "
+    "{{quote:report:0016/agency_recommendations/2}} — never guessing, "
+    "shortening, or borrowing an id from another document. Integrate each "
+    "quotation grammatically instead of stating a paraphrase and then "
+    "duplicating it as a quotation, and preserve the digest's speaker "
+    "attribution, denials, uncertainty, and event dates around the quoted "
+    "words. Never type quotation marks or Markdown page links yourself, never "
+    "reuse a placeholder twice in one section, never reuse a quote id already "
+    "attached to an earlier report, never mechanically shorten a stored "
+    "quotation, and never fabricate a quotation when no suitable anchor "
+    "exists.\n\n"
+    "If the submission tool reports feedback — such as invalid quote ids or "
+    "typed quotation marks — correct the affected section and submit it again "
+    "before finishing; a section that still references unknown quote ids is "
+    "replaced by plain digest prose, losing its quotations.\n\n"
     "Preserve meaningful distinctions among witnesses, parties, allegations, "
     "recommendations, and actual findings or orders; compression must not erase "
     "conflicting evidence or material qualifications. Do not add facts, dates, "
@@ -574,9 +666,13 @@ def migrate_synthesis_prompt(kind: str, stored_prompt: str, default_prompt: str)
         if kind == "hearings"
         else REPORT_SYNTHESIS_BUILTIN_PREFIXES,
         exact_matches=(
-            (PRIOR_HEARING_SYNTHESIS_GUIDANCE,)
-            if kind == "hearings"
-            else (PRIOR_REPORT_SYNTHESIS_GUIDANCE,)
+            PRIOR_HEARING_SYNTHESIS_GUIDANCE,
+            PRIOR_DIGEST_HEARING_SYNTHESIS_GUIDANCE,
+        )
+        if kind == "hearings"
+        else (
+            PRIOR_REPORT_SYNTHESIS_GUIDANCE,
+            PRIOR_DIGEST_REPORT_SYNTHESIS_GUIDANCE,
         ),
     )
 
@@ -2979,8 +3075,11 @@ def normalize_synthesis_sections(
     and missing or empty sections filled with a deterministic fallback built
     from the row's canonical category-digest texts (no paragraphs at all for
     an all-null document). Known quote placeholders survive for the renderer;
-    unknown placeholders are removed with a warning, and any model-authored
-    ``[label](page:NNNN)`` syntax is flattened to ``label``. Quality problems
+    any model-authored ``[label](page:NNNN)`` syntax is flattened to
+    ``label``. A submitted section that still references unknown quote ids is
+    replaced wholesale by the same digest-prose fallback (empty for an
+    all-null document) with an explicit warning — the quoted wording is never
+    silently deleted from an otherwise published sentence. Quality problems
     become sanitized warning codes, never failures.
     """
     flags: list[str] = []
@@ -3010,37 +3109,47 @@ def normalize_synthesis_sections(
     for row in rows:
         item_id = str(row.get("item_id"))
         non_null = non_null_category_ids(row)
-        if item_id not in submitted:
+        submitted_paragraphs = submitted.get(item_id)
+        if submitted_paragraphs is None:
             flags.append(f"fallback_section:{item_id}")
             paragraphs = fallback_section_paragraphs(row) if non_null else []
+        elif not any(paragraph.strip() for paragraph in submitted_paragraphs):
+            if non_null:
+                flags.append(f"empty_section_fallback:{item_id}")
+                paragraphs = fallback_section_paragraphs(row)
+            else:
+                paragraphs = []
         else:
-            paragraphs = submitted[item_id]
-            if not any(paragraph.strip() for paragraph in paragraphs):
-                if non_null:
-                    flags.append(f"empty_section_fallback:{item_id}")
-                    paragraphs = fallback_section_paragraphs(row)
-                else:
-                    paragraphs = []
-        normalized_paragraphs: list[str] = []
+            paragraphs = submitted_paragraphs
+        # A submitted section may only reference its own document's exact
+        # quote ids. If any unknown id survives, the whole section falls back
+        # to the deterministic digest prose (empty for an all-null document)
+        # instead of publishing sentences whose quoted wording was deleted.
         unknown_placeholder_ids: list[str] = []
+        if submitted_paragraphs is not None and any(
+            paragraph.strip() for paragraph in submitted_paragraphs
+        ):
+            known_quote_ids = set(row_quote_ids(row))
+            unknown_placeholder_ids = sorted(
+                {
+                    match.group(1).strip()
+                    for paragraph in submitted_paragraphs
+                    for match in _PLACEHOLDER_PATTERN.finditer(paragraph)
+                    if match.group(1).strip() not in known_quote_ids
+                }
+            )
+            if unknown_placeholder_ids:
+                flags.append(
+                    f"unknown_placeholder:{item_id}:{len(unknown_placeholder_ids)}"
+                )
+                flags.append(f"unknown_placeholder_fallback:{item_id}")
+                paragraphs = fallback_section_paragraphs(row) if non_null else []
+        normalized_paragraphs: list[str] = []
         for paragraph in paragraphs:
             text = _PAGE_LINK_PATTERN.sub(lambda match: match.group(1), paragraph)
-
-            def _resolve(match: re.Match[str]) -> str:
-                quote_id = match.group(1).strip()
-                if quote_id in set(row_quote_ids(row)):
-                    return match.group(0)
-                unknown_placeholder_ids.append(quote_id)
-                return ""
-
-            text = _PLACEHOLDER_PATTERN.sub(_resolve, text)
             normalized = " ".join(text.split()).strip()
             if normalized:
                 normalized_paragraphs.append(normalized)
-        if unknown_placeholder_ids:
-            flags.append(
-                f"unknown_placeholder:{item_id}:{len(unknown_placeholder_ids)}"
-            )
         if not non_null and normalized_paragraphs:
             flags.append(f"paragraphs_for_all_null_document:{item_id}")
             normalized_paragraphs = []

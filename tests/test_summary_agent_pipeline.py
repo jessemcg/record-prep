@@ -394,30 +394,25 @@ class CategoryContractTests(unittest.TestCase):
             builder.add_pages(1, 1, "aa bb")
             builder.finish([(1, 1, "March 3, 2025")], [])
             items = sa.build_work_items(root, _extraction_config("hearings"))
-            payload = config_one.fingerprint_payload()
-            payload.update(
-                {
-                    "item_id": items[0].item_id,
-                    "end_page": items[0].end_page,
-                    "input_sha256": items[0].input_sha256,
-                    "label": items[0].label,
-                }
+            # The shared payload helper is the single composition contract:
+            # configuration plus every payload dependency (label, private
+            # participant context, citation labels, proposal marker).
+            payload = sa.item_fingerprint_payload(
+                items[0], config_one, sa.transcript_citation_map(root)
             )
             self.assertEqual(items[0].generation_sha256, sa.sha256_json(payload))
+            self.assertIn(
+                "participant_context_sha256", payload
+            )
+            self.assertIn("citation_labels_sha256", payload)
             # Relabeling the trusted document label re-extracts the row.
             relabeled = sa.build_work_items(
                 root,
                 _extraction_config("hearings"),
             )
             relabeled[0].label = "March 3, 2025 - Relabeled"
-            fingerprint_payload = config_one.fingerprint_payload()
-            fingerprint_payload.update(
-                {
-                    "item_id": relabeled[0].item_id,
-                    "end_page": relabeled[0].end_page,
-                    "input_sha256": relabeled[0].input_sha256,
-                    "label": relabeled[0].label,
-                }
+            fingerprint_payload = sa.item_fingerprint_payload(
+                relabeled[0], config_one, sa.transcript_citation_map(root)
             )
             self.assertNotEqual(
                 items[0].generation_sha256, sa.sha256_json(fingerprint_payload)
@@ -740,7 +735,7 @@ class MarkdownStoreTests(unittest.TestCase):
             self.assertEqual(meta["complete"], False)
             self.assertEqual(meta["total"], 2)
             self.assertEqual(meta["completed"], 1)
-            self.assertEqual(meta["schema_version"], 3)
+            self.assertEqual(meta["schema_version"], sa.SUMMARY_FACTS_META_SCHEMA_VERSION)
             self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
             self.assertFalse(
                 sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
@@ -759,7 +754,7 @@ class MarkdownStoreTests(unittest.TestCase):
             sa.publish_digests(root, "hearings", items, _extraction_config(), rows)
             meta = sa.load_digest_meta(root, "hearings")
             self.assertEqual(meta["complete"], True)
-            self.assertEqual(meta["schema_version"], 3)
+            self.assertEqual(meta["schema_version"], sa.SUMMARY_FACTS_META_SCHEMA_VERSION)
 
             # Simulated crash between Markdown and metadata writes self-heals.
             meta_path = sa.summary_digest_meta_path(root, "hearings")

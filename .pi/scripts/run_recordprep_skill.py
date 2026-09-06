@@ -623,33 +623,10 @@ def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[st
 
 
 def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
-    """Read stage-specific summary overrides from RecordPrep config.json."""
-    config_path = project_dir.parent / "config.json"
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        config = {}
-    config = config if isinstance(config, dict) else {}
+    """Stage-specific summary overrides (shared composition in summary_agents)."""
+    from recordprep import summary_agents as sa
 
-    def value(key: str) -> str:
-        return str(config.get(key, "") or "").strip()
-
-    return {
-        "extract_provider": value(f"summary_extract_{kind}_pi_provider")
-        or value("summary_extract_pi_provider"),
-        "extract_model": value(f"summary_extract_{kind}_pi_model")
-        or value("summary_extract_pi_model"),
-        "extract_thinking": value(f"summary_extract_{kind}_pi_thinking")
-        or value("summary_extract_pi_thinking"),
-        "synthesize_provider": value(f"summary_synthesize_{kind}_pi_provider")
-        or value("summary_synthesize_pi_provider"),
-        "synthesize_model": value(f"summary_synthesize_{kind}_pi_model")
-        or value("summary_synthesize_pi_model"),
-        "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
-        or value("summary_synthesize_pi_thinking"),
-        "extract_prompt": value(f"summarize_{kind}_prompt"),
-        "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
-    }
+    return sa.summary_stage_settings(project_dir, kind)
 
 
 def _extraction_config(
@@ -657,21 +634,10 @@ def _extraction_config(
     kind: str,
     settings: dict[str, Any],
 ) -> Any:
+    """Shared effective-guidance composition (summary_agents)."""
     from recordprep import summary_agents as sa
 
-    # One effective-guidance contract: the immutable built-in contract is
-    # always the main guidance; recognized historical built-ins advance to it
-    # without reattaching retired text, and genuinely custom text is preserved
-    # byte-for-byte as subordinate additional guidance.
-    resolution = sa.resolve_phase_guidance(kind, "extract", settings["extract_prompt"])
-    return sa.ExtractionConfig(
-        kind=kind,
-        guidance=resolution.immutable_guidance,
-        additional_guidance=resolution.custom_guidance,
-        provider=settings["extract_provider"],
-        model=settings["extract_model"],
-        thinking=settings["extract_thinking"],
-    )
+    return sa.effective_extraction_config(project_dir, kind)
 
 
 def _model_override_flags(phase: str, settings: dict[str, Any]) -> list[str]:
@@ -1409,21 +1375,11 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             # than the pre-publication in-memory rows.
             sa.publish_digests(root, kind, items, extraction_config, rows)
             rows = sa.reload_published_digest_rows(root, kind, items)
-            # One effective-guidance contract, shared with Settings and the
+            # One effective-guidance contract shared with Settings and the
             # freshness fingerprints: the immutable synthesis contract plus
-            # any byte-for-byte custom additional guidance.
-            resolution = sa.resolve_phase_guidance(
-                kind, "synthesize", settings["synthesize_prompt"]
-            )
-            synthesis_config = {
-                "kind": kind,
-                "guidance": resolution.immutable_guidance,
-                "additional_guidance": resolution.custom_guidance,
-                "provider": settings["synthesize_provider"],
-                "model": settings["synthesize_model"],
-                "thinking": settings["synthesize_thinking"],
-                "content_contract": sa.SUMMARY_CONTENT_CONTRACT_VERSION,
-            }
+            # any byte-for-byte custom additional guidance, the effective
+            # model identity, and the staged skill/tool-contract hashes.
+            synthesis_config = sa.effective_synthesis_config(project_dir, kind)
             if items:
                 _check_stop()
                 candidate_cache = Path(
@@ -1465,7 +1421,6 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     root, kind, rows, sections
                 )
             final_path = sa.summary_final_path(root, kind)
-            synthesis_config["renderer_version"] = sa.SUMMARY_RENDERER_VERSION
             meta = sa.build_final_meta(
                 root,
                 kind,

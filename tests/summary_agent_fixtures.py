@@ -156,13 +156,47 @@ def write_final_summary(
     kind: str,
     rows: Sequence[dict[str, Any]],
     final_text: str,
+    *,
+    synthesis_config: dict[str, Any] | None = None,
 ) -> None:
-    """Publish a final summary text and its matching metadata sidecar."""
+    """Publish a final summary text and its matching metadata sidecar.
+
+    The metadata carries the currently composed effective synthesis
+    configuration so freshness validation treats the artifact as
+    current-generation.
+    """
     final_path = sa.summary_final_path(root, kind)
     final_path.parent.mkdir(parents=True, exist_ok=True)
     final_path.write_text(final_text, encoding="utf-8")
-    meta = sa.build_final_meta(root, kind, list(rows), final_text, {}, {})
+    if synthesis_config is None:
+        synthesis_config = sa.effective_synthesis_config(
+            sa.DEFAULT_PROJECT_PI_DIR, kind
+        )
+    meta = sa.build_final_meta(
+        root, kind, list(rows), final_text, synthesis_config, {}
+    )
     sa._atomic_write(sa.summary_final_meta_path(root, kind), json.dumps(meta) + "\n")
+
+
+def freshen_rows(root: Path, kind: str, rows: Sequence[dict[str, Any]]) -> None:
+    """Recompute row fingerprints from the bundle so rows are current.
+
+    Silently keeps the synthetic hashes when the bundle cannot support work
+    items (missing boundaries or participant index); such bundles then stay
+    freshness-pending by design.
+    """
+    try:
+        config = sa.effective_extraction_config(sa.DEFAULT_PROJECT_PI_DIR, kind)
+        items = sa.build_work_items(root, config)
+    except (ValueError, sa.SummaryResourceError):
+        return
+    by_id = {item.item_id: item for item in items}
+    for row in rows:
+        item = by_id.get(str(row.get("item_id")))
+        if item is not None:
+            row["generation_sha256"] = item.generation_sha256
+            row["input_sha256"] = item.input_sha256
+            row["end_page"] = item.end_page
 
 
 def publish_valid_summary(
@@ -171,5 +205,6 @@ def publish_valid_summary(
     rows: Sequence[dict[str, Any]],
     final_text: str,
 ) -> None:
+    freshen_rows(root, kind, rows)
     write_facts_bundle(root, kind, rows)
     write_final_summary(root, kind, rows, final_text)

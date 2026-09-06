@@ -432,3 +432,85 @@ def preflight_summary_context(
             f"tokens vs capacity {capacity}). Choose a larger-context model for "
             "this stage in Settings."
         )
+
+
+# --- Effective stage model identity (provider-qualified) ---
+
+
+@dataclass(frozen=True, slots=True)
+class PiModelIdentity:
+    """Effective provider, full model id, and thinking level with sources.
+
+    Explicit per-stage overrides win; empty values inherit the staged
+    project PI settings environment. Matching is provider-qualified: the
+    full model id is never reduced to a basename.
+    """
+
+    provider: str
+    model_id: str
+    thinking: str
+    provider_source: str
+    model_source: str
+    thinking_source: str
+
+    def payload(self) -> dict[str, str]:
+        return {
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "thinking": self.thinking,
+            "provider_source": self.provider_source,
+            "model_source": self.model_source,
+            "thinking_source": self.thinking_source,
+        }
+
+
+def resolve_stage_model_identity(
+    settings: dict[str, Any],
+    phase: str,
+    project_settings_path: Path,
+) -> PiModelIdentity:
+    """Resolve one phase's effective model identity from override settings.
+
+    ``settings`` carries ``<phase>_provider``/``<phase>_model``/
+    ``<phase>_thinking`` override values (empty means inherit).
+    """
+    settings = settings if isinstance(settings, dict) else {}
+    override_provider = str(settings.get(f"{phase}_provider") or "").strip()
+    override_model = str(settings.get(f"{phase}_model") or "").strip()
+    override_thinking = str(settings.get(f"{phase}_thinking") or "").strip()
+
+    project_provider = ""
+    project_model = ""
+    try:
+        resolved = current_project_pi_model(project_settings_path)
+        if resolved is not None:
+            project_provider, project_model = resolved
+    except PiSettingsError:
+        project_provider, project_model = "", ""
+    try:
+        project_thinking = current_project_pi_thinking_level(project_settings_path) or ""
+    except PiSettingsError:
+        project_thinking = ""
+
+    return PiModelIdentity(
+        provider=override_provider or project_provider,
+        model_id=override_model or project_model,
+        thinking=override_thinking or project_thinking,
+        provider_source="override" if override_provider else "project-settings",
+        model_source="override" if override_model else "project-settings",
+        thinking_source="override" if override_thinking else "project-settings",
+    )
+
+
+def match_model_identity(
+    identity: PiModelIdentity,
+    models: Sequence[PiModel],
+) -> PiModel | None:
+    """Match provider plus full model id; ambiguous ids never match silently."""
+    for model in models:
+        if (
+            model.provider.casefold() == identity.provider.casefold()
+            and model.model_id.casefold() == identity.model_id.casefold()
+        ):
+            return model
+    return None

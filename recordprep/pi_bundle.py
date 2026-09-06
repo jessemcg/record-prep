@@ -283,10 +283,12 @@ def validate_participant_index_output(root: Path) -> list[str]:
 
 
 def validate_summary_source_outputs(root: Path) -> list[str]:
-    """Validate both PI summary stages' artifacts and final summaries.
+    """Validate both PI summary stages' artifacts, finals, and freshness.
 
-    Legacy summaries without validated facts/meta sidecars report Pending by
-    failing here; old text is never reverse-engineered into facts.
+    Downstream prerequisites (case overview, source map) require the summary
+    stages to be current-generation fresh, not merely structurally intact:
+    stale rows or a final summary synthesized under an old contract report
+    as regeneration-pending here.
     """
     issues: list[str] = []
     for kind in summary_agents.SUMMARY_KINDS:
@@ -298,6 +300,7 @@ def validate_summary_source_outputs(root: Path) -> list[str]:
         issues.extend(
             summary_agents.validate_summary_agent_outputs(root, kind)
         )
+        issues.extend(summary_agents.summary_stage_freshness_issues(root, kind))
     return list(dict.fromkeys(issues))
 
 

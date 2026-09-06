@@ -64,26 +64,11 @@ class PreflightError(ValueError):
     pass
 
 
-@dataclass(frozen=True)
-class ModelIdentity:
-    """Effective provider, full model id, and thinking level with sources."""
-
-    provider: str
-    model_id: str
-    thinking: str
-    provider_source: str
-    model_source: str
-    thinking_source: str
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            "provider": self.provider,
-            "model_id": self.model_id,
-            "thinking": self.thinking,
-            "provider_source": self.provider_source,
-            "model_source": self.model_source,
-            "thinking_source": self.thinking_source,
-        }
+# Model identity resolution lives in pi_runtime so freshness fingerprints
+# and the GTK-free pipeline share one implementation.
+ModelIdentity = pi_runtime.PiModelIdentity
+resolve_stage_identity = pi_runtime.resolve_stage_model_identity
+match_model = pi_runtime.match_model_identity
 
 
 @dataclass(frozen=True)
@@ -119,63 +104,6 @@ class StageCapacity:
             "capacity_known": self.known,
             "discovery_error": self.discovery_error,
         }
-
-
-def resolve_stage_identity(
-    settings: dict[str, Any],
-    phase: str,
-    project_settings_path: Path,
-) -> ModelIdentity:
-    """Resolve one phase's effective model identity once per stage.
-
-    Explicit per-stage overrides win; empty values inherit the staged
-    project PI settings environment (the runner stages a byte-identical copy
-    of the project ``.pi/settings.json`` next to the child). Matching is
-    provider-qualified: the full model id is never reduced to a basename.
-    """
-    settings = settings if isinstance(settings, dict) else {}
-    override_provider = str(settings.get(f"{phase}_provider") or "").strip()
-    override_model = str(settings.get(f"{phase}_model") or "").strip()
-    override_thinking = str(settings.get(f"{phase}_thinking") or "").strip()
-
-    project_provider = ""
-    project_model = ""
-    project_thinking = ""
-    try:
-        project_provider, project_model = pi_runtime.current_project_pi_model(
-            project_settings_path
-        ) or ("", "")
-    except pi_runtime.PiSettingsError:
-        project_provider, project_model = "", ""
-    try:
-        project_thinking = (
-            pi_runtime.current_project_pi_thinking_level(project_settings_path) or ""
-        )
-    except pi_runtime.PiSettingsError:
-        project_thinking = ""
-
-    return ModelIdentity(
-        provider=override_provider or project_provider,
-        model_id=override_model or project_model,
-        thinking=override_thinking or project_thinking,
-        provider_source="override" if override_provider else "project-settings",
-        model_source="override" if override_model else "project-settings",
-        thinking_source="override" if override_thinking else "project-settings",
-    )
-
-
-def match_model(
-    identity: ModelIdentity,
-    models: Iterable[pi_runtime.PiModel],
-) -> pi_runtime.PiModel | None:
-    """Match provider plus full model id; ambiguous ids never match silently."""
-    for model in models:
-        if (
-            model.provider.casefold() == identity.provider.casefold()
-            and model.model_id.casefold() == identity.model_id.casefold()
-        ):
-            return model
-    return None
 
 
 def resolve_stage_capacity(
@@ -581,48 +509,17 @@ def _citation_map(root: Path) -> dict[int, str]:
 
 
 def _diagnostic_extraction_config(project_dir: Path, kind: str) -> Any:
-    """Mirror the runner's extraction-config composition without GTK."""
+    """Shared effective extraction-config composition (summary_agents)."""
     from recordprep import summary_agents as sa
 
-    settings = _summary_stage_settings(project_dir, kind)
-    resolution = sa.resolve_phase_guidance(kind, "extract", settings["extract_prompt"])
-    return sa.ExtractionConfig(
-        kind=kind,
-        guidance=resolution.immutable_guidance,
-        additional_guidance=resolution.custom_guidance,
-        provider=settings["extract_provider"],
-        model=settings["extract_model"],
-        thinking=settings["extract_thinking"],
-    )
+    return sa.effective_extraction_config(project_dir, kind)
 
 
 def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
-    config_path = project_dir.parent / "config.json"
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        config = {}
-    config = config if isinstance(config, dict) else {}
+    """Shared stage-settings composition (summary_agents)."""
+    from recordprep import summary_agents as sa
 
-    def value(key: str) -> str:
-        return str(config.get(key, "") or "").strip()
-
-    return {
-        "extract_provider": value(f"summary_extract_{kind}_pi_provider")
-        or value("summary_extract_pi_provider"),
-        "extract_model": value(f"summary_extract_{kind}_pi_model")
-        or value("summary_extract_pi_model"),
-        "extract_thinking": value(f"summary_extract_{kind}_pi_thinking")
-        or value("summary_extract_pi_thinking"),
-        "synthesize_provider": value(f"summary_synthesize_{kind}_pi_provider")
-        or value("summary_synthesize_pi_provider"),
-        "synthesize_model": value(f"summary_synthesize_{kind}_pi_model")
-        or value("summary_synthesize_pi_model"),
-        "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
-        or value("summary_synthesize_pi_thinking"),
-        "extract_prompt": value(f"summarize_{kind}_prompt"),
-        "synthesize_prompt": value(f"summarize_{kind}_synthesis_prompt"),
-    }
+    return sa.summary_stage_settings(project_dir, kind)
 
 
 def _extraction_skill(kind: str) -> str:

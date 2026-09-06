@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -130,33 +131,39 @@ class CategoryResourceTests(unittest.TestCase):
         finally:
             sys.modules.pop(spec.name, None)
 
-        settings = {
-            "extract_provider": "",
-            "extract_model": "",
-            "extract_thinking": "",
-        }
-        # A stored retired built-in advances without reattaching its text.
-        builtin_settings = {
-            **settings,
-            "extract_prompt": sa.PRIOR_HEARING_EXTRACTION_GUIDANCE,
-        }
-        config = runner._extraction_config(Path("."), "hearings", builtin_settings)
-        self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
-        self.assertEqual(config.additional_guidance, "")
+        with tempfile.TemporaryDirectory() as temporary:
+            project_dir = Path(temporary) / ".pi"
+            project_dir.mkdir()
+            (project_dir / "settings.json").write_text("{}", encoding="utf-8")
 
-        # Custom text is byte-for-byte subordinate additional guidance.
-        custom = "  Keep digests near 200 words.\n"
-        custom_settings = {**settings, "extract_prompt": custom}
-        config = runner._extraction_config(Path("."), "hearings", custom_settings)
-        self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
-        self.assertEqual(config.additional_guidance, custom)
+            def config_with(prompt_value: str) -> Path:
+                (project_dir.parent / "config.json").write_text(
+                    json.dumps({"summarize_hearings_prompt": prompt_value}),
+                    encoding="utf-8",
+                )
+                return project_dir
 
-        # An empty stored prompt uses the immutable contract only.
-        config = runner._extraction_config(
-            Path("."), "hearings", {**settings, "extract_prompt": ""}
-        )
-        self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
-        self.assertEqual(config.additional_guidance, "")
+            # A stored retired built-in advances without reattaching its text.
+            config = runner._extraction_config(
+                config_with(sa.PRIOR_HEARING_EXTRACTION_GUIDANCE),
+                "hearings",
+                {},
+            )
+            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
+            self.assertEqual(config.additional_guidance, "")
+
+            # Custom text is byte-for-byte subordinate additional guidance.
+            custom = "  Keep digests near 200 words.\n"
+            config = runner._extraction_config(
+                config_with(custom), "hearings", {}
+            )
+            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
+            self.assertEqual(config.additional_guidance, custom)
+
+            # An empty stored prompt uses the immutable contract only.
+            config = runner._extraction_config(config_with(""), "hearings", {})
+            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
+            self.assertEqual(config.additional_guidance, "")
 
 
 if __name__ == "__main__":

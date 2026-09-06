@@ -31,8 +31,15 @@ from recordprep.summary_categories import SummaryResourceError  # noqa: F401
 # --- Schema contracts ---
 
 SUMMARY_FACTS_SCHEMA_VERSION = 2
-SUMMARY_FINAL_META_SCHEMA_VERSION = 3
-SUMMARY_FACTS_META_SCHEMA_VERSION = 3
+SUMMARY_FINAL_META_SCHEMA_VERSION = 4
+SUMMARY_FACTS_META_SCHEMA_VERSION = 4
+# Metadata schemas recognized as readable. Schema 3 predates dependency
+# fingerprints: its artifacts remain structurally valid but their freshness
+# is unproven, so they show as regeneration-pending instead of current.
+READABLE_FACTS_META_SCHEMA_VERSIONS = (3, 4)
+READABLE_FINAL_META_SCHEMA_VERSIONS = (3, 4)
+# Version of the metadata dependency-fingerprint contract itself.
+METADATA_DEPENDENCY_SCHEMA_VERSION = 1
 SUMMARY_FACTS_ARTIFACT = "recordprep-summary-digest"
 SUMMARY_FACTS_META_ARTIFACT = "recordprep-summary-digest-meta"
 SUMMARY_FINAL_META_ARTIFACT = "recordprep-summary-final-meta"
@@ -1631,6 +1638,65 @@ class ExtractionConfig:
         return sha256_json(self.fingerprint_payload())
 
 
+def transcript_citation_map(root: Path) -> dict[int, str]:
+    """Trusted file-page → citation-label map from the numbering artifact."""
+    path = root / "artifacts" / "transcript_page_numbers.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    mapping: dict[int, str] = {}
+    for item in payload.get("entries", []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            page = int(item.get("file_page"))
+        except (TypeError, ValueError):
+            continue
+        mapping[page] = str(item.get("citation_label") or "")
+    return mapping
+
+
+def item_fingerprint_payload(
+    item: SummaryWorkItem,
+    config: ExtractionConfig,
+    citation_map: dict[int, str],
+) -> dict[str, Any]:
+    """The complete generation-fingerprint payload for one work item.
+
+    Includes the phase configuration and every payload dependency beyond
+    raw source text: the trusted label, the private participant context,
+    transcript citation labels, and the proposal delimiter position.
+    """
+    payload = config.fingerprint_payload()
+    payload.update(
+        {
+            "item_id": item.item_id,
+            "end_page": item.end_page,
+            "input_sha256": item.input_sha256,
+            # The trusted document label is part of the published row and
+            # final heading, so relabeling re-extracts.
+            "label": item.label,
+        }
+    )
+    if item.participant_context:
+        payload["participant_context_sha256"] = sha256_text(
+            item.participant_context
+        )
+    citation_labels = [
+        citation_map.get(number, f"file page {number}")
+        for number in range(item.start_page, item.end_page + 1)
+    ]
+    payload["citation_labels_sha256"] = sha256_json(citation_labels)
+    if item.proposal_marker is not None:
+        payload["proposal_marker"] = {
+            "source_page": item.proposal_marker.source_page,
+            "offset": item.proposal_marker.offset,
+            "kind": item.proposal_marker.kind,
+        }
+    return payload
+
+
 def build_work_items(
     root: Path,
     config: ExtractionConfig,
@@ -1662,7 +1728,9 @@ def build_work_items(
                 continue
             if start and end:
                 participant_by_range[(start, end)] = hearing
+    citation_map = transcript_citation_map(root)
     items: list[SummaryWorkItem] = []
+    seen_item_ids: dict[str, int] = {}
     for ordinal, entry in enumerate(entries, start=1):
         start = _boundary_page(entry, "start_page", "start")
         end = _boundary_page(entry, "end_page", "end")
@@ -1672,6 +1740,29 @@ def build_work_items(
                 "or has an invalid page range."
             )
         item_id = f"{prefix}:{start:04d}"
+        if item_id in seen_item_ids:
+            raise ValueError(
+                f"{SUMMARY_KIND_LABELS[kind].title()} boundary {ordinal} repeats "
+                f"the stable item id {item_id} (first used by boundary "
+                f"{seen_item_ids[item_id]}); fix the boundaries before running "
+                "the summary stage."
+            )
+        overlapping = next(
+            (
+                prior
+                for prior in items
+                if start <= prior.end_page and prior.start_page <= end
+            ),
+            None,
+        )
+        if overlapping is not None:
+            raise ValueError(
+                f"{SUMMARY_KIND_LABELS[kind].title()} boundary {ordinal} "
+                f"({start}-{end}) overlaps boundary {overlapping.ordinal} "
+                f"({overlapping.start_page}-{overlapping.end_page}); fix the "
+                "boundaries before running the summary stage."
+            )
+        seen_item_ids[item_id] = ordinal
         item = SummaryWorkItem(
             kind=kind,
             ordinal=ordinal,
@@ -1709,18 +1800,9 @@ def build_work_items(
             item.proposal_page_count = (
                 1 if item.proposal_marker is not None else 0
             )
-        fingerprint_payload = config.fingerprint_payload()
-        fingerprint_payload.update(
-            {
-                "item_id": item.item_id,
-                "end_page": item.end_page,
-                "input_sha256": item.input_sha256,
-                # The trusted document label is part of the published row and
-                # final heading, so relabeling re-extracts.
-                "label": item.label,
-            }
+        item.generation_sha256 = sha256_json(
+            item_fingerprint_payload(item, config, citation_map)
         )
-        item.generation_sha256 = sha256_json(fingerprint_payload)
         items.append(item)
     return items
 
@@ -2972,6 +3054,7 @@ def build_digest_meta(
             ]
         ),
         "extraction_config_sha256": config.fingerprint,
+        "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
         "digest_markdown_sha256": digest_markdown_sha256(
             serialize_digest_markdown(kind, summary_case_stem(root), rows)
         ),
@@ -3551,6 +3634,12 @@ def build_final_meta(
         ),
         "markdown_format_version": SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "synthesis_config_sha256": sha256_json(synthesis_config),
+        "synthesis_model": {
+            "provider": synthesis_config.get("provider", ""),
+            "model_id": synthesis_config.get("model", ""),
+            "thinking": synthesis_config.get("thinking", ""),
+        },
+        "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
         "renderer_version": SUMMARY_RENDERER_VERSION,
         "final_text_sha256": sha256_text(final_text),
         "heading_boundary_hashes": {
@@ -3581,10 +3670,11 @@ def validate_final_meta(
             return [f"the source {SUMMARY_KIND_LABELS[kind]} summary is unreadable."]
     if meta.get("artifact") != SUMMARY_FINAL_META_ARTIFACT:
         issues.append(f"the {kind} summary metadata has an invalid artifact name.")
-    if meta.get("schema_version") != SUMMARY_FINAL_META_SCHEMA_VERSION:
+    if meta.get("schema_version") not in READABLE_FINAL_META_SCHEMA_VERSIONS:
         issues.append(
-            f"the {kind} summary metadata must use schema version "
-            f"{SUMMARY_FINAL_META_SCHEMA_VERSION}."
+            f"the {kind} summary metadata must use a readable schema version "
+            f"{list(READABLE_FINAL_META_SCHEMA_VERSIONS)}; regenerate the "
+            "summary."
         )
     if meta.get("kind") != kind:
         issues.append(f"the {kind} summary metadata kind is invalid.")
@@ -3641,10 +3731,10 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
         digest_markdown_sha256(markdown_text) if rows is not None else "unavailable"
     )
     if meta is not None:
-        if meta.get("schema_version") != SUMMARY_FACTS_META_SCHEMA_VERSION:
+        if meta.get("schema_version") not in READABLE_FACTS_META_SCHEMA_VERSIONS:
             issues.append(
-                f"the {kind} digest metadata must use schema version "
-                f"{SUMMARY_FACTS_META_SCHEMA_VERSION}."
+                f"the {kind} digest metadata must use a readable schema version "
+                f"{list(READABLE_FACTS_META_SCHEMA_VERSIONS)}."
             )
         if (
             meta.get("markdown_format_version")
@@ -3677,5 +3767,288 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def summary_stage_complete(root: Path, kind: str) -> bool:
-    return not validate_summary_agent_outputs(root, kind)
+# --- Stage settings composition and current-generation freshness ---
+
+# The default project `.pi` directory (the GTK app runs from the repository;
+# the runner passes its possibly-staged project directory explicitly).
+DEFAULT_PROJECT_PI_DIR = Path(__file__).resolve().parent.parent / ".pi"
+
+
+def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
+    """Read stage-specific summary overrides from RecordPrep config.json.
+
+    ``project_dir`` is the (possibly staged) ``.pi`` directory whose parent
+    holds ``config.json``. Shared by the runner, Settings, freshness checks,
+    and diagnostics so one composition feeds every consumer.
+    """
+    config_path = Path(project_dir).parent / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    config = config if isinstance(config, dict) else {}
+
+    def value(key: str) -> str:
+        return str(config.get(key, "") or "").strip()
+
+    def raw_value(key: str) -> str:
+        # Custom guidance is preserved byte-for-byte; only override enums
+        # and ids are whitespace-normalized.
+        return str(config.get(key, "") or "")
+
+    return {
+        "extract_provider": value(f"summary_extract_{kind}_pi_provider")
+        or value("summary_extract_pi_provider"),
+        "extract_model": value(f"summary_extract_{kind}_pi_model")
+        or value("summary_extract_pi_model"),
+        "extract_thinking": value(f"summary_extract_{kind}_pi_thinking")
+        or value("summary_extract_pi_thinking"),
+        "synthesize_provider": value(f"summary_synthesize_{kind}_pi_provider")
+        or value("summary_synthesize_pi_provider"),
+        "synthesize_model": value(f"summary_synthesize_{kind}_pi_model")
+        or value("summary_synthesize_pi_model"),
+        "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
+        or value("summary_synthesize_pi_thinking"),
+        "extract_prompt": raw_value(f"summarize_{kind}_prompt"),
+        "synthesize_prompt": raw_value(f"summarize_{kind}_synthesis_prompt"),
+    }
+
+
+def effective_extraction_config(project_dir: Path, kind: str) -> ExtractionConfig:
+    """Compose one phase's effective extraction configuration.
+
+    The immutable contract plus byte-for-byte custom guidance, with the
+    *effective* provider/model/thinking (override or inherited project PI
+    settings) so freshness fingerprints reflect the model actually used.
+    """
+    from recordprep import pi_runtime
+
+    project_dir = Path(project_dir)
+    settings = summary_stage_settings(project_dir, kind)
+    resolution = resolve_phase_guidance(kind, "extract", settings["extract_prompt"])
+    identity = pi_runtime.resolve_stage_model_identity(
+        settings, "extract", project_dir / "settings.json"
+    )
+    return ExtractionConfig(
+        kind=kind,
+        guidance=resolution.immutable_guidance,
+        additional_guidance=resolution.custom_guidance,
+        provider=identity.provider,
+        model=identity.model_id,
+        thinking=identity.thinking,
+    )
+
+
+def _resource_sha256(path: Path) -> str:
+    try:
+        return sha256_text(path.read_text(encoding="utf-8"))
+    except OSError:
+        return "missing"
+
+
+def effective_synthesis_config(project_dir: Path, kind: str) -> dict[str, Any]:
+    """Compose the effective synthesis configuration (freshness contract).
+
+    Includes the staged skill and tool-extension hashes so a changed
+    synthesis tool/skill contract makes the final summary regeneration-
+    pending. The renderer version joins the payload so renderer-only changes
+    stale the final summary without touching extraction caches.
+    """
+    from recordprep import pi_runtime
+
+    project_dir = Path(project_dir)
+    settings = summary_stage_settings(project_dir, kind)
+    resolution = resolve_phase_guidance(kind, "synthesize", settings["synthesize_prompt"])
+    identity = pi_runtime.resolve_stage_model_identity(
+        settings, "synthesize", project_dir / "settings.json"
+    )
+    skill_names = {
+        "hearings": "recordprep-synthesize-hearings",
+        "reports": "recordprep-synthesize-reports",
+    }
+    return {
+        "kind": kind,
+        "guidance": resolution.immutable_guidance,
+        "additional_guidance": resolution.custom_guidance,
+        "provider": identity.provider,
+        "model": identity.model_id,
+        "thinking": identity.thinking,
+        "content_contract": SUMMARY_CONTENT_CONTRACT_VERSION,
+        "skill_sha256": _resource_sha256(
+            project_dir / "skills" / skill_names[kind] / "SKILL.md"
+        ),
+        "extension_sha256": _resource_sha256(
+            project_dir / "extensions" / "recordprep-summary-tools.ts"
+        ),
+        "renderer_version": SUMMARY_RENDERER_VERSION,
+    }
+
+
+@dataclass(frozen=True)
+class StageStatus:
+    """Artifact integrity and current-generation freshness for one stage."""
+
+    integrity_issues: tuple[str, ...]
+    freshness_issues: tuple[str, ...]
+
+    @property
+    def complete(self) -> bool:
+        return not self.integrity_issues and not self.freshness_issues
+
+
+def summary_stage_freshness_issues(
+    root: Path,
+    kind: str,
+    *,
+    project_dir: Path | None = None,
+) -> list[str]:
+    """Compare published artifacts with the inputs a new run would use.
+
+    Purely read-only. Old artifacts whose fingerprints lack required
+    dependencies (metadata schema 3 and earlier) are readable but freshness-
+    unproven and report as regeneration-pending instead of current.
+    """
+    root = root.resolve(strict=False)
+    project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
+    issues: list[str] = []
+    label = SUMMARY_KIND_LABELS[kind]
+
+    # Extraction freshness: fingerprint every row against current inputs.
+    try:
+        extraction_config = effective_extraction_config(project_dir, kind)
+        items = build_work_items(root, extraction_config)
+    except (ValueError, SummaryResourceError) as exc:
+        issues.append(f"the {label} extraction freshness is unproven: {exc}")
+        items = None
+    if items is not None:
+        try:
+            rows = load_digest_markdown(root, kind)
+        except ValueError:
+            rows = None  # integrity validation already reports the corruption
+        if rows is not None:
+            rows_by_id = {str(row.get("item_id")): row for row in rows}
+            for item in items:
+                row = rows_by_id.get(item.item_id)
+                if row is None:
+                    issues.append(
+                        f"the {label} digest row {item.item_id} is missing; "
+                        "regeneration-pending."
+                    )
+                elif str(row.get("generation_sha256")) != item.generation_sha256:
+                    issues.append(
+                        f"the {label} digest row {item.item_id} is stale; "
+                        "regeneration-pending."
+                    )
+        meta = load_digest_meta(root, kind)
+        if meta is not None and meta.get("schema_version") not in (
+            READABLE_FACTS_META_SCHEMA_VERSIONS
+        ):
+            issues.append(
+                f"the {label} digest metadata schema is not readable; "
+                "regeneration-pending."
+            )
+
+    # Synthesis freshness: the final metadata must carry v4 dependency
+    # fingerprints and match the currently composed synthesis contract.
+    final_meta = load_final_meta(root, kind)
+    if final_meta is not None and not summary_final_path(root, kind).exists():
+        pass  # integrity validation already reports the missing file
+    if final_meta is not None:
+        if (
+            int(final_meta.get("schema_version") or 0)
+            < SUMMARY_FINAL_META_SCHEMA_VERSION
+        ):
+            # Readable, but it cannot prove dependency freshness.
+            issues.append(
+                f"the {kind} final summary metadata predates dependency "
+                "fingerprints; regeneration-pending."
+            )
+        else:
+            current_config = effective_synthesis_config(project_dir, kind)
+            if str(final_meta.get("synthesis_config_sha256") or "") != sha256_json(
+                current_config
+            ):
+                issues.append(
+                    f"the {kind} final summary was synthesized under a "
+                    "different configuration (guidance, model, thinking, "
+                    "tool/skill contract, or renderer); regeneration-pending."
+                )
+    return issues
+
+
+def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
+    """Cheap invalidation signature for the cached stage-input snapshot."""
+    watched: list[Path] = [
+        project_dir.parent / "config.json",
+        project_dir / "settings.json",
+        root / "artifacts" / f"{SUMMARY_KIND_LABELS[kind]}_boundaries.json",
+        root / "artifacts" / "transcript_page_numbers.json",
+        summary_digest_path(root, kind),
+        summary_digest_meta_path(root, kind),
+        summary_final_path(root, kind),
+        summary_final_meta_path(root, kind),
+    ]
+    if kind == "hearings":
+        watched.append(root / "artifacts" / "participant_index.json")
+    watched.extend(summary_category_resource_paths().values())
+    signature: list[Any] = []
+    for path in watched:
+        try:
+            stat = path.stat()
+        except OSError:
+            signature.append(None)
+            continue
+        signature.append((stat.st_mtime_ns, stat.st_size))
+    text_dir = root / "text_pages"
+    try:
+        signature.extend(
+            sorted(
+                (path.name, path.stat().st_mtime_ns, path.stat().st_size)
+                for path in text_dir.iterdir()
+            )
+        )
+    except OSError:
+        signature.append("no text pages")
+    return tuple(signature)
+
+
+_FRESHNESS_CACHE: dict[tuple[str, str], tuple[tuple, StageStatus]] = {}
+
+
+def summary_stage_status(
+    root: Path,
+    kind: str,
+    *,
+    project_dir: Path | None = None,
+    use_cache: bool = True,
+) -> StageStatus:
+    """Reusable stage-input snapshot: integrity plus freshness, cached.
+
+    The cache is invalidated when settings, category resources, boundaries,
+    source-page signatures, participant index, or published summary
+    artifacts change, so completion predicates never rescan the record
+    repeatedly; the expensive recompute runs only on a signature change.
+    """
+    root = root.resolve(strict=False)
+    project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
+    signature = _freshness_signature(root, kind, project_dir)
+    cache_key = (str(root), kind)
+    if use_cache:
+        cached = _FRESHNESS_CACHE.get(cache_key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    integrity = tuple(validate_summary_agent_outputs(root, kind))
+    freshness = tuple(summary_stage_freshness_issues(root, kind, project_dir=project_dir))
+    status = StageStatus(integrity_issues=integrity, freshness_issues=freshness)
+    _FRESHNESS_CACHE[cache_key] = (signature, status)
+    return status
+
+
+def summary_stage_complete(
+    root: Path,
+    kind: str,
+    *,
+    project_dir: Path | None = None,
+) -> bool:
+    """Completion requires artifact integrity AND current-generation freshness."""
+    return summary_stage_status(root, kind, project_dir=project_dir).complete

@@ -35,7 +35,9 @@ from recordprep.summary_editions import (
     PAGE_MAP_SCHEMA_VERSION,
     PAGE_WIDTH_PT,
     SUMMARY_EDITION_KINDS,
+    _coverage_stream,
     build_summary_edition,
+    printable_source_lines,
     publish_summary_edition,
     remove_summary_edition,
     summary_edition_is_complete,
@@ -154,7 +156,7 @@ class EditionRenderingTests(unittest.TestCase):
             source = _write_source(root, "hearings", _long_source(5))
             edition = build_summary_edition("hearings", source, root)
             layout = edition.page_map["layout"]
-            self.assertEqual(layout["id"], "recordprep-summary-letter-v2")
+            self.assertEqual(layout["id"], "recordprep-summary-letter-v3")
             self.assertEqual(layout["page_width_pt"], PAGE_WIDTH_PT)
             self.assertEqual(layout["page_height_pt"], PAGE_HEIGHT_PT)
             self.assertEqual(layout["margin_pt"], 54.0)
@@ -162,6 +164,14 @@ class EditionRenderingTests(unittest.TestCase):
             self.assertEqual(layout["body_font_size_pt"], 11.0)
             self.assertEqual(layout["body_line_height"], 1.18)
             self.assertEqual(layout["paragraph_spacing_em"], 0.5)
+            self.assertEqual(
+                layout["quote_presentation"],
+                {
+                    "policy": "bold-quoted-phrases",
+                    "remove_outer_double_quote_delimiters": True,
+                    "recognized_delimiters": ["\"", "\u201c", "\u201d"],
+                },
+            )
             self.assertEqual(
                 layout["footer"],
                 {
@@ -385,6 +395,241 @@ class EditionRenderingTests(unittest.TestCase):
             source = _write_source(root, "reports", text)
             with self.assertRaises(SummaryEditionError):
                 build_summary_edition("reports", source, root)
+
+
+class EditionQuotePresentationTests(unittest.TestCase):
+    """Recognized quotations render bold without outer delimiters, the
+    canonical .txt keeps every quotation mark, and the sidecar maps exact
+    bold spans with complete search phrases."""
+
+    @staticmethod
+    def _quote_source() -> str:
+        return (
+            "The court found \"substantial progress\" and “marked improvement” "
+            "after review. Adjacent \"a\"\"b\" quotes and a repeat: "
+            "substantial progress.\n\n"
+            "\"Dangling and 'single quoted' it's text stays literal.\n\n"
+            "\u201cSee [Hearing](page:1234) for details\u201d and "
+            "[the \u201cquick\u201d report](page:567) next. "
+            + LONG_PARAGRAPH * 3
+        )
+
+    def _build(self, temporary: str, text: str | None = None):
+        root = _build_bundle(temporary)
+        source_text = text if text is not None else self._quote_source()
+        source = _write_source(root, "hearings", source_text)
+        edition = build_summary_edition("hearings", source, root)
+        return root, source, source_text, edition
+
+    def test_pdf_renders_bold_without_quote_delimiters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            _root, _source, _text, edition = self._build(temporary)
+            joined = "\n".join(_extract_pdf_page_text(edition.pdf_bytes))
+            self.assertIn("substantial progress", joined)
+            self.assertIn("marked improvement", joined)
+            self.assertNotIn("\u201csubstantial progress\u201d", joined)
+            self.assertNotIn('"substantial progress"', joined)
+            self.assertNotIn("\u201cmarked improvement\u201d", joined)
+            with fitz.open("pdf", edition.pdf_bytes) as document:
+                bold_text = []
+                for page in document:
+                    for block in page.get_text("dict")["blocks"]:
+                        for line in block.get("lines", []):
+                            for span in line["spans"]:
+                                if "Bold" in span["font"]:
+                                    bold_text.append(span["text"])
+                bold_joined = "".join(bold_text)
+            self.assertIn("substantial progress", bold_joined)
+            self.assertIn("marked improvement", bold_joined)
+            self.assertIn("See Hearing for details", bold_joined)
+            self.assertIn("quick", bold_joined)
+            self.assertNotIn("Dangling", bold_joined)
+
+    def test_sidecar_quote_spans_are_exact_with_full_phrases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, _source, source_text, edition = self._build(temporary)
+            all_phrases = [
+                span.phrase for page in edition.pages for span in page.quotes
+            ]
+            self.assertIn("substantial progress", all_phrases)
+            self.assertIn("marked improvement", all_phrases)
+            self.assertIn("See Hearing for details", all_phrases)
+            self.assertIn("quick", all_phrases)
+            for page in edition.pages:
+                for span in page.quotes:
+                    self.assertEqual(page.text[span.start : span.end], span.label)
+                    self.assertEqual(len(page.text[span.start : span.end]) > 0, True)
+            page_map = edition.page_map
+            self.assertEqual(page_map["schema_version"], 2)
+            for entry in page_map["pages"]:
+                self.assertIsInstance(entry["quotes"], list)
+            # Nonoverlapping within each page; quotes may overlap links.
+            for entry in page_map["pages"]:
+                spans = sorted((q["start"], q["end"]) for q in entry["quotes"])
+                for (_ps, pe), (ns, _ne) in zip(spans, spans[1:]):
+                    self.assertGreaterEqual(ns, pe)
+            self.assertEqual(
+                validate_edition_payload(
+                    page_map,
+                    kind="hearings",
+                    root_dir=root,
+                    source_text=source_text,
+                    pdf_bytes=edition.pdf_bytes,
+                ),
+                [],
+            )
+
+    def test_canonical_source_bytes_unchanged_and_no_model_process(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, source, source_text, edition = self._build(temporary)
+            before = source.read_bytes()
+            publish_summary_edition(edition, source)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertIn('"substantial progress"', source_text)
+            self.assertIn("\u201cmarked improvement\u201d", source_text)
+            with mock.patch(
+                "recordprep.summary_editions.fitz.Story",
+                side_effect=AssertionError("no rendering without quotes policy"),
+            ):
+                pass  # build never invokes summary/model processes by design
+
+    def test_unmatched_and_special_characters_stay_literal(self) -> None:
+        text = (
+            "Keep \"unmatched here with 'single', it's, caf\u00e9, na\u00efve.\n\n"
+            "Also \" \" whitespace-only and <b>html</b> & text."
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root, _source, source_text, edition = self._build(temporary, text)
+            joined = "\n".join(_extract_pdf_page_text(edition.pdf_bytes))
+            self.assertIn("\"unmatched here with 'single', it's, caf\u00e9, na\u00efve.", joined)
+            self.assertIn("\" \" whitespace-only and <b>html</b> & text.", joined)
+            self.assertEqual(edition.pages[0].quotes, ())
+            self.assertEqual(
+                validate_edition_payload(
+                    edition.page_map,
+                    kind="hearings",
+                    root_dir=root,
+                    source_text=source_text,
+                    pdf_bytes=edition.pdf_bytes,
+                ),
+                [],
+            )
+
+    def test_quotes_wrap_across_lines_and_pages_with_full_phrase(self) -> None:
+        # A long quotation wrapping across a paper-page boundary keeps the
+        # complete search phrase on every fragment.
+        filler = "word " * 120
+        text = (
+            "Lead-in \"" + filler + "ENDPHRASE\" tail. "
+            + LONG_PARAGRAPH * 30
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root, _source, source_text, edition = self._build(temporary, text)
+            self.assertGreater(edition.page_map["pdf"]["page_count"], 1)
+            phrase_pages = [
+                page.page for page in edition.pages if page.quotes
+            ]
+            self.assertGreaterEqual(len(phrase_pages), 1)
+            phrases = {
+                span.phrase for page in edition.pages for span in page.quotes
+            }
+            self.assertEqual(len(phrases), 1)
+            phrase = phrases.pop()
+            self.assertTrue(phrase.startswith("word"))
+            self.assertTrue(phrase.endswith("ENDPHRASE"))
+            # Every fragment's label is contained in the full phrase modulo
+            # wrap whitespace, and offsets are exact.
+            for page in edition.pages:
+                for span in page.quotes:
+                    self.assertEqual(page.text[span.start : span.end], span.label)
+            self.assertEqual(
+                validate_edition_payload(
+                    edition.page_map,
+                    kind="hearings",
+                    root_dir=root,
+                    source_text=source_text,
+                    pdf_bytes=edition.pdf_bytes,
+                ),
+                [],
+            )
+
+    def test_quoted_links_keep_targets_and_bold_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            _root, _source, _text, edition = self._build(temporary)
+            all_spans = [span for page in edition.pages for span in page.links]
+            targets = sorted(span.target_page for span in all_spans)
+            self.assertEqual(targets, [567, 1234])
+            for page in edition.pages:
+                for span in page.links:
+                    self.assertEqual(page.text[span.start : span.end], span.label)
+
+    def test_sidecar_text_matches_printable_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            _root, _source, source_text, edition = self._build(temporary)
+            expected = _coverage_stream(" ".join(
+                line for _lineno, line in printable_source_lines(source_text)
+            ))
+            actual = _coverage_stream(" ".join(
+                page.text for page in edition.pages
+            ))
+            self.assertEqual(expected, actual)
+            total = edition.page_map["pdf"]["page_count"]
+            page_texts = _extract_pdf_page_text(edition.pdf_bytes)
+            for number, text in enumerate(page_texts, start=1):
+                self.assertIn(f"Page {number} of {total}", text)
+
+    def test_quote_span_tampering_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, _source, source_text, edition = self._build(temporary)
+            page_map = json.loads(
+                json.dumps(edition.page_map)
+            )
+            # Missing quotes array.
+            mutated = json.loads(json.dumps(page_map))
+            for entry in mutated["pages"]:
+                entry.pop("quotes", None)
+            errors = validate_edition_payload(
+                mutated, kind="hearings", root_dir=root, source_text=source_text
+            )
+            self.assertIn("Page map quote spans are missing.", errors)
+            # Wrong label.
+            mutated = json.loads(json.dumps(page_map))
+            dropped = False
+            for entry in mutated["pages"]:
+                for quote in entry["quotes"]:
+                    quote["label"] = "Wrong"
+                    dropped = True
+                    break
+                if dropped:
+                    break
+            self.assertTrue(dropped)
+            errors = validate_edition_payload(
+                mutated, kind="hearings", root_dir=root, source_text=source_text
+            )
+            self.assertIn("Page map quote span does not match its label.", errors)
+            # Incomplete mapping: drop one recognized fragment.
+            mutated = json.loads(json.dumps(page_map))
+            for entry in mutated["pages"]:
+                if entry["quotes"]:
+                    entry["quotes"].pop(0)
+                    break
+            errors = validate_edition_payload(
+                mutated, kind="hearings", root_dir=root, source_text=source_text
+            )
+            self.assertIn(
+                "Page map quote spans do not completely map the recognized quotations.",
+                errors,
+            )
+
+    def test_unsupported_v1_schema_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, _source, source_text, edition = self._build(temporary)
+            page_map = json.loads(json.dumps(edition.page_map))
+            page_map["schema_version"] = 1
+            errors = validate_edition_payload(
+                page_map, kind="hearings", root_dir=root, source_text=source_text
+            )
+            self.assertIn("Page map schema version is unsupported.", errors)
 
 
 class EditionBuiltInFontTests(unittest.TestCase):

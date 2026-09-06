@@ -11,7 +11,22 @@ Invariants enforced here:
 - Page body text extracted from the generated PDF, concatenated across pages
   and whitespace-normalized, equals the printable source representation (the
   source text with trusted ``[label](page:NNNN)`` links replaced by their
-  labels). Nothing may be dropped, duplicated, or reordered.
+  labels and recognized quoted phrases rendered without their outer double
+  quote delimiters). Nothing may be dropped, duplicated, or reordered. The
+  canonical ``.txt`` summaries keep their quotation marks byte-for-byte; the
+  delimiter removal is a presentation-only transformation applied to the
+  printable representation, and the sidecar records the affected spans so
+  Focus can restore its quote styling without reparsing text.
+- Recognized quotations are rendered in bold through the built-in Nimbus
+  Roman bold face (requested by wrapping their content in ``<b>`` while the
+  CSS ``Times`` family resolves the faces). The sidecar carries each page's
+  quote fragments as exact character offsets into the extracted page text
+  plus the complete quote content for record-wide phrase search.
+- Quote recognition is deliberately conservative: style-matched straight or
+  curly double quote pairs within one source line, with content that
+  survives rendering-equivalent normalization, and no partial overlap with
+  a trusted link span. Unmatched or partially overlapping delimiters stay
+  literal in both the PDF and the sidecar.
 - Record-page link spans are exact character offsets into the extracted page
   text and are verified against their declared labels. Ambiguous or lost
   mappings fail generation instead of silently dropping a Focus link.
@@ -46,13 +61,25 @@ import fitz
 
 EDITIONS_DIRNAME = "editions"
 PAGE_MAP_ARTIFACT = "recordprep-summary-pages"
-PAGE_MAP_SCHEMA_VERSION = 1
+# Schema v2 adds the required ``pages[].quotes`` quote-fragment spans that
+# accompany the bold presentation of recognized quotations. Schema v1
+# sidecars (layouts v1/v2, no quote spans) remain readable by Focus but are
+# no longer produced or accepted by this module's validator.
+PAGE_MAP_SCHEMA_VERSION = 2
 SUMMARY_EDITION_KINDS: tuple[str, ...] = ("hearings", "reports", "minutes")
 
-# Letter v2 layout: a denser, print-readable fixed typography contract.
-# Body text uses MuPDF's built-in Times-compatible Nimbus Roman face (via the
-# CSS ``Times`` family), so pagination is identical on every computer.
-LAYOUT_ID = "recordprep-summary-letter-v2"
+# Letter v3 layout: the letter-v2 typography contract plus bold quoted
+# phrases rendered without their outer double quote delimiters. Body text
+# uses MuPDF's built-in Times-compatible Nimbus Roman face (via the CSS
+# ``Times`` family), so pagination is identical on every computer.
+LAYOUT_ID = "recordprep-summary-letter-v3"
+# Recorded in the sidecar layout metadata alongside the unchanged typography
+# metrics so consumers know how quoted phrases are presented.
+QUOTE_PRESENTATION_POLICY = {
+    "policy": "bold-quoted-phrases",
+    "remove_outer_double_quote_delimiters": True,
+    "recognized_delimiters": ["\"", "\u201c", "\u201d"],
+}
 PAGE_WIDTH_PT = 612.0
 PAGE_HEIGHT_PT = 792.0
 MARGIN_PT = 54.0
@@ -103,6 +130,23 @@ class SummaryLinkSpan:
 
 
 @dataclass(frozen=True)
+class SummaryQuoteSpan:
+    """One page's fragment of a recognized quotation, bold in the PDF.
+
+    ``start``/``end`` are exact character offsets into that page's extracted
+    body text and ``label`` is exactly ``text[start:end]``. ``phrase`` is the
+    complete quote content (without its delimiters), identical on every
+    fragment of a quotation that wraps across a paper-page boundary, so a
+    phrase search stays record-wide.
+    """
+
+    label: str
+    phrase: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class SummaryPage:
     """One validated PDF page of a summary edition."""
 
@@ -111,6 +155,7 @@ class SummaryPage:
     source_first_line: int
     source_last_line: int
     links: tuple[SummaryLinkSpan, ...] = ()
+    quotes: tuple[SummaryQuoteSpan, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,21 +200,34 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def _coverage_stream(text: str) -> list[str]:
-    """Content characters surviving rendering-equivalent normalization.
+def _coverage_chars(text: str) -> list[tuple[str, int, int]]:
+    """Content characters with their raw offsets and lengths.
 
-    NFKC folds ligature glyphs (an fi/fl ligature extracts as one codepoint
-    where the source has two letters); whitespace and format/control
-    characters are ignored because the renderer may realize them as line
-    breaks, collapses, or nothing at all (e.g. a long word wraps mid-word
-    without a hyphen, which extraction joins with a space).
+    Returns ``(coverage char, raw offset, raw length)``. NFKC folds ligature
+    glyphs per character (an fi/fl ligature extracts as one codepoint where
+    the source has two letters, contributing two coverage characters at one
+    raw offset); whitespace and format/control characters are ignored
+    because the renderer may realize them as line breaks, collapses, or
+    nothing at all (e.g. a long word wraps mid-word without a hyphen, which
+    extraction joins with a space). Per-character normalization keeps the
+    source and page streams comparable and lets every coverage character be
+    traced back to its exact raw position.
     """
-    normalized = unicodedata.normalize("NFKC", text)
-    return [
-        char
-        for char in normalized
-        if not char.isspace() and unicodedata.category(char) not in {"Cc", "Cf"}
-    ]
+    chars: list[tuple[str, int, int]] = []
+    for offset, char in enumerate(text):
+        for normalized in unicodedata.normalize("NFKC", char):
+            if normalized.isspace() or unicodedata.category(normalized) in {
+                "Cc",
+                "Cf",
+            }:
+                continue
+            chars.append((normalized, offset, len(char)))
+    return chars
+
+
+def _coverage_stream(text: str) -> list[str]:
+    """Content characters surviving rendering-equivalent normalization."""
+    return [char for char, _offset, _length in _coverage_chars(text)]
 
 
 def _relpath_inside_root(path: Path, root_dir: Path) -> str:
@@ -202,17 +260,127 @@ def _safe_bundle_relative(value: Any, root_dir: Path) -> Path:
     return resolved
 
 
+# Recognized quotations are style-matched double quote pairs within one
+# source line: straight quotes pair with straight quotes and curly quotes
+# pair with curly quotes, mirroring Focus's display-time parser. Content
+# must be nonempty; pairs whose content carries no rendering-visible
+# character are left literal, as are unmatched delimiters. Nested
+# quotations are not recursively stripped.
+_QUOTE_PAIR_RE = re.compile(r'"([^"]+)"|“([^”]+)”')
+
+
+@dataclass(frozen=True)
+class _LineQuote:
+    """A recognized quotation within one line's printable text.
+
+    ``start``/``end`` delimit the quote *content* (without the outer
+    delimiters) in the line's link-substituted printable text.
+    """
+
+    start: int
+    end: int
+    phrase: str
+
+
+@dataclass(frozen=True)
+class _LineAnalysis:
+    printable: str
+    links: tuple[tuple[int, int, int], ...]  # (start, end, target_page)
+    quotes: tuple[_LineQuote, ...]
+
+
+def _analyze_line(line: str) -> _LineAnalysis:
+    """Analyze one source line into printable text, links, and quotes."""
+    parts: list[str] = []
+    links: list[tuple[int, int, int]] = []
+    length = 0
+    cursor = 0
+    for match in RECORD_PAGE_LINK_RE.finditer(line):
+        before = line[cursor : match.start()]
+        parts.append(before)
+        start = length + len(before)
+        label = match.group(1)
+        parts.append(label)
+        links.append((start, start + len(label), int(match.group(2))))
+        length = start + len(label)
+        cursor = match.end()
+    parts.append(line[cursor:])
+    printable = "".join(parts)
+
+    quotes: list[_LineQuote] = []
+    for match in _QUOTE_PAIR_RE.finditer(printable):
+        group = 1 if match.group(1) is not None else 2
+        content_start, content_end = match.span(group)
+        content = printable[content_start:content_end]
+        if not _coverage_stream(content):
+            continue
+        extent_start = content_start - 1
+        extent_end = content_end + 1
+        recognized = True
+        for link_start, link_end, _target in links:
+            overlaps = link_start < extent_end and extent_start < link_end
+            if not overlaps:
+                continue
+            link_inside_quote = (
+                extent_start <= link_start and link_end <= content_end
+            )
+            quote_inside_link = (
+                link_start <= extent_start and extent_end <= link_end
+            )
+            if not link_inside_quote and not quote_inside_link:
+                recognized = False
+                break
+        if recognized:
+            quotes.append(_LineQuote(content_start, content_end, content))
+    return _LineAnalysis(printable=printable, links=tuple(links), quotes=tuple(quotes))
+
+
+def _printable_line_analysis(
+    line: str,
+) -> tuple[str, tuple[tuple[int, int, int], ...], tuple[str, ...]]:
+    """Printable form of one line: links collapse to labels and recognized
+    quote delimiters are removed.
+
+    Returns ``(transformed text, quote content spans, phrases)`` where the
+    spans are ``(start, end, quote index)`` offsets into the transformed
+    text and the phrases are indexed by quote index.
+    """
+    analysis = _analyze_line(line)
+    removed = {
+        position
+        for quote in analysis.quotes
+        for position in (quote.start - 1, quote.end)
+    }
+    transformed = "".join(
+        char
+        for index, char in enumerate(analysis.printable)
+        if index not in removed
+    )
+    spans: list[tuple[int, int, int]] = []
+    phrases: list[str] = []
+    for index, quote in enumerate(analysis.quotes):
+        # Each earlier quote removes exactly two positions (its delimiters),
+        # plus this quote's opening delimiter, all strictly before this
+        # quote's content start.
+        delta = 2 * index + 1
+        spans.append((quote.start - delta, quote.end - delta, index))
+        phrases.append(quote.phrase)
+    return transformed, tuple(spans), tuple(phrases)
+
+
 def printable_source_lines(source_text: str) -> list[tuple[int, str]]:
     """Return ``(1-based source line, printable text)`` for nonblank lines.
 
-    Trusted record-page links are replaced by their labels; that printable
+    Trusted record-page links are replaced by their labels and recognized
+    quoted phrases lose their outer double quote delimiters; that printable
     representation is exactly what the PDF body is expected to reproduce.
+    The canonical ``.txt`` file is never modified.
     """
     printable: list[tuple[int, str]] = []
     for lineno, line in enumerate(source_text.splitlines(), start=1):
-        clean = RECORD_PAGE_LINK_RE.sub(lambda match: match.group(1), line)
-        if clean.strip():
-            printable.append((lineno, clean))
+        transformed, _spans, _phrases = _printable_line_analysis(line)
+        if transformed.strip():
+            printable.append((lineno, transformed))
     return printable
 
 
@@ -221,23 +389,55 @@ def _build_html(source_text: str) -> tuple[str, dict[str, dict[str, Any]]]:
     registry: dict[str, dict[str, Any]] = {}
     counter = 0
     for lineno, line in enumerate(source_text.splitlines(), start=1):
-        clean = RECORD_PAGE_LINK_RE.sub(lambda match: match.group(1), line)
-        if not clean.strip():
+        analysis = _analyze_line(line)
+        if not analysis.printable.strip():
             continue
+        text = analysis.printable
+        # Per-position markup events. Recognized quote delimiters are skipped
+        # entirely and their content is wrapped in <b>; quote recognition
+        # guarantees tags nest properly (a quotation either fully contains a
+        # link span or sits fully inside one), so closes always precede opens
+        # at a shared boundary in the order: link close, bold close, bold
+        # open, link open.
+        skip: set[int] = set()
+        bold_open: dict[int, bool] = {}
+        bold_close: dict[int, bool] = {}
+        for quote in analysis.quotes:
+            skip.add(quote.start - 1)
+            skip.add(quote.end)
+            bold_open[quote.start] = True
+            bold_close[quote.end] = True
+        link_open_at: dict[int, tuple[int, int]] = {}  # start -> (target, end)
+        link_close_at: dict[int, bool] = {}
+        for link_start, link_end, target in analysis.links:
+            link_open_at[link_start] = (target, link_end)
+            link_close_at[link_end] = True
+
         pieces: list[str] = []
-        cursor = 0
-        for match in RECORD_PAGE_LINK_RE.finditer(line):
-            label = match.group(1)
-            target = int(match.group(2))
-            link_id = f"lnk-{counter}"
-            registry[link_id] = {"label": label, "target": target, "line": lineno}
-            pieces.append(html.escape(line[cursor : match.start()]))
-            pieces.append(
-                f'<a href="page:{target}" id="{link_id}">{html.escape(label)}</a>'
-            )
-            cursor = match.end()
-            counter += 1
-        pieces.append(html.escape(line[cursor:]))
+        for position in range(len(text) + 1):
+            if link_close_at.get(position):
+                pieces.append("</a>")
+            if bold_close.get(position):
+                pieces.append("</b>")
+            if bold_open.get(position):
+                pieces.append("<b>")
+            if position in link_open_at:
+                target, link_end = link_open_at[position]
+                link_id = f"lnk-{counter}"
+                counter += 1
+                label = "".join(
+                    text[index]
+                    for index in range(position, link_end)
+                    if index not in skip
+                )
+                registry[link_id] = {
+                    "label": label,
+                    "target": target,
+                    "line": lineno,
+                }
+                pieces.append(f'<a href="page:{target}" id="{link_id}">')
+            if position < len(text) and position not in skip:
+                pieces.append(html.escape(text[position]))
         paragraphs.append(f'<p id="src-{lineno}">{"".join(pieces)}</p>')
     body = "<html><body>" + "".join(paragraphs) + "</body></html>"
     return body, registry
@@ -431,24 +631,41 @@ def _add_footers(document: fitz.Document) -> bytes:
     return document.tobytes()
 
 
-def _align_source_lines(
-    printable: list[tuple[int, str]],
+def _align_source_detailed(
+    printable: list[tuple[int, str, tuple[tuple[int, int, int], ...], tuple[str, ...]]],
     page_texts: dict[int, str],
-) -> dict[int, tuple[int, int]]:
+) -> tuple[dict[int, tuple[int, int]], dict[int, list[SummaryQuoteSpan]]]:
     """Align page content to the printable source monotonically.
 
     Comparison is character-level after rendering-equivalent normalization
     (NFKC, whitespace-insensitive), so ligature substitution and mid-word
-    line wraps do not falsely fail coverage.
+    line wraps do not falsely fail coverage. Alongside the per-page source
+    line ranges, this derives each page's quote fragments: the recognized
+    quotations' content characters are tracked through the same alignment
+    and mapped back to exact raw offsets in the extracted page text, so a
+    quotation wrapping across a paper-page boundary yields one fragment per
+    page, each carrying the complete search phrase. Spans are never located
+    by a global substring search, which would confuse repeated phrases.
     """
-    source_stream: list[tuple[str, int]] = []
-    for lineno, line in printable:
-        for char in _coverage_stream(line):
-            source_stream.append((char, lineno))
+    source_stream: list[tuple[str, int, int | None]] = []
+    phrases: list[str] = []
+    for lineno, line, quote_spans, line_phrases in printable:
+        base_quote_index = len(phrases)
+        phrases.extend(line_phrases)
+        for char, raw_offset, _raw_length in _coverage_chars(line):
+            quote_index: int | None = None
+            for start, end, index in quote_spans:
+                if start <= raw_offset < end:
+                    quote_index = base_quote_index + index
+                    break
+            source_stream.append((char, lineno, quote_index))
 
     page_stream: list[tuple[str, int]] = []
+    page_cov: dict[int, list[tuple[str, int, int]]] = {}
     for page_number in sorted(page_texts):
-        for char in _coverage_stream(page_texts[page_number]):
+        coverage = _coverage_chars(page_texts[page_number])
+        page_cov[page_number] = coverage
+        for char, _offset, _length in coverage:
             page_stream.append((char, page_number))
 
     if len(source_stream) != len(page_stream):
@@ -465,14 +682,50 @@ def _align_source_lines(
             )
 
     ranges: dict[int, tuple[int, int]] = {}
+    quote_fragments: dict[int, list[SummaryQuoteSpan]] = {}
     cursor = 0
     consumed_lines: list[int] = []
     for page_number in sorted(page_texts):
-        char_count = len(_coverage_stream(page_texts[page_number]))
+        coverage = page_cov[page_number]
+        char_count = len(coverage)
+
+        # Group this page's coverage characters into maximal runs of equal
+        # quote membership; each run maps back to raw offsets via the
+        # per-character (offset, length) provenance.
+        run_index: int | None = None
+        run_start = 0
+        for position, (_char, _offset, _length) in enumerate(coverage):
+            quote_index = source_stream[cursor + position][2]
+            if run_index is None or quote_index != run_index:
+                if run_index is not None:
+                    _append_quote_fragment(
+                        quote_fragments,
+                        page_number,
+                        page_texts[page_number],
+                        phrases,
+                        coverage,
+                        run_start,
+                        position,
+                        run_index,
+                    )
+                run_index = quote_index
+                run_start = position
+        if run_index is not None:
+            _append_quote_fragment(
+                quote_fragments,
+                page_number,
+                page_texts[page_number],
+                phrases,
+                coverage,
+                run_start,
+                char_count,
+                run_index,
+            )
+
         chunk = source_stream[cursor : cursor + char_count]
         cursor += char_count
         if chunk:
-            lines = [lineno for _char, lineno in chunk]
+            lines = [lineno for _char, lineno, _quote in chunk]
             ranges[page_number] = (min(lines), max(lines))
             consumed_lines.extend(lines)
         else:
@@ -480,7 +733,106 @@ def _align_source_lines(
                 ranges[page_number] = (consumed_lines[-1], consumed_lines[-1])
             else:
                 ranges[page_number] = (0, 0)
+    return ranges, quote_fragments
+
+
+def _append_quote_fragment(
+    quote_fragments: dict[int, list[SummaryQuoteSpan]],
+    page_number: int,
+    page_text: str,
+    phrases: list[str],
+    coverage: list[tuple[str, int, int]],
+    start_position: int,
+    end_position: int,
+    quote_index: int,
+) -> None:
+    if quote_index is None or quote_index < 0 or quote_index >= len(phrases):
+        return
+    if end_position <= start_position:
+        return
+    start = coverage[start_position][1]
+    end = coverage[end_position - 1][1] + coverage[end_position - 1][2]
+    quote_fragments.setdefault(page_number, []).append(
+        SummaryQuoteSpan(
+            label=page_text[start:end],
+            phrase=phrases[quote_index],
+            start=start,
+            end=end,
+        )
+    )
+
+
+def _align_source_lines(
+    printable: list[tuple[int, str]],
+    page_texts: dict[int, str],
+) -> dict[int, tuple[int, int]]:
+    """Align page content to the printable source; line ranges only."""
+    lines = [(lineno, line, (), ()) for lineno, line in printable]
+    ranges, _fragments = _align_source_detailed(lines, page_texts)
     return ranges
+
+
+def _expected_quote_spans(
+    source_text: str,
+    pages: Any,
+) -> dict[int, list[tuple[int, int, str, str]]] | None:
+    """Derive expected quote fragments from the source and sidecar texts.
+
+    Returns ``None`` when the sidecar pages are structurally unusable (already
+    reported separately) or the sidecar text does not cover the source.
+    """
+    printable_lines: list[
+        tuple[int, str, tuple[tuple[int, int, int], ...], tuple[str, ...]]
+    ] = []
+    for lineno, line in enumerate(source_text.splitlines(), start=1):
+        transformed, quote_spans, phrases = _printable_line_analysis(line)
+        if transformed.strip():
+            printable_lines.append((lineno, transformed, quote_spans, phrases))
+    page_texts = {
+        index + 1: entry.get("text", "")
+        for index, entry in enumerate(pages)
+        if isinstance(entry, dict) and isinstance(entry.get("text"), str)
+    }
+    if len(page_texts) != len(pages):
+        return None
+    try:
+        _ranges, fragments = _align_source_detailed(printable_lines, page_texts)
+    except SummaryEditionError:
+        return None
+    return {
+        page_number: [
+            (span.start, span.end, span.label, span.phrase)
+            for span in spans
+        ]
+        for page_number, spans in fragments.items()
+    }
+
+
+def _declared_quote_spans(pages: Any) -> dict[int, list[tuple[int, int, str, str]]] | None:
+    """Collect the declared per-page quote fields, or ``None`` if unusable."""
+    declared: dict[int, list[tuple[int, int, str, str]]] = {}
+    for index, entry in enumerate(pages):
+        if not isinstance(entry, dict):
+            return None
+        raw_quotes = entry.get("quotes")
+        if not isinstance(raw_quotes, list):
+            return None
+        collected: list[tuple[int, int, str, str]] = []
+        for quote in raw_quotes:
+            if not isinstance(quote, dict):
+                return None
+            start, end = quote.get("start"), quote.get("end")
+            label, phrase = quote.get("label"), quote.get("phrase")
+            if (
+                not isinstance(start, int)
+                or not isinstance(end, int)
+                or not isinstance(label, str)
+                or not isinstance(phrase, str)
+            ):
+                return None
+            collected.append((start, end, label, phrase))
+        declared[index + 1] = collected
+    return declared
 
 
 def build_summary_edition(
@@ -508,8 +860,16 @@ def build_summary_edition(
             page_chars[page.number + 1] = chars
 
         link_spans = _map_links(positions, registry, page_chars, page_texts)
-        printable = printable_source_lines(source_text)
-        line_ranges = _align_source_lines(printable, page_texts)
+        printable_lines: list[
+            tuple[int, str, tuple[tuple[int, int, int], ...], tuple[str, ...]]
+        ] = []
+        for lineno, line in enumerate(source_text.splitlines(), start=1):
+            transformed, quote_spans, phrases = _printable_line_analysis(line)
+            if transformed.strip():
+                printable_lines.append((lineno, transformed, quote_spans, phrases))
+        line_ranges, quote_fragments = _align_source_detailed(
+            printable_lines, page_texts
+        )
 
         pages: list[SummaryPage] = []
         for page_number in sorted(page_texts):
@@ -521,6 +881,7 @@ def build_summary_edition(
                     source_first_line=first_line,
                     source_last_line=last_line,
                     links=tuple(link_spans.get(page_number, [])),
+                    quotes=tuple(quote_fragments.get(page_number, [])),
                 )
             )
 
@@ -545,6 +906,7 @@ def build_summary_edition(
             "body_font_size_pt": BODY_FONT_SIZE_PT,
             "body_line_height": BODY_LINE_HEIGHT,
             "paragraph_spacing_em": PARAGRAPH_SPACING_EM,
+            "quote_presentation": QUOTE_PRESENTATION_POLICY,
             "footer": {
                 "template": FOOTER_TEMPLATE,
                 "font_family": FOOTER_FONT_FAMILY,
@@ -575,6 +937,15 @@ def build_summary_edition(
                         "target_page": span.target_page,
                     }
                     for span in page.links
+                ],
+                "quotes": [
+                    {
+                        "start": span.start,
+                        "end": span.end,
+                        "label": span.label,
+                        "phrase": span.phrase,
+                    }
+                    for span in page.quotes
                 ],
             }
             for page in pages
@@ -642,6 +1013,10 @@ def validate_edition_payload(
                 break
         if layout.get("body_font_family") != BODY_FONT_FAMILY:
             errors.append("Page map layout field body_font_family does not match the fixed layout.")
+        if layout.get("quote_presentation") != QUOTE_PRESENTATION_POLICY:
+            errors.append(
+                "Page map layout quote presentation policy does not match the fixed layout."
+            )
         footer_layout = layout.get("footer")
         if not isinstance(footer_layout, dict):
             errors.append("Page map layout footer metadata is missing.")
@@ -741,6 +1116,47 @@ def validate_edition_payload(
                 errors.append("Page map link spans overlap.")
                 break
 
+        # Schema v2 requires the quote-fragment array on every page. Quote
+        # spans may overlap record-page link spans (explicit page-link
+        # navigation takes precedence in Focus), but quote spans must not
+        # overlap each other, and every label must be exact.
+        raw_quotes = entry.get("quotes")
+        if not isinstance(raw_quotes, list):
+            errors.append("Page map quote spans are missing.")
+            continue
+        quote_spans: list[tuple[int, int]] = []
+        valid_quotes: list[tuple[int, int, str, str]] = []
+        for quote in raw_quotes:
+            if not isinstance(quote, dict):
+                errors.append("Page map quote entry is not an object.")
+                continue
+            start, end = quote.get("start"), quote.get("end")
+            label, phrase = quote.get("label"), quote.get("phrase")
+            if (
+                not isinstance(start, int)
+                or not isinstance(end, int)
+                or start < 0
+                or end > len(text)
+                or start >= end
+            ):
+                errors.append("Page map quote span is out of bounds.")
+                continue
+            if not isinstance(label, str) or text[start:end] != label:
+                errors.append("Page map quote span does not match its label.")
+                continue
+            if not isinstance(phrase, str) or not phrase:
+                errors.append("Page map quote phrase is missing.")
+                continue
+            quote_spans.append((start, end))
+            valid_quotes.append((start, end, label, phrase))
+        ordered_quotes = sorted(quote_spans)
+        for (prev_start, prev_end), (next_start, _next_end) in zip(
+            ordered_quotes, ordered_quotes[1:]
+        ):
+            if next_start < prev_end:
+                errors.append("Page map quote spans overlap.")
+                break
+
     if source_text is not None:
         expected = _coverage_stream(
             " ".join(line for _lineno, line in printable_source_lines(source_text))
@@ -750,6 +1166,22 @@ def validate_edition_payload(
         )
         if expected != actual:
             errors.append("Page map body text does not cover the printable source exactly.")
+        # Complete mapping: every recognized quotation must appear as quote
+        # spans derived from the same alignment, with identical fields.
+        if not any("Page map body text does not cover" in error for error in errors):
+            expected_quote_map = _expected_quote_spans(source_text, pages)
+            declared_quote_map = _declared_quote_spans(pages)
+            if expected_quote_map is not None and declared_quote_map is not None:
+                mismatched = any(
+                    expected_quote_map.get(number, [])
+                    != declared_quote_map.get(number, [])
+                    for number in range(1, len(pages) + 1)
+                )
+                if mismatched:
+                    errors.append(
+                        "Page map quote spans do not completely map the "
+                        "recognized quotations."
+                    )
 
     declared_source_hash = source_info.get("sha256")
     if source_text is not None:

@@ -18,6 +18,7 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 - `recordprep/summary_categories.py`: strict loader for the tracked category-guidance resources; code-owned category ids/titles/order live here, editable guidance prose lives in `recordprep/resources/summary_categories/`.
 - `recordprep/documents.py`: PDF merge, extraction, rendering, and OCR import surface.
 - `recordprep/pi_runtime.py`: PI discovery/model settings, model context metadata, and summary context preflight.
+- `recordprep/summary_preflight.py`: provider-qualified model identity resolution (full model id, never a basename; one discovery result reused per stage), model-visible component composition, honest UTF-8-aware estimate ranges, the capacity policy (known-oversized individual requests fail before the paid call; aggregate synthesis history warns and proceeds; unknown metadata stays visibly unknown), and the read-only `python -m recordprep.summary_preflight` diagnostic (no paid calls, no publishing lock, no writes).
 - `recordprep/pi_bundle.py`: PI artifact/schema validation (including both summary PI stages).
 - `.pi/`: tracked system prompt, project-local Agent Skills, sequential runner, auto-exit extension, and summary-tools extension.
 
@@ -99,6 +100,7 @@ uv run python -m recordprep app
 uv run python -m unittest discover -s tests
 uv run python -m py_compile recordprep/*.py recordprep/ui/*.py tests/*.py
 python3 .pi/scripts/run_recordprep_skill.py --validate-resources
+uv run python -m recordprep.summary_preflight --case-bundle PATH --kind both
 ```
 
 Use the Agent Skill validator for every changed skill. Keep `pyproject.toml` and tracked `uv.lock` synchronized. GTK4 VTE, PI 0.85+ (0.80+ for the native stages), and Node 20+ are system/runtime dependencies.

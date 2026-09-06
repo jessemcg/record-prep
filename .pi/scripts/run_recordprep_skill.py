@@ -864,55 +864,60 @@ def _base_child_command(
     ]
 
 
-def _preflight_context(
-    pi_command: Sequence[str],
-    model_id: str,
-    label: str,
-    input_chars: int,
-    output_chars: int,
-) -> None:
-    """Conservatively preflight context capacity when model metadata exists."""
-    from recordprep import pi_runtime as runtime
+def _report_capacity_decision(decision: Any, label: str) -> None:
+    from recordprep import summary_preflight as preflight
 
-    try:
-        models = runtime.available_pi_models(pi_command)
-    except (runtime.PiRuntimeError, OSError, subprocess.SubprocessError) as exc:
-        _line(
-            f"\033[33m[warn]\033[0m could not query PI model metadata for the "
-            f"context preflight ({exc}); PI will enforce its own limit."
-        )
+    if decision.level == "ok":
         return
-    model = None
-    active_model = str(model_id or "").strip()
-    if active_model:
-        pattern = active_model.split("/")[-1].lower()
-        model = next(
-            (entry for entry in models if entry.model_id.lower() == pattern),
-            None,
-        )
-    if model is None:
+    if decision.level == "fail":
+        # check_individual_request raises instead; this is a defensive path.
+        raise preflight.PreflightError(decision.message)
+    _line(f"\033[33m[warn]\033[0m {decision.message}")
+
+
+# Placeholder used when capacity could not be resolved at all; every check
+# reports its estimate as explicitly unknown instead of pretending capacity.
+_UNRESOLVED_CAPACITY = None
+
+
+def _stage_capacity(
+    phase: str,
+    kind: str,
+    settings: dict[str, Any],
+    project_dir: Path,
+    models: Sequence[Any] | None,
+) -> Any:
+    """Resolve one phase's capacity once per stage (single discovery).
+
+    Discovery results are reused across every kind/phase identity match;
+    matching is provider-qualified on the full model id. Unknown metadata
+    stays visibly unknown instead of being treated as verified capacity.
+    """
+    from recordprep import summary_preflight as preflight
+
+    return preflight.resolve_stage_capacity(
+        settings,
+        phase,
+        project_dir / "settings.json",
+        models=models,
+    )
+
+
+def _report_capacity(capacity: Any, phase: str) -> None:
+    from recordprep import summary_preflight as preflight
+
+    identity = capacity.identity
+    _line(
+        f"[{phase}] model: {identity.provider}/{identity.model_id} "
+        f"({identity.model_source}; thinking {identity.thinking or 'default'} "
+        f"from {identity.thinking_source})"
+    )
+    if not capacity.known:
+        detail = capacity.discovery_error or "no metadata available"
         _line(
-            "\033[33m[warn]\033[0m model context metadata is unavailable; PI will "
-            "enforce its own limit."
+            f"\033[33m[warn]\033[0m [{phase}] model capacity metadata is "
+            f"unknown ({detail}); PI will enforce its own limit."
         )
-        return
-    try:
-        runtime.preflight_summary_context(
-            model, input_chars, output_chars, label=label
-        )
-    except runtime.PiRuntimeError as exc:
-        raise ValueError(str(exc)) from None
-
-
-def _staged_project_model(staged_pi: Path) -> str:
-    """Read the project default model from the staged PI settings copy."""
-    try:
-        settings = json.loads(
-            (staged_pi / "settings.json").read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError):
-        return ""
-    return str(settings.get("defaultModel") or "").strip() if isinstance(settings, dict) else ""
 
 
 def _run_extraction_child(
@@ -924,6 +929,7 @@ def _run_extraction_child(
     settings: dict[str, Any],
     workspace_parent: Path,
     cache_candidate: Path,
+    extract_capacity: Any | None = None,
 ) -> dict[str, Any]:
     from recordprep import summary_agents as sa
 
@@ -982,15 +988,23 @@ def _run_extraction_child(
             settings,
             "extract",
         )
-        payload_chars = len(spec["source"]) + len(prompt)
-        active_model = settings.get("extract_model") or _staged_project_model(staged_pi)
-        _preflight_context(
-            pi_command,
-            active_model,
-            f"{item.item_id} extraction",
-            payload_chars,
-            output_chars=6000,
+        # Capacity policy: a known oversized individual source request fails
+        # before its paid call; unknown metadata is visibly reported and PI
+        # enforces its own limit.
+        from recordprep import summary_preflight as preflight
+
+        static = preflight.stage_static_components(project_dir, skill_name)
+        request_chars = preflight.extraction_request_chars(
+            static,
+            source_payload_chars=len(spec["source"]),
+            prompt_chars=len(prompt),
         )
+        decision = preflight.check_individual_request(
+            extract_capacity or _UNRESOLVED_CAPACITY,
+            request_chars,
+            label=f"{item.item_id} extraction",
+        )
+        _report_capacity_decision(decision, f"{item.item_id} extraction")
         child = _SummaryChildRunner(
             command=command,
             label=f"{kind} extract {item.ordinal}",
@@ -1040,6 +1054,7 @@ def _run_synthesis_child(
     kind: str,
     workspace_parent: Path,
     cache_candidate: Path,
+    synthesize_capacity: Any | None = None,
 ) -> list[Any]:
     from recordprep import summary_agents as sa
 
@@ -1087,13 +1102,29 @@ def _run_synthesis_child(
             settings,
             "synthesize",
         )
-        _preflight_context(
-            pi_command,
-            settings.get("synthesize_model") or _staged_project_model(staged_pi),
-            f"{kind} synthesis",
-            len(json.dumps(dataset)) + len(prompt),
-            output_chars=max(4000, len(rows) * 2500),
+        # Capacity policy: the aggregate synthesis-history estimate counts
+        # model-visible components (overview + Markdown blocks, not the
+        # internal JSON rows) plus explicit generated/tool-exchange/reasoning
+        # allowances. Above the safety margin it warns and proceeds with
+        # agent-managed incremental work — never batching or rejection.
+        from recordprep import summary_preflight as preflight
+
+        static = preflight.stage_static_components(project_dir, skill_name)
+        history_chars = preflight.synthesis_history_chars(
+            static,
+            overview_chars=len(
+                json.dumps(sa.build_dataset_overview(rows), ensure_ascii=True)
+            ),
+            document_block_chars=[
+                len(sa.document_markdown_block(row)) for row in rows
+            ],
         )
+        decision = preflight.check_aggregate_history(
+            synthesize_capacity or _UNRESOLVED_CAPACITY,
+            history_chars,
+            label=f"{kind} synthesis history",
+        )
+        _report_capacity_decision(decision, f"{kind} synthesis")
         child = _SummaryChildRunner(
             command=command,
             label=f"{kind} synthesis",
@@ -1258,6 +1289,33 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             f"Create {SUMMARY_KIND_LABELS[kind]} summaries prerequisites failed: {exc}"
         ) from exc
 
+    # Resolve model identity and capacity once per stage. One discovery
+    # result is reused for both phases; matching is provider-qualified on
+    # the full model id (never a basename), and unknown metadata stays
+    # visibly unknown instead of passing as verified capacity.
+    from recordprep import summary_preflight as preflight
+
+    try:
+        discovered_models = preflight.pi_runtime.available_pi_models(pi_command)
+    except (
+        preflight.pi_runtime.PiRuntimeError,
+        OSError,
+        subprocess.SubprocessError,
+    ) as exc:
+        discovered_models = None
+        _line(
+            f"\033[33m[warn]\033[0m could not query PI model metadata ({exc}); "
+            "capacity estimates stay explicitly unknown."
+        )
+    extract_capacity = _stage_capacity(
+        "extract", kind, settings, project_dir, discovered_models
+    )
+    synthesize_capacity = _stage_capacity(
+        "synthesize", kind, settings, project_dir, discovered_models
+    )
+    _report_capacity(extract_capacity, f"{kind} extract")
+    _report_capacity(synthesize_capacity, f"{kind} synthesize")
+
     _line()
     _line(f"\033[1;36m{stage.title}\033[0m")
     _line(f"Case bundle: {root}")
@@ -1304,6 +1362,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         settings,
                         workspace_parent,
                         candidate_cache,
+                        extract_capacity,
                     )
                     _check_stop()
                     row_warnings: list[str] = []
@@ -1381,6 +1440,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         kind,
                         workspace_parent,
                         candidate_cache,
+                        synthesize_capacity,
                     )
                     _check_stop()
                     sections, section_flags = sa.normalize_synthesis_sections(

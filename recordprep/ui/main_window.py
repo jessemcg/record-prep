@@ -5787,7 +5787,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         action_box.append(self.resume_button)
 
         self.stop_button = Gtk.Button(label="Stop")
-        self.stop_button.add_css_class("destructive-action")
         self.stop_button.set_halign(Gtk.Align.START)
         self.stop_button.set_sensitive(False)
         self.stop_button.connect("clicked", self.on_stop_clicked)

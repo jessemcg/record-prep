@@ -1,13 +1,22 @@
 ---
 name: recordprep-build-source-map
-description: Build and validate direct-source artifacts/source_map.json schema v2 for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript layout detection, transcript numbering, participant indexing, source summaries, and the concise case overview complete. Use only as the final Agent Search stage.
+description: Build and validate direct-source artifacts/source_map.json schema v2 for the RecordPrep case bundle named by RECORDPREP_CASE_BUNDLE after transcript layout detection, transcript numbering, participant indexing when the resolved layout applies it, source summaries, and the concise case overview complete. Use only as the final Agent Search stage.
 ---
 
 # Build RecordPrep Source Map
 
 Use `RECORDPREP_CASE_BUNDLE`. This stage must run only after transcript layout
-detection, transcript numbering, participant indexing, direct source-page
-summaries, and the case-overview skill succeed.
+detection, transcript numbering, participant indexing whenever it applies to
+the resolved transcript layout, direct source-page summaries, and the
+case-overview skill succeed.
+
+Read `artifacts/transcript_layout.json` first. When its validated, fresh,
+resolved mode is `ct_only` (Clerk's transcript only), participant indexing is
+**Skipped — Clerk’s transcript only**: the participant-index prerequisite does
+not apply, the map is built with an empty in-memory participant structure, and
+any pre-existing participant artifact on disk is ignored and left unchanged.
+Missing RT evidence means attribution is unavailable, not that nobody appeared
+or testified.
 
 Require:
 
@@ -16,7 +25,9 @@ Require:
 - `artifacts/transcript_layout.json` using schema version 1, resolved with a declared mode
 - `artifacts/transcript_page_numbers.json` using schema version 2 or newer
 - `artifacts/transcript_page_number_series.md`
-- `artifacts/participant_index.json` using schema version 2
+- `artifacts/participant_index.json` using schema version 2 — only when
+  participant indexing applies to the resolved layout; a clerk's-transcript-only
+  record must not require or reference it
 - hearing, report, and minute boundary JSON
 - the source hearing summary
 - the source reports summary
@@ -47,15 +58,21 @@ atomically writes `artifacts/source_map.json`, then atomically publishes:
 It also upgrades the manifest to schema version 2, publishes the canonical
 `artifacts/case_overview.md` path, removes legacy optimization, chunk,
 vector-path, and organized-summary entries, and deletes legacy
-`summaries/*_organized.txt` derivatives. The source map must build document
+`summaries/*_organized.txt` derivatives. For a clerk's-transcript-only record
+it omits `paths.participant_index` and removes `files.participant_index`, and
+it records an explicit warning that participant/witness attribution is
+unavailable because the bundle contains only a clerk's transcript — this is
+not a finding that there were no participants or witnesses. The source map must build document
 ranges directly from boundaries and `text_pages`, embed normalized counsel,
 non-counsel participant,
-witness, and examination metadata, and contain only case-root-relative paths.
+witness, and examination metadata when participant indexing applies, and
+contain only case-root-relative paths.
 
 Verify page counts against `text_pages`, direct document ranges, participant
-page annotations, a nonempty citation-series list when record citations were
+page annotations when participant indexing applies, a nonempty
+citation-series list when record citations were
 selected, valid lookup references, the resolved transcript-layout path, the
 versioned nonauthoritative overview path, and freshness relative to every
-prerequisite. Report the output path,
+applicable prerequisite. Report the output path,
 page/document/series counts, and warnings. Fail on missing prerequisites or invalid JSON rather than producing a
 non-citation-aware map.

@@ -27,6 +27,7 @@ from typing import Any, Sequence
 
 from recordprep import summary_categories
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
+from recordprep.transcript_layout import is_ct_only
 
 # --- Schema contracts ---
 
@@ -1749,21 +1750,40 @@ def build_work_items(
     entries = _load_boundary_entries(root, kind)
     participant_by_range: dict[tuple[int, int], dict[str, Any]] = {}
     if kind == "hearings":
-        payload = _participant_index(root)
-        if payload is None:
-            raise ValueError(
-                "Participant index validation failed: run Build participant index first."
-            )
-        for hearing in payload.get("hearings", []):
-            if not isinstance(hearing, dict):
-                continue
-            try:
-                start = int(hearing.get("start_page") or 0)
-                end = int(hearing.get("end_page") or 0)
-            except (TypeError, ValueError):
-                continue
-            if start and end:
-                participant_by_range[(start, end)] = hearing
+        if is_ct_only(root):
+            # A current resolved CT-only layout authorizes hearing summaries
+            # without any participant index. Valid boundaries for such a
+            # record must be empty: a clerk's transcript carries no
+            # reporter-attributed hearings, so nonempty boundaries are an
+            # inconsistency rather than something to summarize unattributed.
+            # With empty boundaries the loop below simply builds zero items,
+            # which publishes the header-only digest and title-only summary
+            # through the existing zero-item flow without any participant
+            # load and without any model call.
+            if entries:
+                raise ValueError(
+                    "Transcript layout inconsistency: the record resolved as a "
+                    "clerk's transcript only (no reporter's transcript), but the "
+                    f"hearing boundaries list {len(entries)} document(s). Re-run "
+                    "Find boundaries or correct the transcript layout, then rerun "
+                    "the hearing summary stage."
+                )
+        else:
+            payload = _participant_index(root)
+            if payload is None:
+                raise ValueError(
+                    "Participant index validation failed: run Build participant index first."
+                )
+            for hearing in payload.get("hearings", []):
+                if not isinstance(hearing, dict):
+                    continue
+                try:
+                    start = int(hearing.get("start_page") or 0)
+                    end = int(hearing.get("end_page") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if start and end:
+                    participant_by_range[(start, end)] = hearing
     citation_map = transcript_citation_map(root)
     items: list[SummaryWorkItem] = []
     seen_item_ids: dict[str, int] = {}
@@ -4059,6 +4079,14 @@ def summary_stage_freshness_issues(
                 f"the {label} digest metadata schema is not readable; "
                 "regeneration-pending."
             )
+        if rows and not items:
+            # E.g. the layout changed to CT-only or the boundaries were
+            # cleared: current inputs would build zero documents, so the
+            # published rows cannot be current.
+            issues.append(
+                f"the {label} digest rows no longer match the current document "
+                "boundaries; regeneration-pending."
+            )
 
     # Synthesis freshness: the final metadata must carry v4 dependency
     # fingerprints and match the currently composed synthesis contract.
@@ -4102,6 +4130,10 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
     ]
     if kind == "hearings":
         watched.append(root / "artifacts" / "participant_index.json")
+        # A layout decision change (for example to or from CT-only) alters
+        # the work items a new run would build; it must invalidate the
+        # cached stage-input snapshot and the freshness verdict.
+        watched.append(root / "artifacts" / "transcript_layout.json")
     watched.extend(summary_category_resource_paths().values())
     signature: list[Any] = []
     for path in watched:

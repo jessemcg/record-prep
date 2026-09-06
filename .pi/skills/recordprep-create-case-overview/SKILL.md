@@ -11,13 +11,26 @@ Do not modify source pages, summaries, participant metadata, or `manifest.json`.
 
 ## Inputs and output
 
+Read `artifacts/transcript_layout.json` first and resolve its validated,
+fresh, resolved mode.
+
 Require and read:
 
 - `case_name.txt` when present;
 - the source hearing summary;
 - the source report summary;
 - the minute-order summary when present and nonempty;
-- `artifacts/participant_index.json` only to disambiguate roles and identities.
+- `artifacts/participant_index.json` only to disambiguate roles and
+  identities, and only when the resolved layout applies participant indexing
+  (RT-only or RT + CT). When the resolved mode is `ct_only` (Clerk's
+  transcript only), do not read or require `artifacts/participant_index.json`:
+  participant and witness attribution is unavailable without
+  reporter's-transcript evidence. Describe roles only as supported by the
+  available summaries — the report and minute-order summaries and the valid
+  header-only hearing summary — and explicitly identify in **Record Scope**
+  that reporter-transcript attribution is unavailable. Do not infer
+  attendance, sworn testimony, or the absence of participants from the
+  missing participant indexing.
 
 Prefer manifest paths for summaries. Otherwise use the unambiguous summary files
 under `summaries/`. Ignore and do not create legacy `_organized` summaries. Read
@@ -72,9 +85,10 @@ overview substantially shorter than the source summaries.
 - Describe the available record scope, including the general date range and
   types of proceedings or reports represented. State material gaps apparent
   from the inputs.
-- Derive every statement from the supplied summaries or participant metadata.
-  Add no new facts, citations, quotations, Markdown page links, local paths, raw
-  page numbers, or unsupported characterization.
+- Derive every statement from the supplied summaries or, when participant
+  indexing applies, participant metadata. Add no new facts, citations,
+  quotations, Markdown page links, local paths, raw page numbers, or
+  unsupported characterization.
 - Do not treat silence in the summaries as proof that an event did not occur.
 - If an expected point is not established by the inputs, say so briefly rather
   than guessing.
@@ -86,7 +100,8 @@ Before the atomic replace, confirm:
 - the exact frontmatter, disclaimer, title, and five required headings are present;
 - the prose is within the word limit and materially concise;
 - all listed dates are chronological;
-- every factual statement can be traced to an input summary or participant entry;
+- every factual statement can be traced to an input summary or, when
+  participant indexing applies, a participant entry;
 - there are no local paths, page filenames, record citations, or invented facts;
 - all upstream files remain unchanged.
 

@@ -577,6 +577,34 @@ def is_resolved(root: Path) -> bool:
     return read_resolved_layout(root) is not None
 
 
+# Explicit skip label shown by the UI and runner when the resolved layout is
+# CT-only: participant indexing was not performed and cannot be.
+CT_ONLY_SKIP_LABEL = "Skipped — Clerk’s transcript only"
+
+
+def is_ct_only(root: Path) -> bool:
+    """Whether the CT-only participant-index exemption applies right now.
+
+    True only for a current (resolved, fresh, structurally valid) artifact
+    whose mode is ct_only — read through ``read_resolved_layout`` so manual
+    and automatically resolved layouts receive identical treatment. Missing,
+    malformed, stale, needs-review, or unresolved layouts never authorize the
+    exemption; RT-only and split layouts never match.
+    """
+    payload = read_resolved_layout(root)
+    return payload is not None and str(payload.get("mode") or "") == "ct_only"
+
+
+def ct_only_skip_message(root: Path) -> str:
+    """The explicit skip reason logged for an applicable CT-only record."""
+    return (
+        f"Build participant and witness index: {CT_ONLY_SKIP_LABEL}. "
+        "Participant and witness attribution is unavailable because the bundle "
+        "contains only a clerk's transcript; this is not a finding that no "
+        "participants or witnesses appeared."
+    )
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -844,7 +872,9 @@ __all__ = (
     "draft_layout_payload",
     "finalize_layout_draft",
     "finalize_layout_rebind",
+    "CT_ONLY_SKIP_LABEL",
     "input_signature",
+    "is_ct_only",
     "is_detection_pending",
     "is_resolved",
     "layout_display_summary",

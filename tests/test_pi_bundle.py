@@ -67,13 +67,19 @@ The available material includes summarized hearings, reports, and minute orders 
 
 class PiBundleTests(unittest.TestCase):
     def _build_valid_bundle(self, root: Path) -> None:
+        """A valid RT record: participant indexing applies and is satisfied.
+
+        The hearing data here is synthetic reporter's-transcript material, so
+        the layout must be RT-only; labeling it CT-only would contradict the
+        CT-only participant exemption this module implements.
+        """
         (root / "artifacts").mkdir(parents=True)
         (root / "summaries").mkdir()
         (root / "text_pages").mkdir()
         (root / "image_pages").mkdir()
         (root / "text_pages/0001.txt").write_text("record page 1", encoding="utf-8")
         (root / "image_pages/0001.png").write_bytes(b"image")
-        apply_manual_override(root, mode="ct_only")
+        apply_manual_override(root, mode="rt_only")
         (root / "case_name.txt").write_text("case", encoding="utf-8")
         for name, entries in (
             ("hearing_boundaries.json", [{"date": "March 3, 2025", "start_page": "0001", "end_page": "0001"}]),
@@ -155,7 +161,10 @@ class PiBundleTests(unittest.TestCase):
             json.dumps(
                 {
                     "schema_version": 2,
-                    "paths": {"case_overview": "artifacts/case_overview.md"},
+                    "paths": {
+                        "case_overview": "artifacts/case_overview.md",
+                        "participant_index": "artifacts/participant_index.json",
+                    },
                     "pages": [],
                     "citation_series": [],
                 }

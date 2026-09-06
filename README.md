@@ -47,7 +47,7 @@ uv run python -m recordprep app
 ### Record context
 
 9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
-10. **Build participant and witness index** — a deterministic helper first writes a temporary, nonauthoritative worklist containing hearing ranges, first/appearance pages, reporter-series-scoped `RT_index` pages, and oath/examination/attendance marker pages with resolved citations. PI then processes one hearing at a time, reads only original single-page sources, persists reviewed hearings incrementally, validates batches of at most five, and writes schema-v2 `artifacts/participant_index.json`. Full validation rejects the untouched template.
+10. **Build participant and witness index** — a deterministic helper first writes a temporary, nonauthoritative worklist containing hearing ranges, first/appearance pages, reporter-series-scoped `RT_index` pages, and oath/examination/attendance marker pages with resolved citations. PI then processes one hearing at a time, reads only original single-page sources, persists reviewed hearings incrementally, validates batches of at most five, and writes schema-v2 `artifacts/participant_index.json`. Full validation rejects the untouched template. When the resolved transcript layout is a **clerk's transcript only** (CT-only), the step is skipped outright — shown as `Skipped — Clerk’s transcript only` — with no PI process, no placeholder file, and no claim that indexing was performed: participant and witness attribution requires reporter's-transcript evidence, and its absence is never a finding that nobody appeared or testified. Any pre-existing participant artifact is left on disk untouched and ignored downstream. RT-only and RT + CT records always require the validated index.
 
 Transcript layout detection runs once per new or changed bundle, never on
 every launch and never as an image-classifier sweep. A high-confidence agent
@@ -73,7 +73,7 @@ During PI stages, RecordPrep displays the immutable bundle root used by the runn
 
 ### Summarize
 
-10. **Create hearing summaries** — a resumable two-stage PI pipeline: one fresh PI process per hearing reads the complete source pages and writes one concise salience-based digest per category (plus a small verbatim-quote bank) into the readable Markdown store `summaries/hearings_digests_<case>.md`, then one fresh PI process synthesizes the digests into a plain-prose `summaries/hearings_sum_<case>.txt`. Requires the participant index.
+10. **Create hearing summaries** — a resumable two-stage PI pipeline: one fresh PI process per hearing reads the complete source pages and writes one concise salience-based digest per category (plus a small verbatim-quote bank) into the readable Markdown store `summaries/hearings_digests_<case>.md`, then one fresh PI process synthesizes the digests into a plain-prose `summaries/hearings_sum_<case>.txt`. Requires the participant index — except for a fresh CT-only layout with valid empty hearing boundaries, which publishes the zero-item header-only outputs without a paid call (a CT-only record with nonempty hearing boundaries is an actionable inconsistency).
 11. **Create report summaries** — the same two-stage PI pipeline for reports (expanded 12-category schema, extraction excludes formal proposed findings/orders, synthesis suppresses carried-forward duplication).
 12. **Create minute-order summaries** — the configured Summarize API (minute-order credentials only) reads minute-order-boundary-scoped source pages directly.
 13. **Build paginated summary editions** — deterministically render each summary into a fixed US-Letter PDF plus a Focus page-map sidecar under `summaries/editions/`, with page numbering restarting at 1 per category.
@@ -98,14 +98,16 @@ One effective-guidance contract governs every summary phase: the immutable built
 
 **Summary length** follows each document's substantive complexity; conciseness comes from selecting significant information and avoiding repetition, never from a numerical target. The retired word-target Settings controls have been removed, and any stored target values remain in `config.json` but are ignored.
 
+For CT-only records the hearing summary stage runs its existing zero-item flow: with a valid empty hearing-boundary array it publishes the header-only hearing digest and title-only summary without a paid call and without loading participants. A CT-only record with nonempty hearing boundaries is an actionable layout/boundary inconsistency rather than something to summarize unattributed. A transcript-layout change is watched in hearing-summary freshness, so a later layout decision never reuses a stale CT-only exemption.
+
 ### Agent Search
 
-15. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and participant metadata.
+15. **Create case overview** — PI writes the concise schema-v1 `artifacts/case_overview.md` orientation aid from the source summaries and, when participant indexing applies to the resolved layout, participant metadata. For CT-only records the overview is built from the report and minute-order summaries and the valid empty hearing summary, and its Record Scope explicitly identifies the absence of reporter-transcript attribution; attendance, sworn testimony, or the absence of participants is never inferred from the missing indexing.
 16. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
 
 The case overview supplies parties, procedural posture, key events, principal issues, and record scope so a Focus Agent can orient before inspecting structural metadata. It is explicitly nonauthoritative, is freshness-checked against its inputs, and cannot support a final factual claim or citation.
 
-Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, the resolved transcript-layout path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.
+Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, the resolved transcript-layout path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. For CT-only records the participant prerequisite does not apply: the map carries an empty participant structure with a zero indexed-participant count, an explicit unavailable-attribution scope warning, and no `paths.participant_index` or `files.participant_index` reference (a dangling path is rejected), while RT-only and mixed records keep publishing the validated participant data and canonical path. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.
 
 ## Case bundle layout
 

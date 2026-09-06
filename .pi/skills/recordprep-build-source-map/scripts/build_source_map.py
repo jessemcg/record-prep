@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,11 @@ from pathlib import Path
 from typing import Any
 
 SOURCE_MAP_SCHEMA_VERSION = 2
+CT_ONLY_SCOPE_WARNING = (
+    "Participant and witness attribution is unavailable: this bundle contains "
+    "only a clerk's transcript (no reporter's transcript). This is not a "
+    "finding that no participants or witnesses appeared."
+)
 LEGACY_FILE_KEYS = {
     "raw_hearings", "raw_reports", "preoptimized_hearings", "preoptimized_reports",
     "optimized_hearings", "optimized_reports", "optimized_hearing_sections",
@@ -77,6 +83,85 @@ def load_object(path: Path, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{label} must be an object.")
     return payload
+
+
+def _fallback_ct_only_exempt(root: Path) -> bool:
+    """Self-contained CT-only applicability check for staged workspaces.
+
+    Mirrors ``recordprep.transcript_layout.read_resolved_layout``: the
+    exemption applies only to a structurally valid, resolved, fresh artifact
+    whose mode is ct_only. Keep in sync with that module.
+    """
+    path = root / "artifacts" / "transcript_layout.json"
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError, FileNotFoundError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("artifact") != "recordprep-transcript-layout":
+        return False
+    if payload.get("schema_version") != 1:
+        return False
+    if payload.get("status") != "resolved":
+        return False
+    if payload.get("decision_source") not in {"pi-agent", "manual"}:
+        return False
+    if payload.get("mode") != "ct_only":
+        return False
+    if payload.get("ct_start_file_page") != 1 or payload.get("rt_end_file_page") is not None:
+        return False
+    text_pages = sorted(
+        (root / "text_pages").glob("[0-9][0-9][0-9][0-9].txt"), key=natural_key,
+    )
+    if not text_pages or payload.get("input_page_count") != len(text_pages):
+        return False
+
+    def _file_size(path: Path) -> int:
+        try:
+            return path.stat().st_size if path.is_file() else 0
+        except OSError:
+            return 0
+
+    digest = hashlib.sha256()
+    digest.update(b"recordprep-transcript-layout-signature-v1\n")
+    image_dir = root / "image_pages"
+    for text_path in text_pages:
+        digest.update(text_path.name.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\n")
+        try:
+            content = text_path.read_bytes()
+        except OSError:
+            content = b""
+        digest.update(str(len(content)).encode("ascii"))
+        digest.update(b"\n")
+        image_path = image_dir / f"{text_path.stem}.png"
+        digest.update(image_path.name.encode("utf-8", errors="surrogateescape"))
+        digest.update(b":")
+        digest.update(str(_file_size(image_path)).encode("ascii"))
+        digest.update(b"\n")
+    return payload.get("input_signature") == digest.hexdigest()
+
+
+def _ct_only_exempt(root: Path) -> bool:
+    """Whether the CT-only participant exemption applies to this record.
+
+    Uses the centralized ``recordprep.transcript_layout`` predicate when the
+    package is importable (direct/repo runs) and falls back to a local,
+    equivalent check inside staged PI workspaces, where the recordprep
+    package is not present.
+    """
+    project_root = Path(__file__).resolve().parents[4]
+    if (project_root / "recordprep" / "__init__.py").is_file():
+        try:
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            from recordprep.transcript_layout import is_ct_only
+
+            return bool(is_ct_only(root))
+        except Exception:  # noqa: BLE001 — fall back to the local check
+            pass
+    return _fallback_ct_only_exempt(root)
 
 
 def validated_transcript_layout_path(root: Path) -> str:
@@ -360,9 +445,19 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     transcript = load_object(root / "artifacts" / "transcript_page_numbers.json", "transcript_page_numbers.json")
     if int(transcript.get("schema_version") or 0) < 2:
         raise ValueError("Transcript numbering schema version 2 or newer is required.")
-    participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
-    if participants.get("schema_version") != 2:
-        raise ValueError("Participant index schema version 2 is required.")
+    # Resolve participant applicability from the validated transcript layout
+    # before attempting to load any participant artifact.
+    ct_only = _ct_only_exempt(root)
+    if ct_only:
+        # Empty in-memory participant structure with no claim of a validated
+        # participant artifact; page arrays/lookups stay empty and the
+        # indexed-participant count is zero. Any pre-existing on-disk
+        # participant file is ignored and left untouched.
+        participants: dict[str, Any] = {"schema_version": 2, "hearings": []}
+    else:
+        participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
+        if participants.get("schema_version") != 2:
+            raise ValueError("Participant index schema version 2 is required.")
     summaries = summary_paths(root, manifest)
     transcript_layout = validated_transcript_layout_path(root)
     case_overview = validated_case_overview_path(root)
@@ -371,6 +466,8 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     annotate_pages(pages_by_number, documents, participants)
     participant_warnings = participants.get("warnings") if isinstance(participants.get("warnings"), list) else []
     warnings.extend(str(item) for item in participant_warnings if str(item).strip())
+    if ct_only:
+        warnings.append(CT_ONLY_SCOPE_WARNING)
     citation_series = transcript.get("citation_series") if isinstance(transcript.get("citation_series"), list) else []
     anomalies = transcript.get("anomalies") if isinstance(transcript.get("anomalies"), list) else []
     paths = {
@@ -382,7 +479,7 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "minutes_boundaries": "artifacts/minutes_boundaries.json",
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
-        "participant_index": "artifacts/participant_index.json",
+        **({} if ct_only else {"participant_index": "artifacts/participant_index.json"}),
         "transcript_layout": transcript_layout,
         "case_overview": case_overview,
         "summaries": summaries,
@@ -412,11 +509,15 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "transcript_layout": transcript_layout,
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
-        "participant_index": "artifacts/participant_index.json",
         "case_overview": case_overview,
         "source_map": "artifacts/source_map.json",
         **summaries,
+        **({} if ct_only else {"participant_index": "artifacts/participant_index.json"}),
     })
+    if ct_only:
+        # Never publish a dangling participant path for CT-only records,
+        # even when a stale participant artifact remains on disk.
+        files.pop("participant_index", None)
     manifest["schema_version"] = max(2, int(manifest.get("schema_version") or 0))
     manifest["files"] = files
     manifest.pop("rag", None)

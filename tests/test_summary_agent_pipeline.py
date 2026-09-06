@@ -2652,9 +2652,12 @@ raise SystemExit(3)
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            # A zero-item stage publishes without any PI invocation, so the
+            # fake-PI log may never be created.
+            log_text = log.read_text(encoding="utf-8") if log.exists() else ""
             invocations = [
                 json.loads(line)
-                for line in log.read_text(encoding="utf-8").splitlines()
+                for line in log_text.splitlines()
                 if "--version" not in line and "rpc" not in line
             ]
             self.assertEqual(invocations, [])

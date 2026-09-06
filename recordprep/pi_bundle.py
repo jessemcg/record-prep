@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from recordprep.transcript_layout import input_signature
+from recordprep.transcript_layout import input_signature, is_ct_only
 from recordprep import summary_agents
 
 
@@ -340,7 +340,16 @@ def validate_transcript_layout_output(root: Path) -> list[str]:
 
 
 def case_overview_prerequisite_issues(root: Path) -> list[str]:
-    issues = validate_participant_index_output(root)
+    """Overview prerequisites; participants are required only when applicable.
+
+    A current resolved CT-only layout exempts participant indexing: the
+    overview then proceeds without the participant artifact (any on-disk
+    artifact is ignored, not validated), and the overview freshness inputs
+    below exclude it for the same reason.
+    """
+    issues: list[str] = []
+    if not is_ct_only(root):
+        issues.extend(validate_participant_index_output(root))
     issues.extend(validate_summary_source_outputs(root))
     return list(dict.fromkeys(issues))
 
@@ -382,7 +391,14 @@ def validate_case_overview_output(root: Path) -> list[str]:
         issues.append("artifacts/case_overview.md must not exceed 900 prose words.")
 
     manifest = _read_json(root / "manifest.json") or {}
-    prerequisites = [root / "artifacts" / "participant_index.json"]
+    prerequisites: list[Path] = [
+        # A later layout decision must invalidate the overview in every mode.
+        root / "artifacts" / "transcript_layout.json",
+    ]
+    if not is_ct_only(root):
+        # A pre-existing participant artifact must not make a CT-only
+        # overview appear stale; it is ignored downstream.
+        prerequisites.append(root / "artifacts" / "participant_index.json")
     for kind in ("hearings", "reports"):
         source = _summary_source(root, manifest, kind)
         if source is not None:
@@ -441,7 +457,9 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
 
     if not series_path.is_file():
         issues.append("artifacts/transcript_page_number_series.md is missing.")
-    issues.extend(validate_participant_index_output(root))
+    ct_only = is_ct_only(root)
+    if not ct_only:
+        issues.extend(validate_participant_index_output(root))
     issues.extend(validate_summary_source_outputs(root))
     issues.extend(validate_case_overview_output(root))
 
@@ -465,11 +483,33 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
                 "source_map.json paths.case_overview must be "
                 "artifacts/case_overview.md."
             )
+        if ct_only:
+            if source_paths.get("participant_index"):
+                issues.append(
+                    "source_map.json paths.participant_index must be omitted "
+                    "for a clerk's-transcript-only record; participant "
+                    "attribution is unavailable without reporter's-transcript "
+                    "evidence."
+                )
+        elif source_paths.get("participant_index") != "artifacts/participant_index.json":
+            issues.append(
+                "source_map.json paths.participant_index must be "
+                "artifacts/participant_index.json."
+            )
 
     issues.extend(validate_transcript_layout_output(root))
 
     expected_manifest_paths = dict(PREPARE_BUNDLE_MANIFEST_KEYS)
     for key, expected in expected_manifest_paths.items():
+        if key == "participant_index" and ct_only:
+            # The final publisher omits the participant entry for CT-only
+            # records; a published participant path is rejected there.
+            if files.get(key) not in (None, ""):
+                issues.append(
+                    "manifest.json files.participant_index must be omitted for "
+                    "a clerk's-transcript-only record."
+                )
+            continue
         if files.get(key) != expected:
             issues.append(f"manifest.json files.{key} must be {expected}.")
 
@@ -483,7 +523,7 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
         root / "artifacts" / "transcript_layout.json",
         transcript_path,
         series_path,
-        participant_index_path,
+        *([] if ct_only else [participant_index_path]),
         overview_path,
         *summary_sources,
     ):
@@ -511,7 +551,8 @@ def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
         return validate_transcript_numbering_outputs(root)
     if step_id == "build_participant_index":
         issues = validate_transcript_numbering_outputs(root)
-        issues.extend(validate_participant_index_output(root))
+        if not is_ct_only(root):
+            issues.extend(validate_participant_index_output(root))
         return list(dict.fromkeys(issues))
     if step_id == "create_case_overview":
         return validate_case_overview_output(root)

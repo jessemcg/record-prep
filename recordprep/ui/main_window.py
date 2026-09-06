@@ -68,12 +68,15 @@ from recordprep.summary_editions import (
     validate_summary_edition_files,
 )
 from recordprep.transcript_layout import (
+    CT_ONLY_SKIP_LABEL,
     TranscriptLayoutError,
     apply_manual_override,
     capture_layout_rebind_guard,
+    ct_only_skip_message,
     detection_status,
     diagnose_layout,
     finalize_layout_rebind,
+    is_ct_only,
     layout_display_summary,
     legacy_manifest_split,
     read_resolved_layout,
@@ -6755,6 +6758,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._set_step_status(row, "Done" if done else "Pending")
 
         for step_id, row, _handler in self._pipeline_steps():
+            if (
+                step_id == "build_participant_index"
+                and root_dir is not None
+                and is_ct_only(root_dir)
+            ):
+                # Preserve the explicit skip display across refreshes and
+                # bundle reopening; a generic Done would misrepresent the
+                # skip as a generated participant artifact.
+                self._set_step_status(row, "Skipped")
+                continue
             _set_done(row, self._step_artifact_complete(step_id, root_dir, self.selected_pdfs))
         self._open_first_incomplete_phase()
         self._sync_pipeline_controls()
@@ -8981,6 +8994,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
 
     def _run_step_build_participant_index(self) -> bool:
+        root_dir = self._resolve_case_root()
+        if root_dir is not None and is_ct_only(root_dir):
+            # CT-only: participant indexing cannot attribute anything
+            # without reporter's-transcript evidence. Skip before any VTE,
+            # PI command resolution, or process launch; the step is a
+            # successful no-op, not a failure, and launches no PI process.
+            self._raise_if_stop_requested()
+            message = ct_only_skip_message(root_dir)
+            GLib.idle_add(self._append_log_message, message, "INFO")
+            GLib.idle_add(
+                self.show_toast,
+                f"Build participant and witness index: {CT_ONLY_SKIP_LABEL}.",
+                "INFO",
+            )
+            GLib.idle_add(
+                self._finish_step,
+                self.step_build_participant_index_row,
+                "Skipped",
+            )
+            return True
         return self._run_pi_skill_step(
             "build_participant_index",
             self.step_build_participant_index_row,
@@ -10503,7 +10536,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not text_dir.is_dir():
             raise FileNotFoundError("Run Create files to generate text pages first.")
         participant_by_range: dict[tuple[int, int], dict[str, Any]] = {}
-        if require_participant_index:
+        if require_participant_index and not is_ct_only(root_dir):
             participant_issues = validate_participant_index_output(root_dir)
             if participant_issues:
                 raise ValueError(

@@ -312,7 +312,14 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
         instruction += (
             f"\nThe exact required output path is: {root / 'artifacts' / 'case_overview.md'}"
             "\nCreate only a concise nonauthoritative orientation aid. Do not "
-            "modify manifest.json."
+            "modify manifest.json. Read artifacts/transcript_layout.json first: "
+            "when its resolved mode is ct_only, do not read or require "
+            "artifacts/participant_index.json — describe roles only as "
+            "supported by the available summaries (using the report and minute "
+            "summaries and the valid empty hearing summary), and state in "
+            "Record Scope that reporter-transcript attribution is unavailable. "
+            "Do not infer attendance, sworn testimony, or the absence of "
+            "participants from the missing indexing."
         )
     elif stage.step_id == "detect_transcript_layout":
         instruction += (
@@ -323,9 +330,11 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
         )
     elif stage.step_id == "build_source_map":
         instruction += (
-            "\nDo not proceed unless transcript numbering, participant indexing, "
-            "the source summaries, the transcript layout, and the case overview "
-            "already validate. This is the final Agent Search preparation step."
+            "\nDo not proceed unless transcript numbering, the source summaries, "
+            "the transcript layout, and the case overview already validate, plus "
+            "participant indexing whenever it applies to the resolved layout "
+            "(a clerk's-transcript-only record skips participant indexing). "
+            "This is the final Agent Search preparation step."
         )
     return instruction
 
@@ -1326,19 +1335,10 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     settings = _summary_stage_settings(project_dir, kind)
     extraction_config = _extraction_config(project_dir, kind, settings)
 
-    pi_command = _resolve_pi_command()
-    _check_pi_version(pi_command)
-    version_result = subprocess.run(
-        [*pi_command, "--version"], text=True, capture_output=True, timeout=10
-    )
-    version_text = (version_result.stdout or version_result.stderr).strip()
-    version_match = re.match(r"^0\.(\d+)", version_text)
-    if version_match and int(version_match.group(1)) < SUMMARY_RESOURCE_MINIMUM_PI_MINOR:
-        raise ValueError(
-            f"The summary stages require PI 0.{SUMMARY_RESOURCE_MINIMUM_PI_MINOR} or "
-            f"newer; found {version_text or 'unknown'}."
-        )
-
+    # Work items are resolved before any PI executable or version work so a
+    # zero-document stage (for example a fresh CT-only record with valid
+    # empty hearing boundaries) publishes its header-only outputs with no
+    # model calls and without requiring a PI installation.
     try:
         items = sa.build_work_items(root, extraction_config)
     except ValueError as exc:
@@ -1346,32 +1346,48 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             f"Create {SUMMARY_KIND_LABELS[kind]} summaries prerequisites failed: {exc}"
         ) from exc
 
-    # Resolve model identity and capacity once per stage. One discovery
-    # result is reused for both phases; matching is provider-qualified on
-    # the full model id (never a basename), and unknown metadata stays
-    # visibly unknown instead of passing as verified capacity.
-    from recordprep import summary_preflight as preflight
-
-    try:
-        discovered_models = preflight.pi_runtime.available_pi_models(pi_command)
-    except (
-        preflight.pi_runtime.PiRuntimeError,
-        OSError,
-        subprocess.SubprocessError,
-    ) as exc:
-        discovered_models = None
-        _line(
-            f"\033[33m[warn]\033[0m could not query PI model metadata ({exc}); "
-            "capacity estimates stay explicitly unknown."
+    extract_capacity = None
+    synthesize_capacity = None
+    if items:
+        pi_command = _resolve_pi_command()
+        _check_pi_version(pi_command)
+        version_result = subprocess.run(
+            [*pi_command, "--version"], text=True, capture_output=True, timeout=10
         )
-    extract_capacity = _stage_capacity(
-        "extract", kind, settings, project_dir, discovered_models
-    )
-    synthesize_capacity = _stage_capacity(
-        "synthesize", kind, settings, project_dir, discovered_models
-    )
-    _report_capacity(extract_capacity, f"{kind} extract")
-    _report_capacity(synthesize_capacity, f"{kind} synthesize")
+        version_text = (version_result.stdout or version_result.stderr).strip()
+        version_match = re.match(r"^0\.(\d+)", version_text)
+        if version_match and int(version_match.group(1)) < SUMMARY_RESOURCE_MINIMUM_PI_MINOR:
+            raise ValueError(
+                f"The summary stages require PI 0.{SUMMARY_RESOURCE_MINIMUM_PI_MINOR} or "
+                f"newer; found {version_text or 'unknown'}."
+            )
+
+        # Resolve model identity and capacity once per stage. One discovery
+        # result is reused for both phases; matching is provider-qualified on
+        # the full model id (never a basename), and unknown metadata stays
+        # visibly unknown instead of passing as verified capacity.
+        from recordprep import summary_preflight as preflight
+
+        try:
+            discovered_models = preflight.pi_runtime.available_pi_models(pi_command)
+        except (
+            preflight.pi_runtime.PiRuntimeError,
+            OSError,
+            subprocess.SubprocessError,
+        ) as exc:
+            discovered_models = None
+            _line(
+                f"\033[33m[warn]\033[0m could not query PI model metadata ({exc}); "
+                "capacity estimates stay explicitly unknown."
+            )
+        extract_capacity = _stage_capacity(
+            "extract", kind, settings, project_dir, discovered_models
+        )
+        synthesize_capacity = _stage_capacity(
+            "synthesize", kind, settings, project_dir, discovered_models
+        )
+        _report_capacity(extract_capacity, f"{kind} extract")
+        _report_capacity(synthesize_capacity, f"{kind} synthesize")
 
     _line()
     _line(f"\033[1;36m{stage.title}\033[0m")
@@ -1592,6 +1608,20 @@ def _native_stage_override_flags(project_dir: Path, step_id: str) -> list[str]:
 
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
+
+    if stage.step_id == "build_participant_index":
+        # CT-only exemption: resolve applicability from the validated layout
+        # artifact before any resource, executable, version, or workspace
+        # work. The stage is a successful no-op that launches no PI process.
+        from recordprep.transcript_layout import ct_only_skip_message, is_ct_only
+
+        if is_ct_only(root):
+            _line()
+            _line(f"\033[1;36m{stage.title}\033[0m")
+            _line(f"Case bundle: {root}")
+            _line(f"\033[33m{ct_only_skip_message(root)}\033[0m")
+            _line(f"\033[32m{stage.title} skipped — Clerk’s transcript only.\033[0m")
+            return 0
 
     resource_issues = _resource_issues(project_dir)
     if resource_issues:

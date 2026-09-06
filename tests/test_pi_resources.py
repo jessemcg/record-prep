@@ -438,6 +438,13 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
             self.assertIn("prerequisites failed", result.stdout)
 
     def test_source_map_builder_is_the_single_manifest_publisher(self) -> None:
+        """A mixed RT + CT record publishes validated participant data.
+
+        The former version of this fixture labeled its synthetic
+        reporter's-transcript hearing data as a CT-only record; a CT-only
+        record now correctly skips participant indexing, so the fixture is a
+        split RT + CT record and the participant assertions are unchanged.
+        """
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"
             (root / "text_pages").mkdir(parents=True)
@@ -445,7 +452,9 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
             (root / "artifacts").mkdir()
             (root / "summaries").mkdir()
             (root / "text_pages/0001.txt").write_text("one", encoding="utf-8")
+            (root / "text_pages/0002.txt").write_text("two", encoding="utf-8")
             (root / "image_pages/0001.png").write_bytes(b"image")
+            (root / "image_pages/0002.png").write_bytes(b"image")
             (root / "summaries/hearings_sum_case.txt").write_text(
                 "hearing source",
                 encoding="utf-8",
@@ -456,7 +465,7 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
             )
             from recordprep.transcript_layout import apply_manual_override
 
-            apply_manual_override(root, mode="ct_only")
+            apply_manual_override(root, mode="split", rt_end_file_page=1)
             legacy_organized = root / "summaries/hearings_sum_case_organized.txt"
             legacy_organized.write_text("retired derivative", encoding="utf-8")
             (root / "artifacts/transcript_page_number_series.md").write_text(
@@ -473,6 +482,21 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
                     {
                         "file_name": "0001.txt",
                         "file_page": 1,
+                        "record_type": "RT",
+                        "page_type": "RT_other",
+                        "transcript_page_number": 1,
+                        "transcript_page_label": "1",
+                        "citation_series_id": "rt-1",
+                        "citation_prefix": "RT",
+                        "citation_label": "RT 1",
+                        "citation_key": "RT:1",
+                        "status": "selected",
+                        "confidence": "high",
+                        "method": "sequence",
+                    },
+                    {
+                        "file_name": "0002.txt",
+                        "file_page": 2,
                         "record_type": "CT",
                         "page_type": "CT_other",
                         "transcript_page_number": 1,
@@ -490,6 +514,10 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
                     {
                         "series_id": "ct-1",
                         "citation_prefix": "CT",
+                    },
+                    {
+                        "series_id": "rt-1",
+                        "citation_prefix": "RT",
                     }
                 ],
                 "anomalies": [],
@@ -512,7 +540,7 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
                         "id": "hearing:0001", "date": "January 2, 2025",
                         "start_page": 1, "end_page": 1,
                         "witness_status": "none",
-                        "witness_evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "CT 1", "citation_key": "CT:1", "note": "No witness listed."}],
+                        "witness_evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "RT 1", "citation_key": "RT:1", "note": "No witness listed."}],
                         "counsel": [],
                         "participants": [{
                             "id": "participant:hearing:0001:001",
@@ -523,7 +551,7 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
                             "attendance_status": "present",
                             "speaking_status": "spoke",
                             "sworn_status": "unsworn",
-                            "evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "CT 1", "citation_key": "CT:1", "note": "Addressed the court."}],
+                            "evidence": [{"text_path": "text_pages/0001.txt", "file_page": 1, "citation_label": "RT 1", "citation_key": "RT:1", "note": "Addressed the court."}],
                         }],
                         "witnesses": [], "warnings": [],
                     }],
@@ -579,7 +607,7 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
                 source_map["paths"]["transcript_layout"],
                 "artifacts/transcript_layout.json",
             )
-            self.assertEqual(source_map["counts"]["pages"], 1)
+            self.assertEqual(source_map["counts"]["pages"], 2)
             self.assertEqual(source_map["citation_series"][0]["citation_prefix"], "CT")
             self.assertEqual(source_map["pages"][0]["hearing_id"], "hearing:0001")
             self.assertEqual(

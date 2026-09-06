@@ -5478,9 +5478,16 @@ class TestPromptsWindow(Adw.ApplicationWindow):
         if _test_prompt_input_kind(mode_id) == "image":
             return "Choose a page image; the test uses the saved classification prompt."
         if mode_id == "summarize_hearings":
-            return "Paste direct hearing source text; separate simulated source pages with form feeds if needed."
+            return (
+                "Legacy direct-API experiment: paste direct hearing source "
+                "text; separate simulated source pages with form feeds if "
+                "needed. This sandbox does not exercise the PI summary pipeline."
+            )
         if mode_id == "summarize_reports":
-            return "Paste direct report source text; uses the production summary-window path."
+            return (
+                "Legacy direct-API experiment: paste direct report source "
+                "text. This sandbox does not exercise the PI summary pipeline."
+            )
         if mode_id == "summarize_minutes":
             return "Paste minute-order text; uses the saved minute summary prompt."
         return "Uses the saved prompt for the selected mode."

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import re
 import shutil
 import signal
@@ -693,6 +694,13 @@ class _SummaryChildRunner:
         self.env_overrides = env_overrides or {}
         self.process: subprocess.Popen[str] | None = None
         self._stall_reported = False
+        # Sanitized aggregate telemetry (counts and supplied usage numbers
+        # only — never model text, tool arguments/results, notes, or error
+        # bodies).
+        self._telemetry_usage: dict[str, float] = {}
+        self._peak_reported_context = 0
+        self._compaction_count = 0
+        self._tool_call_count = 0
 
     def run(self) -> int:
         global _active_process
@@ -709,21 +717,38 @@ class _SummaryChildRunner:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
             process_group=0,
         )
         _active_process = self.process
         assert self.process.stdout is not None
+        # Timed polling on the raw descriptor instead of a blocking
+        # readline(): a silently hanging child must still trigger stall
+        # warnings and keep Stop responsive.
+        fd = self.process.stdout.fileno()
+        os.set_blocking(fd, False)
+        buffer = b""
         last_activity = time.monotonic()
         while True:
-            line = self.process.stdout.readline()
-            if line:
-                last_activity = time.monotonic()
-                self._handle_event(line)
-            elif self.process.poll() is not None:
+            ready, _, _ = select.select([fd], [], [], self.poll_interval)
+            if ready:
+                try:
+                    chunk = os.read(fd, 65536)
+                except BlockingIOError:
+                    chunk = b""
+                if chunk:
+                    last_activity = time.monotonic()
+                    buffer += chunk
+                    while True:
+                        newline = buffer.find(b"\n")
+                        if newline == -1:
+                            break
+                        line = buffer[:newline]
+                        buffer = buffer[newline + 1 :]
+                        self._handle_event(line.decode("utf-8", errors="ignore"))
+                elif self.process.poll() is not None:
+                    break
+            if self.process.poll() is not None and not ready:
                 break
-            else:
-                time.sleep(self.poll_interval)
             if (
                 not self._stall_reported
                 and time.monotonic() - last_activity >= self.stall_timeout
@@ -738,20 +763,42 @@ class _SummaryChildRunner:
                 )
             if _stopped and self.process.poll() is None:
                 _terminate_active_process()
-        remaining = self.process.stdout.read()
-        if remaining:
-            for line in remaining.splitlines():
-                self._handle_event(line)
+        if buffer:
+            self._handle_event(buffer.decode("utf-8", errors="ignore"))
         return_code = self.process.wait()
         elapsed = time.monotonic() - started
         _line(
             f"[{self.label}] child exited with code {return_code} after "
             f"{elapsed:.0f}s."
         )
+        self._report_telemetry(elapsed)
         _active_process = None
         if _stopped:
             return 130
         return return_code
+
+    def _report_telemetry(self, elapsed: float) -> None:
+        """Sanitized aggregate telemetry: counts and supplied usage only.
+
+        Never prints model text, tool arguments/results, scratchpad notes,
+        or provider error bodies.
+        """
+        parts = [f"elapsed {elapsed:.0f}s"]
+        if self._telemetry_usage:
+            usage_parts = [
+                f"{key} {value}"
+                for key, value in sorted(self._telemetry_usage.items())
+                if isinstance(value, (int, float))
+            ]
+            if usage_parts:
+                parts.append("usage " + ", ".join(usage_parts))
+        if self._peak_reported_context:
+            parts.append(f"peak reported context {self._peak_reported_context}")
+        if self._compaction_count:
+            parts.append(f"compactions {self._compaction_count}")
+        if self._tool_call_count:
+            parts.append(f"tool calls {self._tool_call_count}")
+        _line(f"[{self.label}] " + "; ".join(parts) + ".")
 
     def _handle_event(self, line: str) -> None:
         try:
@@ -762,9 +809,48 @@ class _SummaryChildRunner:
             return
         event_type = str(event.get("type") or "")
         if event_type == "tool_execution_start":
+            self._tool_call_count += 1
             _line(f"[{self.label}] tool call: {event.get('toolName', 'unknown')}")
         elif event_type in {"agent_start", "turn_end", "agent_end"}:
             _line(f"[{self.label}] {event_type}")
+        if "compaction" in event_type:
+            self._compaction_count += 1
+        self._record_usage(event)
+
+    def _record_usage(self, event: dict) -> None:
+        """Fold supplied usage numbers into sanitized aggregate telemetry.
+
+        Only well-typed numbers under known keys are recorded; authoritative
+        final-message usage replaces streamed totals instead of
+        double-counting, and unknown metadata is simply absent.
+        """
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            return
+        event_type = str(event.get("type") or "")
+        final = event_type in {"agent_end", "result"}
+        for key in (
+            "inputTokens",
+            "outputTokens",
+            "totalTokens",
+            "contextWindow",
+        ):
+            value = usage.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            if key == "contextWindow":
+                self._peak_reported_context = max(
+                    self._peak_reported_context, int(value)
+                )
+                continue
+            label = "final_" + key if final else key
+            if final:
+                # Authoritative final-message usage replaces streamed totals.
+                self._telemetry_usage[label] = value
+            else:
+                self._telemetry_usage[label] = (
+                    self._telemetry_usage.get(label, 0) + value
+                )
 
 
 def _check_stop() -> None:
@@ -1437,6 +1523,16 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 heading_pages,
                 quality_flags=quality_flags,
             )
+            # The final text and its edition are preserved when only metadata
+            # changes (e.g. quality flags or dependency hashes); the affected
+            # edition is invalidated only when the source summary text
+            # actually changed. Text and metadata replacements are individually
+            # atomic, not a two-file transaction — hash validation detects an
+            # interrupted pair.
+            prior_meta = sa.load_final_meta(root, kind)
+            final_text_changed = prior_meta is None or str(
+                prior_meta.get("final_text_sha256") or ""
+            ) != meta["final_text_sha256"]
             sa._atomic_write(final_path, final_text)
             sa._atomic_write(
                 sa.summary_final_meta_path(root, kind),
@@ -1450,8 +1546,14 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 _line(f"[{kind}] removed legacy artifact {removed}.")
             for removed in sa.cleanup_legacy_digest_jsonl(root, kind):
                 _line(f"[{kind}] removed legacy digest artifact {removed}.")
-            if remove_summary_edition is not None:
-                remove_summary_edition(final_path)
+            if final_text_changed:
+                if remove_summary_edition is not None:
+                    remove_summary_edition(final_path)
+            else:
+                _line(
+                    f"[{kind}] final text unchanged; the existing edition stays "
+                    "valid."
+                )
             _line(f"\033[32m{stage.title} complete.\033[0m")
     except _StopRequested:
         _line(f"\033[33m{stage.title} stopped; the current row stays Pending.\033[0m")

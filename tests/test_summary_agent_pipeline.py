@@ -632,6 +632,107 @@ class QuoteResolutionTests(unittest.TestCase):
                 row["quality_flags"],
             )
 
+    def test_report_proposal_cutoff_enforces_marker_page_offset(self) -> None:
+        """Marker-page quotes verify against the eligible prefix only."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "zz 01")
+            (root / "text_pages" / "0002.txt").write_text(
+                "Eligible narrative QUOTEME:aa bb here.\n"
+                "PROPOSED FINDINGS AND ORDERS\n"
+                "QUOTEME:cc dd excluded material.\n",
+                encoding="utf-8",
+            )
+            builder.finish([], [(1, 2, "March 3, 2025", "Detention Report")])
+            items = sa.build_work_items(root, _extraction_config("reports"))
+            marker = items[0].proposal_marker
+            self.assertIsNotNone(marker)
+            self.assertEqual(marker.source_page, 2)
+            # The detector's offset lands at the excluded title; the quote
+            # from the eligible prefix precedes it.
+            page_text = (root / "text_pages" / "0002.txt").read_text(
+                encoding="utf-8"
+            )
+            offset = marker.offset
+            self.assertIn("Eligible narrative", page_text[:offset])
+            self.assertIn("excluded material", page_text[offset:])
+
+            def candidate(quote: str) -> dict:
+                return {
+                    "item_id": items[0].item_id,
+                    "categories": [
+                        {
+                            "id": "agency_recommendations",
+                            "digest": {
+                                "text": "Agency recommendation digest.",
+                                "evidence": [
+                                    {"text": quote, "file_page": 2}
+                                ],
+                            },
+                        }
+                    ],
+                }
+
+            # A marker-page quote that matches the eligible prefix survives.
+            row = sa.canonicalize_extraction_candidate(
+                candidate("Eligible narrative"),
+                items[0],
+                root / "text_pages",
+                report_cutoff=(marker.source_page, offset),
+            )
+            evidence = row["categories"][0]["digest"]["evidence"]
+            self.assertEqual(evidence[0]["file_page"], 2)
+            self.assertTrue(evidence[0]["verified"])
+
+            # A quote that can only match excluded text cannot survive: the
+            # category digest is conservatively discarded.
+            row = sa.canonicalize_extraction_candidate(
+                candidate("excluded material"),
+                items[0],
+                root / "text_pages",
+                report_cutoff=(marker.source_page, offset),
+            )
+            self.assertIsNone(row["categories"][0]["digest"])
+            self.assertIn(
+                "digest_discarded_proposal_cutoff:agency_recommendations",
+                row["quality_flags"],
+            )
+
+
+class SynthesisDiagnosticsTests(unittest.TestCase):
+    """Private candidate diagnostics are validated and republished as
+    sanitized counts only — advisory warnings, never failure gates."""
+
+    def test_well_typed_counts_become_sanitized_codes(self) -> None:
+        flags = sa.normalize_synthesis_diagnostics(
+            {"unread_documents": 2, "missing_sections": 1}
+        )
+        self.assertEqual(
+            flags,
+            ["synthesis_unread_documents:2", "synthesis_missing_sections:1"],
+        )
+
+    def test_zero_or_absent_or_malformed_counts_are_dropped(self) -> None:
+        self.assertEqual(sa.normalize_synthesis_diagnostics(None), [])
+        self.assertEqual(sa.normalize_synthesis_diagnostics({}), [])
+        self.assertEqual(
+            sa.normalize_synthesis_diagnostics(
+                {"unread_documents": 0, "missing_sections": 0}
+            ),
+            [],
+        )
+        # Malformed values never leak into flags.
+        for payload in (
+            {"unread_documents": "3"},
+            {"unread_documents": True},
+            {"unread_documents": -1},
+            {"unread_documents": {"nested": 1}},
+            {"unread_documents": 1.5},
+            {"missing_sections": [1, 2]},
+        ):
+            self.assertEqual(sa.normalize_synthesis_diagnostics(payload), [])
+
 
 class SourcePayloadTests(unittest.TestCase):
     """Extraction serves each document's complete source pages in one payload.
@@ -2571,6 +2672,21 @@ raise SystemExit(3)
             )
 
 
+SILENT_FAKE_PI = r"""#!/usr/bin/env python3
+import os, sys, time
+
+argv = sys.argv[1:]
+if "--version" in argv:
+    print("0.85.0")
+    raise SystemExit(0)
+if "--mode" in argv and "rpc" in argv:
+    raise SystemExit(0)
+# A silent child: no stdout activity at all, then a failure exit. The
+# runner must warn on the stall timeout without any newline-based progress.
+time.sleep(float(os.environ.get("SILENT_PI_SLEEP", "6")))
+raise SystemExit(3)
+"""
+
 HANGING_FAKE_PI = r"""#!/usr/bin/env python3
 import json, os, sys, time
 
@@ -2588,6 +2704,59 @@ if "--mode" in argv and "rpc" in argv:
 print(json.dumps({"type": "agent_start"}), flush=True)
 time.sleep(300)
 """
+
+
+class SilentStallWarningTests(unittest.TestCase):
+    """A silent child triggers a stall warning without a newline; the run
+    fails without publishing, and Stop stays responsive."""
+
+    def test_silent_child_warns_and_fails_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            root = temp / "bundle"
+            builder = BundleBuilder(root)
+            builder.add_pages(1, 1, "aa bb")
+            builder.add_pages(2, 2, "cc dd")
+            builder.finish(
+                [(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")],
+                [],
+                minutes=[(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")],
+            )
+            fake = temp / "fake-pi"
+            fake.write_text(SILENT_FAKE_PI, encoding="utf-8")
+            fake.chmod(0o755)
+            project = FakePiEndToEndTests._staged_project(
+                FakePiEndToEndTests, temp
+            )
+            log = temp / "inv.log"
+
+            env = os.environ.copy()
+            env["RECORDPREP_CASE_BUNDLE"] = str(root)
+            env["RECORDPREP_PI_PROJECT_DIR"] = str(project / ".pi")
+            env["RECORDPREP_PI_COMMAND_ARGC"] = "1"
+            env["RECORDPREP_PI_COMMAND_ARG_0"] = str(fake)
+            env["FAKE_PI_LOG"] = str(log)
+            env["XDG_CACHE_HOME"] = str(temp / "cache")
+            env["RECORDPREP_PI_STALL_POLL_INTERVAL"] = "0.2"
+            env["RECORDPREP_PI_STALL_TIMEOUT_SECONDS"] = "2"
+            env["SILENT_PI_SLEEP"] = "5"
+
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), "create_hearing_summaries"],
+                cwd=PROJECT_DIR,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("[stalled]", result.stdout)
+            # Nothing was published: no digest, no final summary.
+            self.assertFalse(
+                (root / "summaries" / "hearings_digests_SynCase.md").exists()
+            )
+            self.assertFalse(sa.summary_final_path(root, "hearings").exists())
 
 
 class StopPropagationTests(unittest.TestCase):

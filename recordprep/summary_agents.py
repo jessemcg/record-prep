@@ -2133,20 +2133,42 @@ def canonicalize_extraction_candidate(
                 if not quote_text or not item.start_page <= file_page <= item.end_page:
                     discarded_evidence_count += 1
                     continue
+                eligible_page_text = page_text[file_page]
                 if report_cutoff is not None and file_page > report_cutoff[0]:
                     cutoff_hit = True
                     break
+                if (
+                    report_cutoff is not None
+                    and file_page == report_cutoff[0]
+                ):
+                    # Marker-page quotes are verified against the eligible
+                    # prefix only. A quote that survives only by matching
+                    # excluded text at or after the delimiter cannot be
+                    # published, and one crossing the delimiter cannot
+                    # survive either.
+                    eligible_page_text = eligible_page_text[
+                        : report_cutoff[1]
+                    ]
                 # Best-effort quote verification: exact normalized match first
                 # (ambiguity keeps the first occurrence), then a typography-
                 # and case-insensitive fallback; otherwise keep as submitted.
                 span = find_quote_span(
-                    quote_text, page_text[file_page], allow_ambiguous=True
+                    quote_text, eligible_page_text, allow_ambiguous=True
                 )
                 verified = span is not None
                 if not verified and find_quote_span_relaxed(
-                    quote_text, page_text[file_page]
+                    quote_text, eligible_page_text
                 ):
                     verified = True
+                if (
+                    report_cutoff is not None
+                    and file_page == report_cutoff[0]
+                    and not verified
+                ):
+                    # No eligible-prefix match: the quotation could only
+                    # survive by matching excluded proposal text.
+                    cutoff_hit = True
+                    break
                 evidence_entry: dict[str, Any] = {
                     "text": quote_text,
                     "file_page": file_page,
@@ -2961,7 +2983,9 @@ def reconcile_digest_rows(
         ) != item.end_page:
             stale.append(item.item_id)
     for removed_id in sorted(rows_by_id):
-        ordered = [row for row in ordered if row.get("item_id") != removed_id]
+        removed_ids = set(rows_by_id)
+        ordered = [row for row in ordered if row.get("item_id") not in removed_ids]
+        break
     return ordered, stale
 
 
@@ -3062,9 +3086,23 @@ def build_digest_meta(
     items: Sequence[SummaryWorkItem],
     config: ExtractionConfig,
     rows: Sequence[dict[str, Any]],
+    *,
+    markdown_text: str | None = None,
 ) -> dict[str, Any]:
     expected_ids = [item.item_id for item in items]
-    completed = sum(1 for item_id in expected_ids if _row_is_current(items, rows, item_id))
+    items_by_id = {item.item_id: item for item in items}
+    rows_by_id = {str(row.get("item_id")): row for row in rows}
+    completed = sum(
+        1
+        for item_id in expected_ids
+        if _row_is_current(
+            items,
+            rows,
+            item_id,
+            items_by_id=items_by_id,
+            rows_by_id=rows_by_id,
+        )
+    )
     return {
         "artifact": SUMMARY_FACTS_META_ARTIFACT,
         "schema_version": SUMMARY_FACTS_META_SCHEMA_VERSION,
@@ -3108,11 +3146,22 @@ def _row_is_current(
     items: Sequence[SummaryWorkItem],
     rows: Sequence[dict[str, Any]],
     item_id: str,
+    *,
+    items_by_id: dict[str, SummaryWorkItem] | None = None,
+    rows_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
-    item = next((entry for entry in items if entry.item_id == item_id), None)
+    item = (
+        items_by_id.get(item_id)
+        if items_by_id is not None
+        else next((entry for entry in items if entry.item_id == item_id), None)
+    )
     if item is None:
         return False
-    row = next((entry for entry in rows if entry.get("item_id") == item_id), None)
+    row = (
+        rows_by_id.get(item_id)
+        if rows_by_id is not None
+        else next((entry for entry in rows if entry.get("item_id") == item_id), None)
+    )
     if row is None:
         return False
     return str(row.get("generation_sha256")) == item.generation_sha256
@@ -3133,9 +3182,12 @@ def publish_digests(
     """
     markdown_path = summary_digest_path(root, kind)
     meta_path = summary_digest_meta_path(root, kind)
+    # Serialize once; the metadata sidecar reuses the exact bytes and hash.
     markdown_text = serialize_digest_markdown(kind, summary_case_stem(root), rows)
     _atomic_write(markdown_path, markdown_text)
-    meta = build_digest_meta(root, kind, items, config, rows)
+    meta = build_digest_meta(
+        root, kind, items, config, rows, markdown_text=markdown_text
+    )
     _atomic_write(meta_path, json.dumps(meta, ensure_ascii=True, indent=2) + "\n")
     return meta
 

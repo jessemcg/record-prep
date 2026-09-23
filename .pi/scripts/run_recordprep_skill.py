@@ -694,7 +694,11 @@ class _SummaryChildRunner:
         poll_interval: float,
         stall_timeout: float,
         env_overrides: dict[str, str] | None = None,
+        metrics_workflow: str | None = None,
+        metrics_prefix: Sequence[str] | None = None,
     ) -> None:
+        self.metrics_workflow = metrics_workflow
+        self.metrics_prefix = metrics_prefix
         self.command = list(command)
         self.label = label
         self.workspace = workspace
@@ -719,9 +723,14 @@ class _SummaryChildRunner:
         env.update(self.env_overrides)
         (self.workspace / "sessions").mkdir(parents=True, exist_ok=True)
         (self.workspace / "tmp").mkdir(parents=True, exist_ok=True)
+        command = self.command
+        if self.metrics_workflow is not None and self.metrics_prefix is not None:
+            _ensure_project_importable(Path(__file__).resolve().parents[1])
+            from recordprep.run_metrics import instrument
+            command, env = instrument(command, env, self.metrics_workflow, self.metrics_prefix)
         started = time.monotonic()
         self.process = subprocess.Popen(
-            self.command,
+            command,
             cwd=self.workspace,
             env=env,
             stdout=subprocess.PIPE,
@@ -1069,6 +1078,8 @@ def _run_extraction_child(
         child = _SummaryChildRunner(
             command=command,
             label=f"{kind} extract {item.ordinal}",
+            metrics_workflow=skill_name,
+            metrics_prefix=pi_command,
             workspace=workspace,
             poll_interval=_float_env(
                 "RECORDPREP_PI_STALL_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS
@@ -1189,6 +1200,8 @@ def _run_synthesis_child(
         child = _SummaryChildRunner(
             command=command,
             label=f"{kind} synthesis",
+            metrics_workflow=skill_name,
+            metrics_prefix=pi_command,
             workspace=workspace,
             poll_interval=_float_env(
                 "RECORDPREP_PI_STALL_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS
@@ -1697,6 +1710,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         _line(f"Skill: {stage.skill_name}")
         _line(f"Case bundle: {root}")
         _line()
+        _ensure_project_importable(Path(__file__).resolve().parents[1])
+        from recordprep.run_metrics import instrument
+        command, env = instrument(command, env, stage.step_id, pi_command)
         runner_process_group = os.getpgrp()
         _active_process = subprocess.Popen(
             command,

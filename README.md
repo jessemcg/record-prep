@@ -1,5 +1,13 @@
 # RecordPrep
 
+## Operational run metrics
+
+Native Pi stages and each hearing/report extraction/synthesis child explicitly load the optional passive sibling PiRunMetrics observer. It registers no tools, adds no context and changes no Stop/stall, content-free stdout or Python publication contracts. One settled child is not pipeline success. Skipped, deterministic and zero-model work creates no metrics.
+
+Default archive is source-project `.run-metrics/runs/`, Git ignored and private but possibly Dropbox-synced; reports remain machine-local under XDG state. Collection requires Pi 0.87.1+ without raising existing workflow runtime minimums. Absolute root/collector overrides and `PI_RUN_METRICS_ENABLED=0` remain supported. Missing policy/collector, invalid overrides or storage failures warn and fail open, without upgrades or archive relocation. New runner sessions load the adapter; existing children are unchanged.
+
+Use sibling **Pi Run Metrics** for readiness, reports and copy-to-PiPlanner. No model calls or automatic implementation occur there. See `../PiRunMetrics/docs/all-app-acceptance.md`; private configuration and historical archives are never migrated by this feature.
+
 <img src="recordprep_icon.png" alt="RecordPrep icon" width="128" align="left">
 
 RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable legal-record PDFs into a citation-aware case bundle for Focus. It preserves original page text/images, classifies pages, finds document boundaries, numbers official transcript pages, verifies counsel and witnesses, creates detailed summaries from source pages, and publishes source-map v2 for PI Agent search.

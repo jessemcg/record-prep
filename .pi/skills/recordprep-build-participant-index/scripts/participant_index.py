@@ -103,6 +103,20 @@ def citation_range(start: str, end: str) -> str:
     return start if not end or end == start else f"{start}-{end}"
 
 
+def canonical_citation_text(value: Any) -> str:
+    """Strip model-authored page notation from a citation value.
+
+    Citation labels are ``"<PREFIX> <page>"`` (``"RT 3"``); a numbering run
+    can leave prose notation (``"RT p. 3"``, ``"CT pp. 39-44"``). Derive the
+    canonical form so a legacy transcript artifact cannot leak page notation
+    into the participant index.
+    """
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return ""
+    return re.sub(r"\b([A-Za-z0-9]+)\s+pp?\.\s*", r"\1 ", text).strip()
+
+
 def classification_rows(root: Path) -> list[dict[str, Any]]:
     candidates = [
         root / "classification" / "RT_basic_advanced_corrected_dates_names.jsonl",
@@ -132,7 +146,13 @@ def transcript_entries(root: Path) -> list[dict[str, Any]]:
     entries = transcript.get("entries") if isinstance(transcript, dict) else None
     if not isinstance(entries, list):
         raise ValueError("Transcript numbering entries are required.")
-    return [item for item in entries if isinstance(item, dict)]
+    result = [item for item in entries if isinstance(item, dict)]
+    for item in result:
+        if "citation_label" in item:
+            item["citation_label"] = canonical_citation_text(
+                item.get("citation_label")
+            )
+    return result
 
 
 def hearing_boundaries(root: Path) -> list[dict[str, Any]]:

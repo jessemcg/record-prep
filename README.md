@@ -54,7 +54,7 @@ uv run python -m recordprep app
 
 ### Record context
 
-9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata.
+9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata. Python deterministically normalizes each citation label to `PREFIX N` (for example `RT 3`), never model-authored `p.`/`pp.` page notation, before participant indexing, summaries, or the source map read it.
 10. **Build participant and witness index** — a deterministic helper first writes a temporary, nonauthoritative worklist containing hearing ranges, first/appearance pages, reporter-series-scoped `RT_index` pages, and oath/examination/attendance marker pages with resolved citations. PI then processes one hearing at a time, reads only original single-page sources, persists reviewed hearings incrementally, validates batches of at most five, and writes schema-v2 `artifacts/participant_index.json`. Full validation rejects the untouched template. When the resolved transcript layout is a **clerk's transcript only** (CT-only), the step is skipped outright — shown as `Skipped — Clerk’s transcript only` — with no PI process, no placeholder file, and no claim that indexing was performed: participant and witness attribution requires reporter's-transcript evidence, and its absence is never a finding that nobody appeared or testified. Any pre-existing participant artifact is left on disk untouched and ignored downstream. RT-only and RT + CT records always require the validated index.
 
 Transcript layout detection runs once per new or changed bundle, never on

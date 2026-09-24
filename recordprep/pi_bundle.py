@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -118,6 +119,83 @@ def validate_transcript_numbering_outputs(root: Path) -> list[str]:
     except OSError:
         issues.append("artifacts/transcript_page_number_series.md is unreadable.")
     return list(dict.fromkeys(issues))
+
+
+def canonical_citation_label(label: object) -> str:
+    """Return a citation label without model-authored page notation.
+
+    RecordPrep citation labels are ``"<PREFIX> <page>"`` (for example
+    ``"RT 3"`` or ``"CT 44"``). A model occasionally writes prose page
+    notation into the label (``"RT p. 3"`` or ``"CT pp. 39-44"``); strip
+    that token while leaving already-canonical and non-citation labels
+    untouched.
+    """
+    text = re.sub(r"\s+", " ", str(label or "").strip())
+    if not text:
+        return ""
+    return re.sub(r"\b([A-Za-z0-9]+)\s+pp?\.\s*", r"\1 ", text).strip()
+
+
+def canonical_citation_key(prefix: object, number: object) -> str:
+    """Return the canonical ``"<PREFIX>:<page>"`` citation key, or ""."""
+    prefix_text = str(prefix or "").strip()
+    try:
+        page = int(number)
+    except (TypeError, ValueError):
+        return ""
+    if not prefix_text or page <= 0:
+        return ""
+    return f"{prefix_text}:{page}"
+
+
+def normalize_transcript_numbering_labels(root: Path) -> list[str]:
+    """Strip page notation from the transcript numbering artifact in place.
+
+    The numbering PI skill may write prose page notation into
+    ``citation_label`` (``"RT p. 3"``). Citation labels are derived data, so
+    Python deterministically rewrites them to ``"RT 3"`` (and citation keys
+    to ``"RT:3"``) before the artifact is trusted downstream.
+
+    Returns the file names whose label or key changed; the artifact is
+    rewritten atomically only when something actually changes.
+    """
+    path = expected_prepare_bundle_paths(root)["transcript_page_numbers"]
+    payload = _read_json(path)
+    if payload is None:
+        return []
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        return []
+    changed: list[str] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        original_label = str(item.get("citation_label") or "")
+        label = canonical_citation_label(original_label)
+        original_key = str(item.get("citation_key") or "")
+        key = canonical_citation_key(
+            item.get("citation_prefix"), item.get("transcript_page_number")
+        )
+        changed_label = label != original_label
+        changed_key = bool(key) and key != original_key
+        if changed_label:
+            item["citation_label"] = label
+        if changed_key:
+            item["citation_key"] = key
+        if changed_label or changed_key:
+            changed.append(str(item.get("file_name") or ""))
+    if not changed:
+        return []
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return changed
 
 
 def validate_participant_index_output(root: Path) -> list[str]:

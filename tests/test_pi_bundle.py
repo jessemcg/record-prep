@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import tempfile
@@ -6,7 +7,10 @@ from pathlib import Path
 
 from recordprep.pi_bundle import (
     PI_STEP_IDS,
+    canonical_citation_key,
+    canonical_citation_label,
     expected_prepare_bundle_paths,
+    normalize_transcript_numbering_labels,
     pi_step_complete,
     prepare_bundle_complete,
     source_map_prerequisite_issues,
@@ -503,6 +507,152 @@ class PiBundleTests(unittest.TestCase):
             self.assertTrue(any("cannot list witnesses when status is none" in issue for issue in issues))
             self.assertTrue(any("lists counsel as a witness" in issue for issue in issues))
             self.assertTrue(any("outside its page range" in issue for issue in issues))
+
+
+class CitationLabelNormalizationTests(unittest.TestCase):
+    def _write_numbering(self, root: Path, labels: list[str]) -> None:
+        (root / "artifacts").mkdir(parents=True, exist_ok=True)
+        entries = [
+            {
+                "file_name": f"{index:04d}.txt",
+                "file_page": index,
+                "record_type": "RT",
+                "transcript_page_number": index,
+                "citation_prefix": "RT",
+                "citation_label": label,
+                "citation_key": f"RT:{index}",
+            }
+            for index, label in enumerate(labels, start=1)
+        ]
+        (root / "artifacts/transcript_page_numbers.json").write_text(
+            json.dumps({"schema_version": 2, "entries": entries}), encoding="utf-8"
+        )
+
+    def test_canonical_citation_label_strips_page_notation(self) -> None:
+        self.assertEqual(canonical_citation_label("RT p. 3"), "RT 3")
+        self.assertEqual(canonical_citation_label("CT pp. 39-44"), "CT 39-44")
+        self.assertEqual(canonical_citation_label("1RT p. 12"), "1RT 12")
+        self.assertEqual(canonical_citation_label("RT 3"), "RT 3")
+        self.assertEqual(canonical_citation_label("RT p. 3-RT p. 60"), "RT 3-RT 60")
+        self.assertEqual(canonical_citation_label(""), "")
+
+    def test_canonical_citation_key_requires_prefix_and_page(self) -> None:
+        self.assertEqual(canonical_citation_key("RT", 3), "RT:3")
+        self.assertEqual(canonical_citation_key("CT", "44"), "CT:44")
+        self.assertEqual(canonical_citation_key("", 3), "")
+        self.assertEqual(canonical_citation_key("RT", None), "")
+
+    def test_normalize_transcript_numbering_labels_repairs_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_numbering(root, ["RT p. 3", "RT 4", "RT pp. 5-6"])
+
+            changed = normalize_transcript_numbering_labels(root)
+
+            self.assertEqual(changed, ["0001.txt", "0003.txt"])
+            payload = json.loads(
+                (root / "artifacts/transcript_page_numbers.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                [entry["citation_label"] for entry in payload["entries"]],
+                ["RT 3", "RT 4", "RT 5-6"],
+            )
+            # Idempotent: a canonical artifact is left byte-for-byte untouched.
+            before = (root / "artifacts/transcript_page_numbers.json").read_bytes()
+            self.assertEqual(normalize_transcript_numbering_labels(root), [])
+            self.assertEqual(
+                (root / "artifacts/transcript_page_numbers.json").read_bytes(), before
+            )
+
+    def test_participant_script_canonicalizes_labels_on_read(self) -> None:
+        script = (
+            Path(__file__).resolve().parent.parent
+            / ".pi/skills/recordprep-build-participant-index/scripts/participant_index.py"
+        )
+        spec = importlib.util.spec_from_file_location("participant_index", script)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_numbering(root, ["RT p. 3"])
+
+            entries = module.transcript_entries(root)
+
+            self.assertEqual(entries[0]["citation_label"], "RT 3")
+
+    def test_source_map_script_canonicalizes_labels_on_read(self) -> None:
+        script = (
+            Path(__file__).resolve().parent.parent
+            / ".pi/skills/recordprep-build-source-map/scripts/build_source_map.py"
+        )
+        spec = importlib.util.spec_from_file_location("build_source_map", script)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "text_pages").mkdir(parents=True, exist_ok=True)
+            (root / "text_pages/0003.txt").write_text("page 3", encoding="utf-8")
+            transcript = {
+                "entries": [
+                    {
+                        "file_name": "0003.txt",
+                        "file_page": 3,
+                        "record_type": "RT",
+                        "transcript_page_number": 3,
+                        "citation_prefix": "RT",
+                        "citation_label": "RT p. 3",
+                        "citation_key": "RT:3",
+                    }
+                ]
+            }
+
+            pages, _, _ = module.build_pages(root, transcript)
+
+            self.assertEqual(pages[0]["citation_label"], "RT 3")
+
+    def test_source_map_script_canonicalizes_participant_fields(self) -> None:
+        script = (
+            Path(__file__).resolve().parent.parent
+            / ".pi/skills/recordprep-build-source-map/scripts/build_source_map.py"
+        )
+        spec = importlib.util.spec_from_file_location("build_source_map_fields", script)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        payload = {
+            "hearings": [
+                {
+                    "start_citation_label": "RT p. 3",
+                    "citation_range": "RT p. 3-RT p. 60",
+                    "counsel": [
+                        {
+                            "evidence": [
+                                {
+                                    "citation_label": "CT pp. 39-44",
+                                    "citation_key": "CT:39",
+                                    "note": "see p. 3",
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+        canonicalized = module.canonicalize_citation_fields(payload)
+
+        hearing = canonicalized["hearings"][0]
+        self.assertEqual(hearing["start_citation_label"], "RT 3")
+        self.assertEqual(hearing["citation_range"], "RT 3-RT 60")
+        evidence = hearing["counsel"][0]["evidence"][0]
+        self.assertEqual(evidence["citation_label"], "CT 39-44")
+        self.assertEqual(evidence["citation_key"], "CT:39")
+        # The note is not a citation field and must keep its prose untouched.
+        self.assertEqual(evidence["note"], "see p. 3")
 
 
 if __name__ == "__main__":

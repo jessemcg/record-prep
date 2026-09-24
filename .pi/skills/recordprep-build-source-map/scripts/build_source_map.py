@@ -75,6 +75,46 @@ def citation_range(start: str, end: str) -> str:
     return start if start and (not end or start == end) else f"{start}-{end}" if start else ""
 
 
+CITATION_FIELD_KEYS = {
+    "citation_label",
+    "citation_key",
+    "start_citation_label",
+    "end_citation_label",
+    "citation_range",
+}
+
+
+def canonical_citation_text(value: Any) -> str:
+    """Strip model-authored page notation from a citation value.
+
+    Citation labels are ``"<PREFIX> <page>"`` (``"RT 3"``); a numbering run
+    can leave prose notation (``"RT p. 3"``, ``"CT pp. 39-44"``). Derive the
+    canonical form here so a legacy artifact cannot leak page notation into
+    the Focus source map. Non-citation text is never passed to this helper
+    except for the known citation fields below.
+    """
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return ""
+    return re.sub(r"\b([A-Za-z0-9]+)\s+pp?\.\s*", r"\1 ", text).strip()
+
+
+def canonicalize_citation_fields(value: Any) -> Any:
+    """Recursively canonicalize known citation fields in an artifact copy."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                canonical_citation_text(item)
+                if key in CITATION_FIELD_KEYS and isinstance(item, str)
+                else canonicalize_citation_fields(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [canonicalize_citation_fields(item) for item in value]
+    return value
+
+
 def load_object(path: Path, label: str) -> dict[str, Any]:
     try:
         payload = read_json(path)
@@ -247,7 +287,7 @@ def build_pages(root: Path, transcript: dict[str, Any]) -> tuple[list[dict[str, 
             "transcript_page_label": str(entry.get("transcript_page_label") or ""),
             "citation_series_id": str(entry.get("citation_series_id") or ""),
             "citation_prefix": str(entry.get("citation_prefix") or ""),
-            "citation_label": str(entry.get("citation_label") or ""),
+            "citation_label": canonical_citation_text(entry.get("citation_label")),
             "citation_key": str(entry.get("citation_key") or ""),
             "status": str(entry.get("status") or ""),
             "confidence": str(entry.get("confidence") or ""),
@@ -458,6 +498,9 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
         if participants.get("schema_version") != 2:
             raise ValueError("Participant index schema version 2 is required.")
+        # The Focus-facing copy must not carry model-authored page notation
+        # even when the on-disk participant artifact predates the fix.
+        participants = canonicalize_citation_fields(participants)
     summaries = summary_paths(root, manifest)
     transcript_layout = validated_transcript_layout_path(root)
     case_overview = validated_case_overview_path(root)

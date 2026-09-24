@@ -1794,6 +1794,20 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         if return_code != 0:
             _line(f"\033[31mPI exited with code {return_code}.\033[0m")
             return return_code
+        if stage.step_id == "number_transcript_pages":
+            # Citation labels are derived data: never trust model-authored
+            # page notation ("RT p. 3") through to participant indexing,
+            # summaries, or the source map.
+            project_root = project_dir.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            from recordprep.pi_bundle import normalize_transcript_numbering_labels
+
+            for file_name in normalize_transcript_numbering_labels(root):
+                _line(
+                    "\033[33m[normalized]\033[0m "
+                    f"removed page notation from citation label for {file_name}."
+                )
         issues = _validate_stage(stage, root, project_dir)
         if issues:
             for issue in issues:

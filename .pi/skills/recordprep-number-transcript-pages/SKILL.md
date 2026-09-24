@@ -64,6 +64,13 @@ Each entry must include `file_name`, `file_page`, `record_type`, `page_type`,
 `confidence`, `method`, sequence and citation-series IDs, `citation_prefix`,
 `citation_label`, `citation_key`, and `status`.
 
+`citation_label` is the citation text and nothing else: exactly the prefix, a
+single space, and the page number (`RT 3`, `1RT 12`, `CT 44`, `ART 2`). Never
+put page notation (`p.`, `pp.`), a hyphenated range, or prose in
+`citation_label`; a label such as `RT p. 3` or `CT pp. 39-44` is invalid.
+`citation_key` is exactly the prefix, a colon, and the page number (`RT:3`,
+`CT:44`). Leave both empty exactly when the page has no citation value.
+
 Use `selected` only for sequence-compatible or visually confirmed values,
 `ambiguous` for plausible but unreliable values, and `missing` when none exists.
 Stable methods include `sequence`, `image_review`, and `manual_audit`.

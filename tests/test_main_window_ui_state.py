@@ -1046,6 +1046,54 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
             self.assertFalse(hasattr(widgets, "hearings_target_chars_row"))
             self.assertFalse(hasattr(widgets, "reports_max_pages_row"))
 
+    def test_pi_page_sets_one_model_and_reasoning_for_all_five_stages(self) -> None:
+        if not self._display_available():
+            self.skipTest("no GTK display available")
+        from gi.repository import Adw
+
+        from recordprep.ui.main_window import SettingsWindow
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ):
+                window = SettingsWindow.__new__(SettingsWindow)
+                window._pi_model_settings_error = ""
+                window._original_pi_model_key = None
+                window._original_pi_thinking_level = None
+                page = SettingsWindow._build_pi_settings_page(window)
+
+        widgets = []
+
+        def collect(widget) -> None:
+            widgets.append(widget)
+            child = widget.get_first_child()
+            while child is not None:
+                collect(child)
+                child = child.get_next_sibling()
+
+        collect(page)
+        group_titles = {
+            widget.get_title()
+            for widget in widgets
+            if isinstance(widget, Adw.PreferencesGroup)
+        }
+        row_titles = {
+            widget.get_title()
+            for widget in widgets
+            if isinstance(widget, Adw.ComboRow)
+        }
+        self.assertIn("All five PI stages", group_titles)
+        self.assertNotIn("Per-stage models", group_titles)
+        self.assertIn("PI model for all five stages", row_titles)
+        self.assertIn("PI reasoning level for all five stages", row_titles)
+        self.assertFalse(any(title.endswith("— model") for title in row_titles))
+        self.assertFalse(
+            any(title.endswith("— reasoning level") for title in row_titles)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

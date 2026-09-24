@@ -453,6 +453,38 @@ class TranscriptLayoutConfigTests(unittest.TestCase):
             self.assertNotIn("rt_ct_split_page", persisted)
             self.assertEqual(persisted["case_name"], "A")
 
+    def test_retired_per_stage_pi_override_keys_are_removed_on_load(self) -> None:
+        step_ids = (
+            "detect_transcript_layout",
+            "number_transcript_pages",
+            "build_participant_index",
+            "create_case_overview",
+            "build_source_map",
+        )
+        retired = {
+            f"pi_stage_{step_id}_pi_{field}": "x"
+            for step_id in step_ids
+            for field in ("provider", "model", "thinking")
+        }
+        for key in retired:
+            self.assertIn(key, OBSOLETE_PIPELINE_CONFIG_KEYS)
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "config.json"
+            config_path.write_text(
+                json.dumps({**retired, "summarize_model_id": "kept-model"}),
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "recordprep.ui.main_window.CONFIG_FILE", config_path
+            ):
+                config = _read_config()
+            for key in retired:
+                self.assertNotIn(key, config)
+            self.assertEqual(config["summarize_model_id"], "kept-model")
+            persisted = json.loads(config_path.read_text(encoding="utf-8"))
+            for key in retired:
+                self.assertNotIn(key, persisted)
+
 
 if __name__ == "__main__":
     unittest.main()

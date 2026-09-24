@@ -218,8 +218,8 @@ printf '\\033[32mNative PI terminal output\\033[0m\\n'
             )
             self.assertIn("/sessions", session_line)
 
-    def test_runner_appends_per_stage_model_overrides(self) -> None:
-        """Native stages carry --provider/--model/--thinking from config."""
+    def test_runner_ignores_retired_stage_model_overrides(self) -> None:
+        """Retired per-stage overrides never reach the PI command line."""
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             case_bundle = temp / "case_bundle"
@@ -273,12 +273,14 @@ printf '# Citation series\\n' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_pa
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             argv = invocation.read_text(encoding="utf-8")
-            self.assertIn("--provider", argv)
-            self.assertIn("synthetic", argv)
-            self.assertIn("--model", argv)
-            self.assertIn("cheap-fast-model", argv)
-            self.assertIn("--thinking", argv)
-            self.assertIn("minimal", argv)
+            # The single project default in .pi/settings.json now governs all
+            # five stages; stale config.json keys must be ignored entirely.
+            self.assertNotIn("--provider", argv)
+            self.assertNotIn("synthetic", argv)
+            self.assertNotIn("--model", argv)
+            self.assertNotIn("cheap-fast-model", argv)
+            self.assertNotIn("--thinking", argv)
+            self.assertNotIn("minimal", argv)
 
     def test_runner_accepts_detect_layout_needs_review_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -8,11 +8,18 @@ Default archive is source-project `.run-metrics/runs/`, Git ignored and private 
 
 Use sibling **Pi Run Metrics** for readiness, reports and copy-to-PiPlanner. No model calls or automatic implementation occur there. See `../PiRunMetrics/docs/all-app-acceptance.md`; private configuration and historical archives are never migrated by this feature.
 
-<img src="recordprep_icon.png" alt="RecordPrep icon" width="128" align="left">
+<img src="recordprep_icon.svg" alt="RecordPrep icon" width="128" align="left">
 
 RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable legal-record PDFs into a citation-aware case bundle for Focus. It preserves original page text/images, classifies pages, finds document boundaries, numbers official transcript pages, verifies counsel and witnesses, creates detailed summaries from source pages, and publishes source-map v2 for PI Agent search.
 
 RecordPrep creates one concise, versioned, nonauthoritative case-orientation overview. It does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or any case-overview retrieval index.
+
+## Application icon
+
+The amber document dissolving into pixels represents records becoming useful data.
+`recordprep_icon.svg` is the editable 128×128 vector master;
+`recordprep_icon.png` is its transparent 512×512 export used by the desktop
+launcher. `recordprep_icon-symbolic.svg` is the separate 16×16 monochrome companion.
 
 ## Requirements
 

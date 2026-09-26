@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>RecordPrep symbolic — document into data</title>
+  <g fill="#2e3436">
+    <path fill-rule="evenodd" d="M4 1H10V5H9V8H10V11H8V15H3A1 1 0 0 1 2 14V3ZM4 6V8H7V6ZM4 10V12H7V10Z"/>
+    <path d="M12 2H14V4H12ZM11 6H14V9H11ZM11 11H13V13H11Z"/>
+  </g>
+</svg>

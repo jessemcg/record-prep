@@ -86,6 +86,16 @@ function placeholderIds(paragraphs: string[]): string[] {
 }
 
 export default function recordprepSummaryTools(pi: ExtensionAPI) {
+  // Observer-only constants. Never alter tool results, context or settlement.
+  const observe = (toolCallId: string, code: string) => {
+    try { pi.events?.emit("pi-run-metrics:observation:v1", { version: 1, kind: "observation", component: "recordprep_summary", toolCallId, code }); } catch { /* fail open */ }
+  };
+  try {
+    pi.on("agent_start", () => {
+      try { pi.events?.emit("pi-run-metrics:observation:v1", { version: 1, kind: "ready", component: "recordprep_summary" }); } catch { /* fail open */ }
+    });
+  } catch { /* Observation must not prevent tool registration. */ }
+  const reject = (id: string, code: string, message: string) => { observe(id, code); return fail(message); };
   const mode = String(process.env.RECORDPREP_SUMMARY_MODE || "");
   const specPath = String(process.env.RECORDPREP_SUMMARY_WORK_SPEC || "");
   const datasetPath = String(process.env.RECORDPREP_SUMMARY_DATASET || "");
@@ -107,8 +117,11 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     console.error(`[recordprep-summary-tools] ${error}`);
   }
 
-  function requireSpec(): WorkSpec {
-    if (!workSpec) throw new Error("Work specification is unavailable.");
+  function requireSpec(id: string, code: string): WorkSpec {
+    if (!workSpec) {
+      observe(id, code);
+      throw new Error("Work specification is unavailable.");
+    }
     return workSpec;
   }
 
@@ -122,7 +135,8 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       "scope delimiters. Read it fully before submitting.",
     parameters: Type.Object({}),
     async execute(_id) {
-      const spec = requireSpec();
+      const spec = requireSpec(_id, "source.prerequisite_unavailable");
+      observe(_id, "source.served");
       return {
         content: [
           {
@@ -163,7 +177,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const spec = requireSpec();
+      const spec = requireSpec(_id, "extraction.prerequisite_unavailable");
       // The runner-owned item id is injected here; a submitted id is ignored.
       // Nested content is passed through unmodified — Python normalizes it.
       try {
@@ -182,8 +196,9 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
           ) + "\n"
         );
       } catch (error) {
-        return fail(`could not record the candidate: ${error}`);
+        return reject(_id, "extraction.publication_failed", `could not record the candidate: ${error}`);
       }
+      observe(_id, "extraction.candidate_accepted");
       ctx.shutdown();
       return {
         content: [
@@ -243,9 +258,10 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       notes: Type.Optional(Type.String()),
     }),
     async execute(_id, params) {
-      if (!dataset) return fail("digests dataset is unavailable");
+      if (!dataset) return reject(_id, "scratchpad.prerequisite_unavailable", "digests dataset is unavailable");
       const action = String(params.action || "");
       if (action === "read") {
+        observe(_id, "scratchpad.read");
         return {
           content: [
             {
@@ -262,6 +278,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       }
       if (action === "replace") {
         scratchpadNotes = String(params.notes ?? "");
+        observe(_id, "scratchpad.replaced");
         return {
           content: [
             {
@@ -272,7 +289,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
           details: { action: "replace", notes_chars: scratchpadNotes.length },
         };
       }
-      return fail("action must be \"read\" or \"replace\"");
+      return reject(_id, "scratchpad.input_rejected", "action must be \"read\" or \"replace\"");
     },
   });
 
@@ -289,7 +306,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       view: Type.Optional(Type.String()),
     }),
     async execute(_id, params) {
-      if (!dataset) return fail("digests dataset is unavailable");
+      if (!dataset) return reject(_id, "facts.prerequisite_unavailable", "digests dataset is unavailable");
       if (params.ordinal === undefined) {
         const overview = {
           artifact: "recordprep-summary-digest-overview",
@@ -311,6 +328,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
             ),
           })),
         };
+        observe(_id, "facts.overview");
         return {
           content: [{ type: "text" as const, text: JSON.stringify(overview) }],
           details: { overview: true },
@@ -319,16 +337,17 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       const row = dataset.rows[params.ordinal - 1];
       const document = dataset.documents?.[params.ordinal - 1];
       if (!row || row.ordinal !== params.ordinal || typeof document !== "string") {
-        return fail(`ordinal ${params.ordinal} does not exist`);
+        return reject(_id, "facts.input_rejected", `ordinal ${params.ordinal} does not exist`);
       }
       const view = String(params.view || "digest");
       if (view === "submitted_section") {
         const section = sections.get(String(row.item_id));
         if (section === undefined) {
-          return fail(
+          return reject(_id, "facts.input_rejected",
             `ordinal ${params.ordinal} has no submitted draft section yet`
           );
         }
+        observe(_id, "facts.submitted_section");
         return {
           content: [
             {
@@ -342,9 +361,10 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
         };
       }
       if (view !== "digest") {
-        return fail("view must be \"digest\" or \"submitted_section\"");
+        return reject(_id, "facts.input_rejected", "view must be \"digest\" or \"submitted_section\"");
       }
       requestedOrdinals.add(params.ordinal);
+      observe(_id, "facts.digest");
       return {
         content: [{ type: "text" as const, text: document }],
         details: { ordinal: params.ordinal },
@@ -368,12 +388,12 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       paragraphs: Type.Array(Type.String()),
     }),
     async execute(_id, params) {
-      if (!dataset) return fail("digests dataset is unavailable");
+      if (!dataset) return reject(_id, "section.prerequisite_unavailable", "digests dataset is unavailable");
       const row = dataset.rows.find(
         (candidate) => candidate.item_id === params.item_id
       );
       if (!row) {
-        return fail(`unknown item_id ${params.item_id}`);
+        return reject(_id, "section.input_rejected", `unknown item_id ${params.item_id}`);
       }
       // Validate the section against this document's exact quote ids before
       // recording. The candidate is always recorded (Python normalizes it and
@@ -406,7 +426,10 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
         );
       }
       sections.set(params.item_id, { ...params });
+      observe(_id, "section.recorded");
+      if (advisory.length > 0) observe(_id, "section.advisory_feedback");
       if (invalid.length > 0) {
+        observe(_id, "section.invalid_quote_feedback");
         return {
           content: [
             {
@@ -461,7 +484,7 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       "read every row or submit every section — Python fills any gaps.",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, ctx) {
-      if (!dataset) return fail("digests dataset is unavailable");
+      if (!dataset) return reject(_id, "finish.prerequisite_unavailable", "digests dataset is unavailable");
       // Always emit the sections recorded so far, in boundary order; Python
       // deterministically fills missing sections and flags the gaps.
       const ordered = dataset.rows
@@ -488,8 +511,10 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
           ) + "\n"
         );
       } catch (error) {
-        return fail(`could not record the candidate: ${error}`);
+        return reject(_id, "finish.publication_failed", `could not record the candidate: ${error}`);
       }
+      observe(_id, "finish.candidate_accepted");
+      if (diagnostics.unread_documents || diagnostics.missing_sections) observe(_id, "finish.coverage_feedback");
       ctx.shutdown();
       return {
         content: [

@@ -2,6 +2,14 @@
 
 ## Operational run metrics
 
+Summary tools now emit fixed private observations for prerequisites, correction,
+nonfatal feedback, candidate/coverage acceptance and publication failure, plus
+bounded scratchpad/facts operations. No notes, text, ordinals or item/quote IDs
+are archived; old error totals/results/shutdown/publication authority are unchanged.
+Actual summary-child and native Detect Layout wrappers have installed offline-SDK
+passivity tests in six collection modes. A candidate/settled child is not pipeline
+success. See the [contract and per-host checklist](../PiRunMetrics/docs/observation-contract.md).
+
 Native Pi stages and each hearing/report extraction/synthesis child explicitly load the optional passive sibling PiRunMetrics observer. It registers no tools, adds no context and changes no Stop/stall, content-free stdout or Python publication contracts. One settled child is not pipeline success. Skipped, deterministic and zero-model work creates no metrics.
 
 Default archive is source-project `.run-metrics/runs/`, Git ignored and private but possibly Dropbox-synced; reports remain machine-local under XDG state. Collection requires Pi 0.87.1+ without raising existing workflow runtime minimums. Absolute root/collector overrides and `PI_RUN_METRICS_ENABLED=0` remain supported. Missing policy/collector, invalid overrides or storage failures warn and fail open, without upgrades or archive relocation. New runner sessions load the adapter; existing children are unchanged.

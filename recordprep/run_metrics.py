@@ -17,6 +17,6 @@ def instrument(command, env, workflow, prefix, *, project=None, app='recordprep'
             print('Pi run metrics: collection incomplete or unavailable.', file=sys.stderr)
         # Never retain another application's identity on a child launch.
         clean = dict(env)
-        for key in ('APP', 'WORKFLOW', 'REVISION', 'DIRTY', 'PI_VERSION'):
+        for key in ('APP', 'WORKFLOW', 'REVISION', 'DIRTY', 'PI_VERSION', 'BUILD_PROVENANCE', 'LAUNCH_CONFIGURATION'):
             clean.pop('PI_RUN_METRICS_' + key, None)
         return list(command), clean

@@ -1,6 +1,6 @@
 {
   "defaultProvider": "fireworks",
-  "defaultModel": "accounts/fireworks/models/deepseek-v4-pro-0813",
+  "defaultModel": "accounts/fireworks/models/deepseek-v4p1-flash",
   "enableSkillCommands": true,
   "defaultThinkingLevel": "high"
 }

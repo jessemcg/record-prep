@@ -85,6 +85,38 @@ def _runner_environment(
 
 
 class PiResourceTests(unittest.TestCase):
+    def test_version_check_accepts_minimum_and_newer_major_versions(self) -> None:
+        runner = _load_runner_module()
+        for minimum in (runner.MINIMUM_PI_VERSION, runner.SUMMARY_RESOURCE_MINIMUM_PI_VERSION):
+            versions = (".".join(map(str, minimum)), "0.85.0", "0.87.1", "1.0", "1.0.0", "2.0.0")
+            for version in versions:
+                for prefix in ("", "pi coding agent "):
+                    completed = subprocess.CompletedProcess(
+                        args=["pi", "--version"], returncode=0,
+                        stdout=f"{prefix}{version}\n", stderr="",
+                    )
+                    with (
+                        self.subTest(minimum=minimum, version=version, prefix=prefix),
+                        mock.patch.object(runner.subprocess, "run", return_value=completed),
+                    ):
+                        runner._check_pi_version(["pi"], minimum=minimum)
+
+    def test_version_check_rejects_old_unrecognized_or_failed_results(self) -> None:
+        runner = _load_runner_module()
+        for minimum, old in ((runner.MINIMUM_PI_VERSION, "0.79.99"),
+                             (runner.SUMMARY_RESOURCE_MINIMUM_PI_VERSION, "0.84.99")):
+            for output, returncode in ((old, 0), ("0.9.0", 0), ("unknown", 0), ("", 0), ("1.0.0", 1)):
+                completed = subprocess.CompletedProcess(
+                    args=["pi", "--version"], returncode=returncode, stdout=output, stderr="",
+                )
+                with (
+                    self.subTest(minimum=minimum, output=output, returncode=returncode),
+                    mock.patch.object(runner.subprocess, "run", return_value=completed),
+                    self.assertRaises(ValueError) as raised,
+                ):
+                    runner._check_pi_version(["pi"], minimum=minimum)
+                self.assertIn("PI " + ".".join(map(str, minimum)) + " or newer", str(raised.exception))
+
     def test_project_resource_validator(self) -> None:
         result = subprocess.run(
             ["python3", str(RUNNER), "--validate-resources"],

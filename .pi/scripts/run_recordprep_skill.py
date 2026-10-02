@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-MINIMUM_PI_MINOR = 80
-SUMMARY_RESOURCE_MINIMUM_PI_MINOR = 85
+MINIMUM_PI_VERSION = (0, 80)
+SUMMARY_RESOURCE_MINIMUM_PI_VERSION = (0, 85)
 AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
 SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
 
@@ -226,7 +226,11 @@ def _resource_issues(project_dir: Path) -> list[str]:
     return issues
 
 
-def _check_pi_version(command: Sequence[str]) -> None:
+def _check_pi_version(
+    command: Sequence[str],
+    *,
+    minimum: tuple[int, int] = MINIMUM_PI_VERSION,
+) -> None:
     result = subprocess.run(
         [*command, "--version"],
         text=True,
@@ -236,10 +240,20 @@ def _check_pi_version(command: Sequence[str]) -> None:
     )
     version = (result.stdout or result.stderr).splitlines()
     first_line = version[0].strip() if version else ""
-    match = re.match(r"^0\.(\d+)", first_line)
-    if result.returncode != 0 or match is None or int(match.group(1)) < MINIMUM_PI_MINOR:
+    match = re.search(r"(?:^|\b)(\d+)\.(\d+)(?:\.\d+)*\b", first_line)
+    if (
+        result.returncode != 0
+        or match is None
+        or (int(match.group(1)), int(match.group(2))) < minimum
+    ):
+        minimum_text = ".".join(str(part) for part in minimum)
+        requirement = (
+            "The summary stages require"
+            if minimum == SUMMARY_RESOURCE_MINIMUM_PI_VERSION
+            else "RecordPrep requires"
+        )
         raise ValueError(
-            f"RecordPrep requires PI 0.{MINIMUM_PI_MINOR} or newer; "
+            f"{requirement} PI {minimum_text} or newer; "
             f"found {first_line or 'unknown'}."
         )
 
@@ -1363,17 +1377,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     synthesize_capacity = None
     if items:
         pi_command = _resolve_pi_command()
-        _check_pi_version(pi_command)
-        version_result = subprocess.run(
-            [*pi_command, "--version"], text=True, capture_output=True, timeout=10
-        )
-        version_text = (version_result.stdout or version_result.stderr).strip()
-        version_match = re.match(r"^0\.(\d+)", version_text)
-        if version_match and int(version_match.group(1)) < SUMMARY_RESOURCE_MINIMUM_PI_MINOR:
-            raise ValueError(
-                f"The summary stages require PI 0.{SUMMARY_RESOURCE_MINIMUM_PI_MINOR} or "
-                f"newer; found {version_text or 'unknown'}."
-            )
+        _check_pi_version(pi_command, minimum=SUMMARY_RESOURCE_MINIMUM_PI_VERSION)
 
         # Resolve model identity and capacity once per stage. One discovery
         # result is reused for both phases; matching is provider-qualified on

@@ -23,6 +23,9 @@ MINIMUM_PI_VERSION = (0, 80)
 SUMMARY_RESOURCE_MINIMUM_PI_VERSION = (0, 85)
 AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
 SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
+MINUTE_EXTENSION_NAME = "recordprep-minute-tools.ts"
+MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
+MINUTE_STEP_ID = "create_minute_order_summaries"
 
 SUMMARY_STAGE_KINDS = {
     "create_hearing_summaries": "hearings",
@@ -197,6 +200,10 @@ def _resource_issues(project_dir: Path) -> list[str]:
             skill = project_dir / "skills" / skill_name / "SKILL.md"
             if not skill.is_file():
                 issues.append(f"{skill_name}/SKILL.md is missing.")
+    if not (project_dir / "skills" / MINUTE_SKILL_NAME / "SKILL.md").is_file():
+        issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
+    if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
+        issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
     extension_dir = project_dir / "extensions"
     auto_exit_extension = extension_dir / AUTO_EXIT_EXTENSION_NAME
     if not auto_exit_extension.is_file():
@@ -205,7 +212,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -898,6 +905,7 @@ def _staged_workspace(
     project_dir: Path,
     skill_name: str,
     workspace_parent: Path,
+    extension_name: str = SUMMARY_EXTENSION_NAME,
 ) -> tuple[Path, Path, Path]:
     """Stage SYSTEM.md, one skill, and the summary extension into a workspace."""
     workspace = Path(tempfile.mkdtemp(prefix="summary.", dir=workspace_parent))
@@ -909,8 +917,8 @@ def _staged_workspace(
     shutil.copy2(project_dir / "SYSTEM.md", staged_pi / "SYSTEM.md")
     shutil.copytree(project_dir / "skills" / skill_name, staged_skill)
     shutil.copy2(
-        project_dir / "extensions" / SUMMARY_EXTENSION_NAME,
-        staged_pi / "extensions" / SUMMARY_EXTENSION_NAME,
+        project_dir / "extensions" / extension_name,
+        staged_pi / "extensions" / extension_name,
     )
     return workspace, staged_pi, staged_skill
 
@@ -923,6 +931,7 @@ def _base_child_command(
     prompt: str,
     settings: dict[str, Any],
     phase: str,
+    extension_name: str = SUMMARY_EXTENSION_NAME,
 ) -> list[str]:
     return [
         *pi_command,
@@ -938,7 +947,7 @@ def _base_child_command(
         "--system-prompt",
         str(staged_pi / "SYSTEM.md"),
         "--extension",
-        str(staged_pi / "extensions" / SUMMARY_EXTENSION_NAME),
+        str(staged_pi / "extensions" / extension_name),
         "--skill",
         str(staged_skill / "SKILL.md"),
         "--tools",
@@ -1594,6 +1603,96 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     return 0
 
 
+def _run_minute_stage(root: Path, project_dir: Path) -> int:
+    from recordprep import minute_summaries as minutes
+    from recordprep import summary_preflight as preflight
+
+    issues = _resource_issues(project_dir)
+    if issues:
+        raise ValueError(" ".join(issues))
+    _line("Create minute-order summaries (PI synthesis model).")
+    _line(f"Case bundle: {root}")
+    pi_command = None
+    capacity = None
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")).expanduser()
+    workspace_parent = cache_root / "recordprep-pi-workspaces"
+
+    def generate(item: Any, settings: dict, config: dict) -> dict:
+        nonlocal pi_command, capacity
+        # Lazy discovery: zero items and wholly current checkpoints need no Pi.
+        if pi_command is None:
+            pi_command = _resolve_pi_command()
+            _check_pi_version(pi_command, minimum=SUMMARY_RESOURCE_MINIMUM_PI_VERSION)
+            try:
+                models = preflight.pi_runtime.available_pi_models(pi_command)
+            except (preflight.pi_runtime.PiRuntimeError, OSError, subprocess.SubprocessError):
+                models = None
+                _line("[warn] Minute-order model metadata unavailable; capacity remains unknown.")
+            capacity = _stage_capacity("synthesize", "minutes", settings, project_dir, models)
+            _report_capacity(capacity, "minutes synthesize")
+        workspace_parent.mkdir(parents=True, exist_ok=True)
+        workspace, staged_pi, staged_skill = _staged_workspace(
+            project_dir, MINUTE_SKILL_NAME, workspace_parent, MINUTE_EXTENSION_NAME
+        )
+        try:
+            candidate_path = workspace / "candidate.json"
+            spec_path = workspace / "work_spec.json"
+            spec_path.write_text(json.dumps({
+                "source": item.source, "item_id": item.item_id,
+                "candidate_path": str(candidate_path),
+            }), encoding="utf-8")
+            prompt = (
+                f"/skill:{MINUTE_SKILL_NAME}\n"
+                "Summarize the current minute order directly from its complete source pages.\n"
+                f"MINUTE-ORDER CONTRACT\n{config['guidance']}\n"
+                f"ADDITIONAL USER GUIDANCE (subordinate)\n{config['additional_guidance']}\n"
+                "Read the source tool, then submit the structured summary."
+            )
+            static = preflight.stage_static_components(project_dir, MINUTE_SKILL_NAME)
+            static["tool_schema_proxy_chars"] = len(
+                (project_dir / "extensions" / MINUTE_EXTENSION_NAME).read_text(encoding="utf-8")
+            )
+            decision = preflight.check_individual_request(
+                capacity, preflight.extraction_request_chars(
+                    static, source_payload_chars=len(item.source), prompt_chars=len(prompt)
+                ), label=f"minute-order document {item.ordinal}",
+            )
+            _report_capacity_decision(decision, "minutes")
+            command = _base_child_command(
+                pi_command, staged_pi, staged_skill, minutes.TOOLS, prompt,
+                settings, "synthesize", MINUTE_EXTENSION_NAME,
+            )
+            child = _SummaryChildRunner(
+                command=command, label=f"minutes synthesize {item.ordinal}",
+                metrics_workflow=MINUTE_SKILL_NAME, metrics_prefix=pi_command,
+                workspace=workspace,
+                poll_interval=_float_env("RECORDPREP_PI_STALL_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS),
+                stall_timeout=_float_env("RECORDPREP_PI_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS),
+                env_overrides={"RECORDPREP_MINUTE_WORK_SPEC": str(spec_path)},
+            )
+            code = child.run()
+            _check_stop()
+            if code != 0 or not candidate_path.is_file():
+                raise ValueError(
+                    f"Minute-order document {item.ordinal} failed (exit {code}) or produced no candidate; "
+                    "completed orders are saved. Check Settings > Summarize > PI synthesis and resume."
+                )
+            try:
+                return json.loads(candidate_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ValueError("Minute-order candidate is unreadable; prior final preserved.") from exc
+        finally:
+            shutil.rmtree(workspace, ignore_errors=True)
+
+    try:
+        minutes.run_stage(root, project_dir, generate, check_stop=_check_stop, log=_line)
+    except _StopRequested:
+        _line("Minute-order summaries stopped; completed orders are saved, current order stays Pending.")
+        return 130
+    _line("Create minute-order summaries complete.")
+    return 0
+
+
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
 
@@ -1806,12 +1905,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         _line("RecordPrep sequential PI resources are valid.")
         return 0
-    known_stages = {*STAGES, *SUMMARY_STAGE_KINDS}
+    known_stages = {*STAGES, *SUMMARY_STAGE_KINDS, MINUTE_STEP_ID}
     if len(args) != 1 or args[0] not in known_stages:
         choices = ", ".join(sorted(known_stages))
         _line(f"Usage: {Path(sys.argv[0]).name} <{choices}>")
         return 2
     try:
+        if args[0] == MINUTE_STEP_ID:
+            return _run_minute_stage(_case_bundle(), project_dir)
         if args[0] in SUMMARY_STAGE_KINDS:
             kind = SUMMARY_STAGE_KINDS[args[0]]
             stage = SkillStage(

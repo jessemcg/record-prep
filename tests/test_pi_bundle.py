@@ -23,7 +23,9 @@ from recordprep.pi_bundle import (
     validate_transcript_numbering_outputs,
 )
 from recordprep.transcript_layout import apply_manual_override
-from tests.summary_agent_fixtures import publish_valid_summary, synthetic_facts_row
+from tests.summary_agent_fixtures import (
+    publish_valid_summary, synthetic_facts_row, isolate_minute_settings, publish_valid_minutes,
+)
 
 
 def _build_layout_artifact(root: Path) -> None:
@@ -70,6 +72,9 @@ The available material includes summarized hearings, reports, and minute orders 
 
 
 class PiBundleTests(unittest.TestCase):
+    def setUp(self):
+        isolate_minute_settings(self)
+
     def _build_valid_bundle(self, root: Path) -> None:
         """A valid RT record: participant indexing applies and is satisfied.
 
@@ -158,6 +163,7 @@ class PiBundleTests(unittest.TestCase):
             "Reports Summary\n\nMarch 3, 2025 - Report [Report](page:0001)\n\n"
             "A [“synthetic quote”](page:0001) appears here.\n",
         )
+        publish_valid_minutes(root)
         overview = root / "artifacts/case_overview.md"
         overview.write_text(_case_overview_text(), encoding="utf-8")
         source_map = root / "artifacts/source_map.json"

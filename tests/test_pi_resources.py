@@ -145,6 +145,7 @@ class PiResourceTests(unittest.TestCase):
             extensions,
             [
                 "recordprep-auto-exit.ts",
+                "recordprep-minute-tools.ts",
                 "recordprep-summary-tools.ts",
             ],
         )
@@ -175,6 +176,7 @@ class PiResourceTests(unittest.TestCase):
                 "recordprep-extract-hearing",
                 "recordprep-extract-report",
                 "recordprep-number-transcript-pages",
+                "recordprep-summarize-minutes",
                 "recordprep-synthesize-hearings",
                 "recordprep-synthesize-reports",
             ],

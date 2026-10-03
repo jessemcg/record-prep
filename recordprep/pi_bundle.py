@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from recordprep.transcript_layout import input_signature, is_ct_only
-from recordprep import summary_agents
+from recordprep import summary_agents, minute_summaries
 
 
 PARTICIPANT_TEMPLATE_WARNING = "Participant review has not been completed."
@@ -31,6 +31,7 @@ PI_STEP_IDS = (
 SUMMARY_STEP_KINDS = {
     "create_hearing_summaries": "hearings",
     "create_report_summaries": "reports",
+    "create_minute_order_summaries": "minutes",
 }
 
 
@@ -361,7 +362,7 @@ def validate_participant_index_output(root: Path) -> list[str]:
 
 
 def validate_summary_source_outputs(root: Path) -> list[str]:
-    """Validate both PI summary stages' artifacts, finals, and freshness.
+    """Validate all PI summary stages' artifacts, finals, and freshness.
 
     Downstream prerequisites (case overview, source map) require the summary
     stages to be current-generation fresh, not merely structurally intact:
@@ -379,6 +380,7 @@ def validate_summary_source_outputs(root: Path) -> list[str]:
             summary_agents.validate_summary_agent_outputs(root, kind)
         )
         issues.extend(summary_agents.summary_stage_freshness_issues(root, kind))
+    issues.extend(minute_summaries.freshness_issues(root))
     return list(dict.fromkeys(issues))
 
 
@@ -636,6 +638,8 @@ def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
         return validate_case_overview_output(root)
     if step_id == "build_source_map":
         return validate_prepare_bundle_outputs(root)
+    if step_id == "create_minute_order_summaries":
+        return minute_summaries.freshness_issues(root)
     if step_id in SUMMARY_STEP_KINDS:
         return summary_agents.validate_summary_agent_outputs(
             root, SUMMARY_STEP_KINDS[step_id]

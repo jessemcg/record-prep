@@ -32,7 +32,9 @@ from recordprep.transcript_layout import (  # noqa: E402
     finalize_layout_draft,
     is_ct_only,
 )
-from tests.summary_agent_fixtures import publish_valid_summary, synthetic_facts_row  # noqa: E402
+from tests.summary_agent_fixtures import (  # noqa: E402
+    publish_valid_summary, synthetic_facts_row, isolate_minute_settings, publish_valid_minutes,
+)
 from tests.test_pi_bundle import _case_overview_text  # noqa: E402
 
 RUNNER = PROJECT_DIR / ".pi" / "scripts" / "run_recordprep_skill.py"
@@ -136,6 +138,7 @@ def _ct_only_bundle(root: Path, *, pages: int = 2) -> None:
         "Reports Summary\n\nMarch 3, 2025 - Report\n\nProse.\n",
     )
     _publish_zero_item_hearing_summary(root)
+    publish_valid_minutes(root)
     overview = root / "artifacts/case_overview.md"
     overview.write_text(_case_overview_text(), encoding="utf-8")
     source_map = root / "artifacts/source_map.json"
@@ -195,7 +198,12 @@ def _runner_env(root: Path, *, pi_path: str = "/nonexistent/recordprep-pi") -> d
     return env
 
 
-class CtOnlyExemptionTests(unittest.TestCase):
+class _MinuteSettingsTestCase(unittest.TestCase):
+    def setUp(self):
+        isolate_minute_settings(self)
+
+
+class CtOnlyExemptionTests(_MinuteSettingsTestCase):
     def test_manual_and_detected_ct_only_layouts_grant_the_exemption(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             manual_root = Path(temporary) / "manual"
@@ -368,7 +376,7 @@ class CtOnlyExemptionTests(unittest.TestCase):
             self.assertTrue(pi_bundle.case_overview_prerequisite_issues(root))
 
 
-class CtOnlySummaryTests(unittest.TestCase):
+class CtOnlySummaryTests(_MinuteSettingsTestCase):
     def test_zero_hearing_items_without_participants(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -472,7 +480,7 @@ class CtOnlySummaryTests(unittest.TestCase):
             )
 
 
-class CtOnlyRunnerTests(unittest.TestCase):
+class CtOnlyRunnerTests(_MinuteSettingsTestCase):
     def test_direct_runner_skips_participant_stage_without_pi(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"
@@ -537,7 +545,7 @@ class CtOnlyRunnerTests(unittest.TestCase):
             )
 
 
-class CtOnlyUiStateTests(unittest.TestCase):
+class CtOnlyUiStateTests(_MinuteSettingsTestCase):
     def _harness(self, root: Path) -> tuple[mock.Mock, mock.Mock]:
         harness = mock.Mock()
         harness._resolve_case_root.return_value = root
@@ -639,7 +647,7 @@ class CtOnlyUiStateTests(unittest.TestCase):
             self.assertIn((row, "Done"), recorded)
 
 
-class CtOnlySourceMapTests(unittest.TestCase):
+class CtOnlySourceMapTests(_MinuteSettingsTestCase):
     def test_ct_only_source_map_omits_participants_and_warns(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"

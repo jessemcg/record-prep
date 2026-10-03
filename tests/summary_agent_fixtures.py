@@ -208,3 +208,34 @@ def publish_valid_summary(
     freshen_rows(root, kind, rows)
     write_facts_bundle(root, kind, rows)
     write_final_summary(root, kind, rows, final_text)
+
+
+def isolate_minute_settings(testcase) -> None:
+    """Keep minute validation away from the real private configuration."""
+    import shutil
+    import tempfile
+    from unittest import mock
+    from recordprep import minute_summaries
+
+    temporary = tempfile.TemporaryDirectory()
+    testcase.addCleanup(temporary.cleanup)
+    project = Path(temporary.name) / ".pi"
+    shutil.copytree(Path(__file__).resolve().parents[1] / ".pi", project)
+    (project.parent / "config.json").write_text("{}", encoding="utf-8")
+    patch = mock.patch.object(minute_summaries, "PROJECT_PI_DIR", project)
+    patch.start()
+    testcase.addCleanup(patch.stop)
+    env_patch = mock.patch.dict("os.environ", {"RECORDPREP_PI_PROJECT_DIR": str(project)})
+    env_patch.start()
+    testcase.addCleanup(env_patch.stop)
+
+
+def publish_valid_minutes(root: Path) -> None:
+    from recordprep import minute_summaries
+
+    def generate(*_args):
+        return {
+            "artifact": "recordprep-minute-candidate", "hearing": "Review Hearing",
+            "reporting": "unclear", "parents": [], "orders": "Synthetic order.",
+        }
+    minute_summaries.run_stage(root, minute_summaries.PROJECT_PI_DIR, generate)

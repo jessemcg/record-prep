@@ -83,6 +83,7 @@ from recordprep.transcript_layout import (
     resolve_rt_ct_split as resolve_layout_rt_ct_split,
 )
 from recordprep import summary_agents as _summary_agents
+from recordprep import minute_summaries as _minute_summaries
 from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
     DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
@@ -700,22 +701,7 @@ DEFAULT_CASE_NAME_PROMPT = (
     "Social_Services_v_Breanna_F. "
     "If unknown, use an empty string."
 )
-DEFAULT_SUMMARIZE_MINUTES_PROMPT = (
-    "I will provide you with the pages of a minute order. Based on this information, "
-    "state the name of the hearing, whether the hearing was reported, whether one or "
-    "both parents were present, and what the juvenile court ordered. The description "
-    "of what the juvenile court ordered must be brief and concise. Only state that a "
-    "parent is present if the minute order indicates that the parent is present on the "
-    "first page of the minute order. If only a parent's attorney is listed, assume that "
-    "the parent is not present. Do not insert any line breaks. Here are three examples "
-    "of the proper format:\n\nDetention Hearing. Reported. No parent appeared. The "
-    "juvenile court ordered the children temporarily removed from the parents.\n\n"
-    "Receipt of Report Hearing. Not Reported. No parent appeared. The juvenile court "
-    "received the section 361.66 report into evidence.\n\nPermanent Plan Review "
-    "Hearing. Reported. Only mother appeared. The juvenile court received the social "
-    "worker reports into evidence and heard testimony from mother. The juvenile court "
-    "terminated parental rights.\n\nOkay, here is the minute order:"
-)
+DEFAULT_SUMMARIZE_MINUTES_PROMPT = _minute_summaries.DEFAULT_MINUTES_PROMPT
 SUMMARY_WINDOW_CATEGORIES = ("hearings", "reports", "minutes")
 SUMMARY_TEST_MODE_CATEGORIES = {
     "summarize_hearings": "hearings",
@@ -1335,23 +1321,6 @@ def _summary_editions_complete(root_dir: Path) -> bool:
         if not summary_edition_is_complete(kind, source_path, root_dir):
             return False
     return True
-
-
-@dataclass
-class _SummaryStepContext:
-    """Shared resolved inputs for one summary-generation step."""
-
-    root_dir: Path
-    artifacts_dir: Path
-    text_dir: Path
-    citation_by_page: dict[int, str]
-    settings: dict[str, Any]
-    category: str
-    target_chars: int
-    max_pages: int
-    request_window: Callable[[str, str], str]
-    display_case_name: str
-    participant_by_range: dict[tuple[int, int], dict[str, Any]]
 
 
 def _strip_nonstandard_characters(text: str) -> str:
@@ -4246,8 +4215,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             description=(
                 "Independent model and reasoning for stage two: one fresh PI "
                 "process per completed digest file synthesizes the final "
-                "narrative from the category digests. Use a stronger model "
-                "here if desired."
+                "narrative from the category digests. Also used for minute-order "
+                "summaries directly from source pages, one fresh process per order."
             ),
         )
         synthesize_group.add_css_class("list-stack")
@@ -4281,17 +4250,27 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         synthesize_group.add(length_note)
 
-        # --- Minute orders (direct API) ---
+        minute_note = Adw.ActionRow(
+            title="Minute orders (PI)",
+            subtitle=(
+                "Uses the PI synthesis model and reasoning above. Reads each complete "
+                "order, reports parents' first-page appearances, and resumes completed "
+                "orders. No separate API credentials or window settings are needed."
+            ),
+        )
+        synthesize_group.add(minute_note)
+
+        # Keep legacy credentials editable for the prompt-testing sandbox only.
         minute_group = Adw.PreferencesGroup(
-            title="Minute orders (direct API)",
+            title="Prompt-test sandbox API",
             description=(
-                "Minute-order summaries still use the direct API path. These "
-                "credentials and window settings apply only to minute orders."
+                "Legacy direct-API experiments only; none of these settings affect "
+                "the hearing, report, or minute-order pipeline."
             ),
         )
         minute_group.add_css_class("list-stack")
         minute_group.set_hexpand(True)
-        page_box.append(minute_group)
+        page_box.append(self._build_disclosure("Prompt-test sandbox (not the pipeline)", minute_group))
 
         def _window_row(title: str, key: str, default_value: int) -> Adw.EntryRow:
             row = Adw.EntryRow(title=title)
@@ -4299,15 +4278,15 @@ class SettingsWindow(Adw.ApplicationWindow):
             minute_group.add(row)
             return row
 
-        api_url_row = Adw.EntryRow(title="Minute-order API URL")
+        api_url_row = Adw.EntryRow(title="Sandbox API URL")
         api_url_row.set_text(settings.get("api_url", ""))
         minute_group.add(api_url_row)
 
-        model_row = Adw.EntryRow(title="Minute-order model ID")
+        model_row = Adw.EntryRow(title="Sandbox model ID")
         model_row.set_text(settings.get("model_id", ""))
         minute_group.add(model_row)
 
-        api_key_row = self._build_password_row("Minute-order API key")
+        api_key_row = self._build_password_row("Sandbox API key")
         api_key_row.set_text(settings.get("api_key", ""))
         minute_group.add(api_key_row)
 
@@ -4321,12 +4300,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         minute_group.add(disable_reasoning_row)
 
         minutes_target_chars_row = _window_row(
-            "Minute-order window target (source characters)",
+            "Sandbox minute-order window target (source characters)",
             "minutes_target_chars",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
         )
         minutes_max_pages_row = _window_row(
-            "Minute-order maximum source pages per window",
+            "Sandbox minute-order maximum pages per window",
             "minutes_max_pages",
             DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
         )
@@ -4397,7 +4376,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         self._set_prompt_editor_height(minutes_scroller, 240)
         prompt_section.append(
-            self._build_disclosure("Minute orders prompt", minutes_scroller)
+            self._build_disclosure(
+                "Minute orders guidance", minutes_scroller,
+                subtitle="The first-page parent-appearance rules always apply; custom guidance cannot override them.",
+            )
         )
 
         page_box.append(
@@ -5040,10 +5022,10 @@ class SettingsWindow(Adw.ApplicationWindow):
                 minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
                 minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),
                 # Custom PI guidance is preserved byte-for-byte from the
-                # buffers; only the direct-API minutes prompt normalizes.
+                # buffers, including minute-order guidance.
                 hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer),
                 reports_prompt=self._prompt_text(summarize_widgets.reports_prompt_buffer),
-                minutes_prompt=self._prompt_text(summarize_widgets.minutes_prompt_buffer).strip(),
+                minutes_prompt=self._prompt_text(summarize_widgets.minutes_prompt_buffer),
                 hearings_synthesis_prompt=self._prompt_text(
                     summarize_widgets.hearings_synthesis_prompt_buffer
                 ),
@@ -6743,7 +6725,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         classification_dir = root_dir / "classification"
         artifacts_dir = root_dir / "artifacts"
         summaries_path, reports_path = _summary_output_paths(root_dir)
-        minutes_path = _minutes_summary_output_path(root_dir)
 
         if step_id == "create_files":
             expected_pages = self._expected_create_files_page_numbers(root_dir, selected_pdfs)
@@ -6832,7 +6813,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id == "create_report_summaries":
             return _summary_agents.summary_stage_complete(root_dir, "reports")
         if step_id == "create_minute_order_summaries":
-            return minutes_path.exists()
+            return _minute_summaries.stage_complete(root_dir)
         if step_id == "build_summary_editions":
             return (
                 _summary_editions_complete(root_dir)
@@ -10389,91 +10370,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
 
 
-    def _prepare_summary_step(
-        self,
-        *,
-        require_participant_index: bool,
-        category: str,
-    ) -> _SummaryStepContext:
-        """Resolve the shared inputs for one summary-generation step."""
-        self._raise_if_stop_requested()
-        root_dir = self._resolve_case_root()
-        if root_dir is None:
-            raise ValueError("Choose PDF files or select a saved case first.")
-        artifacts_dir = root_dir / "artifacts"
-        _cleanup_legacy_generated_artifacts(root_dir)
-        text_dir = root_dir / "text_pages"
-        if not text_dir.is_dir():
-            raise FileNotFoundError("Run Create files to generate text pages first.")
-        participant_by_range: dict[tuple[int, int], dict[str, Any]] = {}
-        if require_participant_index and not is_ct_only(root_dir):
-            participant_issues = validate_participant_index_output(root_dir)
-            if participant_issues:
-                raise ValueError(
-                    "Participant index validation failed: "
-                    + " ".join(participant_issues)
-                )
-            participant_payload = json.loads(
-                (artifacts_dir / "participant_index.json").read_text(encoding="utf-8")
-            )
-            participant_hearings = [
-                item
-                for item in participant_payload.get("hearings", [])
-                if isinstance(item, dict)
-            ]
-            participant_by_range = {
-                (int(item.get("start_page") or 0), int(item.get("end_page") or 0)): item
-                for item in participant_hearings
-            }
-        transcript_payload = json.loads(
-            (artifacts_dir / "transcript_page_numbers.json").read_text(encoding="utf-8")
-        )
-        citation_by_page = {
-            int(
-                item.get("file_page")
-                or _page_number_from_label(str(item.get("file_name") or ""))
-                or 0
-            ): str(item.get("citation_label") or "")
-            for item in transcript_payload.get("entries", [])
-            if isinstance(item, dict)
-        }
-        settings = load_summarize_settings()
-        if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-            raise ValueError(
-                "Configure Summarize API URL, model ID, and API key in Settings."
-            )
-        target_chars, max_pages = _summary_window_limits(settings, category)
-        request_base = {
-            "api_url": settings["api_url"],
-            "model_id": settings["model_id"],
-            "api_key": settings["api_key"],
-            "disable_reasoning": bool(
-                settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-            ),
-        }
-
-        def request_window(prompt: str, payload: str) -> str:
-            response = self._request_plain_text(
-                {**request_base, "prompt": prompt}, payload
-            )
-            return " ".join((response or "").split())
-
-        case_name, _ = load_case_context()
-        display_case_name = case_name.replace("_", " ") if case_name else ""
-        return _SummaryStepContext(
-            root_dir=root_dir,
-            artifacts_dir=artifacts_dir,
-            text_dir=text_dir,
-            citation_by_page=citation_by_page,
-            settings=settings,
-            category=category,
-            target_chars=target_chars,
-            max_pages=max_pages,
-            request_window=request_window,
-            display_case_name=display_case_name,
-            participant_by_range=participant_by_range,
-        )
-
     def _run_step_create_hearing_summaries(self) -> bool:
         """Create hearing summaries through the two-stage PI pipeline."""
         return self._run_pi_skill_step(
@@ -10489,94 +10385,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
 
     def _run_step_create_minute_order_summaries(self) -> bool:
-        """Create minute-order summaries through nonpersisted page windows."""
-        success: bool | None = False
-        root_dir: Path | None = None
-        try:
-            step = self._prepare_summary_step(
-                require_participant_index=False, category="minutes"
-            )
-            root_dir = step.root_dir
-            minute_boundaries = _load_json_entries(
-                step.artifacts_dir / "minutes_boundaries.json"
-            )
-            minute_output = [
-                "Minutes Summary",
-                *([step.display_case_name] if step.display_case_name else []),
-                "",
-            ]
-            total_minutes = len(minute_boundaries)
-            for minute_number, boundary in enumerate(minute_boundaries, start=1):
-                start = _page_number_from_label(
-                    _extract_entry_value(boundary, "start_page", "start")
-                )
-                end = _page_number_from_label(
-                    _extract_entry_value(boundary, "end_page", "end")
-                )
-                if start is None or end is None:
-                    raise ValueError("Minute-order boundary is missing a page range.")
-                label = (
-                    _extract_entry_value(boundary, "date")
-                    or f"Minute Order {minute_number}"
-                )
-                minute_output.extend([label, ""])
-                windows = _summary_page_windows(
-                    step.text_dir,
-                    start,
-                    end,
-                    max_pages=step.max_pages,
-                    target_chars=step.target_chars,
-                    max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-                )
-                for window_number, window in enumerate(windows, start=1):
-                    self._raise_if_stop_requested()
-                    self._report_step_progress(
-                        self.step_minute_order_summaries_row,
-                        f"Minutes {minute_number}/{total_minutes} window {window_number}/{len(windows)}",
-                        f"Create minute-order summaries: direct-source minute-order pages {window['primary_start']}-{window['primary_end']}.",
-                    )
-                    response = step.request_window(
-                        step.settings["minutes_prompt"] + MINUTE_SUMMARY_WINDOW_GUIDANCE,
-                        _render_summary_window_payload(
-                            window, step.citation_by_page
-                        ),
-                    )
-                    if response:
-                        minute_output.append(response)
-                minute_output.append("")
-            summaries_dir = root_dir / "summaries"
-            summaries_dir.mkdir(parents=True, exist_ok=True)
-            minutes_path = _minutes_summary_output_path(root_dir)
-            minutes_path.write_text(
-                _collapse_blank_lines("\n".join(minute_output)), encoding="utf-8"
-            )
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(
-                self.show_toast, f"Create minute-order summaries failed: {exc}"
-            )
-        else:
-            success = True
-            assert root_dir is not None
-            remove_summary_edition(minutes_path)
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "create_minute_order_summaries",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Create minute-order summaries complete.")
-        finally:
-            GLib.idle_add(self.step_minute_order_summaries_row.set_sensitive, True)
-            GLib.idle_add(
-                self._finish_step, self.step_minute_order_summaries_row, success
-            )
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        """Direct-source Pi summaries sharing the synthesis model selection."""
+        return self._run_pi_skill_step(
+            "create_minute_order_summaries", self.step_minute_order_summaries_row
+        )
 
 
     def _build_summarize_request_settings(
@@ -10914,7 +10726,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             model_id=model_id,
             disable_reasoning=disable_reasoning,
         )
-        error_label = "Classifier request failed"
+        error_label = "Text request failed"
         attempted_without_thinking = False
         attempted_without_reasoning_effort = False
 

@@ -82,6 +82,52 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
             self.assertEqual(records[0]['tools']['recordprep_get_source']['execution_errors'], 1)
         finally: h.close()
 
+    def test_minute_tools_with_installed_offline_sdk_and_private_output(self):
+        h = Acceptance('recordprep')
+        try:
+            resources = h.resources(PROJECT / '.pi')
+            candidate = h.workspace / 'minute-candidate.json'
+            spec = h.workspace / 'minute-spec.json'
+            spec.write_text(json.dumps({
+                'source': 'CANARY FIRST PAGE: Mother present in person.',
+                'item_id': 'minute:0001', 'candidate_path': str(candidate),
+            }))
+            skill = 'recordprep-summarize-minutes'
+            def factory(env):
+                staged = h.workspace / '.pi'
+                shutil.copytree(resources, staged)
+                command = runner._base_child_command(
+                    [str(h.pi)], staged, staged/'skills'/skill,
+                    'recordprep_get_minute_source,recordprep_submit_minute_summary',
+                    h.prompt.read_text(), {}, 'synthesize', 'recordprep-minute-tools.ts',
+                )
+                return command, env
+            def execute(argv, env):
+                output = io.StringIO()
+                with patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(output):
+                    child = runner._SummaryChildRunner(
+                        argv, 'synthetic minute child', h.workspace, .01, 30,
+                        {'RECORDPREP_MINUTE_WORK_SPEC': str(spec)},
+                        metrics_workflow=skill, metrics_prefix=[str(h.pi)],
+                    )
+                    code = child.run()
+                    if child.process and child.process.stdout:
+                        child.process.stdout.close()
+                self.assertNotIn('CANARY', output.getvalue())
+                return SimpleNamespace(returncode=code, stdout=output.getvalue(), stderr='')
+            frames = [tool('recordprep_get_minute_source', {}), tool('recordprep_submit_minute_summary', {
+                'hearing': 'CANARY Review', 'reporting': 'reported',
+                'parents': [{'parent': 'Mother', 'status': 'present', 'first_page_evidence': 'Mother present in person.'}],
+                'orders': 'CANARY Continued.',
+            })]
+            records, capture = h.run(factory, frames, execute=execute)
+            self.assertFalse(capture['persistent_session'])
+            self.assertEqual({row['workflow'] for row in records}, {skill})
+            self.assertEqual(json.loads(candidate.read_text())['artifact'], 'recordprep-minute-candidate')
+            self.assertEqual(sum(t['execution_errors'] for t in records[0]['tools'].values()), 0)
+        finally:
+            h.close()
+
     def test_native_stage_actual_wrapper_does_not_treat_settlement_as_valid_layout(self):
         h = Acceptance('recordprep')
         try:

@@ -103,9 +103,6 @@ def _make_harness(root: Path) -> mock.Mock:
     harness.selected_pdfs = []
     harness._resolve_case_root.return_value = root
     harness._request_plain_text.return_value = "Synthetic summary paragraph."
-    harness._prepare_summary_step = RecordPrepWindow._prepare_summary_step.__get__(
-        harness, RecordPrepWindow
-    )
     return harness
 
 
@@ -1012,7 +1009,7 @@ class InvalidationTests(unittest.TestCase):
     The runner publishes only after full validation and invalidates the
     matching edition (covered in tests/test_summary_agent_pipeline.py). Here
     we confirm the GTK handlers are thin wrappers around the PI skill runner
-    and that the minute-order direct path still invalidates only its own
+    and that the minute-order Pi publisher invalidates only its own
     edition.
     """
 
@@ -1071,10 +1068,10 @@ class InvalidationTests(unittest.TestCase):
             hearings, reports = _summary_output_paths(root)
             minutes = _minutes_summary_output_path(root)
 
-            harness = _make_harness(root)
-            self.assertTrue(
-                _run_handler(harness, "_run_step_create_minute_order_summaries")
-            )
+            from recordprep import minute_summaries
+            from tests.test_minute_summaries import fixture, candidate
+            _, project = fixture(Path(temporary) / "minute-project", 0)
+            minute_summaries.run_stage(root, project, mock.Mock(return_value=candidate()))
 
             self.assertTrue(summary_edition_is_complete("hearings", hearings, root))
             self.assertTrue(summary_edition_is_complete("reports", reports, root))

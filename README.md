@@ -60,6 +60,20 @@ uv run python -m recordprep app
 3. **Strip characters** — remove nonprinting extraction artifacts.
 4. **Infer case** — write `case_name.txt`.
 
+### Local OCR with LightOnOCR-3
+
+Local OCR requests now send the supported `grounding` prompt with a 4096-token
+completion budget. Grounding identifies layout regions, including footers and
+page numbers, but does not guarantee complete transcription. Raw OCR text retains
+the region markers; the existing Markdown cleanup removes marker syntax while
+preserving the text following it, including transcript numbers.
+
+This is a request-side change, not a server-command switch. Keep the LightOnOCR-3
+model/projector and thinking-disabled server command in Local OCR settings.
+Restart RecordPrep to load the code change. Existing extracted pages are not
+rewritten automatically; regenerate them deliberately with Create files when
+ready (that step can reset downstream generated work).
+
 ### Classify and organize
 
 5. Classify RT/CT pages.

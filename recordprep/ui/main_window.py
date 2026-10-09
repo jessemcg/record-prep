@@ -175,6 +175,7 @@ LLM_RETRYABLE_HTTP_CODES = {408, 409, 429, 500, 502, 503, 504}
 LOCAL_OCR_SERVER_STARTUP_SECONDS = 1.0
 DEFAULT_LOCAL_OCR_WORKERS = 4
 DEFAULT_LOCAL_OCR_SLOTS = 4
+LOCAL_OCR_MAX_TOKENS = 4096
 DEFAULT_CLASSIFIER_WORKERS = 1
 LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
 LOCAL_SERVER_READY_TIMEOUT_SECONDS = 120.0
@@ -3053,11 +3054,14 @@ def _ocr_image(image_path: Path, server_url: str, model_id: str) -> str:
                         {
                             "type": "image_url",
                             "image_url": {"url": f"data:image/png;base64,{image_base64}"},
-                        }
+                        },
+                        # LightOnOCR-3's supported layout-aware mode includes
+                        # footer/page-number regions, not just the main body.
+                        {"type": "text", "text": "grounding"},
                     ],
                 }
             ],
-            "max_tokens": 1024,
+            "max_tokens": LOCAL_OCR_MAX_TOKENS,
             "temperature": 0.2,
             "top_k": 0,
             "top_p": 0.9,

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from recordprep import summary_categories
+from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
 from recordprep.transcript_layout import is_ct_only
 
@@ -37,8 +38,8 @@ SUMMARY_FACTS_META_SCHEMA_VERSION = 4
 # Metadata schemas recognized as readable. Schema 3 predates dependency
 # fingerprints: its artifacts remain structurally valid but their freshness
 # is unproven, so they show as regeneration-pending instead of current.
-READABLE_FACTS_META_SCHEMA_VERSIONS = (3, 4)
-READABLE_FINAL_META_SCHEMA_VERSIONS = (3, 4)
+READABLE_FACTS_META_SCHEMA_VERSIONS = (3, 4, 5)
+READABLE_FINAL_META_SCHEMA_VERSIONS = (3, 4, 5)
 # Version of the metadata dependency-fingerprint contract itself.
 METADATA_DEPENDENCY_SCHEMA_VERSION = 1
 SUMMARY_FACTS_ARTIFACT = "recordprep-summary-digest"
@@ -1739,6 +1740,9 @@ def build_work_items(
     config: ExtractionConfig,
 ) -> list[SummaryWorkItem]:
     """Build ordered, boundary-validated work items with page-intact windows."""
+    metadata = load_digest_meta(root, config.kind)
+    if metadata is not None and metadata.get("schema_version") == 5:
+        raise ValueError("Profile-era summaries require explicit profile-aware generation; prior output preserved.")
     kind = config.kind
     if kind not in SUMMARY_KINDS:
         raise ValueError(f"Unknown summary kind: {kind}")
@@ -2443,6 +2447,28 @@ def _row_metadata_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class DigestRows(list):
+    """A parsed document retains metadata even when it has zero rows."""
+
+    def __init__(self, rows=(), *, profile_metadata=None):
+        super().__init__(rows)
+        self.profile_metadata = profile_metadata
+
+
+def _row_category_contracts(row: dict[str, Any]):
+    kind = row.get("kind")
+    version = row.get("schema_version")
+    if type(version) is not int or version not in (2, 3):
+        raise ValueError("Unsupported digest row schema version.")
+    if version == 2:
+        if "profile_metadata" in row:
+            raise ValueError("Legacy digest rows cannot carry profile metadata.")
+        return summary_categories.CATEGORY_CONTRACTS[kind]
+    metadata = digest_profile_metadata(row.get("profile_metadata"), kind)
+    return tuple(summary_categories.CategoryContract(e["id"], e["title"])
+                 for e in metadata["category_catalog"])
+
+
 def _render_row_lines(row: dict[str, Any], *, include_metadata: bool) -> list[str]:
     """Render one canonical row's Markdown lines, comments optional.
 
@@ -2472,7 +2498,7 @@ def _render_row_lines(row: dict[str, Any], *, include_metadata: bool) -> list[st
     categories = row.get("categories")
     if not isinstance(categories, list):
         raise ValueError(f"row {item_id} has no category list to serialize.")
-    definitions = summary_category_definitions(kind)
+    definitions = _row_category_contracts(row)
     if len(categories) != len(definitions):
         raise ValueError(
             f"row {item_id} does not carry the complete configured category "
@@ -2484,7 +2510,7 @@ def _render_row_lines(row: dict[str, Any], *, include_metadata: bool) -> list[st
                 f"row {item_id} category order does not match the configured "
                 "schema; the digest file is unchanged."
             )
-        lines.extend([f"### {definition.title} ({definition.identifier})", ""])
+        lines.extend([f"### {_escape_markdown_text(definition.title)} ({definition.identifier})", ""])
         digest = category.get("digest")
         if digest is None:
             lines.extend([DIGEST_NULL_MARKER, ""])
@@ -2539,6 +2565,8 @@ def serialize_digest_markdown(
     kind: str,
     case_stem: str,
     rows: Sequence[dict[str, Any]],
+    *,
+    profile_metadata: dict | None = None,
 ) -> str:
     """Serialize canonical rows into the versioned Markdown digest document.
 
@@ -2547,12 +2575,24 @@ def serialize_digest_markdown(
     """
     if kind not in SUMMARY_KINDS:
         raise ValueError(f"Unknown summary kind: {kind}")
+    if profile_metadata is None:
+        profile_metadata = getattr(rows, "profile_metadata", None)
+    if profile_metadata is None and rows:
+        profile_metadata = rows[0].get("profile_metadata")
+    if profile_metadata is not None:
+        profile_metadata = digest_profile_metadata(profile_metadata, kind)
+    for row in rows:
+        _row_category_contracts(row)
+        if row.get("profile_metadata") != profile_metadata:
+            raise ValueError("Digest rows cannot mix profile revisions or category catalogs.")
     document_payload = {
         "artifact": SUMMARY_DIGEST_MARKDOWN_ARTIFACT,
-        "format_version": SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "format_version": 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "kind": kind,
         "case_stem": str(case_stem),
     }
+    if profile_metadata is not None:
+        document_payload["profile_metadata"] = profile_metadata
     lines = [
         f"# RecordPrep {kind} digests — {case_stem}",
         "",
@@ -2643,7 +2683,8 @@ def parse_digest_markdown(
     header = _load_comment_json(header_match, cursor)
     if header.get("artifact") != SUMMARY_DIGEST_MARKDOWN_ARTIFACT:
         raise ValueError(f"line {cursor}: unsupported digest document artifact; {preserved}")
-    if header.get("format_version") != SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION:
+    format_version = header.get("format_version")
+    if type(format_version) is not int or format_version not in (1, 2):
         raise ValueError(
             f"line {cursor}: unsupported digest Markdown format version; {preserved}"
         )
@@ -2655,7 +2696,16 @@ def parse_digest_markdown(
     _take(_DIGEST_NOTICE, "the generated-artifact notice")
     _take_blank_or_eof()
 
-    rows: list[dict[str, Any]] = []
+    profile_metadata = None
+    definitions = summary_categories.CATEGORY_CONTRACTS[kind]
+    if format_version == 2:
+        profile_metadata = digest_profile_metadata(header.get("profile_metadata"), kind)
+        definitions = tuple(summary_categories.CategoryContract(e["id"], e["title"])
+                            for e in profile_metadata["category_catalog"])
+    elif "profile_metadata" in header:
+        raise ValueError("Legacy digest documents cannot carry profile metadata.")
+    row_version = 3 if format_version == 2 else SUMMARY_FACTS_SCHEMA_VERSION
+    rows: list[dict[str, Any]] = DigestRows(profile_metadata=profile_metadata)
     seen_item_ids: set[str] = set()
     while cursor < len(lines):
         heading_line = cursor + 1
@@ -2681,7 +2731,7 @@ def parse_digest_markdown(
             _ROW_COMMENT_PATTERN, "the document metadata comment"
         )
         row_meta = _load_comment_json(row_match, cursor)
-        if row_meta.get("schema_version") != SUMMARY_FACTS_SCHEMA_VERSION:
+        if type(row_meta.get("schema_version")) is not int or row_meta.get("schema_version") != row_version:
             raise ValueError(
                 f"line {cursor}: unsupported digest row schema version; {preserved}"
             )
@@ -2728,9 +2778,9 @@ def parse_digest_markdown(
 
         categories: list[dict[str, Any]] = []
         seen_quote_ids: set[str] = set()
-        for definition in summary_category_definitions(kind):
+        for definition in definitions:
             _take(
-                f"### {definition.title} ({definition.identifier})",
+                f"### {_escape_markdown_text(definition.title)} ({definition.identifier})",
                 f"the {definition.identifier} category heading",
             )
             _take_blank()
@@ -2819,7 +2869,7 @@ def parse_digest_markdown(
             )
         row: dict[str, Any] = {
             "artifact": SUMMARY_FACTS_ARTIFACT,
-            "schema_version": SUMMARY_FACTS_SCHEMA_VERSION,
+            "schema_version": row_version,
             "kind": kind,
             "item_id": item_id,
             "ordinal": meta_ordinal,
@@ -2831,6 +2881,8 @@ def parse_digest_markdown(
             "quality_flags": list(quality_flags),
             "categories": categories,
         }
+        if profile_metadata is not None:
+            row["profile_metadata"] = digest_profile_metadata(profile_metadata, kind)
         issues = validate_digest_row(row, kind)
         if issues:
             raise ValueError(
@@ -2898,8 +2950,10 @@ def validate_digest_row(row: dict[str, Any], kind: str | None = None) -> list[st
         return issues
     if row.get("artifact") != SUMMARY_FACTS_ARTIFACT:
         issues.append(f"artifact must be {SUMMARY_FACTS_ARTIFACT}")
-    if row.get("schema_version") != SUMMARY_FACTS_SCHEMA_VERSION:
-        issues.append(f"schema_version must be {SUMMARY_FACTS_SCHEMA_VERSION}")
+    try:
+        definitions = _row_category_contracts(row)
+    except (ValueError, KeyError):
+        return ["Unsupported digest row schema or invalid recorded category metadata."]
     if row.get("kind") != expected_kind:
         issues.append(f"kind must be {expected_kind!r}")
     for key in ("item_id", "input_sha256", "generation_sha256"):
@@ -2934,7 +2988,7 @@ def validate_digest_row(row: dict[str, Any], kind: str | None = None) -> list[st
         issues.append("categories must be a list")
         return issues
     ids = [entry.get("id") if isinstance(entry, dict) else None for entry in categories]
-    if ids != list(SUMMARY_CATEGORY_IDS[str(row.get("kind"))]):
+    if ids != [definition.identifier for definition in definitions]:
         issues.append("categories must appear exactly once in the configured order")
         return issues
     for entry in categories:
@@ -3200,6 +3254,11 @@ def publish_digests(
     rebuilding a missing or stale sidecar after an interruption, so Markdown
     is always written before its derived metadata sidecar.
     """
+    existing = load_digest_meta(root, kind)
+    if (getattr(rows, "profile_metadata", None) is not None
+            or any(row.get("schema_version") == 3 for row in rows)
+            or (existing is not None and existing.get("schema_version") == 5)):
+        raise ValueError("Profile-era digests require a profile-aware publisher; prior output preserved.")
     markdown_path = summary_digest_path(root, kind)
     meta_path = summary_digest_meta_path(root, kind)
     # Serialize once; the metadata sidecar reuses the exact bytes and hash.
@@ -3810,6 +3869,16 @@ def validate_final_meta(
         )
     if meta.get("kind") != kind:
         issues.append(f"the {kind} summary metadata kind is invalid.")
+    if meta.get("schema_version") == 5:
+        if meta.get("markdown_format_version") != 2:
+            issues.append(f"the {kind} profile summary must reference Markdown format 2.")
+        try:
+            provenance = preparation_provenance(meta.get("profile_provenance"))
+            stage = "hearing_synthesis" if kind == "hearings" else "report_synthesis"
+            if stage not in provenance["components"]:
+                raise ValueError("Missing synthesis component.")
+        except ValueError:
+            issues.append(f"the {kind} summary profile provenance is invalid.")
     if str(meta.get("renderer_version") or "") != SUMMARY_RENDERER_VERSION:
         issues.append(
             f"the {kind} summary was rendered by a retired renderer version; "
@@ -3868,13 +3937,21 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
                 f"the {kind} digest metadata must use a readable schema version "
                 f"{list(READABLE_FACTS_META_SCHEMA_VERSIONS)}."
             )
-        if (
-            meta.get("markdown_format_version")
-            != SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION
-        ):
+        document_metadata = getattr(rows, "profile_metadata", None)
+        expected_format = 2 if document_metadata is not None else 1
+        if (meta.get("schema_version") == 5) != (document_metadata is not None):
+            issues.append(f"the {kind} digest metadata schema disagrees with its document.")
+        if meta.get("schema_version") == 5:
+            try:
+                recorded = digest_profile_metadata(meta.get("profile_metadata"), kind)
+                if recorded != document_metadata:
+                    raise ValueError("Metadata mismatch.")
+            except ValueError:
+                issues.append(f"the {kind} digest profile metadata is invalid or inconsistent.")
+        if meta.get("markdown_format_version") != expected_format:
             issues.append(
                 f"the {kind} digest metadata must record Markdown format "
-                f"version {SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION}."
+                f"version {expected_format}."
             )
         if str(meta.get("digest_markdown_sha256") or "") != markdown_hash:
             issues.append(
@@ -3887,6 +3964,9 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
         final_meta_issues = validate_final_meta(root, kind)
         issues.extend(final_meta_issues)
         final_meta = load_final_meta(root, kind)
+        if final_meta is not None and ((final_meta.get("schema_version") == 5) !=
+                                       (getattr(rows, "profile_metadata", None) is not None)):
+            issues.append(f"the {kind} final metadata schema disagrees with its digest.")
         if final_meta is not None and str(
             final_meta.get("digest_markdown_sha256") or ""
         ) != markdown_hash:
@@ -4044,6 +4124,11 @@ def summary_stage_freshness_issues(
     project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
     issues: list[str] = []
     label = SUMMARY_KIND_LABELS[kind]
+    # Reader support does not authorize new generation or establish freshness.
+    # Replace this guard only with the same pinned-profile compiler as execution.
+    if any(meta is not None and meta.get("schema_version") == 5
+           for meta in (load_digest_meta(root, kind), load_final_meta(root, kind))):
+        return [f"the {label} profile-dependent freshness requires explicit profile-aware generation."]
 
     # Extraction freshness: fingerprint every row against current inputs.
     try:

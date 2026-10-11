@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from recordprep import pi_runtime, summary_agents as sa
+from recordprep.profile_artifacts import preparation_provenance, validate_role_descriptor
 
 PROJECT_PI_DIR = Path(__file__).resolve().parent.parent / ".pi"
 SKILL_NAME = "recordprep-summarize-minutes"
@@ -191,12 +192,14 @@ def normalize_candidate(candidate: Any, item: MinuteItem) -> dict[str, Any]:
 def render_paragraph(row: dict[str, Any]) -> str:
     reporting = {"reported": "Reported.", "not_reported": "Not Reported.", "unclear": "Reporting status unclear."}[row["reporting"]]
     appearances = []
-    for parent in row["parents"]:
-        suffix = {"present": "appeared.", "not_present": "did not appear.", "unclear": "appearance unclear."}[parent["status"]]
-        appearances.append(f"{parent['parent']} {suffix}")
+    generic = "appearances" in row
+    for person in row["appearances"] if generic else row["parents"]:
+        suffix = {"present": "appeared.", "not_present": "did not appear.", "unclear": "appearance unclear."}[person["status"]]
+        name = person["person"] if generic else person["parent"]
+        appearances.append(f"{name} {suffix}")
     return " ".join([
         row["hearing"].rstrip(". ") + ".", reporting,
-        " ".join(appearances) or "Parent appearances unclear.", row["orders"],
+        " ".join(appearances) or ("Appearances unclear." if generic else "Parent appearances unclear."), row["orders"],
     ])
 
 
@@ -224,14 +227,32 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
         return []
     payload = _read_json(path)
     rows = payload.get("rows")
-    if (payload.get("schema_version") != 1 or payload.get("artifact") != "recordprep-minute-rows"
+    version = payload.get("schema_version")
+    if (type(version) is not int or version not in (1, 2) or payload.get("artifact") != "recordprep-minute-rows"
             or not isinstance(rows, list) or payload.get("rows_sha256") != sa.sha256_json(rows)):
         raise ValueError("Minute-order checkpoint is corrupt; prior output preserved.")
+    catalog = None
+    if version == 2:
+        if set(payload) != {"schema_version", "artifact", "rows", "rows_sha256", "attendance_policy",
+                            "role_catalog", "profile_provenance"}:
+            raise ValueError("Minute-order checkpoint metadata is invalid.")
+        if payload["attendance_policy"] not in ("explicit_complete_order", "legacy_first_page_parents"):
+            raise ValueError("Minute-order attendance policy is unsupported.")
+        provenance = preparation_provenance(payload["profile_provenance"])
+        if "minutes" not in provenance["components"]:
+            raise ValueError("Minute-order checkpoint lacks its policy component.")
+        catalog = dict(validate_role_descriptor(payload["role_catalog"])["participants"])
+    elif {"attendance_policy", "role_catalog", "profile_provenance"}.intersection(payload):
+        raise ValueError("Legacy minute checkpoints cannot carry profile metadata.")
     ids = set()
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("item_id"), str) or row["item_id"] in ids:
             raise ValueError("Minute-order checkpoint contains invalid or duplicate rows.")
         ids.add(row["item_id"])
+        if version == 2:
+            _validate_appearance_row(row, catalog)
+        elif "appearances" in row:
+            raise ValueError("Legacy minute checkpoints cannot carry generic appearances.")
         try:
             if not row.get("fingerprint") or not _text(row["hearing"]) or not _text(row["orders"]):
                 raise ValueError()
@@ -241,7 +262,37 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _validate_appearance_row(row: dict, catalog: dict) -> None:
+    """Structural reader validation only; no reinterpretation of recorded policy."""
+    if set(row) != {"item_id", "fingerprint", "hearing", "reporting", "appearances", "orders", "quality_flags"}:
+        raise ValueError("Minute-order appearance row fields are invalid.")
+    appearances = row["appearances"]
+    if not isinstance(appearances, list) or len(appearances) > 128:
+        raise ValueError("Minute-order appearances must be a bounded list.")
+    for entry in appearances:
+        if (not isinstance(entry, dict) or set(entry) != {"person", "role_id", "status", "evidence"}
+                or not _text(entry["person"]) or not isinstance(entry["role_id"], str)
+                or entry["role_id"] not in catalog
+                or entry["status"] not in ("present", "not_present", "unclear")):
+            raise ValueError("Minute-order appearance is invalid.")
+        evidence = entry["evidence"]
+        if not isinstance(evidence, list) or len(evidence) > 128 or (entry["status"] != "unclear" and not evidence):
+            raise ValueError("Minute-order explicit attendance requires recorded evidence.")
+        for quote in evidence:
+            if (not isinstance(quote, dict) or set(quote) != {"file_page", "text"}
+                    or type(quote["file_page"]) is not int or quote["file_page"] < 1
+                    or not _text(quote["text"])):
+                raise ValueError("Minute-order appearance evidence is invalid.")
+    flags = row["quality_flags"]
+    if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
+        raise ValueError("Minute-order quality flags are invalid.")
+
+
 def publish_rows(root: Path, rows: list[dict[str, Any]]) -> None:
+    existing = checkpoint_path(root)
+    if (any("appearances" in row for row in rows)
+            or (existing.exists() and _read_json(existing).get("schema_version") == 2)):
+        raise ValueError("Generic appearances require a profile-aware publisher; prior output preserved.")
     sa._atomic_write(checkpoint_path(root), json.dumps({
         "artifact": "recordprep-minute-rows", "schema_version": 1,
         "rows": rows, "rows_sha256": sa.sha256_json(rows),
@@ -264,6 +315,8 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
               log: Callable[[str], None] = lambda _: None) -> None:
     """Python alone publishes. Persist each accepted row; replace final last."""
     with sa.SummaryKindLock(root, "minutes"):
+        if checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") == 2:
+            raise ValueError("Profile-era minute work requires explicit profile-aware generation; prior output preserved.")
         settings, config = stage_config(project_dir)
         items = build_items(root, config)
         by_id = {row["item_id"]: row for row in load_rows(root)}

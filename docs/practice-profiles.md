@@ -6,7 +6,7 @@ there is no profile repository, shared runtime dependency, sibling import, or
 launch-time synchronization. Common contract code and conformance fixtures are
 vendored in each app and must be reviewed/tested together when changed.
 
-## Current status: foundation plus naming integration, not an activated migration
+## Current status: foundation, naming, and artifact readers; migration not activated
 
 Implemented:
 
@@ -32,10 +32,16 @@ Implemented:
   with provisional labels and review metadata; unknown first-page forms receive
   provisional TOC labels. Existing readable artifacts are not changed on opening.
 
+- Reader-first support for source-map/participant schema 3, digest Markdown format
+  2/row schema 3, digest/final metadata 5, and minute checkpoint 2. Readers use
+  bounded artifact-recorded descriptors rather than installed practice guidance.
+- Focus's helper reports preparation selection separately from publication/map
+  provenance and emits mismatch notices. Sidecar reads are bounded and reject
+  unsafe links; they cannot install/accept profiles or create a case pin.
+
 **Not yet implemented:** end-to-end profile-aware generation or research, new
-artifact readers/publishers, case selection, GUI profile management/authoring,
-customization export, external-change review, complete legacy readers, or a default
-transition. No profile is automatically registered or selected. Legacy naming
+artifact publishers, case selection, GUI profile management/authoring,
+customization export, external-change review, or a default transition. No profile is automatically registered or selected. Legacy naming
 prompts/settings remain effective until explicit profile selection is implemented.
 No private settings are migrated; the registry APIs are not called by startup or
 existing settings-save flows. The unknown-name preservation fix applies to explicit
@@ -48,6 +54,65 @@ approved correction changes `Parential` to `Parental` in the new ICWA-020 output
 name and matching title. Live `config.json` was not rewritten. The remaining
 customization export/review flow is still required for arbitrary personal guidance.
 These results are not a claim of model-quality or full workflow equivalence.
+
+## Reader-first artifact contracts
+
+`profile_artifacts.py` is vendored byte-identically in both apps. It has no
+filesystem access, profile-store access, acceptance, or instruction loading.
+The following metadata is descriptive, never a grant to load a profile.
+
+- A preparation selection is exactly `{schema_version: 1, profile_ref: ProfileRef}`,
+  with application `recordprep`. Its future app-owned location is
+  `.recordprep/practice-profile.json`; reading a case does not create it.
+- Preparation provenance is exactly `{schema_version: 1, profile_ref: ProfileRef,
+  components: {stage: sha256}}`. Components are a nonempty subset of RecordPrep's
+  application-owned stages, with lowercase 64-character SHA-256 values. No paths,
+  prompts, credentials, or extra fields are accepted. The published sidecar is
+  `artifacts/practice_profile_provenance.json`.
+- Structural category catalogs are ordered lists of exactly `{id, title}`; role
+  catalogs have `counsel` and `participants` lists of exactly `{id, label}`. Lists
+  have 1–128 unique bounded identifiers; labels are trimmed, nonblank, single-line
+  strings up to 160 characters. Guidance is explicitly rejected. Role groups
+  retain required `unknown` and `other` fallbacks.
+- Participant schema 3 retains schema 2's hearing, attendance, witness/conflict,
+  and examination structure, adding `role_catalog` and `profile_provenance` with
+  a `participants` component. Roles validate against that recorded catalog;
+  participant role labels must agree. Schema 2 uses frozen legacy role IDs, never
+  a current profile. Native v3 evidence-path/examination safeguards are retained
+  in the shared reader. The native participant producer/helper is still legacy.
+- Source-map schema 3 adds `preparation_provenance`. If it includes a participant
+  index, that index must be valid schema 3. An empty embedded hearing array is
+  readable for CT-only scope without pretending that indexing occurred. Legacy
+  map schemas 1/2 remain readable in Focus. Unknown future versions and invalid
+  profile metadata fail explicitly before research tools use the map; ordinary
+  text/summary browsing does not need a profile instruction snapshot.
+- Digest Markdown format 2 adds a document-header `profile_metadata` containing
+  exactly `category_catalog` and `profile_provenance` (with the appropriate
+  extraction component). Its rows use schema 3. Parsing carries that metadata
+  with each in-memory row and with the document even for zero rows; serialization
+  rejects mixed catalogs/revisions. Canonical escaping/quote grammar and exact
+  reserialization checks remain intact. Legacy format 1/row 2 uses frozen
+  category titles/order without loading current category guidance.
+- Digest metadata 5 repeats the header's `profile_metadata`, which must match;
+  final metadata 5 has its own `profile_provenance` with the synthesis component.
+  Both retain the existing content hashes and record Markdown format 2. Integrity
+  does not imply current-generation freshness: the legacy runner deliberately
+  cannot mark these profile-era artifacts current or silently downgrade them.
+- Minute checkpoint 2 retains the existing row/hash wrapper and adds
+  `attendance_policy`, `role_catalog`, and `profile_provenance` with a `minutes`
+  component. Rows replace `parents` with `appearances` containing exactly
+  `{person, role_id, status, evidence}`. Each evidence entry is `{file_page, text}`;
+  explicit presence/absence requires recorded evidence. These are structural
+  reader checks, not semantic proof of attendance. Generic rendering does not
+  introduce parent terminology. Schema 1 remains unchanged and readable.
+
+Focus `preparation_context.py` treats map provenance as provenance of the map
+actually used by research, not the case's newly selected but unprocessed profile.
+Invalid sidecars and selection/publication mismatches appear as structured notices;
+no profile folder is resolved and no external instructions are accepted. Main-window
+indicators, session pinning, profile-aware generation, and app-owned selection/save
+flows still need integration. New publishers remain disabled until those flows and
+freshness comparisons share the exact same frozen profile/compiler.
 
 ## Ownership and identity
 
@@ -274,7 +339,7 @@ tracked category IDs/titles/guidance, roles, and current summary schema versions
 Update tests to point to explicit frozen legacy readers when producers advance;
 do not replace legacy fixture contents merely to make new behavior pass.
 
-Still required before activation: reader-first schema integration, neutral core
+Still required before activation: reader/publisher integration, neutral core
 prompt extraction, classification/schema-vocabulary reconciliation, per-stage
 generation/preflight fingerprints, independent
 Focus session pinning, GUI creation/counterpart/export/review, private customization

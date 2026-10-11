@@ -1,6 +1,39 @@
 # Practice profiles: validation checkpoints
 
-## Naming integration checkpoint
+## Reader-first compatibility checkpoint
+
+Current Work computer only; disposable checkouts and managed environments under
+`/tmp/profile-naming-ny9y30`, isolated HOME/XDG state, synthetic metadata, no model
+calls or private configuration/case writes.
+
+- Shared artifact tests validate bounded, instruction-free descriptors/provenance,
+  frozen legacy roles, custom civil roles, safe evidence paths, attendance/witness
+  rules, CT-only empty scope, and rejection of unsupported/future versions.
+- RecordPrep tests round-trip new category digests, including zero-row documents,
+  without reading current guidance. They reject mixed revisions/catalogs, retain
+  legacy rendering, distinguish metadata-5 integrity from freshness, render generic
+  minute appearances without parent language, and block legacy publishers from
+  downgrading profile-era data.
+- Focus tests exercise the actual helper script entry point with schema-3 metadata,
+  report legacy-unassigned context without inferring a specialty, reject unsupported
+  metadata, and distinguish selected, published, and consumed-map provenance.
+  Sidecar reads reject extra fields, oversized files, and symlinks; opening alone
+  creates no binding or registry. No instruction snapshot is loaded by these reads.
+- Full Focus suite: **618 passed**, **38 subtests passed**. Existing two deprecation
+  warnings remain. Bounded answer-switching GUI acceptance: **320 transitions,
+  zero GTK criticals, expected final view and reading position, passed**.
+- Full RecordPrep suite: **432 tests successful, 3 optional SDK skips** (429 pass).
+  Existing unclosed-file ResourceWarning remains. Resource validation, compilation,
+  common-code/test/document parity, and whitespace checks pass.
+- Logs: `readers-focus-full.log`, `readers-rp-full.log`, `readers-resources.log`,
+  `readers-answer-switching.log`. Optional SDK comparison was not rerun.
+
+This is NOT end-to-end profile acceptance. Native producer/helper integration,
+profile-aware classification and generation, freshness, session pinning, authoring
+GUI, selection/export/counterpart flows, and controlled defaults remain incomplete.
+The legacy pipeline cannot silently publish or downgrade new-profile artifacts.
+
+## Naming integration checkpoint (historical)
 
 Validated on the current Work computer using disposable tracked-source copies,
 separate managed environments, synthetic cases, and isolated HOME/XDG state under
@@ -91,7 +124,7 @@ export/review before activating profile-era naming for existing cases. Do not
 silently change an existing case's prompts or reuse old classification checkpoints
 under new profile guidance.
 
-Reader compatibility, neutral pipeline behavior, application-owned prompt
+Reader/publisher integration, neutral pipeline behavior, application-owned prompt
 composition, source/model/upstream freshness integration, profile selections,
 new artifact provenance, GUI authoring/export/counterpart workflows, and all
 end-to-end civil/dependency/third-specialty acceptance remain to be implemented.

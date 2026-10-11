@@ -31,7 +31,10 @@ yet enabled. The Dependency profile includes the reviewed report titles and
 same-page title/code form rules (with “Parental” corrected). Live settings are not
 migrated. Explicit TOC/boundary reruns now retain unnamed reports with provisional
 labels and review markers, including one-page reports; opening a case changes no
-artifacts. See the [contract and implementation status](docs/practice-profiles.md).
+artifacts. Reader-first support now preserves profile-recorded categories, roles,
+and generic minute appearances independently of currently installed guidance.
+New profile-era publishers remain disabled until binding and freshness integration
+are complete. See the [contract and implementation status](docs/practice-profiles.md).
 
 ## Application icon
 

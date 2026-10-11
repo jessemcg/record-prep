@@ -3,7 +3,7 @@
 ## Practice-profile foundation
 
 See `docs/practice-profiles.md` for the v1 contract and incomplete-integration status.
-`profile_contract.py`, `profile_store.py`, the common conformance tests and fixture
+`profile_contract.py`, `profile_store.py`, `profile_artifacts.py`, the common conformance tests and fixture
 are vendored identically in Focus and RecordPrep; coordinate contract changes but
 never import sibling resources at runtime. Bundled resources live in
 `recordprep/resources/practice_profiles/`. They are not active pipeline defaults yet.
@@ -16,6 +16,12 @@ opt-in until explicit profile selection and checkpoint freshness are integrated.
 Unnamed reports must survive explicit TOC/boundary runs with provisional labels
 and review metadata, including one-page reports. Never treat unknown naming as
 proof that no document exists or mutate private settings to activate a profile.
+Reader-first APIs now accept participant v3, digest format 2/row 3, metadata 5,
+and minute checkpoint 2 from their own recorded descriptors/provenance. Legacy
+formats remain readable. Do not remove the new-artifact generation/publication
+guards until the native runners, explicit profile binding, and preflight/freshness
+all consume the same frozen snapshot. The pipeline descriptions below still
+specify the active legacy producers, not completed profile-era generation.
 
 ## Passive run metrics
 - The runner's native stages and extraction/synthesis children may explicitly load the sibling `PiRunMetrics/run-collector.ts` via `recordprep/run_metrics.py`. This is the sole passive-observer exception to tracked `.pi/` resource confinement. It adds no tools/prompts and changes no publication authority, Stop/stall behavior or content-free stdout. One settled child is not whole-pipeline success. Skips and zero-model helpers produce no runs.

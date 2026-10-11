@@ -205,6 +205,13 @@ def validate_participant_index_output(root: Path) -> list[str]:
     payload = _read_json(path)
     if payload is None:
         return ["artifacts/participant_index.json is missing or invalid."]
+    # Artifact-recorded roles, never whichever profile is currently selected.
+    from .profile_artifacts import participant_index_issues
+    return participant_index_issues(payload)
+
+
+def _legacy_participant_index_issues(payload: dict[str, Any]) -> list[str]:
+    """Frozen schema-2 validator retained for compatibility conformance tests."""
     issues: list[str] = []
     if payload.get("schema_version") != 2:
         issues.append("participant index must use schema version 2.")
@@ -547,8 +554,13 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
     if source_map is None:
         issues.append("artifacts/source_map.json is missing or invalid.")
     else:
-        if int(source_map.get("schema_version") or 0) < 2:
-            issues.append("source_map.json must use schema version 2 or newer.")
+        from .profile_artifacts import source_map_profile_metadata
+        try:
+            source_map_profile_metadata(source_map)
+            if source_map.get("schema_version") not in (2, 3):
+                raise ValueError("Unsupported publisher schema.")
+        except ValueError:
+            issues.append("source_map.json must use a supported schema (2 or 3) with valid profile metadata.")
         if not isinstance(source_map.get("pages"), list):
             issues.append("source_map.json pages must be a list.")
         if not isinstance(source_map.get("citation_series"), list):

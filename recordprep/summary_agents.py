@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from recordprep import summary_categories
-from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance
+from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance, role_descriptor
+from recordprep.profile_contract import ProfileSnapshot
+from recordprep.summary_profiles import compile_summary, extraction_metadata
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
 from recordprep.transcript_layout import is_ct_only
 
@@ -1402,6 +1404,7 @@ class SummaryWorkItem:
     participant_context: str = ""
     proposal_marker: ReportProposalMarker | None = None
     proposal_page_count: int = 0
+    profile: ProfileSnapshot | None = None
 
 
 def _load_boundary_entries(root: Path, kind: str) -> list[dict[str, Any]]:
@@ -1652,16 +1655,32 @@ class ExtractionConfig:
     model: str = ""
     provider: str = ""
     thinking: str = ""
+    profile: ProfileSnapshot | None = None
+    runtime_contract_sha256: str = ""
+
+    def __post_init__(self):
+        if self.profile is not None:
+            self.guidance = compile_summary(self.profile, self.kind, "extract").prompt
+            self.additional_guidance = ""
+
+    @property
+    def definitions(self) -> tuple[CategoryDefinition, ...]:
+        if self.profile is None:
+            return summary_category_definitions(self.kind)
+        return tuple(CategoryDefinition(*entry) for entry in compile_summary(self.profile, self.kind, "extract").category_catalog)
 
     def fingerprint_payload(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
-            "categories": list(SUMMARY_CATEGORY_IDS[self.kind]),
+            "categories": [definition.identifier for definition in self.definitions],
+            **({"profile_component": compile_summary(self.profile, self.kind, "extract").component_sha256,
+                "runtime_contract_sha256": self.runtime_contract_sha256}
+               if self.profile is not None else {}),
             # The effective per-category guidance text is part of the
             # extraction contract; editing a kind's category resource makes
             # that kind's published rows regeneration-pending.
             "category_guidance_sha256": sha256_json(
-                list(definition.guidance for definition in summary_category_definitions(self.kind))
+                list(definition.guidance for definition in self.definitions)
             ),
             "guidance": self.guidance,
             "additional_guidance": self.additional_guidance,
@@ -1741,7 +1760,7 @@ def build_work_items(
 ) -> list[SummaryWorkItem]:
     """Build ordered, boundary-validated work items with page-intact windows."""
     metadata = load_digest_meta(root, config.kind)
-    if metadata is not None and metadata.get("schema_version") == 5:
+    if metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
         raise ValueError("Profile-era summaries require explicit profile-aware generation; prior output preserved.")
     kind = config.kind
     if kind not in SUMMARY_KINDS:
@@ -1778,6 +1797,9 @@ def build_work_items(
                 raise ValueError(
                     "Participant index validation failed: run Build participant index first."
                 )
+            if config.profile is not None and (payload.get("schema_version") != 3 or
+                    payload.get("role_catalog") != role_descriptor(config.profile)):
+                raise ValueError("Participant indexing must be regenerated with the selected role contract before hearing work.")
             for hearing in payload.get("hearings", []):
                 if not isinstance(hearing, dict):
                     continue
@@ -1830,6 +1852,7 @@ def build_work_items(
             start_page=start,
             end_page=end,
             label="",
+            profile=config.profile,
         )
         if kind == "hearings":
             participant = participant_by_range.get((start, end))
@@ -1853,7 +1876,8 @@ def build_work_items(
                 item.label = name or display_date or f"Report {ordinal}"
         page_text = _page_text_map(text_dir, start, end)
         item.input_sha256 = _item_input_sha256(page_text, start, end)
-        if kind == "reports":
+        if kind == "reports" and (config.profile is None or
+                config.profile.resource("policies")["report_scope"] == "exclude_formal_proposals"):
             item.proposal_marker = _detect_report_proposal_marker(
                 page_text, start, end
             )
@@ -1906,7 +1930,7 @@ def build_work_spec(
     citation_by_page: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Build the private work specification served to the extraction agent."""
-    definitions = summary_category_definitions(config.kind)
+    definitions = config.definitions
     citation_map = citation_by_page or {}
     text_dir = root / "text_pages"
     source = item_source_payload(item, text_dir, citation_map)
@@ -2067,7 +2091,9 @@ def canonicalize_extraction_candidate(
     published.
     """
     kind = item.kind
-    expected_ids = list(SUMMARY_CATEGORY_IDS[kind])
+    profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None else None
+    expected_ids = ([e["id"] for e in profile_metadata["category_catalog"]] if profile_metadata is not None
+                    else list(SUMMARY_CATEGORY_IDS[kind]))
     flags: list[str] = []
     page_text = _page_text_map(text_dir, item.start_page, item.end_page)
 
@@ -2249,6 +2275,8 @@ def canonicalize_extraction_candidate(
         "quality_flags": flags,
         "categories": canonical_categories,
     }
+    if profile_metadata is not None:
+        row.update(schema_version=3, profile_metadata=profile_metadata)
     # Canonical quote ids are assigned now that category order is fixed.
     for category in row["categories"]:
         digest = category["digest"]
@@ -2366,7 +2394,7 @@ _QUOTE_LINE_PATTERN = re.compile(
 )
 # Canonical Python-generated quote ids appear raw in Markdown so synthesis
 # placeholders keep matching them exactly.
-_QUOTE_ID_PATTERN = re.compile(r"^[a-z]+:\d{4}/[a-z_]+/\d+$")
+_QUOTE_ID_PATTERN = re.compile(r"^(?:hearing|report):\d{4}/[a-z][a-z0-9_-]{0,95}/\d+$")
 
 
 def _escape_markdown_text(text: str) -> str:
@@ -3177,9 +3205,11 @@ def build_digest_meta(
             rows_by_id=rows_by_id,
         )
     )
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None else None
     return {
         "artifact": SUMMARY_FACTS_META_ARTIFACT,
-        "schema_version": SUMMARY_FACTS_META_SCHEMA_VERSION,
+        "schema_version": 5 if profile_metadata is not None else SUMMARY_FACTS_META_SCHEMA_VERSION,
+        **({"profile_metadata": profile_metadata} if profile_metadata is not None else {}),
         "kind": kind,
         "expected_item_ids": expected_ids,
         "completed": completed,
@@ -3187,7 +3217,7 @@ def build_digest_meta(
         "category_schema_sha256": sha256_json(
             [
                 {"id": definition.identifier, "guidance": definition.guidance}
-                for definition in summary_category_definitions(kind)
+                for definition in config.definitions
             ]
         ),
         "source_boundary_fingerprint": sha256_json(
@@ -3204,9 +3234,9 @@ def build_digest_meta(
         "extraction_config_sha256": config.fingerprint,
         "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
         "digest_markdown_sha256": digest_markdown_sha256(
-            serialize_digest_markdown(kind, summary_case_stem(root), rows)
+            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
         ),
-        "markdown_format_version": SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "markdown_format_version": 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "quality_flags": {
             str(row.get("item_id")): list(row.get("quality_flags") or [])
             for row in rows
@@ -3255,14 +3285,30 @@ def publish_digests(
     is always written before its derived metadata sidecar.
     """
     existing = load_digest_meta(root, kind)
-    if (getattr(rows, "profile_metadata", None) is not None
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None else None
+    if profile_metadata is None and (getattr(rows, "profile_metadata", None) is not None
             or any(row.get("schema_version") == 3 for row in rows)
             or (existing is not None and existing.get("schema_version") == 5)):
         raise ValueError("Profile-era digests require a profile-aware publisher; prior output preserved.")
+    if profile_metadata is not None:
+        # Publish only rows matching all current source/model/component inputs.
+        # Unchanged components may be reused across revisions of unrelated resources.
+        expected = {item.item_id: item for item in items}
+        current = []
+        for row in rows:
+            item = expected.get(row.get("item_id"))
+            if item is None or row.get("generation_sha256") != item.generation_sha256:
+                continue
+            recorded = digest_profile_metadata(row.get("profile_metadata"), kind)
+            if (recorded["category_catalog"] != profile_metadata["category_catalog"] or
+                    recorded["profile_provenance"]["components"] != profile_metadata["profile_provenance"]["components"]):
+                raise ValueError("Current digest row disagrees with the selected component contract.")
+            current.append(row | {"profile_metadata": profile_metadata})
+        rows = DigestRows(current, profile_metadata=profile_metadata)
     markdown_path = summary_digest_path(root, kind)
     meta_path = summary_digest_meta_path(root, kind)
     # Serialize once; the metadata sidecar reuses the exact bytes and hash.
-    markdown_text = serialize_digest_markdown(kind, summary_case_stem(root), rows)
+    markdown_text = serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
     _atomic_write(markdown_path, markdown_text)
     meta = build_digest_meta(
         root, kind, items, config, rows, markdown_text=markdown_text
@@ -3814,16 +3860,19 @@ def build_final_meta(
     synthesis_config: dict[str, Any],
     heading_pages: dict[str, tuple[int, int | None]],
     quality_flags: Sequence[str] | None = None,
+    *, profile: ProfileSnapshot | None = None,
 ) -> dict[str, Any]:
+    profile_metadata = extraction_metadata(profile, kind) if profile is not None else None
     meta: dict[str, Any] = {
         "artifact": SUMMARY_FINAL_META_ARTIFACT,
-        "schema_version": SUMMARY_FINAL_META_SCHEMA_VERSION,
+        "schema_version": 5 if profile is not None else SUMMARY_FINAL_META_SCHEMA_VERSION,
+        **({"profile_provenance": compile_summary(profile, kind, "synthesize").provenance} if profile is not None else {}),
         "kind": kind,
         "item_ids": [str(row.get("item_id")) for row in rows],
         "digest_markdown_sha256": digest_markdown_sha256(
-            serialize_digest_markdown(kind, summary_case_stem(root), rows)
+            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
         ),
-        "markdown_format_version": SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "markdown_format_version": 2 if profile is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "synthesis_config_sha256": sha256_json(synthesis_config),
         "synthesis_model": {
             "provider": synthesis_config.get("provider", ""),
@@ -4026,7 +4075,7 @@ def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
     }
 
 
-def effective_extraction_config(project_dir: Path, kind: str) -> ExtractionConfig:
+def effective_extraction_config(project_dir: Path, kind: str, *, profile: ProfileSnapshot | None = None) -> ExtractionConfig:
     """Compose one phase's effective extraction configuration.
 
     The immutable contract plus byte-for-byte custom guidance, with the
@@ -4048,6 +4097,10 @@ def effective_extraction_config(project_dir: Path, kind: str) -> ExtractionConfi
         provider=identity.provider,
         model=identity.model_id,
         thinking=identity.thinking,
+        profile=profile,
+        runtime_contract_sha256=(sha256_json({str(path.relative_to(project_dir)): _resource_sha256(path)
+            for path in (project_dir / "SYSTEM.md", project_dir / "resources/profile-summary-extract.md",
+                         project_dir / "extensions/recordprep-summary-tools.ts")}) if profile is not None else ""),
     )
 
 
@@ -4058,7 +4111,7 @@ def _resource_sha256(path: Path) -> str:
         return "missing"
 
 
-def effective_synthesis_config(project_dir: Path, kind: str) -> dict[str, Any]:
+def effective_synthesis_config(project_dir: Path, kind: str, *, profile: ProfileSnapshot | None = None) -> dict[str, Any]:
     """Compose the effective synthesis configuration (freshness contract).
 
     Includes the staged skill and tool-extension hashes so a changed
@@ -4078,17 +4131,21 @@ def effective_synthesis_config(project_dir: Path, kind: str) -> dict[str, Any]:
         "hearings": "recordprep-synthesize-hearings",
         "reports": "recordprep-synthesize-reports",
     }
+    compiled = compile_summary(profile, kind, "synthesize") if profile is not None else None
     return {
         "kind": kind,
-        "guidance": resolution.immutable_guidance,
-        "additional_guidance": resolution.custom_guidance,
+        "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance,
+        "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
+        **({"profile_component": compiled.component_sha256} if compiled is not None else {}),
         "provider": identity.provider,
         "model": identity.model_id,
         "thinking": identity.thinking,
         "content_contract": SUMMARY_SYNTHESIS_CONTRACT_VERSION,
         "skill_sha256": _resource_sha256(
-            project_dir / "skills" / skill_names[kind] / "SKILL.md"
+            (project_dir / "resources/profile-summary-synthesize.md") if profile is not None else
+            (project_dir / "skills" / skill_names[kind] / "SKILL.md")
         ),
+        **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None else {}),
         "extension_sha256": _resource_sha256(
             project_dir / "extensions" / "recordprep-summary-tools.ts"
         ),
@@ -4113,6 +4170,7 @@ def summary_stage_freshness_issues(
     kind: str,
     *,
     project_dir: Path | None = None,
+    profile: ProfileSnapshot | None = None,
 ) -> list[str]:
     """Compare published artifacts with the inputs a new run would use.
 
@@ -4124,15 +4182,27 @@ def summary_stage_freshness_issues(
     project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
     issues: list[str] = []
     label = SUMMARY_KIND_LABELS[kind]
-    # Reader support does not authorize new generation or establish freshness.
-    # Replace this guard only with the same pinned-profile compiler as execution.
-    if any(meta is not None and meta.get("schema_version") == 5
+    if profile is None:
+        from recordprep.case_profiles import resolve_case_profile
+        try:
+            profile = resolve_case_profile(root)
+        except (ValueError, OSError):
+            return [f"the {label} selected profile snapshot is unavailable or invalid; new work is blocked."]
+    if profile is not None:
+        from .boundary_profiles import require_current_boundaries
+        try:
+            require_current_boundaries(root, profile, project_dir)
+        except (ValueError, OSError) as exc:
+            return [str(exc)]
+    # Legacy generation cannot establish freshness for profile-era output.
+    if profile is None and any(meta is not None and meta.get("schema_version") == 5
            for meta in (load_digest_meta(root, kind), load_final_meta(root, kind))):
         return [f"the {label} profile-dependent freshness requires explicit profile-aware generation."]
 
     # Extraction freshness: fingerprint every row against current inputs.
     try:
-        extraction_config = effective_extraction_config(project_dir, kind)
+        extraction_config = (effective_extraction_config(project_dir, kind, profile=profile) if profile is not None
+                             else effective_extraction_config(project_dir, kind))
         items = build_work_items(root, extraction_config)
     except (ValueError, SummaryResourceError) as exc:
         issues.append(f"the {label} extraction freshness is unproven: {exc}")
@@ -4157,6 +4227,8 @@ def summary_stage_freshness_issues(
                         "regeneration-pending."
                     )
         meta = load_digest_meta(root, kind)
+        if profile is not None and (meta is None or meta.get("extraction_config_sha256") != extraction_config.fingerprint):
+            issues.append(f"the {label} extraction component is regeneration-pending.")
         if meta is not None and meta.get("schema_version") not in (
             READABLE_FACTS_META_SCHEMA_VERSIONS
         ):
@@ -4189,7 +4261,8 @@ def summary_stage_freshness_issues(
                 "fingerprints; regeneration-pending."
             )
         else:
-            current_config = effective_synthesis_config(project_dir, kind)
+            current_config = (effective_synthesis_config(project_dir, kind, profile=profile) if profile is not None
+                              else effective_synthesis_config(project_dir, kind))
             if str(final_meta.get("synthesis_config_sha256") or "") != sha256_json(
                 current_config
             ):
@@ -4206,6 +4279,13 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
     watched: list[Path] = [
         project_dir.parent / "config.json",
         project_dir / "settings.json",
+        root / ".recordprep/practice-profile.json",
+        project_dir / "SYSTEM.md",
+        project_dir / "extensions/recordprep-summary-tools.ts",
+        project_dir / f"skills/recordprep-extract-{SUMMARY_KIND_LABELS[kind]}/SKILL.md",
+        project_dir / f"skills/recordprep-synthesize-{kind}/SKILL.md",
+        project_dir / "resources/profile-summary-extract.md",
+        project_dir / "resources/profile-summary-synthesize.md",
         root / "artifacts" / f"{SUMMARY_KIND_LABELS[kind]}_boundaries.json",
         root / "artifacts" / "transcript_page_numbers.json",
         summary_digest_path(root, kind),
@@ -4221,6 +4301,17 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
         watched.append(root / "artifacts" / "transcript_layout.json")
     watched.extend(summary_category_resource_paths().values())
     signature: list[Any] = []
+    from recordprep.case_profiles import resolve_case_profile
+    from recordprep.practice_profiles import profile_store
+    try:
+        profile = resolve_case_profile(root)
+        if profile is not None:
+            snapshot_root = profile_store().data_root / "snapshots" / profile.ref.content_sha256
+            watched.extend(snapshot_root / name for name, _contents in profile.files)
+            from .boundary_profiles import preparation_watch_paths
+            watched.extend(preparation_watch_paths(root))
+    except (ValueError, OSError):
+        signature.append("invalid_or_unavailable_profile")
     for path in watched:
         try:
             stat = path.stat()

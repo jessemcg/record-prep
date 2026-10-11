@@ -51,6 +51,7 @@ from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
+from recordprep.classification_profiles import ClassificationRun, classifier_prompt
 from recordprep.document_naming import NamingContract, provisional_document_title
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
@@ -699,8 +700,8 @@ DEFAULT_CLASSIFY_FORM_NAMES_PROMPT = (
 DEFAULT_CASE_NAME_PROMPT = (
     "You are inferring the case name from the first three pages of a legal transcript. "
     "Return only the case name as plain text. "
-    "The case name should replace spaces with underscores, like In_re_Mark_T or "
-    "Social_Services_v_Breanna_F. "
+    "Preserve the source-supported case caption and replace spaces with underscores, "
+    "for example Smith_v_Jones. Do not infer a legal specialty or invent party names. "
     "If unknown, use an empty string."
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = _minute_summaries.DEFAULT_MINUTES_PROMPT
@@ -1142,6 +1143,7 @@ def _format_toc_line(label: str, page: str) -> str:
 def _correct_toc_lines(
     toc_lines: list[str],
     raise_if_stop: Callable[[], None] | None = None,
+    *, keep_distinct_orders: bool = False,
 ) -> tuple[list[str], int]:
     """Return TOC lines with duplicate minute-order dates removed and the removal count.
 
@@ -1150,6 +1152,11 @@ def _correct_toc_lines(
     sections, and unrelated formatting are preserved. Idempotent on an already
     corrected TOC because no removable duplicates remain.
     """
+    if keep_distinct_orders:
+        for _line in toc_lines:
+            if raise_if_stop is not None:
+                raise_if_stop()
+        return list(toc_lines), 0
     corrected_lines: list[str] = []
     in_minute_orders = False
     seen_dates: set[str] = set()
@@ -2312,8 +2319,9 @@ def _read_config() -> dict[str, Any]:
                 key: value for key, value in data.items()
                 if key not in OBSOLETE_PIPELINE_CONFIG_KEYS
             }
-            if cleaned != data:
-                CONFIG_FILE.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
+            # Reading settings (including profile preflight/export preview) must
+            # never migrate or rewrite the user's private configuration. Only an
+            # explicit settings-save flow may persist normalized settings.
             return cleaned
     except (OSError, json.JSONDecodeError):
         pass
@@ -2406,21 +2414,11 @@ def save_run_until_step_setting(step_id: str | None) -> None:
 
 def load_classifier_settings() -> dict[str, Any]:
     config = _read_config()
-    api_url = str(config.get(CONFIG_KEY_CLASSIFIER_API_URL, "") or "").strip()
-    model_id = str(config.get(CONFIG_KEY_CLASSIFIER_MODEL_ID, "") or "").strip()
+    from recordprep.classification_profiles import classifier_model_settings
+    model_settings = classifier_model_settings(config)
+    api_url, model_id = model_settings["api_url"], model_settings["model_id"]
+    disable_reasoning = model_settings["disable_reasoning"]
     api_key = str(config.get(CONFIG_KEY_CLASSIFIER_API_KEY, "") or "").strip()
-    if CONFIG_KEY_CLASSIFIER_DISABLE_REASONING in config:
-        disable_reasoning = _read_config_bool(
-            config,
-            CONFIG_KEY_CLASSIFIER_DISABLE_REASONING,
-            DEFAULT_DISABLE_REASONING,
-        )
-    else:
-        disable_reasoning = not _read_config_bool(
-            config,
-            CONFIG_KEY_CLASSIFIER_THINKING_ENABLED,
-            True,
-        )
     workers = _read_config_int(
         config,
         CONFIG_KEY_CLASSIFIER_WORKERS,
@@ -3506,8 +3504,9 @@ def save_pi_agent_command_setting(command: str) -> None:
 
 
 class SettingsWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None) -> None:
+    def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None, on_profiles=None) -> None:
         super().__init__(application=app, title="Settings")
+        self._on_profiles = on_profiles
         self.set_default_size(900, 720)
         self.set_resizable(True)
         self._on_saved = on_saved
@@ -3571,6 +3570,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.add_css_class("flat")
         header.set_title_widget(Adw.WindowTitle(title="Settings"))
+        if self._on_profiles is not None:
+            profiles_button = Gtk.Button(label="Practice Profiles…")
+            profiles_button.add_css_class("flat")
+            profiles_button.set_tooltip_text("Classification and summary prompts below are legacy guidance. Edit assigned profile guidance here; runtime and case-name settings remain separate.")
+            profiles_button.connect("clicked", lambda _button: self._on_profiles(self))
+            header.pack_start(profiles_button)
         save_btn = Gtk.Button(label="Save")
         save_btn.add_css_class("suggested-action")
         save_btn.add_css_class("flat")
@@ -3583,6 +3588,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         box.set_margin_bottom(12)
         box.set_margin_start(18)
         box.set_margin_end(18)
+        box.append(Gtk.Label(label="Classification and summary prompt editors below apply to legacy/unassigned cases. "
+                             "For assigned profiles, use Practice Profiles. Runtime and case-name settings remain separate.",
+                             wrap=True, xalign=0))
 
         split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         split.set_hexpand(True)
@@ -5545,6 +5553,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.case_bundle_button.add_css_class("flat")
         self.case_bundle_button.connect("clicked", self.on_choose_case_bundle)
         header_bar.pack_start(self.case_bundle_button)
+        self._practice_profile_button = Gtk.Button(label="Preparation: Legacy")
+        self._practice_profile_button.add_css_class("flat")
+        self._practice_profile_button.connect("clicked", lambda _button: self._open_practice_profiles())
+        header_bar.pack_start(self._practice_profile_button)
 
         self.file_button = Gtk.Button.new_from_icon_name("list-add-symbolic")
         self.file_button.set_tooltip_text("Choose PDF(s)")
@@ -5996,10 +6008,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._settings_window:
             self._settings_window.present()
             return
-        settings = SettingsWindow(self.get_application(), on_saved=self._on_settings_saved)
+        settings = SettingsWindow(self.get_application(), on_saved=self._on_settings_saved, on_profiles=self._open_practice_profiles)
         settings.connect("close-request", self._on_settings_close_request)
         self._settings_window = settings
         settings.present()
+
+    def _open_practice_profiles(self, parent=None) -> None:
+        from recordprep.profile_integration import open_manager
+        try:
+            open_manager(self, PI_PROJECT_DIR, parent)
+        except (ValueError, OSError) as exc:
+            self.show_toast(f"Practice Profiles unavailable: {exc}")
 
     def _on_settings_saved(self) -> None:
         self.show_toast("Settings saved.")
@@ -6682,6 +6701,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         _rt_base, _ct_base, need_rt, need_ct = self._expected_classification_file_names(
             root_dir
         )
+        from recordprep.case_profiles import resolve_case_profile
+        from recordprep.classification_profiles import STAGES, SUFFIXES, stage_issues
+        try:
+            profile = resolve_case_profile(root_dir)
+            suffix = rt_path.stem.removeprefix("RT_")
+            if profile is not None:
+                if suffix not in SUFFIXES or stage_issues(root_dir, STAGES[SUFFIXES.index(suffix)], profile, load_classifier_settings()):
+                    return False
+            elif suffix in SUFFIXES and (root_dir / "classification" / f"profile-{STAGES[SUFFIXES.index(suffix)]}.json").exists():
+                return False
+        except (ValueError, OSError):
+            return False
         if not need_rt and not need_ct:
             return False
         if rt_expected is None:
@@ -6790,6 +6821,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     classification_dir / "CT_basic_advanced_corrected_dates.jsonl"
                 ),
             )
+        if step_id in {"build_toc", "correct_toc", "find_boundaries", "correct_boundaries"}:
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.boundary_profiles import boundary_issues, toc_issues
+            try:
+                derived_profile = resolve_case_profile(root_dir)
+                is_toc = step_id in {"build_toc", "correct_toc"}
+                if derived_profile is not None:
+                    check = toc_issues if is_toc else boundary_issues
+                    if check(root_dir, derived_profile, load_classifier_settings()):
+                        return False
+                elif (artifacts_dir / ("profile-toc.json" if is_toc else "profile-boundaries.json")).exists():
+                    return False
+            except (ValueError, OSError):
+                return False
         if step_id == "build_toc":
             return (artifacts_dir / "toc.txt").exists()
         if step_id == "correct_toc":
@@ -6800,7 +6845,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 ).splitlines()
             except OSError:
                 return False
-            _corrected_lines, removals = _correct_toc_lines(toc_lines)
+            _corrected_lines, removals = _correct_toc_lines(toc_lines, keep_distinct_orders=derived_profile is not None)
             return removals == 0
         if step_id == "find_boundaries":
             return (
@@ -6878,6 +6923,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return step_id != "create_files" or bool(self.selected_pdfs)
 
     def _sync_pipeline_controls(self) -> None:
+        from recordprep.profile_integration import update_indicator
+        update_indicator(self)
         running = self._pipeline_running
         self.run_all_button.set_visible(not running)
         self.run_all_button.set_sensitive(not running and bool(self.selected_pdfs))
@@ -8057,6 +8104,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Selected PDFs must be in the same folder.")
             base_dir = parents.pop()
             root_dir = base_dir / "case_bundle"
+            new_case_profile = None
+            if not root_dir.exists() and not root_dir.is_symlink():
+                from recordprep.profile_integration import new_case_profile as choose_new_case_profile
+                new_case_profile = choose_new_case_profile(self, root_dir)
             pending_split = self._rt_ct_split_pending
             pending_mode = self._rt_ct_split_mode_pending
             reset_required = (
@@ -8072,6 +8123,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 _reset_generated_case_bundle(root_dir)
                 self._bundle_reset_required = False
             root_dir, text_dir, image_pages_dir = _ensure_case_bundle_dirs(base_dir)
+            if new_case_profile is not None:
+                from recordprep.case_profiles import apply_case_profile
+                apply_case_profile(root_dir, new_case_profile, expected_previous=None)
+                self._pending_preparation_profile = None
             if len(self.selected_pdfs) > 1:
                 temp_dir = root_dir / "temp"
                 temp_dir.mkdir(parents=True, exist_ok=True)
@@ -8904,7 +8959,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError("Run Create files to generate image files first.")
             shared_settings = load_classifier_settings()
             self._validate_vision_settings(shared_settings)
-            classification_dir = root_dir / "classification"
+            classification_run = ClassificationRun.begin(root_dir, "basic", shared_settings)
+            classification_dir = classification_run.directory
             classification_dir.mkdir(parents=True, exist_ok=True)
             rt_basic_path = classification_dir / "RT_basic.jsonl"
             ct_basic_path = classification_dir / "CT_basic.jsonl"
@@ -8951,6 +9007,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("rt_prompt") or shared_settings.get("prompt"),
+                "profile_snapshot": classification_run.profile, "profile_kind": "rt",
                 "disable_reasoning": bool(
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
@@ -8960,6 +9017,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "model_id": shared_settings["model_id"],
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("ct_prompt") or shared_settings.get("prompt"),
+                "profile_snapshot": classification_run.profile, "profile_kind": "ct",
                 "disable_reasoning": bool(
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
@@ -9046,6 +9104,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                             for entry in ct_entries:
                                 handle.write(json.dumps(entry))
                                 handle.write("\n")
+            classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9083,8 +9142,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError("Run Create files to generate text files first.")
             if not image_dir.exists():
                 raise FileNotFoundError("Run Create files to generate image files first.")
-            classification_dir = root_dir / "classification"
             settings = load_advanced_classify_settings()
+            classification_run = ClassificationRun.begin(root_dir, "advanced", settings)
+            classification_dir = classification_run.directory
             self._validate_vision_settings(settings)
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
@@ -9129,6 +9189,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                     ),
                 }
+                payload = classification_run.payload(payload, "first_hearing" if updated_type.startswith("RT") else
+                                                       "first_minute" if "minute" in updated_type else "first_form")
                 jobs.append((self._classify_image, (payload, file_name, image_path)))
                 metadata.append((entry, updated_type, truthy_keys))
 
@@ -9258,6 +9320,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         handle.write("\n")
                         if file_name:
                             ct_done.add(file_name)
+            classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9295,7 +9358,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             text_dir = root_dir / "text_pages"
             if not text_dir.exists():
                 raise FileNotFoundError("Run Create files to generate text files first.")
-            classification_dir = root_dir / "classification"
+            classification_run = ClassificationRun.begin(root_dir, "corrected", load_classifier_settings())
+            classification_dir = classification_run.directory
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
                 root_dir, text_dir
             )
@@ -9367,6 +9431,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         self._raise_if_stop_requested()
                         handle.write(json.dumps(entry))
                         handle.write("\n")
+            classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9409,9 +9474,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError("Run Create files to generate text files first.")
             if not image_dir.exists():
                 raise FileNotFoundError("Run Create files to generate image files first.")
-            classification_dir = root_dir / "classification"
             settings = load_classify_dates_settings()
             shared_settings = load_classifier_settings()
+            classification_run = ClassificationRun.begin(root_dir, "dates", shared_settings)
+            classification_dir = classification_run.directory
             self._validate_vision_settings(shared_settings)
             workers = self._classifier_worker_count(shared_settings)
             _split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
@@ -9482,6 +9548,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "model_id": shared_settings["model_id"],
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["hearing_prompt"],
+                                        "profile_snapshot": classification_run.profile, "profile_kind": "date_hearing",
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -9557,6 +9624,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "model_id": shared_settings["model_id"],
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["minute_prompt"],
+                                        "profile_snapshot": classification_run.profile, "profile_kind": "date_minute",
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -9587,6 +9655,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         handle.write("\n")
                         if file_name:
                             ct_done.add(file_name)
+            classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9624,9 +9693,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError("Run Create files to generate text files first.")
             if not image_dir.exists():
                 raise FileNotFoundError("Run Create files to generate image files first.")
-            classification_dir = root_dir / "classification"
             settings = load_classify_names_settings()
             shared_settings = load_classifier_settings()
+            classification_run = ClassificationRun.begin(root_dir, "names", shared_settings)
+            classification_dir = classification_run.directory
             self._validate_vision_settings(shared_settings)
             workers = self._classifier_worker_count(shared_settings)
             split_page, _total_pages, need_rt, need_ct, _split_mode = _resolve_rt_ct_split(
@@ -9736,6 +9806,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "model_id": shared_settings["model_id"],
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["report_prompt"],
+                                        "profile_snapshot": classification_run.profile, "profile_kind": "report",
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -9760,6 +9831,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "model_id": shared_settings["model_id"],
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["form_prompt"],
+                                        "profile_snapshot": classification_run.profile, "profile_kind": "form",
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -9795,6 +9867,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         handle.write("\n")
                         if file_name:
                             ct_done.add(file_name)
+            classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9850,6 +9923,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 paths.append(rt_named_path)
             if need_ct:
                 paths.append(ct_named_path)
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.boundary_profiles import boundary_inputs, publish_toc
+            toc_profile = resolve_case_profile(root_dir)
+            toc_expected = boundary_inputs(root_dir, toc_profile, load_classifier_settings())
             basic_entries = _load_combined_jsonl_entries(paths)
             if not basic_entries:
                 raise FileNotFoundError("No entries found in classified JSONL files.")
@@ -9917,7 +9994,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
                 date_value = _extract_entry_value(entry, "date").strip()
                 if not date_value:
-                    continue
+                    if toc_profile is None:
+                        continue
+                    date_value = "Date unresolved"
                 page_number = _extract_page_number(file_name)
                 if page_number is None:
                     continue
@@ -9944,8 +10023,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "HEARINGS",
                 *hearing_lines,
             ]
-            toc_path = derived_dir / "toc.txt"
-            toc_path.write_text("\n".join(toc_lines).rstrip() + "\n", encoding="utf-8")
+            publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(), "\n".join(toc_lines).rstrip() + "\n")
         except StopRequested:
             success = None
         except Exception as exc:
@@ -9991,12 +10069,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             toc_lines = toc_path.read_text(
                 encoding="utf-8", errors="ignore"
             ).splitlines()
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.boundary_profiles import boundary_inputs, publish_toc
+            toc_profile = resolve_case_profile(root_dir)
+            toc_expected = boundary_inputs(root_dir, toc_profile, load_classifier_settings())
             corrected_lines, _removals = _correct_toc_lines(
-                toc_lines, self._raise_if_stop_requested
+                toc_lines, self._raise_if_stop_requested, keep_distinct_orders=toc_profile is not None
             )
-            toc_path.write_text(
-                "\n".join(corrected_lines).rstrip() + "\n", encoding="utf-8"
-            )
+            publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(),
+                        "\n".join(corrected_lines).rstrip() + "\n")
         except StopRequested:
             success = None
         except Exception as exc:
@@ -10069,6 +10150,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if page_type in {"ct_report"} and name_value:
                     report_name_by_file[file_name] = name_value
             relevant_report_files: set[str] | None = None
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.boundary_profiles import boundary_inputs, publish_boundaries
+            boundary_profile = resolve_case_profile(root_dir)
+            boundary_expected = boundary_inputs(root_dir, boundary_profile, load_classifier_settings())
             hearing_boundaries: list[dict[str, str]] = []
             report_boundaries: list[dict[str, str]] = []
             minutes_boundaries: list[dict[str, str]] = []
@@ -10241,29 +10326,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                     continue
                 index += 1
-            hearing_path = derived_dir / "hearing_boundaries.json"
-            hearing_path.write_text(
-                json.dumps(hearing_boundaries, indent=2),
-                encoding="utf-8",
-            )
-            report_path = derived_dir / "report_boundaries.json"
-            report_path.write_text(
-                json.dumps(report_boundaries, indent=2),
-                encoding="utf-8",
-            )
             filtered_minutes: list[dict[str, str]] = []
             seen_minute_dates: set[str] = set()
             for entry in minutes_boundaries:
+                if boundary_profile is not None:
+                    # Date uncertainty and a shared date never erase distinct
+                    # source orders in the profile-aware fidelity contract.
+                    filtered_minutes.append(entry)
+                    continue
                 date_value = str(entry.get("date", "")).strip()
                 if not date_value or date_value in seen_minute_dates:
                     continue
                 seen_minute_dates.add(date_value)
                 filtered_minutes.append(entry)
-            minutes_path = derived_dir / "minutes_boundaries.json"
-            minutes_path.write_text(
-                json.dumps(filtered_minutes, indent=2),
-                encoding="utf-8",
-            )
+            publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
+                "hearing_boundaries.json": hearing_boundaries, "report_boundaries.json": report_boundaries,
+                "minutes_boundaries.json": filtered_minutes,
+            })
             total_boundaries = (
                 len(hearing_boundaries)
                 + len(report_boundaries)
@@ -10323,6 +10402,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError(
                     "Run Find boundaries to generate hearing/report boundaries first."
                 )
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.boundary_profiles import boundary_inputs, publish_boundaries
+            boundary_profile = resolve_case_profile(root_dir)
+            boundary_expected = boundary_inputs(root_dir, boundary_profile, load_classifier_settings())
             hearing_entries = _load_json_entries(hearing_path)
             report_entries = _load_json_entries(report_path)
             if not hearing_entries and not report_entries:
@@ -10339,15 +10422,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             for entry in hearing_entries:
                 self._raise_if_stop_requested()
                 date_value = _extract_entry_value(entry, "date")
-                if not date_value:
+                if not date_value and boundary_profile is None:
                     hearing_removed += 1
                     continue
                 filtered_hearings.append(entry)
-            hearing_path.write_text(
-                json.dumps(filtered_hearings, indent=2),
-                encoding="utf-8",
-            )
-
             report_removed = 0
             filtered_reports: list[dict[str, str]] = []
             for entry in report_entries:
@@ -10364,14 +10442,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 # Missing title evidence must not turn a detected one-page
                 # report into a missing document. Keep its review marker/range.
                 unresolved_name = not report_name or entry.get("naming_status") == "unresolved"
-                if is_single and not unresolved_name and "last minute" not in report_name.lower():
+                if boundary_profile is None and is_single and not unresolved_name and "last minute" not in report_name.lower():
                     report_removed += 1
                     continue
                 filtered_reports.append(entry)
-            report_path.write_text(
-                json.dumps(filtered_reports, indent=2),
-                encoding="utf-8",
-            )
+            if boundary_profile is not None:
+                publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
+                    "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
+                    "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
+                })
+            else:
+                hearing_path.write_text(json.dumps(filtered_hearings, indent=2), encoding="utf-8")
+                report_path.write_text(json.dumps(filtered_reports, indent=2), encoding="utf-8")
             removed = hearing_removed + report_removed
         except StopRequested:
             success = None
@@ -10591,7 +10673,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         naming_contract = settings.get("naming_contract")
         if naming_contract is not None and not isinstance(naming_contract, NamingContract):
             raise ValueError("Invalid application-owned naming contract")
+        profile = settings.get("profile_snapshot")
+        profile_kind = settings.get("profile_kind")
         effective_prompt = naming_contract.prompt if naming_contract is not None else settings["prompt"]
+        if profile is not None:
+            effective_prompt, _keys = classifier_prompt(profile, profile_kind)
+            if profile_kind in ("report", "form"):
+                from recordprep.document_naming import compile_naming_profile
+                naming_contract = compile_naming_profile(profile, profile_kind)
         image_base64 = base64.b64encode(image_path.read_bytes()).decode()
         headers = {
             "Content-Type": "application/json",
@@ -10638,6 +10727,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if naming_contract.kind == "report":
                 result["date"] = named.date
             return result
+        if profile is not None:
+            from recordprep.classification_profiles import normalize_classifier
+            return {"file_name": filename, **normalize_classifier(parsed, profile_kind)}
         if not isinstance(parsed, dict):
             parsed = {}
         if not _extract_entry_value(parsed, "page_type", "pagetype"):

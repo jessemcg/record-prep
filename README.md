@@ -22,19 +22,40 @@ RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable lega
 
 RecordPrep creates one concise, versioned, nonauthoritative case-orientation overview. It does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or any case-overview retrieval index.
 
-## Practice profiles (in development)
+## Practice profiles
 
-General Court Record and California Juvenile Dependency profile resources now live
-inside RecordPrep. Validation, accepted snapshots, and an opt-in naming compiler
-are implemented; profile selection, editing, and full pipeline integration are not
-yet enabled. The Dependency profile includes the reviewed report titles and
-same-page title/code form rules (with “Parental” corrected). Live settings are not
-migrated. Explicit TOC/boundary reruns now retain unnamed reports with provisional
-labels and review markers, including one-page reports; opening a case changes no
-artifacts. Reader-first support now preserves profile-recorded categories, roles,
-and generic minute appearances independently of currently installed guidance.
-New profile-era publishers remain disabled until binding and freshness integration
-are complete. See the [contract and implementation status](docs/practice-profiles.md).
+RecordPrep includes **General Court Record** and **California Juvenile Dependency**
+preparation profiles. Open **Preparation / New case** in the header or **Practice
+Profiles** in Settings to create, duplicate, edit, preview, export, register and
+select guidance without editing JSON. Editors expose categories, participant roles,
+naming rules, evidence policies and stage guidance. Bundled profiles are read-only;
+accepted revisions and defaults belong to RecordPrep independently of Focus.
+
+**Create files** binds General/configured guidance only when creating a previously
+nonexistent bundle; an explicit pending choice takes priority. Existing bundles
+remain legacy or retain their accepted revision. Changing a selection never runs
+models or rewrites old artifacts: explicitly rerun affected upstream stages before
+later preparation. Missing instructions block new work, not reading old output.
+
+Profile-bound classification, boundaries, participants, summaries and minutes share
+pinned preflight/freshness checks. Models edit private candidates; Python validates
+and publishes the schema-3 source map without a model call. Prepared descriptors
+remain readable without the instruction snapshot. Unknown titles/dates do not erase
+short reports. Dependency naming includes the reviewed title/code catalogs and
+approved “Parental” spelling correction.
+
+Private legacy-customization copying is explicit and reviewable, not a settings
+migration. Identity export/import helps author a separately owned Focus counterpart;
+it never imports instructions or changes defaults. See the [GUI guide and contract](docs/practice-profiles.md)
+and [validation evidence and limitations](docs/practice-profiles-validation.md).
+
+**Compatibility note:** category/role names, formal-proposal exclusions and
+first-page parental-attendance rules in the legacy pipeline details below describe
+unassigned compatibility contexts. Bound profiles use their declared catalogs and
+policies instead. Opening settings/cases is read-only; only an explicit settings
+save can persist legacy cleanup. The supported full application remains a source
+installation containing its own `.pi/` tree. Wheels include the independent Python
+package and bundled profile/category resources, not a replacement native-Pi deployment.
 
 ## Application icon
 
@@ -225,7 +246,7 @@ The four native VTE rows launch one explicitly loaded Agent Skill each in PI's n
 
 ## Settings
 
-Settings include source extraction, local OCR, classification/case inference, collapsed legacy direct-API credentials and window settings (clearly labeled as prompt-test sandbox-only), PI extraction and PI synthesis stage groups — each with an authenticated model dropdown (including `Use project PI model`) and reasoning level stored in RecordPrep `config.json` keys (`summary_extract_pi_*`/`summary_synthesize_pi_*`), never in `.pi/settings.json` — extraction guidance and synthesis guidance editors, and the PI command, model, and reasoning-level selection. Minute-order generation uses the PI synthesis selection and its existing guidance editor; it ignores direct-API credentials/windows. The legacy shared `summarize_window_target_chars`/`summarize_window_max_pages` pair migrates to the minute-order keys and is removed on the next Settings save, together with the retired per-category PI extraction window keys (PI extraction sends each document's complete source pages and no longer uses windows). Recognized historical built-in hearing/report prompts migrate to the current extraction guidance on the next save; genuinely custom text remains byte-for-byte unchanged. Numeric entries are validated before saving, and invalid input keeps the Settings window open with an actionable message. The model and reasoning level for all five native PI skill stages (layout detection, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are removed when local config is loaded or saved. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. The obsolete paragraph-count setting is not reinterpreted as a page count; adaptive defaults apply until the new settings are saved.
+Settings include source extraction, local OCR, classification/case inference, collapsed legacy direct-API credentials and window settings (clearly labeled as prompt-test sandbox-only), PI extraction and PI synthesis stage groups — each with an authenticated model dropdown (including `Use project PI model`) and reasoning level stored in RecordPrep `config.json` keys (`summary_extract_pi_*`/`summary_synthesize_pi_*`), never in `.pi/settings.json` — extraction guidance and synthesis guidance editors, and the PI command, model, and reasoning-level selection. Minute-order generation uses the PI synthesis selection and its existing guidance editor; it ignores direct-API credentials/windows. The legacy shared `summarize_window_target_chars`/`summarize_window_max_pages` pair migrates to the minute-order keys and is removed on the next Settings save, together with the retired per-category PI extraction window keys (PI extraction sends each document's complete source pages and no longer uses windows). Recognized historical built-in hearing/report prompts migrate to the current extraction guidance on the next save; genuinely custom text remains byte-for-byte unchanged. Numeric entries are validated before saving, and invalid input keeps the Settings window open with an actionable message. The model and reasoning level for all five native PI skill stages (layout detection, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are ignored on read and removed only by an explicit Settings save. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. The obsolete paragraph-count setting is not reinterpreted as a page count; adaptive defaults apply until the new settings are saved.
 
 Saved run-until targets migrate as follows:
 

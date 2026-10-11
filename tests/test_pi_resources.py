@@ -146,6 +146,8 @@ class PiResourceTests(unittest.TestCase):
             [
                 "recordprep-auto-exit.ts",
                 "recordprep-minute-tools.ts",
+                "recordprep-profile-minute-tools.ts",
+                "recordprep-profile-native-tools.ts",
                 "recordprep-summary-tools.ts",
             ],
         )

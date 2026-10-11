@@ -293,10 +293,15 @@ def check_aggregate_history(
 def stage_static_components(
     project_pi_dir: Path,
     skill_name: str,
+    *, profile_phase: str | None = None,
 ) -> dict[str, int]:
     """Character counts of the fixed, model-visible stage components."""
     system_chars = _file_chars(project_pi_dir / "SYSTEM.md")
-    skill_chars = _file_chars(project_pi_dir / "skills" / skill_name / "SKILL.md")
+    if profile_phase is not None:
+        from recordprep.summary_profiles import profile_skill_text
+        skill_chars = len(profile_skill_text(project_pi_dir, skill_name, profile_phase))
+    else:
+        skill_chars = _file_chars(project_pi_dir / "skills" / skill_name / "SKILL.md")
     # The staged extension source proxies the enabled tool schemas: schemas
     # are declared there and Pi sends the generated JSON forms to the model.
     extension_chars = _file_chars(
@@ -392,7 +397,12 @@ def collect_kind_report(
 
     report: dict[str, Any] = {"kind": kind}
     try:
-        config = _diagnostic_extraction_config(project_dir, kind)
+        from recordprep.case_profiles import resolve_case_profile
+        profile = resolve_case_profile(root)
+        from recordprep.boundary_profiles import require_current_boundaries
+        require_current_boundaries(root, profile, project_dir)
+        config = (_diagnostic_extraction_config(project_dir, kind, profile=profile) if profile is not None
+                  else _diagnostic_extraction_config(project_dir, kind))
         items = build_work_items(root, config)
     except (ValueError, summary_categories.SummaryResourceError) as exc:
         report["error"] = str(exc)
@@ -441,7 +451,8 @@ def collect_kind_report(
     # current; otherwise flagged as extrapolated, never presented as measured.
     from recordprep import summary_agents as sa
 
-    static = stage_static_components(project_dir, _synthesis_skill(kind))
+    static = stage_static_components(project_dir, _synthesis_skill(kind),
+                                     **({"profile_phase": "synthesize"} if config.profile is not None else {}))
     document_blocks = [
         len(sa.document_markdown_block(row)) for row in rows
     ]
@@ -474,7 +485,8 @@ def collect_kind_report(
     if largest_id is not None:
         prompt_chars = _extraction_prompt_chars(config, kind)
         request = extraction_request_chars(
-            stage_static_components(project_dir, _extraction_skill(kind)),
+            stage_static_components(project_dir, _extraction_skill(kind),
+                                    **({"profile_phase": "extract"} if config.profile is not None else {})),
             source_payload_chars=payload_chars[largest_id],
             prompt_chars=prompt_chars,
         )
@@ -508,11 +520,12 @@ def _citation_map(root: Path) -> dict[int, str]:
     return mapping
 
 
-def _diagnostic_extraction_config(project_dir: Path, kind: str) -> Any:
+def _diagnostic_extraction_config(project_dir: Path, kind: str, *, profile=None) -> Any:
     """Shared effective extraction-config composition (summary_agents)."""
     from recordprep import summary_agents as sa
 
-    return sa.effective_extraction_config(project_dir, kind)
+    return (sa.effective_extraction_config(project_dir, kind, profile=profile) if profile is not None
+            else sa.effective_extraction_config(project_dir, kind))
 
 
 def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
@@ -531,7 +544,7 @@ def _extraction_skill(kind: str) -> str:
 def _synthesis_skill(kind: str) -> str:
     from recordprep.summary_agents import SUMMARY_KIND_LABELS
 
-    return f"recordprep-synthesize-{SUMMARY_KIND_LABELS[kind]}"
+    return f"recordprep-synthesize-{kind}"
 
 
 def _extraction_prompt_chars(config: Any, kind: str) -> int:
@@ -541,7 +554,7 @@ def _extraction_prompt_chars(config: Any, kind: str) -> int:
         config.guidance,
         "".join(
             f"- {definition.identifier}: {definition.guidance}\n"
-            for definition in sa.summary_category_definitions(kind)
+            for definition in config.definitions
         ),
         config.additional_guidance,
     ]

@@ -83,13 +83,19 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
         finally: h.close()
 
     def test_minute_tools_with_installed_offline_sdk_and_private_output(self):
+        self._minute_sdk(profile_mode=False)
+
+    def test_profile_minute_tools_with_installed_offline_sdk_and_private_output(self):
+        self._minute_sdk(profile_mode=True)
+
+    def _minute_sdk(self, *, profile_mode):
         h = Acceptance('recordprep')
         try:
             resources = h.resources(PROJECT / '.pi')
             candidate = h.workspace / 'minute-candidate.json'
             spec = h.workspace / 'minute-spec.json'
             spec.write_text(json.dumps({
-                'source': 'CANARY FIRST PAGE: Mother present in person.',
+                'source': 'CANARY FIRST PAGE: Plaintiff present in person.' if profile_mode else 'CANARY FIRST PAGE: Mother present in person.',
                 'item_id': 'minute:0001', 'candidate_path': str(candidate),
             }))
             skill = 'recordprep-summarize-minutes'
@@ -99,7 +105,8 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
                 command = runner._base_child_command(
                     [str(h.pi)], staged, staged/'skills'/skill,
                     'recordprep_get_minute_source,recordprep_submit_minute_summary',
-                    h.prompt.read_text(), {}, 'synthesize', 'recordprep-minute-tools.ts',
+                    h.prompt.read_text(), {}, 'synthesize',
+                    'recordprep-profile-minute-tools.ts' if profile_mode else 'recordprep-minute-tools.ts',
                 )
                 return command, env
             def execute(argv, env):
@@ -117,13 +124,19 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
                 return SimpleNamespace(returncode=code, stdout=output.getvalue(), stderr='')
             frames = [tool('recordprep_get_minute_source', {}), tool('recordprep_submit_minute_summary', {
                 'hearing': 'CANARY Review', 'reporting': 'reported',
-                'parents': [{'parent': 'Mother', 'status': 'present', 'first_page_evidence': 'Mother present in person.'}],
+                **({'appearances': [{'person': 'Plaintiff', 'role_id': 'plaintiff', 'status': 'present',
+                                     'evidence': [{'file_page': 1, 'text': 'Plaintiff present in person.'}]}]} if profile_mode else
+                   {'parents': [{'parent': 'Mother', 'status': 'present', 'first_page_evidence': 'Mother present in person.'}]}),
                 'orders': 'CANARY Continued.',
             })]
             records, capture = h.run(factory, frames, execute=execute)
             self.assertFalse(capture['persistent_session'])
             self.assertEqual({row['workflow'] for row in records}, {skill})
-            self.assertEqual(json.loads(candidate.read_text())['artifact'], 'recordprep-minute-candidate')
+            payload = json.loads(candidate.read_text())
+            self.assertEqual(payload['artifact'], 'recordprep-minute-candidate')
+            if profile_mode:
+                self.assertEqual(payload['appearances'][0]['role_id'], 'plaintiff')
+                self.assertNotIn('parents', payload)
             self.assertEqual(sum(t['execution_errors'] for t in records[0]['tools'].values()), 0)
         finally:
             h.close()
@@ -132,6 +145,7 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
         h = Acceptance('recordprep')
         try:
             resources = h.resources(PROJECT/'.pi')
+            shutil.copytree(PROJECT/'.pi/resources', resources/'resources')
             bundle = h.root/'synthetic-bundle'; (bundle/'text_pages').mkdir(parents=True)
             (bundle/'text_pages/0001.txt').write_text('CANARY synthetic transcript page')
             stage = runner.STAGES['detect_transcript_layout']
@@ -145,7 +159,17 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
             def normalize(capture):
                 cwd = capture['cwd']
                 self.assertTrue(Path(cwd).is_relative_to(Path(h.env['XDG_CACHE_HOME'])/'recordprep-pi-workspaces'))
-                return json.loads(json.dumps(capture).replace(cwd, '<generated-native-stage-workspace>'))
+                # Installed SDK records real tool execution duration. It varies
+                # between metrics-on/off invocations but is not model/tool semantics.
+                # Preserve every other field, including errors/results and timestamps.
+                def semantic(value):
+                    if isinstance(value, list):
+                        return [semantic(item) for item in value]
+                    if isinstance(value, dict):
+                        return {key:semantic(item) for key,item in value.items()
+                                if not (value.get('role') == 'toolResult' and key == 'durationMs')}
+                    return value
+                return semantic(json.loads(json.dumps(capture).replace(cwd, '<generated-native-stage-workspace>')))
             records, _ = h.run(lambda env: ([str(h.pi)], env), [tool('read', {'path': str(h.workspace/'synthetic.txt')}), stop()], execute=execute, normalize=normalize)
             self.assertEqual({r['workflow'] for r in records}, {'detect_transcript_layout'})
         finally: h.close()

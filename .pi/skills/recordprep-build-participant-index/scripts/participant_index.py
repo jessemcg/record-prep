@@ -172,7 +172,40 @@ def load_required_context(root: Path) -> tuple[list[dict[str, Any]], dict[int, d
     return hearing_boundaries(root), by_file_page
 
 
-def prepare(root: Path) -> Path:
+def _application_root() -> Path:
+    # The runner supplies its own source/package root to staged helpers. Never
+    # discover Python code or instruction resources in the case bundle.
+    directory = Path(os.environ.get("RECORDPREP_APPLICATION_ROOT") or Path(__file__).resolve().parents[4])
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
+    return directory
+
+
+def _selected_profile(root: Path):
+    if not (root / ".recordprep/practice-profile.json").exists():
+        return None
+    _application_root()
+    from recordprep.case_profiles import resolve_case_profile
+    from dataclasses import asdict
+    profile = resolve_case_profile(root)
+    expected = os.environ.get("RECORDPREP_PROFILE_REF")
+    if expected and (profile is None or asdict(profile.ref) != json.loads(expected)):
+        raise ValueError("Preparation profile selection changed during the stage.")
+    return profile
+
+
+def _output_path(root: Path) -> Path:
+    candidate = os.environ.get("RECORDPREP_PARTICIPANT_CANDIDATE")
+    if candidate:
+        path = Path(candidate)
+        if not path.is_absolute():
+            raise ValueError("Participant candidate path must be absolute.")
+        return path
+    return root / "artifacts/participant_index.json"
+
+
+def prepare(root: Path, *, profile=None, candidate_path: Path | None = None,
+            project_dir: Path | None = None) -> Path:
     root = root.resolve(strict=False)
     artifacts = root / "artifacts"
     boundaries, by_file_page = load_required_context(root)
@@ -210,7 +243,13 @@ def prepare(root: Path) -> Path:
         "hearings": hearings,
         "warnings": [TEMPLATE_WARNING],
     }
-    output = artifacts / "participant_index.json"
+    profile = profile if profile is not None else _selected_profile(root)
+    if profile is not None:
+        if candidate_path is None and not os.environ.get("RECORDPREP_PARTICIPANT_CANDIDATE"):
+            raise ValueError("Use the profile-aware native runner to prepare a private candidate.")
+        from recordprep.native_profiles import participant_metadata
+        payload.update(participant_metadata(profile, root, project_dir or _application_root() / ".pi"))
+    output = candidate_path or _output_path(root)
     write_json(output, payload)
     return output
 
@@ -250,7 +289,7 @@ def _page_markers(text: str) -> list[str]:
     return found
 
 
-def worklist(root: Path) -> Path:
+def worklist(root: Path, *, output_path: Path | None = None) -> Path:
     root = root.resolve(strict=False)
     boundaries, by_file_page = load_required_context(root)
 
@@ -365,7 +404,7 @@ def worklist(root: Path) -> Path:
             "substitutes for record text and must be deleted when the stage finishes."
         ),
     }
-    output = root / WORKLIST_RELATIVE
+    output = output_path or root / WORKLIST_RELATIVE
     write_json(output, payload)
     return output
 
@@ -401,8 +440,20 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["participant_index.json must be an object."]
-    if payload.get("schema_version") != 2:
-        issues.append("schema_version must be 2.")
+    counsel_role_ids = ROLE_IDS
+    participant_role_ids = PARTICIPANT_ROLE_IDS
+    catalog = None
+    if payload.get("schema_version") == 3:
+        _application_root()
+        from recordprep.profile_artifacts import participant_roles
+        try:
+            catalog = participant_roles(payload)
+        except ValueError:
+            return ["Participant profile metadata is invalid."]
+        counsel_role_ids = dict(catalog["counsel"])
+        participant_role_ids = dict(catalog["participants"])
+    elif payload.get("schema_version") != 2:
+        issues.append("schema_version must be 2 or 3.")
     if payload.get("source") != "record-participant-index":
         issues.append("source must be record-participant-index.")
     top_warnings = payload.get("warnings")
@@ -444,7 +495,7 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
             if not isinstance(person, dict):
                 issues.append(f"{person_label} must be an object.")
                 continue
-            if str(person.get("role_id") or "") not in ROLE_IDS:
+            if str(person.get("role_id") or "") not in counsel_role_ids:
                 issues.append(f"{person_label}.role_id is invalid.")
             if not str(person.get("name") or "").strip():
                 issues.append(f"{person_label}.name is required.")
@@ -471,10 +522,12 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
             if not participant_id or participant_id in participant_ids:
                 issues.append(f"{person_label}.id must be nonempty and unique within the hearing.")
             participant_ids.add(participant_id)
-            if str(person.get("role_id") or "") not in PARTICIPANT_ROLE_IDS:
+            if str(person.get("role_id") or "") not in participant_role_ids:
                 issues.append(f"{person_label}.role_id is invalid.")
             if not str(person.get("role_label") or "").strip():
                 issues.append(f"{person_label}.role_label is required.")
+            if catalog is not None and person.get("role_label") != participant_role_ids.get(str(person.get("role_id") or "")):
+                issues.append(f"{person_label}.role_label disagrees with the recorded catalog.")
             if not isinstance(person.get("name"), str):
                 issues.append(f"{person_label}.name must be a string.")
             if not isinstance(person.get("aliases"), list):
@@ -532,7 +585,7 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
                 if str(exam.get("type") or "") not in EXAM_TYPES:
                     issues.append(f"{exam_label}.type is invalid.")
                 role_id = str(exam.get("examiner_role_id") or "")
-                if role_id and role_id not in ROLE_IDS:
+                if role_id and role_id not in counsel_role_ids:
                     issues.append(f"{exam_label}.examiner_role_id is invalid.")
                 exam_start = page_number(exam.get("start_file_page"))
                 exam_end = page_number(exam.get("end_file_page"))
@@ -548,7 +601,7 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
 
 
 def validate(root: Path, *, partial: bool = False) -> list[str]:
-    path = root.resolve(strict=False) / "artifacts" / "participant_index.json"
+    path = _output_path(root.resolve(strict=False))
     try:
         payload = read_json(path)
     except (OSError, json.JSONDecodeError) as exc:

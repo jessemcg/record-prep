@@ -34,6 +34,36 @@ def profile_store() -> ProfileStore:
                         data_root=data / APPLICATION / "practice-profiles")
 
 
+def default_profile_candidate(*, store: ProfileStore | None = None) -> ProfileSnapshot:
+    """Read-only proposal for a new context; never rebind an existing case."""
+    store = store or profile_store()
+    if store.application != APPLICATION:
+        raise ProfileError("wrong_application", "default")
+    registry = store.read_registry()
+    if registry["default"] is not None:
+        return store.load_profile_snapshot(ProfileRef.from_dict(registry["default"]))
+    result = validate_profile_directory(bundled_profile_directory("general"))
+    if result.draft is None:
+        raise ProfileError("invalid_bundled_default", "default")
+    return result.draft
+
+
+def accept_new_context_default(*, store: ProfileStore | None = None) -> ProfileRef:
+    """Explicit creation action only. Existing bindings never call this function."""
+    from dataclasses import asdict
+    store = store or profile_store()
+    snapshot = default_profile_candidate(store=store)
+    registry = store.read_registry()
+    if any(entry["ref"] == asdict(snapshot.ref) for entry in registry["accepted"]):
+        store.load_profile_snapshot(snapshot.ref)
+        return snapshot.ref
+    # A local same-identity revision is a conflict requiring explicit review,
+    # not permission for a new-case default to replace its accepted head.
+    if snapshot.ref.specialty_id in registry["heads"]:
+        raise ProfileError("review_default_revision_first", "default")
+    return store.accept_profile(snapshot, expected_previous_digest=None)
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     result = validate_profile_directory(args.path)
     if args.json:

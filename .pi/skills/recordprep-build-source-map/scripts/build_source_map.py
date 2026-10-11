@@ -479,7 +479,8 @@ def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], p
     return {"by_file": by_file, "by_citation_key": by_citation, "by_type": by_type, "by_date": by_date, "by_report_id": by_report, "by_counsel": by_counsel, "by_participant": by_participant, "by_witness": by_witness}
 
 
-def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_source_map(root: Path, *, preparation: dict | None = None,
+                     empty_participants: dict | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     root = root.resolve(strict=False)
     manifest = load_object(root / "manifest.json", "manifest.json")
     transcript = load_object(root / "artifacts" / "transcript_page_numbers.json", "transcript_page_numbers.json")
@@ -493,11 +494,14 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         # participant artifact; page arrays/lookups stay empty and the
         # indexed-participant count is zero. Any pre-existing on-disk
         # participant file is ignored and left untouched.
-        participants: dict[str, Any] = {"schema_version": 2, "hearings": []}
+        participants: dict[str, Any] = (empty_participants if preparation is not None else {"schema_version": 2, "hearings": []})
+        if not isinstance(participants, dict) or participants.get("hearings") != []:
+            raise ValueError("CT-only profile publication requires an explicit empty participant descriptor.")
     else:
         participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
-        if participants.get("schema_version") != 2:
-            raise ValueError("Participant index schema version 2 is required.")
+        expected_version = 3 if preparation is not None else 2
+        if participants.get("schema_version") != expected_version:
+            raise ValueError(f"Participant index schema version {expected_version} is required.")
         # The Focus-facing copy must not carry model-authored page notation
         # even when the on-disk participant artifact predates the fix.
         participants = canonicalize_citation_fields(participants)
@@ -528,7 +532,8 @@ def build_source_map(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "summaries": summaries,
     }
     payload = {
-        "schema_version": SOURCE_MAP_SCHEMA_VERSION,
+        "schema_version": 3 if preparation is not None else SOURCE_MAP_SCHEMA_VERSION,
+        **({"preparation_provenance": preparation} if preparation is not None else {}),
         "generated_at": utc_now(), "source": "record-source-map",
         "case_name": (root / "case_name.txt").read_text(encoding="utf-8", errors="ignore").strip() if (root / "case_name.txt").is_file() else "",
         "root_dir": ".", "paths": paths,
@@ -583,6 +588,10 @@ def remove_legacy_organized_summaries(root: Path) -> list[Path]:
 
 def write_source_map(root: Path) -> tuple[Path, dict[str, Any]]:
     root = root.resolve(strict=False)
+    selection = root / ".recordprep/practice-profile.json"
+    previous = root / "artifacts/source_map.json"
+    if selection.exists() or selection.is_symlink() or (previous.exists() and read_json(previous).get("schema_version", 1) not in (1, 2)):
+        raise ValueError("Use the profile-aware application publisher; legacy publication cannot replace pinned output.")
     payload, manifest = build_source_map(root)
     output = root / "artifacts" / "source_map.json"
     atomic_write_json(output, payload)

@@ -199,7 +199,7 @@ def normalize_transcript_numbering_labels(root: Path) -> list[str]:
     return changed
 
 
-def validate_participant_index_output(root: Path) -> list[str]:
+def validate_participant_index_output(root: Path, *, project_dir: Path | None = None) -> list[str]:
     root = root.resolve(strict=False)
     path = root / "artifacts" / "participant_index.json"
     payload = _read_json(path)
@@ -207,7 +207,16 @@ def validate_participant_index_output(root: Path) -> list[str]:
         return ["artifacts/participant_index.json is missing or invalid."]
     # Artifact-recorded roles, never whichever profile is currently selected.
     from .profile_artifacts import participant_index_issues
-    return participant_index_issues(payload)
+    issues = participant_index_issues(payload)
+    from .case_profiles import resolve_case_profile
+    try:
+        profile = resolve_case_profile(root)
+        if profile is not None:
+            from .native_profiles import participant_freshness_issues
+            issues.extend(participant_freshness_issues(root, profile, project_dir or Path(__file__).resolve().parent.parent / ".pi"))
+    except (ValueError, OSError):
+        issues.append("Selected preparation profile is unavailable or invalid.")
+    return list(dict.fromkeys(issues))
 
 
 def _legacy_participant_index_issues(payload: dict[str, Any]) -> list[str]:
@@ -368,7 +377,7 @@ def _legacy_participant_index_issues(payload: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def validate_summary_source_outputs(root: Path) -> list[str]:
+def validate_summary_source_outputs(root: Path, *, project_dir: Path | None = None) -> list[str]:
     """Validate all PI summary stages' artifacts, finals, and freshness.
 
     Downstream prerequisites (case overview, source map) require the summary
@@ -386,8 +395,8 @@ def validate_summary_source_outputs(root: Path) -> list[str]:
         issues.extend(
             summary_agents.validate_summary_agent_outputs(root, kind)
         )
-        issues.extend(summary_agents.summary_stage_freshness_issues(root, kind))
-    issues.extend(minute_summaries.freshness_issues(root))
+        issues.extend(summary_agents.summary_stage_freshness_issues(root, kind, project_dir=project_dir))
+    issues.extend(minute_summaries.freshness_issues(root, project_dir))
     return list(dict.fromkeys(issues))
 
 
@@ -426,7 +435,7 @@ def validate_transcript_layout_output(root: Path) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def case_overview_prerequisite_issues(root: Path) -> list[str]:
+def case_overview_prerequisite_issues(root: Path, *, project_dir: Path | None = None) -> list[str]:
     """Overview prerequisites; participants are required only when applicable.
 
     A current resolved CT-only layout exempts participant indexing: the
@@ -436,20 +445,21 @@ def case_overview_prerequisite_issues(root: Path) -> list[str]:
     """
     issues: list[str] = []
     if not is_ct_only(root):
-        issues.extend(validate_participant_index_output(root))
-    issues.extend(validate_summary_source_outputs(root))
+        issues.extend(validate_participant_index_output(root, project_dir=project_dir))
+    issues.extend(validate_summary_source_outputs(root, project_dir=project_dir))
+    from .case_profiles import resolve_case_profile
+    try:
+        profile = resolve_case_profile(root)
+        if profile is not None:
+            from .publication_profiles import prepared_input_issues
+            issues.extend(prepared_input_issues(root, profile, project_dir or Path(__file__).resolve().parents[1] / ".pi"))
+    except (OSError, ValueError):
+        issues.append("Selected preparation profile is unavailable or invalid.")
     return list(dict.fromkeys(issues))
 
 
-def validate_case_overview_output(root: Path) -> list[str]:
-    root = root.resolve(strict=False)
-    issues = case_overview_prerequisite_issues(root)
-    path = case_overview_path(root)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return [*issues, "artifacts/case_overview.md is missing or unreadable."]
-
+def validate_case_overview_text(text: str, *, profile_mode: bool = False) -> list[str]:
+    issues: list[str] = []
     required_fragments = (
         "---\nartifact: recordprep-case-overview\n"
         "schema_version: 1\nstatus: nonauthoritative-orientation\n---",
@@ -472,11 +482,32 @@ def validate_case_overview_output(root: Path) -> list[str]:
 
     prose = text.split("---", 2)[-1]
     word_count = len(re.findall(r"\b[\w’'-]+\b", prose, flags=re.UNICODE))
-    if word_count < 150:
+    if not profile_mode and word_count < 150:
         issues.append("artifacts/case_overview.md must contain at least 150 prose words.")
-    if word_count > 900:
+    if not profile_mode and word_count > 900:
         issues.append("artifacts/case_overview.md must not exceed 900 prose words.")
+    if profile_mode and not any(line.strip() and not line.startswith(("#", ">", "---")) for line in prose.splitlines()):
+        issues.append("artifacts/case_overview.md must contain substantive orientation text.")
+    return issues
 
+
+def validate_case_overview_output(root: Path, *, project_dir: Path | None = None) -> list[str]:
+    root = root.resolve(strict=False)
+    issues = case_overview_prerequisite_issues(root, project_dir=project_dir)
+    path = case_overview_path(root)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return [*issues, "artifacts/case_overview.md is missing or unreadable."]
+    from .case_profiles import resolve_case_profile
+    try:
+        profile = resolve_case_profile(root)
+    except (ValueError, OSError):
+        return [*issues, "Selected preparation profile is unavailable or invalid."]
+    issues.extend(validate_case_overview_text(text, profile_mode=profile is not None))
+    if profile is not None:
+        from .native_profiles import overview_freshness_issues
+        issues.extend(overview_freshness_issues(root, profile, project_dir or Path(__file__).resolve().parent.parent / ".pi"))
     manifest = _read_json(root / "manifest.json") or {}
     prerequisites: list[Path] = [
         # A later layout decision must invalidate the overview in every mode.
@@ -507,14 +538,14 @@ def validate_case_overview_output(root: Path) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def source_map_prerequisite_issues(root: Path) -> list[str]:
+def source_map_prerequisite_issues(root: Path, *, project_dir: Path | None = None) -> list[str]:
     issues = validate_transcript_layout_output(root)
     issues.extend(validate_transcript_numbering_outputs(root))
-    issues.extend(validate_case_overview_output(root))
+    issues.extend(validate_case_overview_output(root, project_dir=project_dir))
     return list(dict.fromkeys(issues))
 
 
-def validate_prepare_bundle_outputs(root: Path) -> list[str]:
+def validate_prepare_bundle_outputs(root: Path, *, project_dir: Path | None = None) -> list[str]:
     root = root.resolve(strict=False)
     issues: list[str] = []
     manifest_path = root / "manifest.json"
@@ -546,9 +577,9 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
         issues.append("artifacts/transcript_page_number_series.md is missing.")
     ct_only = is_ct_only(root)
     if not ct_only:
-        issues.extend(validate_participant_index_output(root))
-    issues.extend(validate_summary_source_outputs(root))
-    issues.extend(validate_case_overview_output(root))
+        issues.extend(validate_participant_index_output(root, project_dir=project_dir))
+    issues.extend(validate_summary_source_outputs(root, project_dir=project_dir))
+    issues.extend(validate_case_overview_output(root, project_dir=project_dir))
 
     source_map = _read_json(source_map_path)
     if source_map is None:
@@ -561,6 +592,16 @@ def validate_prepare_bundle_outputs(root: Path) -> list[str]:
                 raise ValueError("Unsupported publisher schema.")
         except ValueError:
             issues.append("source_map.json must use a supported schema (2 or 3) with valid profile metadata.")
+        from .case_profiles import resolve_case_profile
+        try:
+            profile = resolve_case_profile(root)
+            if profile is not None:
+                from .publication_profiles import publication_issues
+                issues.extend(publication_issues(root, profile, project_dir or Path(__file__).resolve().parents[1] / ".pi"))
+            elif source_map.get("schema_version") == 3:
+                issues.append("Profile publication needs an accepted preparation binding before it can be declared current.")
+        except (OSError, ValueError):
+            issues.append("Selected preparation profile is unavailable or invalid.")
         if not isinstance(source_map.get("pages"), list):
             issues.append("source_map.json pages must be a list.")
         if not isinstance(source_map.get("citation_series"), list):
@@ -636,7 +677,7 @@ def prepare_bundle_complete(root: Path) -> bool:
     return not validate_prepare_bundle_outputs(root)
 
 
-def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
+def validate_pi_step_outputs(step_id: str, root: Path, *, project_dir: Path | None = None) -> list[str]:
     if step_id == "detect_transcript_layout":
         return validate_transcript_layout_output(root)
     if step_id == "number_transcript_pages":
@@ -644,14 +685,14 @@ def validate_pi_step_outputs(step_id: str, root: Path) -> list[str]:
     if step_id == "build_participant_index":
         issues = validate_transcript_numbering_outputs(root)
         if not is_ct_only(root):
-            issues.extend(validate_participant_index_output(root))
+            issues.extend(validate_participant_index_output(root, project_dir=project_dir))
         return list(dict.fromkeys(issues))
     if step_id == "create_case_overview":
-        return validate_case_overview_output(root)
+        return validate_case_overview_output(root, project_dir=project_dir)
     if step_id == "build_source_map":
-        return validate_prepare_bundle_outputs(root)
+        return validate_prepare_bundle_outputs(root, project_dir=project_dir)
     if step_id == "create_minute_order_summaries":
-        return minute_summaries.freshness_issues(root)
+        return minute_summaries.freshness_issues(root, project_dir)
     if step_id in SUMMARY_STEP_KINDS:
         return summary_agents.validate_summary_agent_outputs(
             root, SUMMARY_STEP_KINDS[step_id]

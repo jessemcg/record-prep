@@ -227,6 +227,12 @@ class ProfileStore:
                 _require(len(registry["accepted"]) < 256, "registry_full", "registry")
                 registry["accepted"].append({"ref": asdict(draft.ref),
                                              "source": str(source_path) if source_path else None})
+            elif source_path is not None:
+                # Explicit re-registration may attach/repoint a reviewed source
+                # folder; immutable bytes and existing case refs do not change.
+                for entry in registry["accepted"]:
+                    if entry["ref"] == asdict(draft.ref):
+                        entry["source"] = str(source_path)
             registry["heads"][draft.ref.specialty_id] = draft.ref.content_sha256
             _atomic_json(self.registry_path, registry)
         return draft.ref

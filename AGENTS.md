@@ -1,27 +1,36 @@
 # RecordPrep Agent Notes
 
-## Practice-profile foundation
+## Practice profiles
 
-See `docs/practice-profiles.md` for the v1 contract and incomplete-integration status.
-`profile_contract.py`, `profile_store.py`, `profile_artifacts.py`, the common conformance tests and fixture
-are vendored identically in Focus and RecordPrep; coordinate contract changes but
-never import sibling resources at runtime. Bundled resources live in
-`recordprep/resources/practice_profiles/`. They are not active pipeline defaults yet.
-Keep frozen dependency fixtures intact; when producer schemas advance, point baseline
-tests at explicit legacy readers rather than rewriting the historical expectations.
-The bundled naming catalog was explicitly reviewed and approved; other private
-prompts/settings still require app-owned export/review. `document_naming.py` owns
-profile naming prompt/response composition; its image-classifier adapter remains
-opt-in until explicit profile selection and checkpoint freshness are integrated.
-Unnamed reports must survive explicit TOC/boundary runs with provisional labels
-and review metadata, including one-page reports. Never treat unknown naming as
-proof that no document exists or mutate private settings to activate a profile.
-Reader-first APIs now accept participant v3, digest format 2/row 3, metadata 5,
-and minute checkpoint 2 from their own recorded descriptors/provenance. Legacy
-formats remain readable. Do not remove the new-artifact generation/publication
-guards until the native runners, explicit profile binding, and preflight/freshness
-all consume the same frozen snapshot. The pipeline descriptions below still
-specify the active legacy producers, not completed profile-era generation.
+See `docs/practice-profiles.md` and `docs/practice-profiles-validation.md` for the
+implemented v1 contract, GUI workflow, runtime boundaries and validation limits.
+The six `profile_{contract,store,artifacts,workflows,editor_ui,manager_ui}.py`
+modules, shared conformance/workflow tests and docs are intentionally vendored
+identically in Focus and RecordPrep. Coordinate changes; never import a sibling
+app or its instructions at runtime. Bundled resources are app-owned and read-only.
+
+Create files binds General/configured guidance only for a previously nonexistent
+bundle; an explicit pending choice takes priority. Existing bundles remain legacy
+or retain their accepted pin. Selection never regenerates output. Classification,
+naming, boundaries, native stages, summaries and minutes share accepted snapshots,
+component/source/model/upstream freshness and serialized publication. Native tools
+read bounded inputs and edit private candidates only; Python owns publication and
+the deterministic v3 source map. Profiles cannot add tools or weaken validators.
+
+Keep frozen dependency fixtures and legacy readers intact. Schema-3 participants
+and maps, digest format 2/row 3/metadata 5 and minute checkpoint 2 carry descriptive
+provenance/catalogs, never instruction authority. Unknown names/dates must not
+erase short documents. Custom category IDs may include hyphens and digits; quote
+serialization must preserve their canonical IDs. Missing instructions block new
+work, not browsing. Keep private configuration/cases untouched; customization
+copying is an explicit app-owned review flow, never a migration script.
+
+The legacy category, role, formal-proposal and first-page parental-attendance
+rules described below apply to unassigned compatibility contexts. Bound profiles
+use their declared catalogs/policies instead; do not reintroduce Dependency rules
+into neutral core contracts. Run isolated unit/GTK/pipeline tests, native guard and
+resource validation after changes. Keep package-data declarations covering every
+bundled profile resource; source deployments must retain their own `.pi/` tree.
 
 ## Passive run metrics
 - The runner's native stages and extraction/synthesis children may explicitly load the sibling `PiRunMetrics/run-collector.ts` via `recordprep/run_metrics.py`. This is the sole passive-observer exception to tracked `.pi/` resource confinement. It adds no tools/prompts and changes no publication authority, Stop/stall behavior or content-free stdout. One settled child is not whole-pipeline success. Skips and zero-model helpers produce no runs.
@@ -113,7 +122,7 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - Stop signals the runner, terminates the active child's complete process group, escalates to SIGKILL only when SIGTERM fails, releases locks, restores the row to Pending, and prevents the next child or downstream stages from starting.
 - PI launch logs the immutable bundle root. RecordPrep warns when a parent folder's apparent appellate case number conflicts with manifest/PDF identity, but never moves or renames private case data. Summary child output never contains prompts, source text, tool arguments/results, model prose, or digest facts — only phase, ordinal/count, event class, PID, elapsed/stall information, and sanitized error codes. Synthesis children receive structured, nonfatal correction feedback from the section-submission tool (invalid quote ids with the allowed ids, advisory typed-quotation-mark and zero-placeholder notes); the feedback stays inside the private model/tool exchange, and public logs carry sanitized codes and counts only.
 - Harden executable resolution before any `--version` or agent spawn: never attempt a nonexistent configured path; rediscover only for `pi` or a known legacy default location and fail early with the discovered alternative for an arbitrary missing custom command. The summary-resource minimum is PI 0.85 while Node 20+ stays a documentation-level dependency; never hard-code an absolute installer path.
-- The five native PI stages share one project model and reasoning level from `.pi/settings.json`; there are no per-stage overrides. The retired `pi_stage_<step>_pi_*` config keys are ignored and removed on the next config load or save.
+- The five native PI stages share one project model and reasoning level from `.pi/settings.json`; there are no per-stage overrides. The retired `pi_stage_<step>_pi_*` config keys are ignored on read and removed only by an explicit Settings save.
 - The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Direct participant-stage invocation of the runner exits 0 with the explicit skip reason for a CT-only record before any PI executable/version check or workspace creation.
 - Transcript numbering, participant, and summary stages must not update `manifest.json`.
 - The case-overview skill writes only `artifacts/case_overview.md`.

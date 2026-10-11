@@ -24,6 +24,8 @@ SUMMARY_RESOURCE_MINIMUM_PI_VERSION = (0, 85)
 AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
 SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
 MINUTE_EXTENSION_NAME = "recordprep-minute-tools.ts"
+PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
+PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
 MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
 MINUTE_STEP_ID = "create_minute_order_summaries"
 
@@ -204,6 +206,12 @@ def _resource_issues(project_dir: Path) -> list[str]:
         issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
     if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
         issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
+    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME):
+        if not (project_dir / "extensions" / name).is_file():
+            issues.append(f"extensions/{name} is missing.")
+    for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-minutes.md", "profile-participants.md", "profile-overview.md"):
+        if not (project_dir / "resources" / name).is_file():
+            issues.append(f"resources/{name} is missing.")
     extension_dir = project_dir / "extensions"
     auto_exit_extension = extension_dir / AUTO_EXIT_EXTENSION_NAME
     if not auto_exit_extension.is_file():
@@ -212,7 +220,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -647,7 +655,7 @@ def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[st
         sys.path.insert(0, str(project_root))
     from recordprep.pi_bundle import validate_pi_step_outputs
 
-    return validate_pi_step_outputs(stage.step_id, root)
+    return validate_pi_step_outputs(stage.step_id, root, project_dir=project_dir)
 
 
 # --- Two-stage summary pipeline ---
@@ -1032,6 +1040,9 @@ def _run_extraction_child(
         project_dir, skill_name, workspace_parent
     )
     try:
+        if extraction_config.profile is not None:
+            from recordprep.summary_profiles import profile_skill_text
+            (staged_skill / "SKILL.md").write_text(profile_skill_text(project_dir, skill_name, "extract"), encoding="utf-8")
         spec = sa.build_work_spec(
             item, extraction_config, root, cache_candidate, citation_by_page=_citation_map(root)
         )
@@ -1046,14 +1057,14 @@ def _run_extraction_child(
             f"page range: {item.start_page}-{item.end_page}",
             f"candidate_path: {cache_candidate}",
             "category ids in order: "
-            + ", ".join(sa.SUMMARY_CATEGORY_IDS[kind]),
+            + ", ".join(definition.identifier for definition in extraction_config.definitions),
             "",
             "EXTRACTION GUIDANCE — DIGEST CONTRACT",
             extraction_config.guidance,
         ]
         prompt_parts.append("")
         prompt_parts.append("PER-CATEGORY GUIDANCE")
-        for definition in sa.summary_category_definitions(kind):
+        for definition in extraction_config.definitions:
             prompt_parts.append(f"- {definition.identifier}: {definition.guidance}")
         if extraction_config.additional_guidance:
             prompt_parts.extend(
@@ -1086,7 +1097,8 @@ def _run_extraction_child(
         # enforces its own limit.
         from recordprep import summary_preflight as preflight
 
-        static = preflight.stage_static_components(project_dir, skill_name)
+        static = preflight.stage_static_components(project_dir, skill_name,
+            **({"profile_phase": "extract"} if extraction_config.profile is not None else {}))
         request_chars = preflight.extraction_request_chars(
             static,
             source_payload_chars=len(spec["source"]),
@@ -1158,6 +1170,9 @@ def _run_synthesis_child(
         project_dir, skill_name, workspace_parent
     )
     try:
+        if "profile_component" in synthesis_config:
+            from recordprep.summary_profiles import profile_skill_text
+            (staged_skill / "SKILL.md").write_text(profile_skill_text(project_dir, skill_name, "synthesize"), encoding="utf-8")
         dataset = {
             "artifact": "recordprep-summary-digest-dataset",
             "total_rows": len(rows),
@@ -1204,7 +1219,8 @@ def _run_synthesis_child(
         # agent-managed incremental work — never batching or rejection.
         from recordprep import summary_preflight as preflight
 
-        static = preflight.stage_static_components(project_dir, skill_name)
+        static = preflight.stage_static_components(project_dir, skill_name,
+            **({"profile_phase": "synthesize"} if "profile_component" in synthesis_config else {}))
         history_chars = preflight.synthesis_history_chars(
             static,
             overview_chars=len(
@@ -1368,8 +1384,28 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         )
 
     kind = SUMMARY_STAGE_KINDS[stage.step_id]
+    from recordprep.case_profiles import resolve_case_profile, read_case_profile_ref, case_profile_publication
+    profile = resolve_case_profile(root)
+    expected_ref = profile.ref if profile is not None else None
+    from recordprep.boundary_profiles import require_current_boundaries
+    require_current_boundaries(root, profile, project_dir, verify_source_bytes=True)
+
+    def check_selection():
+        if read_case_profile_ref(root) != expected_ref:
+            raise ValueError("Preparation profile selection changed during the stage; prior final preserved.")
+        require_current_boundaries(root, profile, project_dir)
+
+    def publish_digests(rows):
+        with case_profile_publication(root, expected_ref):
+            sa.publish_digests(root, kind, items, extraction_config, rows)
+
     settings = _summary_stage_settings(project_dir, kind)
-    extraction_config = _extraction_config(project_dir, kind, settings)
+    extraction_config = (sa.effective_extraction_config(project_dir, kind, profile=profile) if profile is not None
+                         else _extraction_config(project_dir, kind, settings))
+    if (profile is not None and not sa.validate_summary_agent_outputs(root, kind)
+            and not sa.summary_stage_freshness_issues(root, kind, project_dir=project_dir, profile=profile)):
+        _line(f"[{kind}] selected profile components and outputs are current; no model calls.")
+        return 0
 
     # Work items are resolved before any PI executable or version work so a
     # zero-document stage (for example a fresh CT-only record with valid
@@ -1436,7 +1472,8 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     f"[{kind}] converting legacy digest JSONL to Markdown "
                     f"({len(migrated)} rows) without model calls."
                 )
-                sa.publish_digests(root, kind, items, extraction_config, migrated)
+                check_selection()
+                publish_digests(migrated)
             rows, pending_ids = sa.validate_digest_state(
                 root, kind, items, extraction_config
             )
@@ -1499,20 +1536,23 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     ],
                     items,
                 )[0]
-                sa.publish_digests(root, kind, items, extraction_config, rows)
+                check_selection()
+                publish_digests(rows)
                 _line(f"[{kind}] accepted digest row for {item.item_id}.")
 
             # Metadata is re-derived even when every row was already current, so a
             # crash between the Markdown and metadata writes self-heals. Stage
             # two then consumes the reloaded, validated on-disk Markdown rather
             # than the pre-publication in-memory rows.
-            sa.publish_digests(root, kind, items, extraction_config, rows)
+            check_selection()
+            publish_digests(rows)
             rows = sa.reload_published_digest_rows(root, kind, items)
             # One effective-guidance contract shared with Settings and the
             # freshness fingerprints: the immutable synthesis contract plus
             # any byte-for-byte custom additional guidance, the effective
             # model identity, and the staged skill/tool-contract hashes.
-            synthesis_config = sa.effective_synthesis_config(project_dir, kind)
+            synthesis_config = (sa.effective_synthesis_config(project_dir, kind, profile=profile) if profile is not None
+                                else sa.effective_synthesis_config(project_dir, kind))
             if items:
                 _check_stop()
                 candidate_cache = Path(
@@ -1564,7 +1604,17 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 synthesis_config,
                 heading_pages,
                 quality_flags=quality_flags,
+                **({"profile": profile} if profile is not None else {}),
             )
+            check_selection()
+            if profile is not None:
+                current_extraction = sa.effective_extraction_config(project_dir, kind, profile=profile)
+                current_items = sa.build_work_items(root, current_extraction)
+                if (current_extraction.fingerprint != extraction_config.fingerprint
+                        or [(i.item_id, i.generation_sha256) for i in current_items] !=
+                           [(i.item_id, i.generation_sha256) for i in items]
+                        or sa.effective_synthesis_config(project_dir, kind, profile=profile) != synthesis_config):
+                    raise ValueError("Summary inputs changed during generation; prior final preserved.")
             # The final text and its edition are preserved when only metadata
             # changes (e.g. quality flags or dependency hashes); the affected
             # edition is invalidated only when the source summary text
@@ -1575,21 +1625,23 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             final_text_changed = prior_meta is None or str(
                 prior_meta.get("final_text_sha256") or ""
             ) != meta["final_text_sha256"]
-            sa._atomic_write(final_path, final_text)
-            sa._atomic_write(
-                sa.summary_final_meta_path(root, kind),
-                json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
-            )
+            with case_profile_publication(root, expected_ref):
+                sa._atomic_write(final_path, final_text)
+                sa._atomic_write(
+                    sa.summary_final_meta_path(root, kind),
+                    json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
+                )
             # Legacy v1 fact-inventory artifacts are removed only after the
             # digest pipeline published successfully; the retired digest JSONL
             # is removed only once the new Markdown, metadata, and final
             # summary have all published.
-            for removed in sa.cleanup_legacy_facts_artifacts(root, kind):
-                _line(f"[{kind}] removed legacy artifact {removed}.")
-            for removed in sa.cleanup_legacy_digest_jsonl(root, kind):
-                _line(f"[{kind}] removed legacy digest artifact {removed}.")
+            if profile is None:
+                for removed in sa.cleanup_legacy_facts_artifacts(root, kind):
+                    _line(f"[{kind}] removed legacy artifact {removed}.")
+                for removed in sa.cleanup_legacy_digest_jsonl(root, kind):
+                    _line(f"[{kind}] removed legacy digest artifact {removed}.")
             if final_text_changed:
-                if remove_summary_edition is not None:
+                if profile is None and remove_summary_edition is not None:
                     remove_summary_edition(final_path)
             else:
                 _line(
@@ -1631,10 +1683,13 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             capacity = _stage_capacity("synthesize", "minutes", settings, project_dir, models)
             _report_capacity(capacity, "minutes synthesize")
         workspace_parent.mkdir(parents=True, exist_ok=True)
+        extension_name = PROFILE_MINUTE_EXTENSION_NAME if "profile_component" in config else MINUTE_EXTENSION_NAME
         workspace, staged_pi, staged_skill = _staged_workspace(
-            project_dir, MINUTE_SKILL_NAME, workspace_parent, MINUTE_EXTENSION_NAME
+            project_dir, MINUTE_SKILL_NAME, workspace_parent, extension_name
         )
         try:
+            if "profile_component" in config:
+                (staged_skill / "SKILL.md").write_text(minutes.profile_skill_text(project_dir), encoding="utf-8")
             candidate_path = workspace / "candidate.json"
             spec_path = workspace / "work_spec.json"
             spec_path.write_text(json.dumps({
@@ -1650,8 +1705,10 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             )
             static = preflight.stage_static_components(project_dir, MINUTE_SKILL_NAME)
             static["tool_schema_proxy_chars"] = len(
-                (project_dir / "extensions" / MINUTE_EXTENSION_NAME).read_text(encoding="utf-8")
+                (project_dir / "extensions" / extension_name).read_text(encoding="utf-8")
             )
+            if "profile_component" in config:
+                static["skill_chars"] = len(minutes.profile_skill_text(project_dir))
             decision = preflight.check_individual_request(
                 capacity, preflight.extraction_request_chars(
                     static, source_payload_chars=len(item.source), prompt_chars=len(prompt)
@@ -1660,7 +1717,7 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             _report_capacity_decision(decision, "minutes")
             command = _base_child_command(
                 pi_command, staged_pi, staged_skill, minutes.TOOLS, prompt,
-                settings, "synthesize", MINUTE_EXTENSION_NAME,
+                settings, "synthesize", extension_name,
             )
             child = _SummaryChildRunner(
                 command=command, label=f"minutes synthesize {item.ordinal}",
@@ -1723,14 +1780,48 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         )
 
         if stage.step_id == "create_case_overview":
-            preflight = case_overview_prerequisite_issues(root)
+            preflight = case_overview_prerequisite_issues(root, project_dir=project_dir)
             failure_label = "Create case overview prerequisites failed: "
         else:
-            preflight = source_map_prerequisite_issues(root)
+            preflight = source_map_prerequisite_issues(root, project_dir=project_dir)
             failure_label = "Build source map prerequisites failed: "
         if preflight:
             raise ValueError(failure_label + " ".join(preflight))
 
+    if stage.step_id == "build_source_map":
+        from recordprep.case_profiles import resolve_case_profile
+        from recordprep.publication_profiles import publish_source_map
+        selected = resolve_case_profile(root)
+        if selected is not None:
+            publish_source_map(root, selected, project_dir)
+            issues = _validate_stage(stage, root, project_dir)
+            if issues:
+                raise ValueError("Published source map validation failed: " + " ".join(issues))
+            _line("Build source map complete (profile-aware Python publisher; no model call).")
+            return 0
+        if (root / "artifacts/practice_profile_provenance.json").exists():
+            raise ValueError("Published profile provenance requires an accepted preparation binding; prior source map preserved.")
+    profile = None
+    native_kind = {"build_participant_index": "participants", "create_case_overview": "overview"}.get(stage.step_id)
+    native_expected = None
+    if native_kind is not None:
+        from recordprep.case_profiles import resolve_case_profile
+        from recordprep.native_profiles import compile_native, participant_metadata, overview_input_digest, native_runtime_digest
+        profile = resolve_case_profile(root)
+        if profile is not None:
+            from recordprep.transcript_layout import is_resolved
+            if not is_resolved(root):
+                raise ValueError("Resolve the current transcript layout before profile-dependent preparation.")
+            from recordprep.boundary_profiles import require_current_boundaries
+            require_current_boundaries(root, profile, project_dir, verify_source_bytes=True)
+            if native_kind == "participants":
+                from recordprep.pi_bundle import validate_transcript_numbering_outputs
+                if validate_transcript_numbering_outputs(root):
+                    raise ValueError("Current valid transcript numbering is required before participant preparation.")
+            native_expected = (participant_metadata(profile, root, project_dir) if native_kind == "participants" else {
+                "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir),
+                "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
+            native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
     pi_command = _pi_command()
     _check_pi_version(pi_command)
     cache_root = Path(
@@ -1755,6 +1846,60 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         (workspace / "tmp").mkdir()
         (workspace / "sessions").mkdir()
         env = os.environ.copy()
+        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC"):
+            env.pop(key, None)
+        stage_prompt = _stage_prompt(stage, root, project_dir)
+        candidate_path = None
+        native_extension_args = []
+        native_tools = stage.tools
+        if profile is not None:
+            from dataclasses import asdict
+            candidate_path = workspace / ("participant-candidate.json" if native_kind == "participants" else "overview-candidate.md")
+            (staged_skill / "SKILL.md").write_text(
+                (project_dir / "resources" / f"profile-{native_kind}.md").read_text(encoding="utf-8"), encoding="utf-8")
+            env["RECORDPREP_APPLICATION_ROOT"] = str(project_dir.parent)
+            env["RECORDPREP_PYTHON"] = sys.executable
+            env["RECORDPREP_PROFILE_REF"] = json.dumps(asdict(profile.ref))
+            reads = []
+            source_ranges = []
+            helper_path = None
+            worklist = None
+            if native_kind == "participants":
+                from recordprep.native_profiles import prepare_participant_context, participant_input_paths
+                inputs = participant_input_paths(root)
+                reads = [path for path in inputs if path.parent != root / "text_pages"]
+                for number in sorted(int(path.stem) for path in inputs if path.parent == root / "text_pages"):
+                    if source_ranges and number == source_ranges[-1][1] + 1:
+                        source_ranges[-1][1] = number
+                    else:
+                        source_ranges.append([number, number])
+                candidate_path, worklist = prepare_participant_context(profile, root, project_dir, workspace)
+                env["RECORDPREP_PARTICIPANT_CANDIDATE"] = str(candidate_path)
+                helper_path = staged_skill / "scripts/participant_index.py"
+                reads.append(worklist)
+            else:
+                from recordprep.summary_agents import summary_final_path
+                reads = [summary_final_path(root, kind) for kind in ("hearings", "reports", "minutes")]
+                reads.append(root / "artifacts/transcript_layout.json")
+                from recordprep.transcript_layout import is_ct_only
+                if not is_ct_only(root):
+                    reads.append(root / "artifacts/participant_index.json")
+            access_spec = workspace / "native-access.json"
+            access_spec.write_text(json.dumps({"root": str(root), "candidate": str(candidate_path),
+                                              "reads": [str(path) for path in reads if path.is_file()],
+                                              "helper": str(helper_path) if helper_path else None,
+                                              "python": sys.executable, "stage": native_kind, "source_ranges": source_ranges}), encoding="utf-8")
+            if access_spec.stat().st_size > 65536:
+                raise ValueError("Native source scope is too fragmented; no model work started.")
+            access_spec.chmod(0o600)
+            env["RECORDPREP_NATIVE_ACCESS_SPEC"] = str(access_spec)
+            guard = staged_pi / "extensions/recordprep-profile-native-tools.ts"
+            shutil.copy2(project_dir / "extensions/recordprep-profile-native-tools.ts", guard)
+            native_extension_args = ["--extension", str(guard)]
+            native_tools = "read,write,edit" + (",recordprep_validate_candidate" if native_kind == "participants" else "")
+            stage_prompt = (f"/skill:{stage.skill_name}\nCase bundle: {root}\nPrivate output candidate: {candidate_path}\n"
+                            + (f"Private participant worklist: {worklist}\n" if worklist else "")
+                            + "Write only the private candidate, never the published artifact or manifest. Shell access is unavailable.\n" + native_guidance)
         env["TMPDIR"] = str(workspace / "tmp")
         env["PI_CODING_AGENT_SESSION_DIR"] = str(workspace / "sessions")
         executable = Path(pi_command[0]).expanduser()
@@ -1772,11 +1917,12 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             str(staged_pi / "SYSTEM.md"),
             "--extension",
             str(staged_extension),
+            *native_extension_args,
             "--skill",
             str(staged_skill / "SKILL.md"),
             "--tools",
-            stage.tools,
-            _stage_prompt(stage, root, project_dir),
+            native_tools,
+            stage_prompt,
         ]
         _line()
         _line(f"\033[1;36m{stage.title}\033[0m")
@@ -1787,6 +1933,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         from recordprep.run_metrics import instrument
         command, env = instrument(command, env, stage.step_id, pi_command)
         runner_process_group = os.getpgrp()
+        if profile is not None:
+            from recordprep.case_profiles import case_profile_publication
+            with case_profile_publication(root, profile.ref):
+                pass  # Recheck explicit selection after staging, before paid work.
         _active_process = subprocess.Popen(
             command,
             cwd=workspace,
@@ -1881,6 +2031,41 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     "\033[33m[normalized]\033[0m "
                     f"removed page notation from citation label for {file_name}."
                 )
+        if profile is not None:
+            from recordprep.case_profiles import read_case_profile_ref, case_profile_publication
+            from recordprep import summary_agents as sa
+            from recordprep.profile_contract import read_file_at, _json
+            if read_case_profile_ref(root) != profile.ref:
+                raise ValueError("Preparation selection changed during the stage; prior output preserved.")
+            fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                candidate_bytes = read_file_at(fd, candidate_path.name, limit=2 * 1024 * 1024)
+            finally:
+                os.close(fd)
+            if native_kind == "participants":
+                from recordprep.native_profiles import participant_metadata
+                from recordprep.profile_artifacts import participant_index_issues
+                candidate = _json(candidate_bytes, "participant_candidate")
+                expected = participant_metadata(profile, root, project_dir)
+                if expected != native_expected or any(candidate.get(key) != value for key, value in expected.items()):
+                    raise ValueError("Participant inputs or frozen metadata changed; prior output preserved.")
+                candidate_issues = participant_index_issues(candidate)
+                candidate_issues.extend(validate_transcript_numbering_outputs(root))
+                if candidate_issues:
+                    raise ValueError("Participant candidate failed independent validation; prior output preserved.")
+                with case_profile_publication(root, profile.ref):
+                    sa._atomic_write(root / "artifacts/participant_index.json", json.dumps(candidate, ensure_ascii=True, indent=2) + "\n")
+            else:
+                from recordprep.native_profiles import overview_input_digest, overview_metadata
+                from recordprep.pi_bundle import validate_case_overview_text, case_overview_prerequisite_issues
+                text = candidate_bytes.decode("utf-8")
+                metadata = overview_metadata(profile, root, project_dir, text)
+                if (any(metadata.get(key) != value for key, value in native_expected.items())
+                        or validate_case_overview_text(text, profile_mode=True) or case_overview_prerequisite_issues(root, project_dir=project_dir)):
+                    raise ValueError("Overview inputs changed or candidate is invalid; prior output preserved.")
+                with case_profile_publication(root, profile.ref):
+                    sa._atomic_write(root / "artifacts/case_overview.md", text)
+                    sa._atomic_write(root / "artifacts/case_overview.profile.json", json.dumps(metadata, indent=2) + "\n")
         issues = _validate_stage(stage, root, project_dir)
         if issues:
             for issue in issues:

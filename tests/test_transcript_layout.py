@@ -418,7 +418,7 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
 
 
 class TranscriptLayoutConfigTests(unittest.TestCase):
-    def test_obsolete_rt_ct_split_config_key_is_removed_on_load(self) -> None:
+    def test_obsolete_rt_ct_split_is_ignored_without_rewriting_on_load(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config_path = Path(temporary) / "config.json"
             config_path.write_text(
@@ -438,7 +438,7 @@ class TranscriptLayoutConfigTests(unittest.TestCase):
             self.assertNotIn("rt_ct_split_page", config)
             self.assertEqual(config["summarize_model_id"], "kept-model")
             persisted = json.loads(config_path.read_text(encoding="utf-8"))
-            self.assertNotIn("rt_ct_split_page", persisted)
+            self.assertEqual(persisted, {"rt_ct_split_page": 191, "summarize_model_id": "kept-model", "run_until_step": None})
             self.assertIn("rt_ct_split_page", OBSOLETE_PIPELINE_CONFIG_KEYS)
 
     def test_write_config_never_restores_split_key(self) -> None:
@@ -453,7 +453,7 @@ class TranscriptLayoutConfigTests(unittest.TestCase):
             self.assertNotIn("rt_ct_split_page", persisted)
             self.assertEqual(persisted["case_name"], "A")
 
-    def test_retired_per_stage_pi_override_keys_are_removed_on_load(self) -> None:
+    def test_retired_pi_overrides_are_ignored_without_rewriting_on_load(self) -> None:
         step_ids = (
             "detect_transcript_layout",
             "number_transcript_pages",
@@ -482,8 +482,7 @@ class TranscriptLayoutConfigTests(unittest.TestCase):
                 self.assertNotIn(key, config)
             self.assertEqual(config["summarize_model_id"], "kept-model")
             persisted = json.loads(config_path.read_text(encoding="utf-8"))
-            for key in retired:
-                self.assertNotIn(key, persisted)
+            self.assertEqual(persisted, {**retired, "summarize_model_id": "kept-model"})
 
 
 if __name__ == "__main__":

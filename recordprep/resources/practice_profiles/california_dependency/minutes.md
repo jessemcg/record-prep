@@ -1,0 +1,1 @@
+Identify the hearing and reporting status, first-page parental appearances under the selected legacy policy, and concise actual juvenile court orders. Counsel-only listings do not establish a parent's personal appearance. Preserve unclear evidence rather than guessing.

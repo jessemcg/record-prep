@@ -22,6 +22,15 @@ RecordPrep is a GTK4/Libadwaita desktop pipeline that converts OCR-readable lega
 
 RecordPrep creates one concise, versioned, nonauthoritative case-orientation overview. It does not create retrieval chunks, speaker-labeled transcript rewrites, embeddings, Chroma stores, vector databases, or any case-overview retrieval index.
 
+## Practice profiles (in development)
+
+General Court Record and California Juvenile Dependency profile resources now live
+inside RecordPrep. Validation and accepted-snapshot infrastructure are implemented;
+profile selection, editing, and pipeline integration are not yet enabled. Existing
+behavior, settings, and artifact formats are unchanged. See the
+[contract and implementation status](docs/practice-profiles.md), including the
+explicit export/review requirement for private prompts and approved title lists.
+
 ## Application icon
 
 The amber document dissolving into pixels represents records becoming useful data.

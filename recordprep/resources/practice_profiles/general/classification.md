@@ -1,0 +1,1 @@
+Recognize hearing transcript pages, minute orders, reports, and court forms by their source structure and content, without a practice-specific title whitelist. Distinguish indexes, cover pages, and unrelated material using the application-defined page types.

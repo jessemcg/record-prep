@@ -1,0 +1,62 @@
+[
+  {
+    "id": "agency_recommendations",
+    "title": "Agency Recommendations",
+    "guidance": "The agency's substantive recommendations to the court, stated apart from\nany formal proposed-findings-and-orders template, with accurate agency\nattribution."
+  },
+  {
+    "id": "petition_events",
+    "title": "Petition Events",
+    "guidance": "Material developments in the petition and case posture described in the\nreport, including new filings, hearings noted, and procedural posture\nchanges."
+  },
+  {
+    "id": "allegation_interviews_and_evidence",
+    "title": "Allegations, Interviews, and Evidence",
+    "guidance": "Allegations, interviews, observations, and supporting evidence the report\ndescribes, including who was interviewed and material discrepancies."
+  },
+  {
+    "id": "disputed_issues_and_party_positions",
+    "title": "Disputed Issues and Party Positions",
+    "guidance": "Contested questions and each party's stated position with distinct\nattribution; if nothing was disputed, the category is null."
+  },
+  {
+    "id": "court_findings_and_orders",
+    "title": "Court Findings and Orders",
+    "guidance": "Findings and orders actually made by the court, including ones the report\nhistorically recites, never proposed or recommended templates offered for\nadoption."
+  },
+  {
+    "id": "reunification_barriers",
+    "title": "Reunification Barriers",
+    "guidance": "Barriers to reunification the report identifies, including confirmed\nbarriers the agency documents and reasons the agency gives."
+  },
+  {
+    "id": "new_setbacks_or_material_changes",
+    "title": "New Setbacks or Material Changes",
+    "guidance": "Setbacks, regressions, or material changes in circumstances the report\ndescribes as current or recent developments."
+  },
+  {
+    "id": "indian_ancestry",
+    "title": "Indian Ancestry",
+    "guidance": "Indian ancestry or tribal affiliation notices, inquiries, findings, and\ntheir disposition. If the report says nothing responsive, the category is\nnull."
+  },
+  {
+    "id": "services_progress",
+    "title": "Services Progress",
+    "guidance": "Court-ordered services, enrollment, participation, compliance, and progress\nor lack of progress the report describes."
+  },
+  {
+    "id": "visitation_frequency_and_quality",
+    "title": "Visitation",
+    "guidance": "Visitation frequency, supervision status, and quality as described in the\nreport, including reported problems or cessation."
+  },
+  {
+    "id": "parent_relationship_history",
+    "title": "Parent-Child Relationship",
+    "guidance": "The report's description of each parent's relationship, bond, and\ninteraction with the child."
+  },
+  {
+    "id": "placement_and_caregiver_adoption_approval",
+    "title": "Placement and Caregiver Approval",
+    "guidance": "Placement status and changes, caregiver assessment, and any placement- or\nadoption-approval posture the report describes."
+  }
+]

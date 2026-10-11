@@ -13,6 +13,9 @@ def _cmd_app(_args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="recordprep")
     subparsers = parser.add_subparsers(dest="command")
+    from .practice_profiles import add_profile_parser
+
+    add_profile_parser(subparsers)
 
     app_parser = subparsers.add_parser("app", help="launch the GTK app")
     app_parser.set_defaults(func=_cmd_app)

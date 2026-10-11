@@ -1,0 +1,1 @@
+Identify the hearing and reporting status, parties' appearances supported by the complete order, and concise actual orders. Counsel representation alone establishes neither a party's presence nor absence.

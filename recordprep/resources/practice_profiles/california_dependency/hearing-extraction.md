@@ -1,0 +1,1 @@
+Attend to meaningful changes in safety, services, visitation, placement, and procedural posture, including important disputes, qualifications, and unresolved issues. Consider each parent's circumstances separately.

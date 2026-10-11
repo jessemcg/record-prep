@@ -1,5 +1,16 @@
 # RecordPrep Agent Notes
 
+## Practice-profile foundation
+
+See `docs/practice-profiles.md` for the v1 contract and incomplete-integration status.
+`profile_contract.py`, `profile_store.py`, the common conformance tests and fixture
+are vendored identically in Focus and RecordPrep; coordinate contract changes but
+never import sibling resources at runtime. Bundled resources live in
+`recordprep/resources/practice_profiles/`. They are not active pipeline defaults yet.
+Keep frozen dependency fixtures intact; when producer schemas advance, point baseline
+tests at explicit legacy readers rather than rewriting the historical expectations.
+Private prompts/title lists require the planned app-owned export/review flow.
+
 ## Passive run metrics
 - The runner's native stages and extraction/synthesis children may explicitly load the sibling `PiRunMetrics/run-collector.ts` via `recordprep/run_metrics.py`. This is the sole passive-observer exception to tracked `.pi/` resource confinement. It adds no tools/prompts and changes no publication authority, Stop/stall behavior or content-free stdout. One settled child is not whole-pipeline success. Skips and zero-model helpers produce no runs.
 - Native tags use step IDs; summary tags use the five code-owned summary skill IDs (including `recordprep-summarize-minutes`), never item IDs/case names. Default archive is this source project's Git-ignored `.run-metrics/runs/` (may Dropbox-sync). Preserve absolute root/collector overrides and `PI_RUN_METRICS_ENABLED=0`. Sibling policy probes metadata with deadlines, collects only on Pi >=0.87.1, and warns/fails open without upgrading Pi or relocating archives. Tests must never load/save real config.

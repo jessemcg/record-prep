@@ -1,0 +1,32 @@
+[
+  {
+    "id": "party_appearances",
+    "title": "Party Appearances",
+    "guidance": "Personal appearances of parties, including expressly stated remote appearances. Representation by counsel alone does not establish personal attendance."
+  },
+  {
+    "id": "evidence_considered",
+    "title": "Evidence Considered",
+    "guidance": "Evidence, reports, exhibits, records, stipulations, and evidentiary rulings the court considered. Distinguish argument from evidence."
+  },
+  {
+    "id": "testimony",
+    "title": "Testimony",
+    "guidance": "Material sworn testimony and the witnesses giving it. Q/A formatting alone does not establish sworn testimony."
+  },
+  {
+    "id": "disputed_issues",
+    "title": "Disputed Issues",
+    "guidance": "Material contested legal, factual, or procedural questions argued or decided; omit routine uncontested scheduling."
+  },
+  {
+    "id": "party_positions_and_reasons",
+    "title": "Party Positions and Reasons",
+    "guidance": "Attribute each material position and its stated reasons to the party taking it. Do not invent unstated positions."
+  },
+  {
+    "id": "court_findings_orders_and_reasons",
+    "title": "Court Findings/Orders and Reasons",
+    "guidance": "Material findings and orders actually made, with their stated reasons. Distinguish requested relief from rulings."
+  }
+]

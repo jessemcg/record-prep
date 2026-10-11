@@ -1,0 +1,37 @@
+[
+  {
+    "id": "purpose_and_procedural_context",
+    "title": "Purpose and Procedural Context",
+    "guidance": "The report purpose, author, procedural setting, and material events that explain why it was prepared."
+  },
+  {
+    "id": "material_facts_and_chronology",
+    "title": "Material Facts and Chronology",
+    "guidance": "Material events and their dates. Distinguish the date of an event from the date it was reported."
+  },
+  {
+    "id": "evidence_and_sources",
+    "title": "Evidence and Sources",
+    "guidance": "Material observations, interviews, documents, and other evidence, with source attribution and reliability qualifications."
+  },
+  {
+    "id": "disputes_and_competing_accounts",
+    "title": "Disputes and Competing Accounts",
+    "guidance": "Material disagreements and competing accounts, with distinct attribution and unresolved uncertainty."
+  },
+  {
+    "id": "findings_and_conclusions",
+    "title": "Findings and Conclusions Attributed to Their Author",
+    "guidance": "Attribute assessments and conclusions to the report author or identified decision maker; do not turn an opinion into a court finding."
+  },
+  {
+    "id": "recommendations_and_proposed_relief",
+    "title": "Recommendations/Proposed Relief",
+    "guidance": "Material recommendations and requested relief, explicitly attributed as proposed rather than ordered."
+  },
+  {
+    "id": "material_developments_and_unresolved_issues",
+    "title": "Material Developments and Unresolved Issues",
+    "guidance": "Meaningful developments, qualifications, and unresolved questions. Do not repeat content already placed in a better category."
+  }
+]

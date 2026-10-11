@@ -1,0 +1,136 @@
+{
+  "fixture_version": 1,
+  "categories": {
+    "hearings": [
+      {
+        "id": "parent_appearances",
+        "title": "Parent Appearances",
+        "guidance": "Which parents personally appeared and how (in person or remotely). An\nappearance by counsel only is not a parent appearance; if no parent\npersonally appeared, the category is null."
+      },
+      {
+        "id": "evidence_considered",
+        "title": "Evidence Considered",
+        "guidance": "Testimony, reports, exhibits, records, and stipulations the court\nconsidered, plus evidentiary objections and rulings on evidence. Do not\ninclude argument or orders here."
+      },
+      {
+        "id": "testimony",
+        "title": "Testimony",
+        "guidance": "Witnesses who were verified as sworn and the material substance of their\nsworn testimony. Q/A formatting alone does not establish testimony; unsworn\ncolloquy belongs in evidence, not here. If no sworn testimony occurred, the\ncategory is null."
+      },
+      {
+        "id": "disputed_legal_issues",
+        "title": "Disputed Legal Issues",
+        "guidance": "Contested legal or procedural questions argued or decided at the hearing.\nUndisputed matters and routine calendar rulings do not belong here; if\nnothing was disputed, the category is null."
+      },
+      {
+        "id": "party_positions_and_reasons",
+        "title": "Party Positions and Reasons",
+        "guidance": "Each party's position and the stated reasoning, with distinct attribution\nby role. A party without a stated position is omitted; if no positions were\nstated, the category is null."
+      },
+      {
+        "id": "court_orders_and_reasons",
+        "title": "Court Orders and Reasons",
+        "guidance": "Major findings and orders the court actually made and the court's stated\nreasons, emphasizing rulings on contested matters. Never include proposed\nor recommended findings or orders as if made."
+      }
+    ],
+    "reports": [
+      {
+        "id": "agency_recommendations",
+        "title": "Agency Recommendations",
+        "guidance": "The agency's substantive recommendations to the court, stated apart from\nany formal proposed-findings-and-orders template, with accurate agency\nattribution."
+      },
+      {
+        "id": "petition_events",
+        "title": "Petition Events",
+        "guidance": "Material developments in the petition and case posture described in the\nreport, including new filings, hearings noted, and procedural posture\nchanges."
+      },
+      {
+        "id": "allegation_interviews_and_evidence",
+        "title": "Allegations, Interviews, and Evidence",
+        "guidance": "Allegations, interviews, observations, and supporting evidence the report\ndescribes, including who was interviewed and material discrepancies."
+      },
+      {
+        "id": "disputed_issues_and_party_positions",
+        "title": "Disputed Issues and Party Positions",
+        "guidance": "Contested questions and each party's stated position with distinct\nattribution; if nothing was disputed, the category is null."
+      },
+      {
+        "id": "court_findings_and_orders",
+        "title": "Court Findings and Orders",
+        "guidance": "Findings and orders actually made by the court, including ones the report\nhistorically recites, never proposed or recommended templates offered for\nadoption."
+      },
+      {
+        "id": "reunification_barriers",
+        "title": "Reunification Barriers",
+        "guidance": "Barriers to reunification the report identifies, including confirmed\nbarriers the agency documents and reasons the agency gives."
+      },
+      {
+        "id": "new_setbacks_or_material_changes",
+        "title": "New Setbacks or Material Changes",
+        "guidance": "Setbacks, regressions, or material changes in circumstances the report\ndescribes as current or recent developments."
+      },
+      {
+        "id": "indian_ancestry",
+        "title": "Indian Ancestry",
+        "guidance": "Indian ancestry or tribal affiliation notices, inquiries, findings, and\ntheir disposition. If the report says nothing responsive, the category is\nnull."
+      },
+      {
+        "id": "services_progress",
+        "title": "Services Progress",
+        "guidance": "Court-ordered services, enrollment, participation, compliance, and progress\nor lack of progress the report describes."
+      },
+      {
+        "id": "visitation_frequency_and_quality",
+        "title": "Visitation",
+        "guidance": "Visitation frequency, supervision status, and quality as described in the\nreport, including reported problems or cessation."
+      },
+      {
+        "id": "parent_relationship_history",
+        "title": "Parent-Child Relationship",
+        "guidance": "The report's description of each parent's relationship, bond, and\ninteraction with the child."
+      },
+      {
+        "id": "placement_and_caregiver_adoption_approval",
+        "title": "Placement and Caregiver Approval",
+        "guidance": "Placement status and changes, caregiver assessment, and any placement- or\nadoption-approval posture the report describes."
+      }
+    ]
+  },
+  "roles": {
+    "valid_roles": [
+      "alleged_fathers_counsel",
+      "county_counsel",
+      "fathers_counsel",
+      "guardian_ad_litem",
+      "minors_counsel",
+      "mothers_counsel",
+      "other_counsel",
+      "parents_counsel",
+      "presumed_fathers_counsel",
+      "tribes_counsel",
+      "unresolved_counsel"
+    ],
+    "valid_participant_roles": [
+      "agency_representative",
+      "alleged_father",
+      "audience_member",
+      "caregiver",
+      "father",
+      "interpreter",
+      "judicial_officer",
+      "minor",
+      "mother",
+      "other_participant",
+      "presumed_father",
+      "relative",
+      "social_worker",
+      "unresolved_participant"
+    ]
+  },
+  "summary_formats": {
+    "SUMMARY_FACTS_SCHEMA_VERSION": 2,
+    "SUMMARY_FINAL_META_SCHEMA_VERSION": 4,
+    "SUMMARY_FACTS_META_SCHEMA_VERSION": 4,
+    "SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION": 1
+  }
+}

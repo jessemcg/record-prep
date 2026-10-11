@@ -9,7 +9,13 @@ never import sibling resources at runtime. Bundled resources live in
 `recordprep/resources/practice_profiles/`. They are not active pipeline defaults yet.
 Keep frozen dependency fixtures intact; when producer schemas advance, point baseline
 tests at explicit legacy readers rather than rewriting the historical expectations.
-Private prompts/title lists require the planned app-owned export/review flow.
+The bundled naming catalog was explicitly reviewed and approved; other private
+prompts/settings still require app-owned export/review. `document_naming.py` owns
+profile naming prompt/response composition; its image-classifier adapter remains
+opt-in until explicit profile selection and checkpoint freshness are integrated.
+Unnamed reports must survive explicit TOC/boundary runs with provisional labels
+and review metadata, including one-page reports. Never treat unknown naming as
+proof that no document exists or mutate private settings to activate a profile.
 
 ## Passive run metrics
 - The runner's native stages and extraction/synthesis children may explicitly load the sibling `PiRunMetrics/run-collector.ts` via `recordprep/run_metrics.py`. This is the sole passive-observer exception to tracked `.pi/` resource confinement. It adds no tools/prompts and changes no publication authority, Stop/stall behavior or content-free stdout. One settled child is not whole-pipeline success. Skips and zero-model helpers produce no runs.

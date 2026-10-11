@@ -197,11 +197,34 @@ def _structured(name: str, value: Any) -> None:
         _require(value["attendance"] in ("explicit_complete_order", "legacy_first_page_parents"),
                  "unsupported_policy", name)
     elif name == "naming":
-        _object(value, {"mode", "report_titles", "form_titles", "guidance"}, name)
+        _require(isinstance(value, dict), "invalid_fields", name)
+        if "schema_version" not in value:
+            # Frozen foundation revisions remain loadable without rewriting
+            # accepted snapshots or pretending they required form codes.
+            _object(value, {"mode", "report_titles", "form_titles", "guidance"}, name)
+            _terms(value["form_titles"], name)
+            _text(value["guidance"], name)
+        else:
+            _require(type(value["schema_version"]) is int and value["schema_version"] == 2,
+                     "unsupported_version", name)
+            _object(value, {"schema_version", "mode", "report_titles", "form_rules",
+                            "report_guidance", "form_guidance"}, name)
+            _text(value["report_guidance"], name)
+            _text(value["form_guidance"], name)
+            rules = value["form_rules"]
+            _require(isinstance(rules, list) and len(rules) <= 256, "invalid_catalog", name)
+            names, codes = [], []
+            for rule in rules:
+                _object(rule, {"name", "title", "code"}, name)
+                _terms([rule["title"]], name)
+                names.append(rule["name"])
+                codes.append(rule["code"])
+            # One canonical output per code in v2. Aliases/regex matchers are
+            # intentionally not implicit; adding them needs a new contract.
+            _terms(names, name)
+            _terms(codes, name)
         _require(value["mode"] in ("source_title", "approved_titles"), "unsupported_policy", name)
         _terms(value["report_titles"], name)
-        _terms(value["form_titles"], name)
-        _text(value["guidance"], name)
     elif name == "search":
         _object(value, {"query_terms", "document_terms", "passage_terms", "later_history_terms"}, name)
         for terms in value.values():

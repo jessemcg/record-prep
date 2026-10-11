@@ -6,7 +6,7 @@ there is no profile repository, shared runtime dependency, sibling import, or
 launch-time synchronization. Common contract code and conformance fixtures are
 vendored in each app and must be reviewed/tested together when changed.
 
-## Current status: foundation, not an activated migration
+## Current status: foundation plus naming integration, not an activated migration
 
 Implemented:
 
@@ -21,22 +21,33 @@ Implemented:
 - Read-only `profiles validate PATH --json` diagnostics in both existing CLIs.
 - Synthetic conformance/security/storage tests and a frozen RecordPrep dependency
   category/role baseline. Dependency categories retain exact tracked guidance.
+- Reviewed Dependency naming catalogs: 16 report names and six title/code form
+  rules. General uses source-supported titles. Both RecordPrep bundled profiles
+  are now version 1.1.0; naming resource schema v2 is independently versioned.
+- RecordPrep's `document_naming.py` compiles a frozen profile into application-owned
+  report/form response contracts and subordinate practice guidance. Its optional
+  image-classifier adapter uses those exact prompts/keys, not schema inference
+  from editable prose. It is not yet selected by the normal settings/pipeline flow.
+- Explicit TOC/boundary runs retain unnamed reports (including one-page reports)
+  with provisional labels and review metadata; unknown first-page forms receive
+  provisional TOC labels. Existing readable artifacts are not changed on opening.
 
-**Not yet implemented:** profile-aware generation or research, new artifact
-readers/publishers, case selection, GUI profile management/authoring, customization
-export, external-change review, complete legacy readers, or a default transition.
-No profile is automatically registered or selected. Existing application behavior,
-private settings and artifact formats are unchanged. The new registry APIs are
-not called by application startup or existing settings-save flows.
+**Not yet implemented:** end-to-end profile-aware generation or research, new
+artifact readers/publishers, case selection, GUI profile management/authoring,
+customization export, external-change review, complete legacy readers, or a default
+transition. No profile is automatically registered or selected. Legacy naming
+prompts/settings remain effective until explicit profile selection is implemented.
+No private settings are migrated; the registry APIs are not called by startup or
+existing settings-save flows. The unknown-name preservation fix applies to explicit
+TOC/boundary reruns without requiring a profile.
 
-The resource sets are preparation for integration, not a claim of model-quality
-or full dependency-workflow equivalence. The existing tracked naming prompts
-refer to approved title lists, but no such catalog is present in tracked source.
-The bundled Dependency starter therefore uses source-supported titles and an
-empty catalog; it does **not** claim to reproduce a private whitelist. Before any
-real profile transition, the planned explicit customization export/review flow
-must preserve private prompts and allow the user to supply reviewed title lists.
-No private configuration was read to seed these resources.
+The naming catalogs were reviewed with Jesse's explicit authorization; he declared
+these prompt fields non-sensitive and approved bundling their rules. Only the two
+allowlisted naming prompts were reviewed, not other configuration fields. The
+approved correction changes `Parential` to `Parental` in the new ICWA-020 output
+name and matching title. Live `config.json` was not rewritten. The remaining
+customization export/review flow is still required for arbitrary personal guidance.
+These results are not a claim of model-quality or full workflow equivalence.
 
 ## Ownership and identity
 
@@ -120,9 +131,20 @@ All JSON objects reject unknown fields; catalogs reject duplicate IDs.
   `{id, label, guidance}`, 1–128 entries. Each catalog requires `unknown` and `other`.
   Legacy dependency IDs remain available in addition to those explicit fallbacks.
   Guidance is nonempty and at most 8192 characters per entry.
-- Naming: `{mode, report_titles, form_titles, guidance}`. Mode is `source_title`
-  or `approved_titles`. Title catalogs are bounded literal lists. Unknown titles
-  must not remove a detected document in the future pipeline integration.
+- Naming schema v2: `{schema_version: 2, mode, report_titles, form_rules,
+  report_guidance, form_guidance}`. Mode is `source_title` or `approved_titles`.
+  Report titles are bounded literal lists. Each of 0–256 form rules has exactly
+  `{name, title, code}`: canonical output name, required matching title, and
+  required form code. Names and codes are unique case-insensitively; values are
+  nonblank trimmed single-line strings up to 160 characters. Both title and code
+  must appear on the same supplied first page under v2 approved-title mode.
+  Guidance fields are separate editable prose (up to 8192 characters each) rather
+  than a second copy of the catalogs. The compiler renders a single effective
+  prompt from the declarations. Source-title mode does not require a form code.
+  The older unversioned `{mode, report_titles, form_titles, guidance}` shape remains
+  readable/compilable as v1 without inventing code requirements or changing its
+  content digest. Unsupported naming versions fail clearly; no automatic snapshot
+  migration occurs.
 - Policies: `{report_scope, attendance}`. Report scope is
   `include_attributed_proposals` or `exclude_formal_proposals`; attendance is
   `explicit_complete_order` or `legacy_first_page_parents`. These are closed
@@ -170,10 +192,19 @@ core bytes, but not unrelated display metadata or the whole-profile digest.
 Report extraction includes only the `report_scope` policy; minutes includes only
 `attendance`, so an attendance change does not stale report extraction.
 
-The compiler does not yet build model prompts. Pipeline integration must combine
-these data with core fidelity/safety/tool contracts and include source, model,
-upstream artifact, and policy implementation dependencies in actual freshness
-checks. Tests of this API are not tests of integrated regeneration behavior.
+The generic compiler selects resources; RecordPrep's naming-specific compiler now
+builds exact prompts for both preview and the optional image-classifier adapter.
+It records both a naming component fingerprint (core + complete naming resource)
+and the exact prompt hash. Python fixes the response keys, requires exact approved
+output-name membership, rejects malformed values, and validates calendar dates.
+Unresolved names remain empty; a provisional display label is a separate pipeline
+responsibility. Membership validation does not prove that a heading/code was
+actually visible on the image: evidence interpretation still depends on the model.
+
+Remaining pipeline integration must combine profiles with core fidelity/safety/
+tool contracts and include source, model, upstream artifact, and policy implementation
+dependencies in actual freshness checks. These compiler tests are not tests of
+integrated classification checkpoint invalidation or paid regeneration behavior.
 
 ## Explicit accepted storage
 
@@ -244,8 +275,8 @@ Update tests to point to explicit frozen legacy readers when producers advance;
 do not replace legacy fixture contents merely to make new behavior pass.
 
 Still required before activation: reader-first schema integration, neutral core
-prompt extraction, classification/schema-vocabulary reconciliation, unknown-title
-range preservation, per-stage generation/preflight fingerprints, independent
+prompt extraction, classification/schema-vocabulary reconciliation, per-stage
+generation/preflight fingerprints, independent
 Focus session pinning, GUI creation/counterpart/export/review, private customization
 migration through application flows only, and complete synthetic producer/consumer
 and actual GUI acceptance. Paid quality evaluation needs separate approval.

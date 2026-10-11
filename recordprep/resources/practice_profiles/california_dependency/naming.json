@@ -1,6 +1,56 @@
 {
-  "mode": "source_title",
-  "report_titles": [],
-  "form_titles": [],
-  "guidance": "Use source-supported titles. In detention, jurisdiction, disposition, review, and other child-welfare reports, the report date may appear as a hearing date near the title. A private approved-title catalog must be exported and reviewed explicitly before use.\n"
+  "schema_version": 2,
+  "mode": "approved_titles",
+  "report_titles": [
+    "Detention Report",
+    "Initial Hearing Report",
+    "Jurisdiction Report",
+    "Disposition Report",
+    "Last Minute Information",
+    "Non-Detained Report",
+    "Status Review Report",
+    "Interim Review Report",
+    "Review Report",
+    "Addendum Report",
+    "Petition Report",
+    "366.26 WIC Report",
+    "Permanent Plan Review Report",
+    "RPP Report",
+    "Selection and Implementation Report",
+    "Additional Information for Court"
+  ],
+  "form_rules": [
+    {
+      "name": "Parental Notification of Indian Status",
+      "title": "Parental Notification of Indian Status",
+      "code": "ICWA-020"
+    },
+    {
+      "name": "Juvenile Dependency Petition",
+      "title": "Juvenile Dependency Petition",
+      "code": "JV-100"
+    },
+    {
+      "name": "Notice of Appeal",
+      "title": "Notice of Appeal",
+      "code": "JV-800"
+    },
+    {
+      "name": "Request to Change Court Order",
+      "title": "Request to Change Court Order",
+      "code": "JV-180"
+    },
+    {
+      "name": "Waiver of Rights--Juvenile Dependency",
+      "title": "Waiver of Rights",
+      "code": "JV-190"
+    },
+    {
+      "name": "Notification of Mailing Address",
+      "title": "Notification of Mailing Address",
+      "code": "JV-140"
+    }
+  ],
+  "report_guidance": "How to decide the report name:\n- The report title must appear on the page as a prominent heading.\n- If multiple report titles appear, choose the most prominent and specific title.\n- Do not infer the report name from headers, footers, or page numbers alone.\n\nHow to decide the report date:\n- Use the date tied to the report itself or to the report's hearing, such as a field labeled Hearing Date near the report title.\n- For a Detention Report, the Hearing Date near the DETENTION REPORT heading is the report date.\n- Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.\n",
+  "form_guidance": "How to decide a match:\n- The form title must appear on the page as a prominent heading.\n- The form code listed in each rule must also appear on the page.\n- Both title and code must be visible on the same page.\n- If the code is missing, do not return a name.\n"
 }

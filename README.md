@@ -25,11 +25,13 @@ RecordPrep creates one concise, versioned, nonauthoritative case-orientation ove
 ## Practice profiles (in development)
 
 General Court Record and California Juvenile Dependency profile resources now live
-inside RecordPrep. Validation and accepted-snapshot infrastructure are implemented;
-profile selection, editing, and pipeline integration are not yet enabled. Existing
-behavior, settings, and artifact formats are unchanged. See the
-[contract and implementation status](docs/practice-profiles.md), including the
-explicit export/review requirement for private prompts and approved title lists.
+inside RecordPrep. Validation, accepted snapshots, and an opt-in naming compiler
+are implemented; profile selection, editing, and full pipeline integration are not
+yet enabled. The Dependency profile includes the reviewed report titles and
+same-page title/code form rules (with “Parental” corrected). Live settings are not
+migrated. Explicit TOC/boundary reruns now retain unnamed reports with provisional
+labels and review markers, including one-page reports; opening a case changes no
+artifacts. See the [contract and implementation status](docs/practice-profiles.md).
 
 ## Application icon
 

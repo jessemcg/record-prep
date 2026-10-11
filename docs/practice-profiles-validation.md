@@ -1,4 +1,43 @@
-# Practice-profile foundation: validation checkpoint
+# Practice profiles: validation checkpoints
+
+## Naming integration checkpoint
+
+Validated on the current Work computer using disposable tracked-source copies,
+separate managed environments, synthetic cases, and isolated HOME/XDG state under
+`/tmp/profile-naming-ny9y30`. No paid model calls, real cases, production environment
+changes, or private configuration writes were used.
+
+- Naming resource v2 validates strict title/code/output mappings, rejects unknown
+  versions/fields, and retains accepted v1 snapshots without changing their refs.
+  Shared profile conformance tests remain byte-identical between the applications.
+- RecordPrep naming tests cover the 16 report names, six exact form rules, corrected
+  Parental spelling, prominent-heading/date rules, source-title General behavior,
+  exact response keys, output membership/date checks, and component/prompt hashes.
+- Synthetic tests invoke the actual image-classifier adapter, TOC, boundary and
+  correction methods, and existing source-map reader. Unnamed multi-page and
+  one-page reports survive with review metadata; unknown first-page forms remain
+  in the TOC. Repeated correction is stable. Missing-layout guards still block.
+  Image evidence itself is not evaluated by these mocked classification tests.
+- Full Focus suite: **604 passed**, **32 subtests passed**. Existing GTK and forkpty
+  deprecation warnings remain.
+- Full RecordPrep suite: **417 tests, successful, 3 optional SDK skips** (414 pass).
+  An existing unclosed-file ResourceWarning was emitted. This checkpoint did not
+  rerun the optional SDK comparison described in the foundation history below.
+- Both RecordPrep bundled profiles pass the read-only CLI validator. The documented
+  `.pi/scripts/run_recordprep_skill.py --validate-resources` command, Python
+  compilation, common-code/test/document parity, and whitespace checks pass.
+- A disposable Focus GUI opened the synthetic bundle and visibly rendered both
+  `Untitled report — file page 1` and `Untitled report — file page 4` in its expanded
+  Reports TOC, beside known report names. The fixture had no summary folder, so
+  its missing-summaries warning was expected. No model session was started.
+  Pointer navigation was not confirmed; this is display/read compatibility evidence,
+  not a complete interactive-navigation or profile-GUI acceptance claim. The
+  disposable window was closed; the user's normal application state was untouched.
+
+Naming remains an opt-in code adapter, not an activated profile-selection flow.
+The unknown-name retention fix applies to explicit legacy TOC/boundary runs too.
+
+## Foundation checkpoint (historical)
 
 This checkpoint covers the initial contract/storage/resources/diagnostic work,
 not profile-aware generation, GUI authoring, artifact migration or model quality.
@@ -9,7 +48,7 @@ Python environments on the current Home computer, with synthetic data and privat
 temporary HOME/XDG roots. No private configuration, case bundle, model provider,
 or remote computer was used for acceptance.
 
-## Results
+### Foundation results
 
 - Shared new profile suite: **31 tests per application**, passing. Covers strict
   manifests, malformed JSON/Unicode, duplicate IDs, wrong applications, traversal,
@@ -46,10 +85,11 @@ introduced.
 
 ## Remaining acceptance gates
 
-The bundled Dependency naming resource is provisional: tracked prompts refer to
-approved title lists, but no catalog is tracked. No private lists were inferred or
-read. Confirm the shipped naming choice and implement explicit customization
-export/review before activating profile-era naming for existing cases.
+The Dependency naming choice is settled and bundled from the explicitly authorized
+prompt review. Arbitrary personal customization still needs explicit app-owned
+export/review before activating profile-era naming for existing cases. Do not
+silently change an existing case's prompts or reuse old classification checkpoints
+under new profile guidance.
 
 Reader compatibility, neutral pipeline behavior, application-owned prompt
 composition, source/model/upstream freshness integration, profile selections,

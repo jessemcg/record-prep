@@ -5,7 +5,7 @@
   "application": "recordprep",
   "display_name": "General Court Record",
   "description": "General Court Record guidance owned by RecordPrep.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "required_capabilities": [
     "preparation-v1"
   ],

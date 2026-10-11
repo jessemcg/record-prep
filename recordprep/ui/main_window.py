@@ -51,6 +51,7 @@ from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.classification import run_classifier_jobs
+from recordprep.document_naming import NamingContract, provisional_document_title
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
     pi_step_complete,
@@ -9869,16 +9870,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             form_first_types = {
                 "ct_form_first_page",
             }
+            previous_report_page: int | None = None
+            unresolved_names = 0
             for entry in basic_entries:
                 self._raise_if_stop_requested()
                 page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
                 name_value = _extract_entry_value(entry, "name", "report_name", "form_name")
-                if not name_value:
-                    continue
                 file_name = _extract_entry_value(entry, "file_name", "filename")
                 page_number = _extract_page_number(file_name)
+                is_report = page_type in report_types and page_number is not None and page_number > split_page
+                is_report_start = is_report and (
+                    previous_report_page is None or page_number != previous_report_page + 1
+                )
+                previous_report_page = page_number if is_report else None
                 if page_number is None or page_number <= split_page:
                     continue
+                if not name_value:
+                    if page_type in form_first_types:
+                        name_value = provisional_document_title("form", page_number)
+                    elif is_report_start:
+                        name_value = provisional_document_title("report", page_number)
+                    else:
+                        continue
+                    unresolved_names += 1
                 page = _page_label_from_filename(file_name)
                 if page_type in form_first_types:
                     form_lines.append(_format_toc_line(name_value, page))
@@ -9947,6 +9961,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 },
             )
             GLib.idle_add(self.show_toast, "Build TOC complete.")
+            if unresolved_names:
+                GLib.idle_add(
+                    self.show_toast,
+                    f"Review required: {unresolved_names} document names are unresolved; provisional TOC labels retained.",
+                    "WARN",
+                )
         finally:
             GLib.idle_add(self.step_six_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_six_row, success)
@@ -10271,6 +10291,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             else:
                 GLib.idle_add(self.show_toast, "Find boundaries complete.")
+                unresolved_reports = sum(
+                    entry.get("naming_status") == "unresolved" for entry in report_boundaries
+                )
+                if unresolved_reports:
+                    GLib.idle_add(
+                        self.show_toast,
+                        f"Review required: {unresolved_reports} unnamed report ranges retained.",
+                        "WARN",
+                    )
         finally:
             GLib.idle_add(self.step_seven_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_seven_row, success)
@@ -10332,7 +10361,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 else:
                     is_single = start_number == end_number
                 report_name = _extract_entry_value(entry, "report_name", "report", "name")
-                if is_single and "last minute" not in report_name.lower():
+                # Missing title evidence must not turn a detected one-page
+                # report into a missing document. Keep its review marker/range.
+                unresolved_name = not report_name or entry.get("naming_status") == "unresolved"
+                if is_single and not unresolved_name and "last minute" not in report_name.lower():
                     report_removed += 1
                     continue
                 filtered_reports.append(entry)
@@ -10519,19 +10551,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         if page_type in {"report", "report_page"}:
             report_name = report_name_by_file.get(start_file, "").strip()
-            if not report_name:
-                return
             report_date = date_by_file.get(start_file, "").strip()
-            report_boundaries.append(
-                {
-                    "report_name": report_name,
-                    "report_date": report_date,
-                    "report_label": _format_report_label(report_name, report_date),
-                    "report_id": _report_id_from_start_page(start_page),
-                    "start_page": start_page,
-                    "end_page": end_page,
-                }
-            )
+            display_name = report_name or provisional_document_title("report", start_page)
+            boundary = {
+                "report_name": report_name,
+                "report_date": report_date,
+                "report_label": _format_report_label(display_name, report_date),
+                "report_id": _report_id_from_start_page(start_page),
+                "start_page": start_page,
+                "end_page": end_page,
+            }
+            if not report_name:
+                boundary.update(naming_status="unresolved", boundary_review="required")
+            report_boundaries.append(boundary)
             return
         if page_type in {
             "minute_order",
@@ -10556,6 +10588,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         image_path: Path,
     ) -> dict[str, str]:
         self._raise_if_stop_requested()
+        naming_contract = settings.get("naming_contract")
+        if naming_contract is not None and not isinstance(naming_contract, NamingContract):
+            raise ValueError("Invalid application-owned naming contract")
+        effective_prompt = naming_contract.prompt if naming_contract is not None else settings["prompt"]
         image_base64 = base64.b64encode(image_path.read_bytes()).decode()
         headers = {
             "Content-Type": "application/json",
@@ -10569,7 +10605,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "model": settings["model_id"],
             "stream": False,
             "messages": [
-                {"role": "system", "content": settings["prompt"]},
+                {"role": "system", "content": effective_prompt},
                 {
                     "role": "user",
                     "content": [
@@ -10596,6 +10632,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             parsed = json.loads(self._extract_json_payload(response_text))
         except json.JSONDecodeError:
             parsed = {}
+        if naming_contract is not None:
+            named = naming_contract.normalize(parsed)
+            result = {"file_name": filename, "name": named.name}
+            if naming_contract.kind == "report":
+                result["date"] = named.date
+            return result
         if not isinstance(parsed, dict):
             parsed = {}
         if not _extract_entry_value(parsed, "page_type", "pagetype"):

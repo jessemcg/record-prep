@@ -85,6 +85,31 @@ class ProfileTests(unittest.TestCase):
         if code:
             self.assertEqual(caught.exception.issue.code, code)
 
+    def test_naming_v2_rules_and_legacy_snapshots(self):
+        legacy_files = synthetic_files("recordprep")
+        legacy = self.draft(legacy_files, "recordprep")
+        naming = {"schema_version": 2, "mode": "approved_titles", "report_titles": ["Synthetic Report"],
+                  "form_rules": [{"name": "Synthetic Output", "title": "Synthetic Heading", "code": "XY-10"}],
+                  "report_guidance": "Require a prominent heading.", "form_guidance": "Require heading and code."}
+        files = legacy_files | {"resources/naming.json": contract.json_bytes(naming)}
+        current = self.draft(files, "recordprep")
+        self.assertNotEqual(legacy.ref, current.ref)
+        store = ProfileStore("recordprep", config_root=self.root / "prep-config", data_root=self.root / "prep-data")
+        store.accept_profile(legacy, expected_previous_digest=None)
+        store.accept_profile(current, expected_previous_digest=legacy.ref.content_sha256)
+        self.assertEqual(store.load_profile_snapshot(legacy.ref), legacy)
+        self.assertEqual(store.load_profile_snapshot(current.ref), current)
+        invalid = [naming | {"schema_version": True}, naming | {"schema_version": 3},
+                   naming | {"form_rules": ["flat legacy title"]},
+                   naming | {"form_rules": naming["form_rules"] * 2},
+                   naming | {"form_rules": [{"name": "Output", "title": "Heading"}]},
+                   naming | {"form_rules": [{"name": "Output", "title": "Heading", "code": ""}]},
+                   naming | {"form_rules": [{"name": "Output", "title": "Heading", "code": "XY-10", "regex": True}]},
+                   naming | {"form_guidance": ""}]
+        for value in invalid:
+            with self.subTest(value=value):
+                self.assert_invalid(legacy_files | {"resources/naming.json": contract.json_bytes(value)}, app="recordprep")
+
     def test_valid_app_profiles_are_independent(self):
         focus = self.draft()
         prep = self.draft(synthetic_files("recordprep"), "recordprep")

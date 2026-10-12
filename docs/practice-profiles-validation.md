@@ -127,3 +127,122 @@ owned synthetic editor confirms report controls and retained Attendance evidence
 without the retired control; no screenshot or broad screen-reader claim is made.
 Native resources and the changed skill validate. Original unrelated RecordPrep
 AGENTS/README edits, private configurations and real cases remain untouched.
+
+## Follow-up: title subtitle and hamburger controls — 2026-10-12
+
+Validated locally on **Work**, using disposable sources/environments at
+`/tmp/profile-menu-ZDH5eg` and synthetic HOME/XDG/cases only. No paid calls,
+production runtime provisioning, private configuration changes or remote actions.
+
+- The profile banner and chooser window are removed. Actual-main-window acceptance
+  checks the title subtitle, embedded hamburger controls, nested dropdown opening
+  and dismissal without closing its parent, explicit selection, fresh controls on
+  reopening, and malformed-store errors without repair. Browsing a dropdown alone
+  leaves the case unchanged.
+- Both apps pass real-desktop maximization of independent non-modal editors, with
+  no transient parent. Native desktop inspection confirms title/menu layout;
+  the Focus editor was also moved and resized independently to 820×760.
+- Shared GTK workflows pass with fatal criticals: complete editing, Save/reopen,
+  new profiles, unsaved changes, concurrent drafts, work guards and separate case
+  application confirmation. Exact 480/640/820 content allocations run under Xvfb:
+  independent windows recreate their surface between sizes; the no-window-manager
+  fallback border is compensated rather than accepting a narrower allocation.
+  These layout tests do not claim compositor drag coverage at every width.
+- RecordPrep: **457 tests, OK**. Focus: **655 passed + 38 subtests**, two existing
+  warnings. Installed offline Pi SDK tests are enabled. Focus answer switching:
+  **320 transitions**, zero GTK criticals, correct final reading position.
+- Shared UI modules/tests/docs remain byte-identical. Existing unrelated RecordPrep
+  documentation changes are preserved; only the profile-navigation README paragraph
+  is additionally updated for this change. Launcher and command contracts are unchanged.
+
+### Menu polish and direct selection
+
+The subsequent refinement removes **Use profile**, the extra Profile heading and
+padded panel layout. Profile/settings controls are normal-weight and left-aligned
+with native menu items. A dropdown activation immediately uses the guarded selection
+transaction and updates the checkmark/subtitle. Simply opening it remains read-only.
+The actual-main-window tests assert both labels align with the native Settings label
+within one pixel, normal Pango font weight, immediate application, no Use button,
+and restoration of the real current choice if selection fails. Both full suites
+and GTK workflows pass again. Evidence: `*-main-polish.log`,
+`*-workflows-polish.log`, `*-tests-polish.log` in the same disposable directory.
+Earlier references to a separate Use profile action describe the superseded version.
+
+### Single-source naming instructions and Model settings
+
+RecordPrep now stores naming v3 as report/form instructions only. Approved names
+are the `- **Name**` entries within those prompts; matching requirements remain
+beside form names. The compiler uses those same entries for exact output membership,
+without injecting a duplicate catalog. New/bundled profiles always use approved
+names. General intentionally has no practice-specific list, retaining provisional
+labels until approved names are supplied. Existing unversioned/v2 snapshots keep
+historical behavior; editor conversion preserves their names, known heading/code
+requirements and original prose without rewriting snapshot/config/case bytes.
+The general menu/window is **Model settings** in both apps; action IDs, launchers,
+settings storage and controls are unchanged.
+
+Final Work-only validation in `/tmp/profile-menu-ZDH5eg`:
+
+- RecordPrep **464 tests, OK** (`RecordPrep-tests-naming-final.log`); Focus
+  **656 passed + 38 subtests**, two existing warnings (`Focus-tests-naming-final.log`).
+  Includes v3 strict schema/duplicate/malformed-name rejection, prompt-edit-only
+  membership/fingerprint changes, frozen v2 compatibility and mocked actual image
+  requests with application-owned normalization. The exact former shipped agency
+  recommendation guidance is recognized as a historical default, not copied back
+  as a personal override reintroducing the retired proposal exclusion.
+- Both final GTK workflow and actual-main-window acceptances pass under fatal
+  criticals. They verify the removed naming controls, prompt-only editing,
+  Save/reopen/new/private transactions, and actual Model settings menu/header/window
+  labels without model discovery or saving settings. Synthetic native desktop
+  inspection shows only report/form instruction editors, not duplicated catalogs.
+- Three synthetic producer scenarios (General/civil, Dependency, GUI-authored third)
+  and independent Focus consumer pass (`naming-pipeline-three.log`,
+  `naming-consumer.log`). Focus's 320 answer transitions pass with zero GTK criticals.
+- Four bundled CLI validations, native resources, shared module/test/document parity
+  and whitespace checks pass. Wheel/sdist installed-copy acceptance passes for both
+  apps (`Focus-naming-build.log`, `RecordPrep-naming-build-final.log`). RecordPrep's
+  release build uses tracked source plus the new historical test fixtures; building
+  from the broad development copy initially failed on ignored top-level folders
+  (`prompts`, `min_test_pdfs`), not on the naming change. No production packaging
+  metadata or lockfile was changed. Copy-mode installation and native-Pi source
+  deployment requirements remain as documented.
+
+All testing uses disposable stores, synthetic sources and offline model stubs;
+no private settings/case rewrites, paid calls or remote-machine actions.
+
+### Category navigation and taller profile editors
+
+Profile settings now uses a boxed left-hand main/subcategory list and a right-hand
+stack showing just the chosen page. RecordPrep has General, Classification,
+Summaries, Participants / Witnesses and Case Overview; Focus has General,
+Research, Answers and Search priorities. Main prompt editors are at least 360
+pixels high and expand to available height. Topic/role cards retain compact inline
+editors. A 700sp breakpoint changes the sidebar into a categories-button overlay.
+The window remains independent/non-modal, initially 1040×800, with a 360×480
+minimum. Profile/default/new controls live under General; the current profile name
+is always in the header subtitle. No prompt data or persistence contract changes.
+
+Local Work evidence remains in `/tmp/profile-menu-ZDH5eg`:
+
+- `RecordPrep-nav-tests.log`: **464 tests, OK**; `Focus-nav-tests.log`:
+  **656 passed + 38 subtests**, two existing warnings.
+- Both `*-nav-workflows-final.log` and `*-nav-main.log` pass under fatal criticals.
+  Every navigation row is activated and checked for a single mapped page, current
+  marker and unchanged draft state. Tests verify actual tall-editor allocation,
+  retained text/cursor/scroll after switching pages, active page retained after Save,
+  narrow sidebar open/close behavior, old Save/Discard/Cancel and concurrency guards,
+  plus populated layouts at 480/640/820. Explicit window minima avoid new Adwaita
+  breakpoint sizing warnings. Existing Xvfb EGL and MessageDialog deprecation
+  warnings remain; no GTK critical is suppressed.
+- `nav-pipeline-three.log` / `nav-consumer.log`: synthetic civil, Dependency and
+  a third profile authored through the new GUI pass independent producer/consumer
+  validation. `nav-answer-switching.log`: 320 transitions, zero GTK criticals,
+  correct final reading position.
+- Native screenshots of both owned synthetic editors at 1040×800 confirm the
+  sidebar and spacious right-hand prompt. RecordPrep's selected text editor was
+  677 logical pixels high in scoped AT-SPI inspection; unrelated pages were absent
+  from that visible tree. Narrow presentation was also observed. No comprehensive
+  hardware-keyboard or screen-reader interaction claim is made.
+
+Only temporary synthetic preview windows were moved/resized/closed. Private
+settings/cases and unrelated existing repository edits remain untouched.

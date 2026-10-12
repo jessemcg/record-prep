@@ -22,7 +22,10 @@ class ClassificationProfileTests(unittest.TestCase):
         (self.root / "text_pages/0001.txt").write_text("Independent Report\nJanuary 2, 2026")
         (self.root / "image_pages/0001.png").write_bytes(b"synthetic image request payload")
         apply_manual_override(self.root, mode="ct_only")
-        self.profile = bundled("general")
+        base = bundled("general")
+        naming = base.resource("naming")
+        naming["report_guidance"] += "\n- **Independent Report**\n"
+        self.profile = changed(base, "naming", naming)
         self.store = ProfileStore("recordprep", config_root=self.root / "config", data_root=self.root / "data")
         self.store.accept_profile(self.profile, expected_previous_digest=None)
         apply_case_profile(self.root, self.profile.ref, expected_previous=None, store=self.store)

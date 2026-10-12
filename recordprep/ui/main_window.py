@@ -3288,7 +3288,7 @@ def save_pi_agent_command_setting(command: str) -> None:
 
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None, on_profiles=None) -> None:
-        super().__init__(application=app, title="Settings")
+        super().__init__(application=app, title="Model settings")
         self._on_profiles = on_profiles
         self.set_default_size(900, 720)
         self.set_resizable(True)
@@ -3349,9 +3349,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        header.set_title_widget(Adw.WindowTitle(title="Settings"))
+        header.set_title_widget(Adw.WindowTitle(title="Model settings"))
         if self._on_profiles is not None:
-            profiles_button = Gtk.Button(label="Practice Profiles…")
+            profiles_button = Gtk.Button(label="Profile settings…")
             profiles_button.add_css_class("flat")
             profiles_button.set_tooltip_text("Edit practice guidance in Profile settings.")
             profiles_button.connect("clicked", lambda _button: self._on_profiles(self))
@@ -4509,12 +4509,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.case_bundle_button.add_css_class("flat")
         self.case_bundle_button.connect("clicked", self.on_choose_case_bundle)
         header_bar.pack_start(self.case_bundle_button)
-        self._practice_profile_button = Gtk.Button()
-        self._practice_profile_button.add_css_class("flat")
-        self._practice_profile_button.connect("clicked", lambda _button: self._open_practice_profiles())
-        from recordprep.profile_editor_ui import wrapped
-        self._practice_profile_label = wrapped("Preparation: Existing settings", hexpand=True)
-        self._practice_profile_button.set_child(self._practice_profile_label)
 
         self.file_button = Gtk.Button.new_from_icon_name("list-add-symbolic")
         self.file_button.set_tooltip_text("Choose PDF(s)")
@@ -4529,7 +4523,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.status_label.set_ellipsize(3)
         self.status_label.set_max_width_chars(52)
         status_box.append(self.status_spinner)
-        status_box.append(self.status_label)
+        self._title_widget = Adw.WindowTitle(title=APPLICATION_NAME)
+        status_box.append(self._title_widget)
         header_bar.set_title_widget(status_box)
 
         self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
@@ -4538,7 +4533,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header_bar)
-        toolbar_view.add_top_bar(self._practice_profile_button)
         self.set_content(toolbar_view)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -4546,6 +4540,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         content.set_margin_bottom(24)
         content.set_margin_start(24)
         content.set_margin_end(24)
+        content.append(self.status_label)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -4945,8 +4940,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _setup_menu(self, app: Adw.Application) -> None:
         menu = Gio.Menu()
-        menu.append("Settings", "app.settings")
-        self.menu_button.set_menu_model(menu)
+        menu.append("Model settings", "app.settings")
+        from recordprep.profile_manager_ui import install_profile_menu
+        from recordprep.profile_integration import open_manager
+        install_profile_menu(menu, self.menu_button, lambda: open_manager(self, PI_PROJECT_DIR))
 
         action = Gio.SimpleAction.new("settings", None)
         action.connect("activate", self.on_settings)
@@ -4969,12 +4966,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _open_practice_profiles(self, parent=None) -> None:
         from recordprep.profile_integration import open_manager
         try:
-            open_manager(self, PI_PROJECT_DIR, parent)
+            if parent is None:
+                self.menu_button.popup()
+            else:
+                open_manager(self, PI_PROJECT_DIR, parent)
         except (ValueError, OSError) as exc:
             self.show_toast(f"Practice Profiles unavailable: {exc}")
 
     def _on_settings_saved(self) -> None:
-        self.show_toast("Settings saved.")
+        self.show_toast("Model settings saved.")
 
     def _on_settings_close_request(self, _window: SettingsWindow) -> bool:
         self._settings_window = None
@@ -4982,7 +4982,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _on_action_save_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if not self._settings_window:
-            self.show_toast("Settings window is not open.")
+            self.show_toast("Model settings window is not open.")
             return
         self._settings_window.trigger_save()
 
@@ -5151,6 +5151,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
     def _set_status(self, message: str, active: bool) -> None:
         self.status_label.set_text(message)
+        self.status_label.set_visible(message != APPLICATION_NAME)
         if active:
             self.status_spinner.start()
         else:
@@ -6027,12 +6028,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         api_url = str(settings.get("api_url", "") or "").strip()
         model_id = str(settings.get("model_id", "") or "").strip()
         if not api_url or not model_id:
-            raise ValueError("Configure vision API URL and model ID in Settings.")
+            raise ValueError("Configure vision API URL and model ID in Model settings.")
         local_vision_enabled = bool(settings.get("local_vision_enabled", False))
         api_key = str(settings.get("api_key", "") or "").strip()
         if not local_vision_enabled and not api_key:
             raise ValueError(
-                "Configure vision API key in Settings, or enable local llama.cpp vision server."
+                "Configure vision API key in Model settings, or enable local llama.cpp vision server."
             )
         if local_vision_enabled:
             start_command = str(settings.get("local_vision_start_command", "") or "").strip()
@@ -7023,7 +7024,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 validate_output_directory(root_dir)
                 settings = settings | {"prompt": compiled_name[0]}
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure case name API URL, model ID, and API key in Settings.")
+                raise ValueError("Configure case name API URL, model ID, and API key in Model settings.")
             text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)[:3]
             if not text_files:
                 raise FileNotFoundError("No text files found to infer case name.")
@@ -7505,12 +7506,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 ):
                     raise ValueError(
                         "PI executable not found. Install PI or set the PI command "
-                        "in Settings."
+                        "in Model settings."
                     )
                 command_argv[0] = str(executable_path)
             elif shutil.which(executable) is None:
                 raise ValueError(
-                    "PI executable not found. Install PI or set the PI command in Settings."
+                    "PI executable not found. Install PI or set the PI command in Model settings."
                 )
 
             self._active_bundle_root = str(root_dir)

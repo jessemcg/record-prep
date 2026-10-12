@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from .profile_contract import ProfileError, ProfileRef, ProfileSnapshot, compile_stage_profile
+from .profile_contract import ProfileError, ProfileRef, ProfileSnapshot, compile_stage_profile, naming_prompt_titles
 
 NAMING_CONTRACT_VERSION = 1
 _CORE = """APPLICATION-OWNED NAMING CONTRACT
@@ -35,6 +35,13 @@ Both the required title and required code must be visible on this same supplied 
 If either is missing or unclear, return an empty name. A code alone is not a match.
 Return the rule's exact name, not its shorter matching title.
 """
+_PROMPT_CATALOG = "Use only approved names from the bold list entries in the instructions. Return an empty name if none matches.\n"
+_PROMPT_FORM = (
+    "For each approved form, the bold output name is its required heading unless that entry specifies another heading. "
+    "The heading must be prominent on the supplied page. If the entry requires a code, both heading and code must be "
+    "visible on that same supplied page. A code alone is not a match. Return the exact bold output name, "
+    "not the shorter heading or code. If the required evidence is unclear, return an empty name.\n"
+)
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
            "September", "October", "November", "December")
 
@@ -116,6 +123,31 @@ class NamingContract:
         return NamingResult(name, date_text, tuple(flags))
 
 
+def editable_naming(naming: dict) -> dict:
+    """Fold a historical catalog into instructions, without changing its snapshot."""
+    if naming.get("schema_version") == 3:
+        return naming
+    report_names = [f"- **{name}**" for name in naming["report_titles"]]
+    if naming.get("schema_version") == 2:
+        form_names = [f'- **{rule["name"]}** — '
+                      + (f'required heading: {rule["title"]}; ' if rule["title"] != rule["name"] else "")
+                      + f'required code: {rule["code"]}.' for rule in naming["form_rules"]]
+    else:
+        form_names = [f"- **{name}**" for name in naming["form_titles"]]
+    result = {"schema_version": 3}
+    for kind, names in (("report", report_names), ("form", form_names)):
+        guidance = naming.get(kind + "_guidance", naming.get("guidance", ""))
+        result[kind + "_guidance"] = (
+            f"Approved {kind} names (edit the bold names in this list):\n"
+            + ("\n".join(names) if names else "No approved names configured. Add approved names as - **Name** entries; until then leave the name empty.")
+            + "\n\nUse only an approved name above, supported by a prominent heading on the supplied page. "
+            + ("Use the bold name as the required heading unless another heading is specified. When an entry requires a code, both its heading and code must be visible on that same page. " if kind == "form" else "")
+            + "If no entry matches, leave the name empty; do not discard the document.\n\n"
+            + guidance
+        )
+    return result
+
+
 def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContract:
     """Compose the exact prompt used for preview AND execution; never load settings."""
     if snapshot.ref.application != "recordprep":
@@ -123,9 +155,19 @@ def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContra
     if kind not in ("report", "form"):
         raise ProfileError("unsupported_document_kind", "naming")
     core_bytes = (f"naming-contract:{NAMING_CONTRACT_VERSION}\n" + _CORE + _REPORT + _FORM + _FORM_EVIDENCE).encode()
-    compiled = compile_stage_profile(snapshot, "naming", core_contract=core_bytes)
     naming = snapshot.resource("naming")
     version = naming.get("schema_version", 1)
+    if version == 3:
+        core_bytes += ("prompt-naming-v3\n" + _PROMPT_CATALOG + _PROMPT_FORM).encode()
+    compiled = compile_stage_profile(snapshot, "naming", core_contract=core_bytes)
+    if version == 3:
+        guidance = naming[kind + "_guidance"]
+        names = naming_prompt_titles(guidance)
+        core = _CORE + "\n" + _PROMPT_CATALOG
+        prompt = (core + (_REPORT if kind == "report" else _FORM + _PROMPT_FORM) + "\n" + guidance
+                  + "\nAPPLICATION RESPONSE KEYS: " + ("name, date" if kind == "report" else "name") + ".\n")
+        return NamingContract(kind, "approved_titles", names, prompt, snapshot.ref, compiled.component_sha256,
+                              hashlib.sha256(prompt.encode("utf-8")).hexdigest())
     mode = naming["mode"]
     if kind == "report":
         names = tuple(naming["report_titles"])

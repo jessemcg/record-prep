@@ -8,25 +8,54 @@ package import or automatic cross-app synchronization.
 
 ## Choose, edit, save
 
-The main-window preparation/research button opens a compact chooser. Names wrap
-in full; a check marks the current choice. Select a profile and **Use profile**,
-or open **Profile settings…**. Focus also offers **Existing settings** for an
-explicit compatibility choice before a case's first research session.
+The chosen profile name appears as a subtitle immediately below the app title,
+not as a separate banner. The hamburger menu shows the profile dropdown and
+**Profile settings** as compact, normal-weight, left-aligned menu items. Names
+wrap in full and a check marks the current choice. Selecting a dropdown item
+immediately applies that profile; there is no separate **Use profile** action or
+chooser dialog. **Profile settings** edits the selected profile. Focus also offers
+**Existing settings** as an explicit compatibility choice before a case's first
+research session. Opening the dropdown alone does not change the case; activating
+an item does. Failed or blocked selection retains the actual current choice.
 
-Profile settings contains a full-width selector, **New profile…**, **Use for new
-cases**, the substantive settings, **Save**, and **Cancel**. A built-in opens with
+Profile settings opens in an independent, non-modal window with minimize, maximize
+and close controls. It can be moved/resized independently while the main app stays
+usable. Active work or changing cases still blocks stale settings application.
+The window uses a boxed category/subcategory list on the left and shows only the
+selected settings page on the right, like Model settings. The list sits directly on
+the window background, without a contrasting full-height left panel. The header
+also uses Model settings' flat toolbar styling and shares the window background.
+**General → Profile and
+defaults** contains the profile selector, **New profile…** and **Use for new cases**.
+The profile name remains beneath the window title; **Save** and **Cancel** stay in
+the header. Switching pages preserves unsaved edits and each page's scroll position.
+At narrow widths, the **Show categories** button opens the sidebar as an overlay;
+selecting a subcategory closes the overlay without squeezing the editor. A built-in opens with
 complete populated settings; personal settings appear in place of its baseline.
 New profile asks only for a name and a starting profile (General by default).
 Identifiers are generated internally. Cancelling a draft saves nothing.
 
-RecordPrep groups case naming, document classification/naming, hearing/report/
-minute summaries, participants/witnesses and case overview on one scrollable page.
+RecordPrep's main categories are **General**, **Classification**, **Summaries**,
+**Participants / Witnesses**, and **Case Overview**. Each classification task has
+its own subcategory and tall editor (at least 360 pixels, expanding with the window).
+Report/form naming is under Classification. Summaries separates hearing/report
+topics, document-review instructions and summary-writing instructions; minute orders
+have their own page. Identification instructions, counsel roles and participant roles
+are separate pages under Participants / Witnesses. Report naming and form naming
+each have just one instructions editor. Their approved names appear once, as `- **Name**` entries in that editor;
+optional matching requirements follow an em dash. The same entries supply both
+the model prompt and Python's exact approved-name check. There is no naming-mode
+selector, separate title list, or form-rule card editor. Editing the prompt's list
+changes the approved names; prose outside those entries does not silently add names.
+Dependency retains its reviewed names and form codes. General has no approved names
+until you add practice-appropriate entries, so unmatched documents retain provisional
+labels rather than being discarded. Dates can still be extracted independently.
 Summary topics are expandable cards with editable names/instructions and add,
 remove and reorder actions. Renaming a topic does not change its stable ID.
 Topics guide capture from each document, not required headings in the narrative.
-**Reviewing each document** and **Writing the summary** stay beside their topics.
-Focus groups research instructions, answer-writing instructions and search
-priorities. Priorities rank results; they never exclude parts of the record.
+Review and writing instructions are separate pages beside the topic page in the
+Summaries category. Focus uses the same navigation layout with **General**,
+**Research**, **Answers**, and **Search priorities** categories and tall prompt editors. Priorities rank results; they never exclude parts of the record.
 
 Changing profiles or closing an unsaved draft offers **Save / Discard / Cancel**.
 Opening, inspecting and cancelling do not write a registry, snapshot, settings
@@ -36,7 +65,8 @@ entry, separate acceptance step or Git operation.
 Saving does not rebind an existing case. When applicable, a separate confirmation
 asks **Use these settings for this case?** with **Use settings / Not now** and
 explains that existing summaries and answers will not be regenerated. An older
-pin is identified as **This case uses earlier settings.** If case application
+pin is identified inside Profile settings, not in the hamburger menu. The menu
+contains no passive profile-status notices. If case application
 fails after a successful save, the app reports **Profile saved; case settings
 were not changed.** The saved profile is not rolled back unsafely.
 
@@ -89,9 +119,9 @@ Execution continues with validated frozen snapshots.
 
 The read-only resolver begins with complete shipped Dependency settings and
 prepares an allowlisted in-memory personal candidate when previous customization
-is applicable. The chooser and editor share this resolution, so Use profile does
-not bypass it. Opening does not migrate anything. First explicit Save or Use
-profile persists privately and records initialization. An existing personal
+is applicable. The dropdown and editor share this resolution, so selecting a profile
+does not bypass it. Opening does not migrate anything. First explicit Save or
+dropdown selection persists privately and records initialization. An existing personal
 profile wins and is never repeatedly overlaid.
 
 Empty overrides inherit public guidance. Genuine prose is retained without
@@ -106,8 +136,11 @@ not tools or runtime settings. No credentials, endpoints, paths, commands or
 unrelated configuration fields are copied. Never promote this private candidate
 into bundled files, fixtures, logs or commits.
 
-Legacy prompt values remain available to compatibility loaders. Ordinary Settings
-no longer edits those prompts or the retired direct-API sandbox controls. It
+Legacy prompt values remain available to compatibility loaders. The general
+settings menu and window are now called **Model settings** in both applications,
+distinct from **Profile settings**. Their existing model, credential, appearance
+and machine controls remain; the rename does not change storage or action names.
+Model settings no longer edits practice prompts or the retired direct-API sandbox controls. It
 retains production classification/case-name API settings and agentic Pi models.
 End-user prompt testing, its action/window and request/payload paths are removed.
 Historical recognition text remains deliberately intact for compatibility.
@@ -148,9 +181,12 @@ remain application-owned. Selecting a profile never renames the case.
 Schema-1 snapshots remain byte-preserved, including historical caption behavior.
 The retired report-scope field is an explicit exception: it remains readable but
 no longer controls extraction. Explicit editing upgrades only an in-memory draft.
-Old unversioned naming catalogs remain readable; known structured title/code
-rules can be retained on edit, while unresolved historical titles remain visible
-in guidance with a review notice rather than invented rules.
+Old unversioned and v2 naming catalogs remain readable with their historical
+runtime behavior and immutable bytes. Explicit editing folds their names, known
+heading/code requirements and original prose into v3 naming instructions. Save or
+selecting a new bundled revision is deliberate; existing case pins are not rewritten.
+Prior private naming prose is preserved for review alongside the approved entries;
+no model or heuristic invents a new allowlist from arbitrary prose.
 
 Manifests reject unknown/missing fields, unsupported capabilities/versions,
 noncanonical/traversing/executable resource paths, duplicate JSON keys, unsafe

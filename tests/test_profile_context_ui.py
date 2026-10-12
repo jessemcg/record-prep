@@ -15,11 +15,11 @@ class ProfileContextTests(unittest.TestCase):
             root = Path(temporary)
             profile = validate_profile_directory(bundled_profile_directory("general")).draft
             button = Mock()
-            window = SimpleNamespace(_practice_profile_button=button, _resolve_case_root=lambda:root)
+            window = SimpleNamespace(_title_widget=button, _resolve_case_root=lambda:root)
             with patch.object(ui,"read_case_profile_ref",return_value=profile.ref), patch("recordprep.practice_profiles.profile_store") as store:
                 store.return_value.load_profile_snapshot.side_effect = ProfileError("snapshot_unavailable","selection")
                 ui.update_indicator(window)
-                button.set_label.assert_called_with("Preparation: unavailable")
+                button.set_subtitle.assert_called_with("Unavailable profile")
                 description = ui.context_description(root)
                 self.assertIn("Selected instructions unavailable", description)
                 self.assertNotIn("SHA", description)
@@ -28,5 +28,5 @@ class ProfileContextTests(unittest.TestCase):
                 store.return_value.load_profile_snapshot.return_value = profile
                 store.return_value.read_registry.return_value = {"heads": {}, "accepted": [], "default": None}
                 ui.update_indicator(window)
-                button.set_label.assert_called_with("Preparation: General Court Record")
+                button.set_subtitle.assert_called_with("General Court Record")
                 self.assertEqual(list(root.iterdir()), [])

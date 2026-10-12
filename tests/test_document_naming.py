@@ -32,7 +32,9 @@ FORM_RULES = (
 def snapshot(name="california_dependency"):
     result = profiles.validate_profile_directory(profiles.bundled_profile_directory(name))
     assert not result.issues, result.issues
-    return result.draft
+    # Frozen v2 catalog coverage remains valid after the public GUI moves to v3.
+    historical = Path(__file__).parent / "fixtures/naming-v2" / f"{name}.json"
+    return with_naming(result.draft, json.loads(historical.read_text()))
 
 
 def with_naming(original, value):
@@ -163,6 +165,63 @@ class NamingContractTests(unittest.TestCase):
                 naming.provisional_document_title("report", page)
 
 
+class PromptNamingTests(unittest.TestCase):
+    def public(self, name="california_dependency"):
+        return profiles.validate_profile_directory(profiles.bundled_profile_directory(name)).draft
+
+    def test_public_prompts_are_the_only_catalog_and_preserve_reviewed_names(self):
+        draft = self.public()
+        resource = draft.resource("naming")
+        self.assertEqual(set(resource), {"schema_version", "report_guidance", "form_guidance"})
+        self.assertEqual(resource["schema_version"], 3)
+        for kind, expected in (("report", REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
+            contract = naming.compile_naming_profile(draft, kind)
+            self.assertEqual(contract.allowed_names, expected)
+            self.assertEqual(contract.mode, "approved_titles")
+            self.assertEqual(contract.prompt.count(resource[kind + "_guidance"]), 1)
+            self.assertNotIn("APPROVED CATALOG", contract.prompt)
+            self.assertEqual(contract.normalize({"name": "Unapproved name", **({"date": ""} if kind == "report" else {})}).name, "")
+        for _name, heading, code in FORM_RULES:
+            self.assertIn(heading, resource["form_guidance"])
+            self.assertIn(code, resource["form_guidance"])
+        self.assertIn("A code alone is not a match", resource["form_guidance"])
+
+    def test_prompt_edit_alone_changes_membership_and_freshness(self):
+        draft = self.public()
+        before = naming.compile_naming_profile(draft, "report")
+        resource = draft.resource("naming")
+        resource["report_guidance"] = resource["report_guidance"].replace("- **Detention Report**", "- **Reviewed New Report**")
+        after = naming.compile_naming_profile(with_naming(draft, resource), "report")
+        self.assertEqual(after.normalize({"name": "Reviewed New Report", "date": ""}).name, "Reviewed New Report")
+        self.assertEqual(after.normalize({"name": "Detention Report", "date": ""}).name, "")
+        self.assertNotEqual(before.component_sha256, after.component_sha256)
+        self.assertNotEqual(before.prompt_sha256, after.prompt_sha256)
+        self.assertIn("Detention Report", before.allowed_names)
+
+    def test_general_never_invents_an_approved_list(self):
+        for kind in ("report", "form"):
+            contract = naming.compile_naming_profile(self.public("general"), kind)
+            self.assertEqual(contract.mode, "approved_titles")
+            self.assertEqual(contract.allowed_names, ())
+            self.assertEqual(contract.normalize({"name": "Unknown", **({"date": "January 1, 2020"} if kind == "report" else {})}).name, "")
+
+    def test_editing_old_snapshot_preserves_names_codes_prose_and_original_bytes(self):
+        original = snapshot()
+        before = original.files
+        result = naming.editable_naming(original.resource("naming"))
+        for kind in ("report", "form"):
+            self.assertIn(original.resource("naming")[kind + "_guidance"], result[kind + "_guidance"])
+            self.assertEqual(naming.compile_naming_profile(with_naming(original, result), kind).allowed_names,
+                             naming.compile_naming_profile(original, kind).allowed_names)
+        self.assertEqual(original.files, before)
+        self.assertEqual(naming.editable_naming(result), result)
+
+    def test_malformed_duplicate_and_oversized_prompt_names_are_rejected(self):
+        for text in ("- **Unclosed", "- **Same**\n- **same**", "- **" + "x" * 161 + "**"):
+            with self.subTest(text=text[:20]), self.assertRaises(ProfileError):
+                with_naming(self.public(), {"schema_version": 3, "report_guidance": text, "form_guidance": "No approved forms."})
+
+
 class NamingPipelineTests(unittest.TestCase):
     def setUp(self):
         from recordprep.ui import main_window as ui
@@ -239,7 +298,8 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertEqual(rows[0]["report_label"], "Untitled report — file page 12")
 
     def test_classifier_uses_compiled_schema_not_editable_prompt_prose(self):
-        contract = naming.compile_naming_profile(snapshot(), "form")
+        current = profiles.validate_profile_directory(profiles.bundled_profile_directory("california_dependency")).draft
+        contract = naming.compile_naming_profile(current, "form")
         image = self.root / "synthetic.png"
         image.write_bytes(b"synthetic image; HTTP is mocked")
         settings = {"api_url": "https://synthetic.invalid", "model_id": "synthetic", "api_key": "",

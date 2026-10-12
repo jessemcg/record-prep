@@ -111,6 +111,18 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_invalid(legacy_files | {"resources/naming.json": contract.json_bytes(value)}, app="recordprep")
 
+    def test_naming_v3_uses_only_prompt_entries(self):
+        naming = {"schema_version": 3, "report_guidance": "Approved names:\n- **Synthetic Report**\n\nCheck the date.",
+                  "form_guidance": "Approved names:\n- **Synthetic Form** — required code: XY-10."}
+        files = synthetic_files("recordprep") | {"resources/naming.json": contract.json_bytes(naming)}
+        current = self.draft(files, "recordprep")
+        self.assertEqual(current.resource("naming"), naming)
+        self.assertEqual(contract.naming_prompt_titles(naming["form_guidance"]), ("Synthetic Form",))
+        for invalid in (naming | {"mode": "source_title"}, naming | {"report_titles": ["Hidden name"]},
+                        naming | {"schema_version": 3.0}, naming | {"report_guidance": "- **Unclosed"},
+                        naming | {"report_guidance": "- **Same**\n- **same**"}):
+            self.assert_invalid(files | {"resources/naming.json": contract.json_bytes(invalid)}, app="recordprep")
+
     def test_valid_app_profiles_are_independent(self):
         focus = self.draft()
         prep = self.draft(synthetic_files("recordprep"), "recordprep")

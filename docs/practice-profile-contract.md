@@ -52,7 +52,18 @@ Every object rejects unknown fields, duplicate keys and nonfinite numbers.
 - Roles: `{counsel: [...], participants: [...]}` of `{id, label, guidance}`,
   1–128 entries per group, with required `unknown` and `other` fallbacks.
   Entry guidance is nonempty and at most 8192 characters.
-- Naming v2: `{schema_version: 2, mode, report_titles, form_rules,
+- Naming v3: `{schema_version: 3, report_guidance, form_guidance}`. The instructions
+  are the only stored source of approved names. Each line `- **Name**` (optionally
+  followed by ` — matching requirements`) declares one approved output name.
+  At most 256 entries per prompt, unique case-insensitively, at most 160 characters
+  each; malformed bold entries, duplicate names and unknown fields are rejected.
+  Empty catalogs intentionally accept no names. Python derives exact membership
+  from these same prompt entries; no second catalog is injected into the request.
+  Form heading/code interpretation remains model work, not something membership
+  validation proves. Schema/first-page/evidence/date/publication guards remain
+  application-owned. Opening an old profile converts only the editor draft; an
+  explicit save publishes a new revision, never a rewrite of historical bytes.
+- Legacy naming v2: `{schema_version: 2, mode, report_titles, form_rules,
   report_guidance, form_guidance}`. Mode is `source_title` or `approved_titles`.
   Each of 0–256 form rules has exactly `{name, title, code}`, with names/codes
   unique case-insensitively. v2 approved forms require both title and code on the

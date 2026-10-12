@@ -73,16 +73,30 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
     ):
         value = custom(f"classify_names_{kind}_prompt", getattr(defaults, default_name))
         if value is not None:
-            editor.resources["naming"][field] = value
+            naming = editor.resources["naming"]
+            if naming.get("schema_version") == 3:
+                # Preserve previous prose verbatim, without pretending arbitrary
+                # prose supplies a machine-verifiable list of approved names.
+                approved = naming[field].split("\n\n", 1)[0]
+                naming[field] = approved + "\n\nPrevious naming instructions (review against the approved names above):\n" + value
+            else:
+                naming[field] = value
             editor.review_notices["naming"] = (
-                "Your previous naming instructions are included. Review the title and form rules below: "
-                "custom prose does not automatically change the approved catalog."
+                "Your previous naming instructions are included. Review the approved names within those instructions."
             )
     if categories is not None:
         for kind in ("hearings", "reports"):
             supplied = categories.get(kind, {})
             for entry in editor.resources[kind]:
                 value = supplied.get(entry["id"])
+                # This exact shipped predecessor is not a personal override.
+                # Do not reattach the retired proposal exclusion on fresh installs.
+                if kind == "reports" and entry["id"] == "agency_recommendations" and value == (
+                    "The agency's substantive recommendations to the court, stated apart from\n"
+                    "any formal proposed-findings-and-orders template, with accurate agency\n"
+                    "attribution."
+                ):
+                    continue
                 if isinstance(value, str) and value.strip():
                     entry["guidance"] = value
     return editor

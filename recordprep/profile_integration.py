@@ -68,7 +68,7 @@ def context_description(root):
 
 
 def update_indicator(window):
-    widget = getattr(window, "_practice_profile_button", None)
+    widget = getattr(window, "_title_widget", None)
     if widget is None:
         return
     from .practice_profiles import default_profile_candidate, profile_store, profile_catalog
@@ -82,23 +82,16 @@ def update_indicator(window):
             ref = read_case_profile_ref(root)
             snapshot = profile_store().load_profile_snapshot(ref) if ref else None
         name = snapshot.manifest["display_name"] if snapshot else "Existing settings"
-        text = ("New case: " if new_context else "Preparation: ") + name
+        text = name
+        notice = ""
         if not new_context and snapshot:
             current = next((item.snapshot for item in profile_catalog() if item.snapshot.ref.specialty_id == snapshot.ref.specialty_id), None)
             if current and current.ref != snapshot.ref:
-                text += "\nThis case uses earlier settings."
-        label = getattr(window, "_practice_profile_label", None)
-        if label:
-            label.set_text(text)
-        else:
-            widget.set_label(text)
-        widget.set_tooltip_text(None)
+                notice = "This case uses earlier settings."
+        widget.set_subtitle(text)
+        widget.set_tooltip_text(name + ("\n" + notice if notice else ""))
     except (ValueError, OSError):
-        label = getattr(window, "_practice_profile_label", None)
-        if label:
-            label.set_text("Preparation: unavailable")
-        else:
-            widget.set_label("Preparation: unavailable")
+        widget.set_subtitle("Unavailable profile")
 
 
 def open_manager(owner, project_dir: Path, parent=None):
@@ -142,8 +135,5 @@ def open_manager(owner, project_dir: Path, parent=None):
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None
-    window.connect("close-request", lambda _window: (update_indicator(owner), False)[1])
     owner._practice_profiles_window = window
-    if parent is None:
-        window.present()
     return window

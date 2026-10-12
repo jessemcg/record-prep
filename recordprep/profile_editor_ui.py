@@ -9,7 +9,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, GLib, Gtk, Pango, GObject
 
 from . import practice_profiles as api
 from .profile_contract import ProfileError, ProfileSnapshot
@@ -22,8 +22,6 @@ TOPIC_EXPLANATION = (
 POLICIES = {
     "attendance": (("explicit_complete_order", "Use explicit evidence from the complete order"),
                    ("legacy_first_page_parents", "Parents' personal appearance from the first page only")),
-    "mode": (("source_title", "Use the source document's title"),
-             ("approved_titles", "Use the approved titles below")),
 }
 
 
@@ -52,7 +50,7 @@ def clear(box):
         box.remove(box.get_first_child())
 
 
-def text_editor(text, changed=None, *, label="Instructions"):
+def text_editor(text, changed=None, *, label="Instructions", tall=False):
     view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, editable=changed is not None)
     view.update_property([Gtk.AccessibleProperty.LABEL], [label])
     view.set_left_margin(12)
@@ -63,7 +61,10 @@ def text_editor(text, changed=None, *, label="Instructions"):
     buffer.set_text(text)
     if changed is not None:
         buffer.connect("changed", lambda source: changed(source.get_text(source.get_start_iter(), source.get_end_iter(), True)))
-    scroll = Gtk.ScrolledWindow(min_content_height=120, max_content_height=280, propagate_natural_height=True)
+    scroll = Gtk.ScrolledWindow(min_content_height=360 if tall else 120,
+                                max_content_height=900 if tall else 280,
+                                propagate_natural_height=not tall, vexpand=tall)
+    scroll.add_css_class("card")
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     scroll.set_child(view)
     return scroll
@@ -71,22 +72,37 @@ def text_editor(text, changed=None, *, label="Instructions"):
 
 class ProfileSelector(Gtk.MenuButton):
     """Full-width wrapping names in both selected value and keyboard popup."""
-    def __init__(self, names, changed=None):
+    def __init__(self, names, changed=None, *, menu_style=False):
         super().__init__(hexpand=True)
         self.names = list(names)
         self.selected = 0
         self.changed = changed
         self.label = wrapped("")
+        attributes = Pango.AttrList()
+        if menu_style:
+            self.add_css_class("flat")
+            attributes.insert(Pango.attr_weight_new(Pango.Weight.NORMAL))
+            self.label.set_attributes(attributes)
         self.label.set_hexpand(True)
-        self.set_child(self.label)
+        self.label.set_max_width_chars(36)
+        selected_box = Gtk.Box(spacing=8)
+        selected_box.append(self.label)
+        selected_box.append(Gtk.Image(icon_name="pan-down-symbolic"))
+        self.set_child(selected_box)
         self.update_property([Gtk.AccessibleProperty.LABEL], ["Profile"])
         self.popover = Gtk.Popover()
         scroll = Gtk.ScrolledWindow(max_content_height=380, propagate_natural_height=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0 if menu_style else 4)
         for index, name in enumerate(self.names):
             item = button("", lambda index=index: self._choose(index))
-            item.set_child(wrapped(name, margin_start=8, margin_end=8, margin_top=8, margin_bottom=8))
+            margin = 0 if menu_style else 8
+            label = wrapped(name, max_width_chars=36, margin_start=margin, margin_end=margin,
+                            margin_top=margin, margin_bottom=margin)
+            if menu_style:
+                item.add_css_class("profile-menu-item")
+                label.set_attributes(attributes)
+            item.set_child(label)
             item.update_property([Gtk.AccessibleProperty.LABEL], [name])
             rows.append(item)
         scroll.set_child(rows)
@@ -136,9 +152,35 @@ def unavailable(parent):
 
 
 class ProfileEditorWindow(Adw.Window):
+    _navigation_style = None
+
     def __init__(self, parent, editor: ProfileEditor, store, *, expected_head,
                  can_modify, preview, on_saved, candidates=None, notice="", personal=False, expected_heads=None, case_ref=lambda: None):
-        super().__init__(transient_for=parent, modal=True, title="Profile settings", default_width=820, default_height=760)
+        # No transient relationship: GNOME attaches transient dialogs to their parent.
+        super().__init__(application=parent.get_application(), modal=False, resizable=True,
+                         title="Profile settings", default_width=1040, default_height=800,
+                         width_request=360, height_request=480)
+        if ProfileEditorWindow._navigation_style is None:
+            provider = Gtk.CssProvider()
+            provider.load_from_data(b"""
+                /* Match Model settings: the boxed list sits on the window
+                   background, not a contrasting full-height sidebar panel.
+                   Narrow overlay panes retain their opaque native styling. */
+                .profile-settings-layout > .sidebar-pane {
+                    background: transparent;
+                    color: inherit;
+                    box-shadow: none;
+                }
+                .profile-navigation row.profile-destination { min-height: 40px; }
+                .profile-navigation row.profile-destination > box {
+                    min-height: 40px;
+                    padding-top: 0;
+                    padding-bottom: 0;
+                }
+            """)
+            Gtk.StyleContext.add_provider_for_display(self.get_display(), provider,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            ProfileEditorWindow._navigation_style = provider
         self.editor, self.store = editor, store
         self.expected_head, self.can_modify = expected_head, can_modify
         self.preview, self.on_saved = preview, on_saved
@@ -150,21 +192,38 @@ class ProfileEditorWindow(Adw.Window):
         self._closing = False
         self._loading = False
         self._guard_id = 0
+        self._active_page = "profile"
+        self._nav_updating = False
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
+        header.set_decoration_layout(":minimize,maximize,close")
+        self.title_widget = Adw.WindowTitle(title="Profile settings")
+        header.set_title_widget(self.title_widget)
+        self.sidebar_button = Gtk.ToggleButton(icon_name="sidebar-show-symbolic", tooltip_text="Show categories")
+        self.sidebar_button.add_css_class("flat")
+        header.pack_start(self.sidebar_button)
         header.pack_start(button("Cancel", self.close))
         self.save_button = button("Save", self._save)
         header.pack_end(self.save_button)
-        outer.append(header)
+        toolbar.add_top_bar(header)
         self.message = wrapped("", margin_start=18, margin_end=18, selectable=True)
+        self.message.set_visible(False)
+        self.message.connect("notify::label", lambda label, _spec: label.set_visible(bool(label.get_text())))
         outer.append(self.message)
-        scroll = Gtk.ScrolledWindow(vexpand=True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
-                            margin_start=18, margin_end=18, margin_top=12, margin_bottom=18)
-        scroll.set_child(self.body)
-        outer.append(scroll)
-        self.set_content(outer)
+        self.body = Adw.OverlaySplitView(vexpand=True, min_sidebar_width=220, max_sidebar_width=260,
+                                         sidebar_width_fraction=.26)
+        self.body.add_css_class("profile-settings-layout")
+        self.body.bind_property("show-sidebar", self.sidebar_button, "active",
+                                GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+        self.body.bind_property("collapsed", self.sidebar_button, "visible", GObject.BindingFlags.SYNC_CREATE)
+        outer.append(self.body)
+        toolbar.set_content(outer)
+        self.set_content(toolbar)
+        breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 700sp"))
+        breakpoint.add_setter(self.body, "collapsed", True)
+        breakpoint.add_setter(self.body, "show-sidebar", False)
+        self.add_breakpoint(breakpoint)
         self._render()
         self._guard_id = GLib.timeout_add(250, self._refresh_guard)
         self.connect("close-request", self._close_request)
@@ -216,8 +275,11 @@ class ProfileEditorWindow(Adw.Window):
         allowed = self.can_modify()
         self.body.set_sensitive(allowed)
         self.save_button.set_sensitive(allowed)
+        blocked = "Settings cannot be changed while work is active or the case has changed. Your draft is kept; cancel and reopen when ready."
         if not allowed:
-            self.message.set_text("Settings cannot be changed while work is active or the case has changed. Your draft is kept; cancel and reopen when ready.")
+            self.message.set_text(blocked)
+        elif self.message.get_text() == blocked:
+            self.message.set_text("")
         return True
 
     def _switch(self, index):
@@ -241,7 +303,26 @@ class ProfileEditorWindow(Adw.Window):
 
     def _render(self):
         self._loading = True
-        clear(self.body)
+        self._nav_updating = True
+        self.pages = {}
+        self.nav_groups = {}
+        self.nav_rows = {}
+        self.nav_markers = {}
+        self.page_groups = {}
+        self.stack = Gtk.Stack(hexpand=True, vexpand=True, hhomogeneous=False, vhomogeneous=False)
+        self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
+        self.body.set_content(self.stack)
+        self.navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, valign=Gtk.Align.START,
+                                      margin_start=12, margin_end=12, margin_top=12, margin_bottom=12)
+        self.navigation.add_css_class("boxed-list")
+        self.navigation.add_css_class("profile-navigation")
+        sidebar = Gtk.ScrolledWindow(vexpand=True)
+        sidebar.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar.set_child(self.navigation)
+        self.body.set_sidebar(sidebar)
+        self._page("General", "profile", "Profile and defaults")
+        self.title_widget.set_subtitle(self.editor.manifest["display_name"])
+        self.title_widget.set_tooltip_text(self.editor.manifest["display_name"])
         identity = self.editor.manifest["specialty_id"]
         names = [item.snapshot.manifest["display_name"] for item in self.candidates]
         index = next((i for i, item in enumerate(self.candidates) if item.snapshot.ref.specialty_id == identity), None)
@@ -250,30 +331,33 @@ class ProfileEditorWindow(Adw.Window):
             # Draft exists only in this editor, never in the registry.
         self.selector = ProfileSelector(names, self._switch)
         self.selector.set_selected(index if index is not None else len(names) - 1, notify=False)
-        self.body.append(self.selector)
-        self.body.append(button("New profile…", self._new))
+        group = self._group("Profile and defaults")
+        group.add(self.selector)
+        group.add(button("New profile…", self._new))
         if self.notice:
-            self.body.append(wrapped(self.notice))
+            group.add(wrapped(self.notice))
         self.case_notice = wrapped("")
-        self.body.append(self.case_notice)
+        group.add(self.case_notice)
         self.refresh_case_notice()
         registry = self.store.read_registry()
         self.expected_default = registry["default"]
-        group = self._group("")
         self.default_row = Adw.SwitchRow(title="Use for new cases")
         self.default_row.set_active(bool(registry["default"] and registry["default"]["specialty_id"] == identity)
                                    or (registry["default"] is None and identity == "general-court-record"))
         group.add(self.default_row)
         if self.store.application == "focus":
-            self._guidance(self._group("Research instructions"), "research", "Research instructions")
-            self._guidance(self._group("Answer-writing instructions"), "answer_guidance", "Answer-writing instructions")
-            group = self._group("Search priorities", "Preferences help rank results; they never exclude any part of the record.")
+            self._prompt_page("Research", "research", "Research instructions", "research")
+            self._prompt_page("Answers", "answer", "Answer-writing instructions", "answer_guidance")
             labels = {"query_terms": "Question terms", "document_terms": "Document priorities",
                       "passage_terms": "Passage priorities", "later_history_terms": "Later-history priorities"}
             for key, label in labels.items():
+                self._page("Search priorities", key, label)
+                group = self._group(label, "Preferences help rank results; they never exclude any part of the record.")
                 self._terms(group, self.editor.resources["search"], key, label)
         else:
             self._recordprep_form()
+        self._nav_updating = False
+        self._select_page(self._active_page if self._active_page in self.pages else "profile")
         self._saved_state = self._state()
         self._loading = False
 
@@ -283,16 +367,71 @@ class ProfileEditorWindow(Adw.Window):
         self.case_notice.set_text("This case uses earlier settings. Saving does not change this case." if earlier else "")
         self.case_notice.set_visible(earlier)
 
+    def _page(self, category, key, title):
+        if category not in self.nav_groups:
+            row = Adw.ExpanderRow(title=category)
+            row.set_title_lines(2)
+            row.connect("notify::expanded", self._category_expanded, category)
+            self.navigation.append(row)
+            self.nav_groups[category] = row
+        row = Adw.ActionRow(title=title, activatable=True)
+        row.add_css_class("profile-destination")
+        row.set_title_lines(2)
+        marker = Gtk.Image(icon_name="object-select-symbolic", visible=False)
+        row.add_suffix(marker)
+        row.connect("activated", lambda _row: self._select_page(key))
+        self.nav_groups[category].add_row(row)
+        self.nav_rows[key], self.nav_markers[key], self.page_groups[key] = row, marker, category
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, vexpand=True,
+                       margin_start=18, margin_end=18, margin_top=18, margin_bottom=18)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_child(body)
+        self.stack.add_named(scroll, key)
+        self.pages[key] = scroll
+        self._page_body = body
+
+    def _category_expanded(self, row, _spec, category):
+        if self._nav_updating or not row.get_expanded():
+            return
+        key = self._active_page if self.page_groups.get(self._active_page) == category else next(
+            key for key, value in self.page_groups.items() if value == category)
+        # Expanding a category reveals its children; choosing a child dismisses
+        # the narrow-window overlay, not merely expanding its parent.
+        self._select_page(key, dismiss_sidebar=False)
+
+    def _select_page(self, key, *, dismiss_sidebar=True):
+        if key not in self.pages:
+            return
+        self._active_page = key
+        self.stack.set_visible_child_name(key)
+        self._nav_updating = True
+        for category, row in self.nav_groups.items():
+            row.set_expanded(category == self.page_groups[key])
+        self._nav_updating = False
+        for name, marker in self.nav_markers.items():
+            marker.set_visible(name == key)
+            self.nav_rows[name].update_property([Gtk.AccessibleProperty.DESCRIPTION],
+                                                ["Current settings page" if name == key else ""])
+        if dismiss_sidebar and self.body.get_collapsed():
+            self.body.set_show_sidebar(False)
+
+    def _prompt_page(self, category, key, title, resource, *, owner=None, field=None):
+        self._page(category, key, title)
+        self._guidance(self._group(title), resource, title, owner=owner, key=field)
+
     def _group(self, title, description=None):
         group = Adw.PreferencesGroup(title=title, description=description)
-        self.body.append(group)
+        self._page_body.append(group)
         return group
 
     def _guidance(self, group, resource, label, *, owner=None, key=None):
         owner = self.editor.resources if owner is None else owner
         key = resource if key is None else key
-        group.add(wrapped(label, margin_top=6, margin_bottom=4))
-        group.add(text_editor(owner[key], lambda text: owner.__setitem__(key, text), label=label))
+        if group.get_title() != label:
+            group.add(wrapped(label, margin_top=6, margin_bottom=4))
+        group.set_vexpand(True)
+        group.add(text_editor(owner[key], lambda text: owner.__setitem__(key, text), label=label, tall=True))
 
     def _policy(self, group, owner, key, title):
         values = POLICIES[key]
@@ -377,40 +516,32 @@ class ProfileEditorWindow(Adw.Window):
         render()
 
     def _recordprep_form(self):
-        self._guidance(self._group("Case naming"), "case_name", "Deriving the case name")
-        group = self._group("Document classification")
-        self._guidance(group, "classification", "Common classification guidance")
-        labels = {"rt": "Reporter transcript pages", "ct": "Clerk transcript pages", "first_hearing": "First page of a hearing",
-                  "first_minute": "First page of a minute order", "first_form": "First page of a form",
+        self._prompt_page("General", "case-name", "Case name", "case_name")
+        self._prompt_page("Classification", "classification", "Common guidance", "classification")
+        labels = {"rt": "Reporter transcript pages", "ct": "Clerk transcript pages", "first_hearing": "Hearing first pages",
+                  "first_minute": "Minute-order first pages", "first_form": "Form first pages",
                   "date_hearing": "Hearing dates", "date_minute": "Minute-order dates"}
         for task, label in labels.items():
-            self._guidance(group, "classification_tasks", label, owner=self.editor.resources["classification_tasks"], key=task)
-        group = self._group("Document naming")
+            self._prompt_page("Classification", task, label, "classification_tasks",
+                              owner=self.editor.resources["classification_tasks"], field=task)
         naming = self.editor.resources["naming"]
-        review = getattr(self.editor, "review_notices", {}).get("naming")
-        if review:
-            group.add(wrapped(review))
-        if self.notice and naming != api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft.resource("naming"):
-            group.add(wrapped("Review your previous naming instructions alongside the title and form rules: custom prose does not automatically change the approved catalog."))
-        self._policy(group, naming, "mode", "Naming rule")
-        self._terms(group, naming, "report_titles", "Approved report titles")
-        self._guidance(group, "naming", "Report naming instructions", owner=naming, key="report_guidance")
-        self._catalog(group, naming["form_rules"], forms=True)
-        self._guidance(group, "naming", "Form naming instructions", owner=naming, key="form_guidance")
-        for kind, singular, title in (("hearings", "hearing", "Hearing summaries"), ("reports", "report", "Report summaries")):
-            group = self._group(title, TOPIC_EXPLANATION)
-            self._catalog(group, self.editor.resources[kind])
-            self._guidance(group, singular + "_extraction", "Reviewing each document")
-            self._guidance(group, singular + "_synthesis", "Writing the summary")
-        group = self._group("Minute-order summaries")
-        self._guidance(group, "minutes", "Writing minute-order summaries")
+        for kind in ("report", "form"):
+            self._prompt_page("Classification", kind + "-naming", kind.capitalize() + " naming instructions",
+                              "naming", owner=naming, field=kind + "_guidance")
+        for kind, singular, title in (("hearings", "hearing", "Hearing"), ("reports", "report", "Report")):
+            self._page("Summaries", kind + "-topics", title + " topics")
+            self._catalog(self._group(title + " topics", TOPIC_EXPLANATION), self.editor.resources[kind])
+            self._prompt_page("Summaries", kind + "-review", title + " review instructions", singular + "_extraction")
+            self._prompt_page("Summaries", kind + "-writing", title + " writing instructions", singular + "_synthesis")
+        self._page("Summaries", "minutes", "Minute orders")
+        group = self._group("Minute orders")
         self._policy(group, self.editor.resources["policies"], "attendance", "Attendance evidence")
-        group = self._group("Participants and witnesses")
+        self._guidance(group, "minutes", "Writing minute-order summaries")
+        self._prompt_page("Participants / Witnesses", "participants", "Identification instructions", "participants")
         for key, title in (("counsel", "Counsel roles"), ("participants", "Participant roles")):
-            group.add(wrapped(title))
-            self._catalog(group, self.editor.resources["roles"][key], roles=True)
-        self._guidance(group, "participants", "Identifying participants and witnesses")
-        self._guidance(self._group("Case overview"), "overview", "Writing the case overview")
+            self._page("Participants / Witnesses", key + "-roles", title)
+            self._catalog(self._group(title), self.editor.resources["roles"][key], roles=True)
+        self._prompt_page("Case Overview", "overview", "Overview instructions", "overview")
 
     def _new(self):
         def open_dialog():
@@ -509,15 +640,6 @@ def editable_profile(snapshot):
             for name in ("classification_tasks", "case_name"):
                 editor.manifest["resources"][name] = general.manifest["resources"][name]
                 editor.resources[name] = general.resource(name)
-        naming = editor.resources["naming"]
-        if "schema_version" not in naming:
-            known = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft.resource("naming")["form_rules"]
-            rules = [copy.deepcopy(rule) for rule in known if rule["name"] in naming["form_titles"]]
-            unresolved = [title for title in naming["form_titles"] if title not in {rule["name"] for rule in rules}]
-            guidance = naming["guidance"]
-            if unresolved:
-                guidance += "\n\nPrevious approved form titles — review their source titles and codes:\n" + "\n".join(unresolved)
-                editor.review_notices = {"naming": "Some historical form titles need their source title and code reviewed. The previous titles are preserved in the instructions below; no rules were invented."}
-            editor.resources["naming"] = {"schema_version": 2, "mode": naming["mode"], "report_titles": naming["report_titles"],
-                                          "form_rules": rules, "report_guidance": naming["guidance"], "form_guidance": guidance}
+        from .document_naming import editable_naming
+        editor.resources["naming"] = editable_naming(editor.resources["naming"])
     return editor

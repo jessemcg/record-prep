@@ -20,6 +20,16 @@ class PrivateCustomizationTests(unittest.TestCase):
                     editor = legacy_customization_editor({key: value})
                     self.assertEqual(editor.resources[SUMMARY_KEYS[key]], base.resource(SUMMARY_KEYS[key]))
 
+    def test_shipped_category_defaults_do_not_become_personal_overrides(self):
+        from recordprep.summary_categories import load_category_descriptions
+        base = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
+        categories = {kind: load_category_descriptions(kind) for kind in ("hearings", "reports")}
+        self.assertEqual(legacy_customization_editor({}, categories=categories).snapshot().ref, base.ref)
+        categories["reports"]["agency_recommendations"] = "Synthetic personal agency guidance."
+        edited = legacy_customization_editor({}, categories=categories).snapshot()
+        self.assertEqual(next(row["guidance"] for row in edited.resource("reports")
+                              if row["id"] == "agency_recommendations"), "Synthetic personal agency guidance.")
+
     def test_allowlist_keeps_raw_text_by_task_and_case_name(self):
         keys = [key for key, _ in TASK_KEYS.values()] + list(SUMMARY_KEYS) + ["case_name_prompt", "summarize_minutes_prompt", "classify_names_report_prompt", "classify_names_form_prompt"]
         config = {key: f"\n  Synthetic personal prose for {key}.\t\n\n" for key in keys}
@@ -44,7 +54,8 @@ class PrivateCustomizationTests(unittest.TestCase):
             for key, resource in SUMMARY_KEYS.items():
                 self.assertEqual(config[key], loaded.resource(resource))
             self.assertEqual(config["case_name_prompt"], loaded.resource("case_name"))
-            self.assertEqual(config["classify_names_report_prompt"], loaded.resource("naming")["report_guidance"])
+            self.assertTrue(loaded.resource("naming")["report_guidance"].endswith(config["classify_names_report_prompt"]))
+            self.assertIn("- **Detention Report**", loaded.resource("naming")["report_guidance"])
             self.assertIn("naming", editor.review_notices)
             self.assertEqual(loaded.resource("hearings")[0]["guidance"], categories["hearings"]["parent_appearances"])
             self.assertEqual(config, before)

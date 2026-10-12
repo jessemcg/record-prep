@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "mode": "source_title",
+  "report_titles": [],
+  "form_rules": [],
+  "report_guidance": "Use the document's source-supported title and date. Prefer a prominent heading identifying the report over incidental mentions. Do not infer a title from a footer alone. Distinguish the report's own date from filing, service, and printing dates. Leave unresolved values empty rather than inventing them.\n",
+  "form_guidance": "Use the form's source-supported title, preferably its prominent heading. A form need not appear in a practice-specific catalog. Do not infer a title from an incidental reference to another document. Leave an unresolved title empty rather than guessing.\n"
+}

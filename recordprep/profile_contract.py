@@ -184,6 +184,19 @@ def _terms(value: Any, location: str) -> None:
         seen.add(term.casefold())
 
 
+def naming_prompt_titles(prompt: str) -> tuple[str, ...]:
+    """Approved names live once, as bold bullets in the editable instructions."""
+    _text(prompt, "naming")
+    names = []
+    for line in prompt.splitlines():
+        if line.startswith("- **"):
+            match = re.fullmatch(r"- \*\*(.+?)\*\*(?: — .*)?", line)
+            _require(match is not None, "invalid_approved_name", "naming")
+            names.append(match[1])
+    _terms(names, "naming")
+    return tuple(names)
+
+
 def _structured(name: str, value: Any) -> None:
     if name in {"hearings", "reports"}:
         _catalog(value, name)
@@ -203,6 +216,12 @@ def _structured(name: str, value: Any) -> None:
                  "unsupported_policy", name)
     elif name == "naming":
         _require(isinstance(value, dict), "invalid_fields", name)
+        if value.get("schema_version") == 3:
+            _object(value, {"schema_version", "report_guidance", "form_guidance"}, name)
+            _require(type(value["schema_version"]) is int, "unsupported_version", name)
+            for field in ("report_guidance", "form_guidance"):
+                naming_prompt_titles(value[field])
+            return
         if "schema_version" not in value:
             # Frozen foundation revisions remain loadable without rewriting
             # accepted snapshots or pretending they required form codes.

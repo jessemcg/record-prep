@@ -26,9 +26,18 @@ RecordPrep creates one concise, versioned, nonauthoritative case-orientation ove
 
 RecordPrep includes **General Court Record** and **California Juvenile Dependency**
 preparation profiles, shipped in `recordprep/resources/practice_profiles/`. Open
-the **Preparation / New case** button to choose one, then **Profile settings…**
-to edit its complete settings in one place and **Save**. Summary topics are editable
-cards beside document-review and summary-writing guidance. **New profile…** asks
+the hamburger menu's profile dropdown and select one directly; the checkmark shows
+the current choice. Its name appears beneath the app title. **Profile settings** opens the complete
+settings in an independent, movable and maximizable window for editing and **Save**.
+Report/form naming each has one instructions editor containing the approved names;
+there is no separate naming mode or duplicate list editor. The approved entries also
+supply Python's name validation. General starts without a practice-specific list;
+add approved names there, or use Dependency's supplied list. Unknown names retain
+provisional document labels. A boxed category list on the left opens the selected
+settings on the right: General, Classification, Summaries, Participants / Witnesses,
+and Case Overview. Each classification prompt has its own tall editor. Summary
+topics, document-review instructions and summary-writing instructions have separate
+pages. At narrow widths, a categories button opens the sidebar as an overlay. **New profile…** asks
 only for a name and starting profile. Personal edits save privately, never into
 installed application files or `config.json`; the public specialties stay tracked
 and useful on every fresh installation.
@@ -49,7 +58,7 @@ approved “Parental” spelling correction.
 Saving does not silently change an existing case. A separate **Use settings /
 Not now** confirmation offers to apply the saved guidance without regenerating
 summaries. Previous Dependency customization is prepared read-only and stored
-only on explicit Save or Use profile, never copied into public definitions.
+only on explicit Save or dropdown selection, never copied into public definitions.
 Maintainers add public specialties using bundled data and a catalog entry, not a
 separate repository or download. Focus owns its corresponding guidance separately.
 See the [GUI guide and contract](docs/practice-profiles.md)
@@ -250,9 +259,10 @@ Tracked PI resources live under `.pi/`:
 
 The four native VTE rows launch one explicitly loaded Agent Skill each in PI's native VTE UI. The two summary stages run headless JSON-mode children instead: one fresh `--no-session` PI process per document for extraction and one per completed JSONL for synthesis, staged with the summary extension and the phase skill only, with an exact custom-tool allowlist and no general tools. The runner captures JSON events but prints only phase, ordinal, event class, PID, elapsed/stall information, and sanitized error codes — never prompts, source text, tool arguments, or model prose. Stall monitoring tracks event activity rather than session growth; stalls warn but are never auto-killed. Stop terminates the active child's process group, escalates after the grace period, releases locks, and leaves the row Pending without starting the next item or synthesis. Each child gets a unique private cache workspace and candidate path removed in `finally`. The runner accepts a structurally valid `needs_review` layout artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Only the final source-map stage updates the manifest (including the `transcript_layout` path). Skills validate outputs before the pipeline advances.
 
-## Settings
+## Model settings
 
-Application Settings includes source extraction, local OCR, production classification/case-name API credentials, workers, PI extraction/synthesis model and reasoning selection, and launch settings. Practice instructions belong on the single Profile settings page, including task-specific classification and case naming. Summary model overrides remain private `summary_extract_pi_*`/`summary_synthesize_pi_*` settings. Minute orders use the PI synthesis selection. The removed sandbox API/window keys and legacy prompt values are not edited or rewritten by the ordinary Settings UI; historical guidance recognition remains available to compatibility loaders. Personal profile Save leaves `config.json` and bundled files unchanged. Numeric entries are validated before saving. The model and reasoning level for all five native PI skill stages (layout detection, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are ignored on read and removed only by an explicit Settings save. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. Retired paragraph-count and sandbox window settings are not reinterpreted by the production pipeline or ordinary Settings UI.
+The general settings menu and window are labeled **Model settings**, distinct from
+**Profile settings**. Model settings includes source extraction, local OCR, production classification/case-name API credentials, workers, PI extraction/synthesis model and reasoning selection, and launch settings. Practice instructions belong on the single Profile settings page, including task-specific classification and case naming. Summary model overrides remain private `summary_extract_pi_*`/`summary_synthesize_pi_*` settings. Minute orders use the PI synthesis selection. The removed sandbox API/window keys and legacy prompt values are not edited or rewritten by the ordinary Settings UI; historical guidance recognition remains available to compatibility loaders. Personal profile Save leaves `config.json` and bundled files unchanged. Numeric entries are validated before saving. The model and reasoning level for all five native PI skill stages (layout detection, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are ignored on read and removed only by an explicit Settings save. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. Retired paragraph-count and sandbox window settings are not reinterpreted by the production pipeline or ordinary Settings UI.
 
 Saved run-until targets migrate as follows:
 

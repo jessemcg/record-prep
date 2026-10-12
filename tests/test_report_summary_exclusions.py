@@ -1,7 +1,7 @@
 """Focused tests for excluding formal proposed findings/orders from report summaries.
 
 Synthetic only: no real case material. These tests exercise the conservative
-marker detector, the per-window scope delimiter/continuation rendering, the
+marker detector, the production complete-document scope delimiter, the
 built-in report-prompt contract, the exact-sentinel skip, and the prompt
 migration for the saved built-in report prompt.
 """
@@ -9,6 +9,7 @@ migration for the saved built-in report prompt.
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from recordprep import summary_agents as _summary_agents
@@ -27,11 +28,18 @@ from recordprep.ui.main_window import (
     ReportProposalMarker,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
-    _render_summary_window_payload,
-    _report_proposal_scope_note,
-    _summary_page_windows,
     load_summarize_settings,
 )
+
+
+def _payload(pages, *, participant_context="", marker=None):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for page, text in pages.items():
+            (root / f"{page:04d}.txt").write_text(text)
+        item = SimpleNamespace(start_page=min(pages), end_page=max(pages),
+                               participant_context=participant_context, proposal_marker=marker)
+        return _summary_agents.item_source_payload(item, root, {page: f"TEST {page}" for page in pages})
 
 
 def _pages(*chunks: str) -> dict[int, str]:
@@ -125,14 +133,7 @@ class ReportProposalScopeRenderingTests(unittest.TestCase):
         marker = _detect_report_proposal_marker(pages, 1, 1)
         self.assertIsNotNone(marker)
 
-        with tempfile.TemporaryDirectory() as temporary:
-            text_dir = Path(temporary) / "text_pages"
-            text_dir.mkdir()
-            (text_dir / "0001.txt").write_text(page_text, encoding="utf-8")
-            windows = _summary_page_windows(text_dir, 1, 1)
-            payload = _render_summary_window_payload(
-                windows[0], {1: "TEST 1"}, report_marker=marker
-            )
+        payload = _payload(pages, marker=marker)
 
         self.assertIn(REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
         # All original text remains, in order, around the delimiter.
@@ -148,56 +149,29 @@ class ReportProposalScopeRenderingTests(unittest.TestCase):
             2: "PROPOSED FINDINGS AND ORDERS",
             3: "Narrative page three.",
         }
-        with tempfile.TemporaryDirectory() as temporary:
-            text_dir = Path(temporary) / "text_pages"
-            text_dir.mkdir()
-            for number, text in pages.items():
-                (text_dir / f"{number:04d}.txt").write_text(text, encoding="utf-8")
-            marker = _detect_report_proposal_marker(pages, 1, 3)
-            windows = _summary_page_windows(text_dir, 1, 3, max_pages=2)
-            primary = [p for w in windows for p in w["primary_pages"]]
-            payloads = [
-                _render_summary_window_payload(w, {}, report_marker=marker)
-                for w in windows
-            ]
-
-        # Every primary page is summarized exactly once, in order.
-        self.assertEqual(primary, [1, 2, 3])
-        joined = "\n".join(payloads)
+        marker = _detect_report_proposal_marker(pages, 1, 3)
+        joined = _payload(pages, marker=marker)
+        for page in pages:
+            self.assertEqual(joined.count(f"source page {page:04d}]"), 1)
         # The scope delimiter (and thus the marker page insertion) appears once.
         self.assertEqual(joined.count(REPORT_PROPOSAL_SCOPE_DELIMITER.strip()), 1)
         # All source text remains present.
         for text in pages.values():
             self.assertIn(text, joined, text)
 
-    def test_later_windows_get_continuation_context(self) -> None:
-        pages = {
-            1: "Narrative page one.",
-            2: "PROPOSED FINDINGS AND ORDERS",
-            3: "More proposed material.",
-        }
+    def test_complete_document_has_one_delimiter_and_no_window_context(self) -> None:
+        pages = {1: "Narrative page one.", 2: "PROPOSED FINDINGS AND ORDERS", 3: "More proposed material."}
         marker = _detect_report_proposal_marker(pages, 1, 3)
-        self.assertIsNotNone(marker)
-        window_after = {"primary_pages": [3], "page_text": pages, "context_page": 2}
-        note = _report_proposal_scope_note(window_after, marker)
-        self.assertIn("may still be continuing", note)
-        self.assertIn("clearly separate factual narrative", note)
+        payload = _payload(pages, marker=marker)
+        self.assertEqual(payload.count(REPORT_PROPOSAL_SCOPE_DELIMITER.strip()), 1)
+        self.assertIn(pages[3], payload)
+        self.assertNotIn("OPTIONAL PRECEDING CONTEXT", payload)
 
-    def test_marker_page_window_gets_delimiter_note(self) -> None:
-        pages = {1: "PROPOSED FINDINGS AND ORDERS"}
-        marker = _detect_report_proposal_marker(pages, 1, 1)
-        self.assertIsNotNone(marker)
-        window = {"primary_pages": [1], "page_text": pages}
-        note = _report_proposal_scope_note(window, marker)
-        self.assertIn("scope delimiter", note)
-        self.assertIn("precedes the delimiter", note)
-
-    def test_no_scope_note_without_marker(self) -> None:
-        pages = {1: "plain narrative"}
-        self.assertEqual(_report_proposal_scope_note({"primary_pages": [1], "page_text": pages}, None), "")
+    def test_no_delimiter_without_marker(self) -> None:
+        self.assertNotIn(REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), _payload({1: "plain narrative"}))
 
 
-class ReportPromptContractTests(unittest.TestCase):
+class HistoricalReportPromptContractTests(unittest.TestCase):
     def test_new_prompt_explains_scope_label_and_sentinel(self) -> None:
         self.assertIn(REPORT_PROPOSAL_SCOPE_HEADING, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
         self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
@@ -333,11 +307,11 @@ class ReportPromptContractTests(unittest.TestCase):
             "page_text": {1: "Narrative page one."},
             "context_page": None,
         }
-        payload = _render_summary_window_payload(window, {1: "TEST 1"})
+        payload = _payload(window["page_text"])
         self.assertIn("Narrative page one.", payload)
         self.assertNotIn("LENGTH GUIDANCE", payload)
         self.assertIn(
-            "PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION",
+            "COMPLETE SOURCE PAGES 0001-0001",
             payload,
         )
 
@@ -347,12 +321,8 @@ class ReportPromptContractTests(unittest.TestCase):
             "page_text": {1: "Hearing page one."},
             "context_page": None,
         }
-        hearing_payload = _render_summary_window_payload(
-            window,
-            {1: "TEST 1"},
-            participant_context="Counsel: Mother’s counsel — Jane Smith",
-        )
-        minute_payload = _render_summary_window_payload(window, {1: "TEST 1"})
+        hearing_payload = _payload(window["page_text"], participant_context="Counsel: Mother’s counsel — Synthetic Counsel")
+        minute_payload = _payload(window["page_text"])
 
         for payload in (hearing_payload, minute_payload):
             self.assertNotIn("LENGTH GUIDANCE", payload)
@@ -370,11 +340,7 @@ class ReportPromptContractTests(unittest.TestCase):
             "page_text": pages,
             "context_page": None,
         }
-        payload = _render_summary_window_payload(
-            window,
-            {1: "TEST 1"},
-            report_marker=marker,
-        )
+        payload = _payload(pages, marker=marker)
         self.assertIn(REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
         self.assertIn(NO_SUMMARIZABLE_REPORT_CONTENT, DEFAULT_SUMMARIZE_REPORTS_PROMPT)
 

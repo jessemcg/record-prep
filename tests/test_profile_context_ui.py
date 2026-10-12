@@ -22,9 +22,11 @@ class ProfileContextTests(unittest.TestCase):
                 button.set_label.assert_called_with("Preparation: unavailable")
                 description = ui.context_description(root)
                 self.assertIn("Selected instructions unavailable", description)
-                self.assertIn("Last published preparation: Legacy / unassigned", description)
+                self.assertNotIn("SHA", description)
+                self.assertIn("Browsing", description)
                 store.return_value.load_profile_snapshot.side_effect = None
                 store.return_value.load_profile_snapshot.return_value = profile
+                store.return_value.read_registry.return_value = {"heads": {}, "accepted": [], "default": None}
                 ui.update_indicator(window)
                 button.set_label.assert_called_with("Preparation: General Court Record")
                 self.assertEqual(list(root.iterdir()), [])

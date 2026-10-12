@@ -65,7 +65,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(other_snapshot.ref.specialty_id, editor.snapshot().ref.specialty_id)
         self.assertEqual(other_snapshot.ref.application, other)
         self.assertNotEqual(other_snapshot.ref.content_sha256, editor.snapshot().ref.content_sha256)
-        self.assertEqual(set(counterpart.resources), set(contract.RESOURCE_TYPES[other]))
+        self.assertEqual(set(counterpart.resources), set(other_base.manifest["resources"]))
         for name in counterpart.resources:
             self.assertEqual(counterpart.resources[name], other_base.resource(name))
         self.assertEqual(self.store.read_registry()["accepted"], [])
@@ -132,12 +132,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(api.accept_new_context_default(store=self.store), custom)
         self.assertEqual(self.store.load_profile_snapshot(ref).ref, self.base.ref)
 
-    def test_new_context_default_requires_review_of_same_identity_conflict(self):
+    def test_new_context_default_uses_personal_general_settings(self):
         editor = workflows.ProfileEditor(self.base)
         editor.manifest["description"] = "Explicitly accepted local revision."
         ref = editor.save(self.store, self.root / "local", expected_head=None)
-        with self.assertRaisesRegex(contract.ProfileError, "review_default_revision_first"):
-            api.accept_new_context_default(store=self.store)
+        self.assertEqual(api.accept_new_context_default(store=self.store), ref)
         self.assertEqual(self.store.read_registry()["heads"][ref.specialty_id], ref.content_sha256)
 
     def test_missing_default_snapshot_never_substitutes_general(self):

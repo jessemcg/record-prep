@@ -1,0 +1,1 @@
+Derive the case name from the source-supported caption on the first three pages. Preserve the parties and caption as shown; replace spaces with underscores for a readable file name. Do not infer a specialty, invent names or substitute a parent folder's name. If the caption is unresolved, leave the result empty.

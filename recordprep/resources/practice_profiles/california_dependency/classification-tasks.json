@@ -1,0 +1,9 @@
+{
+  "rt": "Recognize juvenile dependency hearings from the court calling the matter, appearances, testimony and colloquy. Reporter covers and witness or proceeding indexes are not hearing dialogue.",
+  "ct": "Recognize dependency minute orders, child-welfare agency reports, evaluations and juvenile court forms, including petitions and JV forms. A report's proposed findings or attached forms do not make its narrative a minute order; rely on document structure.",
+  "first_hearing": "Look for the court calling the juvenile matter and announcing appearances for parents, child, agency and other participants. Do not infer a new hearing from a stage label or page number alone.",
+  "first_minute": "Use the dependency minute-order heading, hearing date and Page 1 indicators. Attached findings and continued pages belong to the same order unless the record establishes a new order.",
+  "first_form": "Recognize the start of a juvenile petition or other court form from its title, form code and first-page indicators. Do not treat every page containing a JV code as a new form.",
+  "date_hearing": "Extract the date of the dependency hearing from its opening page, usually near the top. Distinguish it from reporter certification and footer dates.",
+  "date_minute": "Extract the date of the dependency hearing or judicial minute order from the first page, not a later filing stamp or attached report's date. Preserve uncertainty if the proceeding date is unresolved."
+}

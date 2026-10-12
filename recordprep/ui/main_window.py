@@ -97,7 +97,7 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
     DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
     # Historical direct-API extraction prompts: still the live defaults of
-    # the legacy "Test prompts" sandbox; frozen historical texts for PI
+    # compatibility loaders; frozen historical texts for PI
     # guidance migration.
     DEFAULT_SUMMARIZE_HEARINGS_PROMPT,
     DEFAULT_SUMMARIZE_REPORTS_PROMPT,
@@ -118,8 +118,6 @@ from recordprep.summary_agents import (  # noqa: F401 — compatibility aliases
     _participant_role_label,
     _detect_report_proposal_marker,
     _insert_report_proposal_delimiter,
-    _report_proposal_scope_note,
-    _summary_page_windows,
 )
 from recordprep.pi_runtime import (
     DEFAULT_PI_AGENT_COMMAND,
@@ -259,10 +257,7 @@ SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = 
         "classify",
         "Classify",
         (
-            ("classify-basic", "Basic"),
-            ("classify-advanced", "Advanced"),
-            ("classify-dates", "Dates"),
-            ("classify-names", "Names"),
+            ("classify-basic", "Vision API"),
         ),
     ),
     (
@@ -274,34 +269,6 @@ SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = 
         "agent",
         "Agent",
         (("pi", "PI"),),
-    ),
-)
-TEST_PROMPT_GROUPS: tuple[
-    tuple[str, str, tuple[tuple[str, str], ...]], ...
-] = (
-    (
-        "classification",
-        "Classification",
-        (
-            ("basic_rt", "Basic — RT"),
-            ("basic_ct", "Basic — CT"),
-            ("advanced_hearing", "Advanced — Hearing"),
-            ("advanced_minute", "Advanced — Minute order"),
-            ("advanced_form", "Advanced — Form"),
-            ("dates_hearing", "Dates — Hearing"),
-            ("dates_minute", "Dates — Minute order"),
-            ("names_report", "Names — Report"),
-            ("names_form", "Names — Form"),
-        ),
-    ),
-    (
-        "summarize",
-        "Summarize",
-        (
-            ("summarize_hearings", "Hearings"),
-            ("summarize_reports", "Reports"),
-            ("summarize_minutes", "Minute orders"),
-        ),
     ),
 )
 MODEL_ID = "LightOnOCR-2-1B-Q8_0.gguf"
@@ -401,20 +368,6 @@ def _settings_destination_keys() -> tuple[str, ...]:
         for _group_id, _title, destinations in SETTINGS_NAV_GROUPS
         for key, _label in destinations
     )
-
-
-def _test_prompt_options(group_id: str) -> tuple[tuple[str, str], ...]:
-    for candidate_id, _label, options in TEST_PROMPT_GROUPS:
-        if candidate_id == group_id:
-            return options
-    return ()
-
-
-def _test_prompt_input_kind(mode_id: str) -> str:
-    classification_modes = {
-        value for value, _label in TEST_PROMPT_GROUPS[0][2]
-    }
-    return "image" if mode_id in classification_modes else "text"
 
 
 def _log_startup(message: str) -> None:
@@ -705,18 +658,6 @@ DEFAULT_CASE_NAME_PROMPT = (
     "If unknown, use an empty string."
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = _minute_summaries.DEFAULT_MINUTES_PROMPT
-SUMMARY_WINDOW_CATEGORIES = ("hearings", "reports", "minutes")
-SUMMARY_TEST_MODE_CATEGORIES = {
-    "summarize_hearings": "hearings",
-    "summarize_reports": "reports",
-    "summarize_minutes": "minutes",
-}
-MINUTE_SUMMARY_WINDOW_GUIDANCE = (
-    "\n\nThe user message labels any preceding page as optional context only and labels "
-    "the pages to summarize as primary source pages. Do not summarize the optional "
-    "preceding context page again. Summarize every material detail in the primary pages "
-    "and return one concise prose paragraph only."
-)
 DEFAULT_DISABLE_REASONING = False
 
 
@@ -1374,22 +1315,6 @@ def _collapse_blank_lines(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
 
 
-def _append_summary_paragraph(lines: list[str], paragraph: str) -> None:
-    """Append one normalized paragraph with a deterministic blank-line separator."""
-    normalized = " ".join(paragraph.split()).strip()
-    if not normalized:
-        return
-    if lines and lines[-1]:
-        lines.append("")
-    lines.extend((normalized, ""))
-
-
-
-
-
-
-
-
 def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
     """Remove only obsolete, reproducible artifacts in the selected bundle."""
     candidates = (
@@ -1415,103 +1340,6 @@ def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
             path.unlink()
         removed.append(path.relative_to(root).as_posix())
     return removed
-
-
-def _summary_window_limits(settings: dict[str, Any], category: str) -> tuple[int, int]:
-    """Return (target_chars, max_pages) for one summary category."""
-    if category not in SUMMARY_WINDOW_CATEGORIES:
-        raise ValueError(f"Unknown summary window category: {category}")
-    default_targets = {
-        "hearings": DEFAULT_SUMMARIZE_HEARINGS_WINDOW_TARGET_CHARS,
-        "reports": DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS,
-        "minutes": DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
-    }
-    default_pages = {
-        "hearings": DEFAULT_SUMMARIZE_HEARINGS_WINDOW_MAX_PAGES,
-        "reports": DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES,
-        "minutes": DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
-    }
-    target_chars = default_targets[category]
-    max_pages = default_pages[category]
-    try:
-        target_chars = max(1, int(settings.get(f"{category}_target_chars") or target_chars))
-    except (TypeError, ValueError):
-        pass
-    try:
-        max_pages = max(1, int(settings.get(f"{category}_max_pages") or max_pages))
-    except (TypeError, ValueError):
-        pass
-    # Character targets normalize to the primary-source safety ceiling; the
-    # page-intact algorithm keeps one oversized source page intact regardless.
-    target_chars = min(target_chars, DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS)
-    return target_chars, max_pages
-
-
-def _validate_summarize_window_rows(**rows: Any) -> tuple[Any, str] | None:
-    """Validate summary-window entry rows before persisting.
-
-    Returns ``(row, detail)`` for the first invalid entry so the caller can
-    surface an actionable message and keep the Settings window open, or None
-    when every entry is usable. Row subtitles are reset first so a corrected
-    value clears a previous error.
-    """
-    positive_invalid = "Enter a positive whole number."
-    for row in rows.values():
-        if hasattr(row, "set_subtitle"):
-            row.set_subtitle("")
-    for row in rows.values():
-        raw = row.get_text().strip()
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return row, positive_invalid
-        if value < 1:
-            return row, positive_invalid
-    return None
-
-
-def _render_summary_window_payload(
-    window: dict[str, Any],
-    citation_by_page: dict[int, str],
-    *,
-    participant_context: str = "",
-    report_marker: ReportProposalMarker | None = None,
-) -> str:
-    page_text = window["page_text"]
-    sections: list[str] = []
-    if participant_context:
-        sections.extend([
-            "PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY",
-            participant_context,
-            "",
-        ])
-    context_page = window.get("context_page")
-    if isinstance(context_page, int):
-        citation = citation_by_page.get(context_page, "")
-        sections.extend([
-            f"OPTIONAL PRECEDING CONTEXT PAGE — DO NOT SUMMARIZE "
-            f"[{citation or f'file page {context_page}'}]",
-            page_text[context_page].strip(),
-            "",
-        ])
-    scope_note = _report_proposal_scope_note(window, report_marker)
-    if scope_note:
-        sections.extend([
-            REPORT_PROPOSAL_SCOPE_HEADING,
-            scope_note,
-            "",
-        ])
-    sections.append(
-        "PRIMARY SOURCE PAGES — READ EVERY PAGE; RETAIN THE MATERIAL INFORMATION"
-    )
-    for number in window["primary_pages"]:
-        citation = citation_by_page.get(number, "")
-        sections.append(f"[{citation or f'file page {number}'} | source text_pages/{number:04d}.txt]")
-        text = page_text[number]
-        if report_marker is not None and number == report_marker.source_page:
-            text = _insert_report_proposal_delimiter(text, report_marker.offset)
-        sections.append(text.strip())
-    return "\n".join(sections).strip()
 
 
 def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
@@ -3233,25 +3061,11 @@ class ClassifySettingsWidgets:
     api_url_row: Adw.EntryRow
     model_row: Adw.EntryRow
     api_key_row: Adw.EntryRow
-    prompt_buffer: Gtk.TextBuffer
-    ct_prompt_buffer: Gtk.TextBuffer | None = None
     disable_reasoning_switch: Gtk.Switch | None = None
     workers_row: Adw.EntryRow | None = None
     local_server_switch: Gtk.Switch | None = None
     local_start_command_buffer: Gtk.TextBuffer | None = None
     disable_reasoning_row: Adw.SwitchRow | None = None
-
-
-@dataclass
-class ClassifyDatesSettingsWidgets:
-    hearing_prompt_buffer: Gtk.TextBuffer
-    minute_prompt_buffer: Gtk.TextBuffer
-
-
-@dataclass
-class ClassifyNamesSettingsWidgets:
-    report_prompt_buffer: Gtk.TextBuffer
-    form_prompt_buffer: Gtk.TextBuffer
 
 
 @dataclass
@@ -3264,35 +3078,11 @@ class LocalOcrSettingsWidgets:
 
 
 @dataclass
-class AdvancedClassificationSettingsWidgets:
-    hearing_prompt_buffer: Gtk.TextBuffer
-    minute_prompt_buffer: Gtk.TextBuffer
-    form_prompt_buffer: Gtk.TextBuffer
-
-
-
-
-@dataclass
 class SummarizeSettingsWidgets:
-    api_url_row: Adw.EntryRow
-    model_row: Adw.EntryRow
-    api_key_row: Adw.EntryRow
-    disable_reasoning_row: Adw.SwitchRow
-    minutes_target_chars_row: Adw.EntryRow
-    minutes_max_pages_row: Adw.EntryRow
-    hearings_prompt_buffer: Gtk.TextBuffer
-    reports_prompt_buffer: Gtk.TextBuffer
-    minutes_prompt_buffer: Gtk.TextBuffer
     extract_model_row: Adw.ComboRow
     extract_thinking_row: Adw.ComboRow
     synthesize_model_row: Adw.ComboRow
     synthesize_thinking_row: Adw.ComboRow
-    hearings_synthesis_prompt_buffer: Gtk.TextBuffer
-    reports_synthesis_prompt_buffer: Gtk.TextBuffer
-
-
-
-
 
 
 @dataclass
@@ -3301,8 +3091,10 @@ class AgentSettingsWidgets:
     pi_thinking_level_row: Adw.ComboRow
 
 
-
-
+def load_summary_model_settings() -> dict[str, Any]:
+    config = _read_config()
+    return {f"{phase}_{field}": str(config.get(f"summary_{phase}_pi_{field}", "") or "").strip()
+            for phase in ("extract", "synthesize") for field in ("provider", "model", "thinking")}
 
 
 def load_summarize_settings() -> dict[str, Any]:
@@ -3511,9 +3303,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.set_resizable(True)
         self._on_saved = on_saved
         self._prompt_editors: dict[str, ClassifySettingsWidgets] = {}
-        self._classify_dates_widgets: ClassifyDatesSettingsWidgets | None = None
-        self._classify_names_widgets: ClassifyNamesSettingsWidgets | None = None
-        self._advanced_classify_widgets: AdvancedClassificationSettingsWidgets | None = None
         self._local_ocr_widgets: LocalOcrSettingsWidgets | None = None
         self._settings_group_rows: dict[str, Adw.ExpanderRow] = {}
         self._settings_group_destinations: dict[str, tuple[str, ...]] = {}
@@ -3573,7 +3362,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         if self._on_profiles is not None:
             profiles_button = Gtk.Button(label="Practice Profiles…")
             profiles_button.add_css_class("flat")
-            profiles_button.set_tooltip_text("Classification and summary prompts below are legacy guidance. Edit assigned profile guidance here; runtime and case-name settings remain separate.")
+            profiles_button.set_tooltip_text("Edit practice guidance in Profile settings.")
             profiles_button.connect("clicked", lambda _button: self._on_profiles(self))
             header.pack_start(profiles_button)
         save_btn = Gtk.Button(label="Save")
@@ -3588,8 +3377,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         box.set_margin_bottom(12)
         box.set_margin_start(18)
         box.set_margin_end(18)
-        box.append(Gtk.Label(label="Classification and summary prompt editors below apply to legacy/unassigned cases. "
-                             "For assigned profiles, use Practice Profiles. Runtime and case-name settings remain separate.",
+        box.append(Gtk.Label(label="Practice guidance is edited in Profile settings. API credentials, models and machine settings stay here.",
                              wrap=True, xalign=0))
 
         split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -3657,20 +3445,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         prompt_stack.add_named(classify_page, "classify-basic")
 
-        self._add_settings_destination("classify", "classify-advanced", "Advanced")
-        classify_advanced_page = self._build_advanced_classify_prompt_page()
-        prompt_stack.add_named(classify_advanced_page, "classify-advanced")
-
-        self._add_settings_destination("classify", "classify-dates", "Dates")
-        classify_dates_page = self._build_classify_dates_prompt_page()
-        prompt_stack.add_named(classify_dates_page, "classify-dates")
-
-        self._add_settings_destination("classify", "classify-names", "Names")
-        classify_names_page = self._build_classify_names_prompt_page()
-        prompt_stack.add_named(classify_names_page, "classify-names")
-
         self._add_settings_destination("summarize", "summarize", "Summarize")
-        summarize_page = self._build_summarize_prompt_page(load_summarize_settings())
+        summarize_page = self._build_summarize_prompt_page(load_summary_model_settings())
         prompt_stack.add_named(summarize_page, "summarize")
 
         self._add_settings_destination("agent", "pi", "PI")
@@ -3956,39 +3732,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 )
             )
 
-        buffer: Gtk.TextBuffer
-        ct_buffer: Gtk.TextBuffer | None = None
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-        if is_classify_basic:
-            rt_label = Gtk.Label(label="Reporter transcript prompt", xalign=0)
-            rt_label.add_css_class("dim-label")
-            prompt_section.append(rt_label)
-            prompt_scroller, buffer = self._build_prompt_editor(
-                settings.get("rt_prompt") or default_prompt
-            )
-            self._set_prompt_editor_height(prompt_scroller, 280)
-            prompt_section.append(prompt_scroller)
-
-            ct_label = Gtk.Label(label="Clerk transcript prompt", xalign=0)
-            ct_label.add_css_class("dim-label")
-            prompt_section.append(ct_label)
-            ct_scroller, ct_buffer = self._build_prompt_editor(
-                settings.get("ct_prompt") or default_prompt
-            )
-            self._set_prompt_editor_height(ct_scroller, 280)
-            prompt_section.append(ct_scroller)
-        else:
-            prompt_label = Gtk.Label(label="Prompt", xalign=0)
-            prompt_label.add_css_class("dim-label")
-            prompt_section.append(prompt_label)
-            prompt_scroller, buffer = self._build_prompt_editor(
-                settings.get("prompt") or default_prompt
-            )
-            self._set_prompt_editor_height(prompt_scroller, 320)
-            prompt_section.append(prompt_scroller)
-        page_box.append(self._build_disclosure("Prompts", prompt_section))
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4000,8 +3743,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_url_row=api_url_row,
             model_row=model_row,
             api_key_row=api_key_row,
-            prompt_buffer=buffer,
-            ct_prompt_buffer=ct_buffer,
             disable_reasoning_switch=disable_reasoning_switch,
             workers_row=workers_row,
             local_server_switch=local_server_switch,
@@ -4009,183 +3750,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             disable_reasoning_row=disable_reasoning_row,
         )
         return page
-
-    def _build_advanced_classify_prompt_page(self) -> Gtk.Widget:
-        settings = load_advanced_classify_settings()
-
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Classification advanced", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        info_label = Gtk.Label(
-            label="Uses Classification basic vision model credentials.",
-            xalign=0,
-        )
-        info_label.add_css_class("dim-label")
-        page_box.append(info_label)
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-
-        hearing_scroller, hearing_buffer = self._build_prompt_editor(
-            settings.get("hearing_prompt") or DEFAULT_ADVANCED_HEARING_PROMPT
-        )
-        self._set_prompt_editor_height(hearing_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure(
-                "Hearing first page prompt", hearing_scroller, expanded=True
-            )
-        )
-
-        minute_scroller, minute_buffer = self._build_prompt_editor(
-            settings.get("minute_prompt") or DEFAULT_ADVANCED_MINUTE_PROMPT
-        )
-        self._set_prompt_editor_height(minute_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Minute order first page prompt", minute_scroller)
-        )
-
-        forms_scroller, forms_buffer = self._build_prompt_editor(
-            settings.get("form_prompt") or DEFAULT_ADVANCED_FORM_PROMPT
-        )
-        self._set_prompt_editor_height(forms_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Form first page prompt", forms_scroller)
-        )
-
-        page_box.append(prompt_section)
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._advanced_classify_widgets = AdvancedClassificationSettingsWidgets(
-            hearing_prompt_buffer=hearing_buffer,
-            minute_prompt_buffer=minute_buffer,
-            form_prompt_buffer=forms_buffer,
-        )
-        return page
-
-    def _build_classify_dates_prompt_page(self) -> Gtk.Widget:
-        settings = load_classify_dates_settings()
-
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Classification dates", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        info_label = Gtk.Label(
-            label="Uses Classification basic vision model credentials.",
-            xalign=0,
-        )
-        info_label.add_css_class("dim-label")
-        page_box.append(info_label)
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-
-        hearing_scroller, hearing_buffer = self._build_prompt_editor(
-            settings.get("hearing_prompt") or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT
-        )
-        self._set_prompt_editor_height(hearing_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Hearing date prompt", hearing_scroller, expanded=True)
-        )
-
-        minute_scroller, minute_buffer = self._build_prompt_editor(
-            settings.get("minute_prompt") or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT
-        )
-        self._set_prompt_editor_height(minute_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure("Minute order date prompt", minute_scroller)
-        )
-
-        page_box.append(prompt_section)
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._classify_dates_widgets = ClassifyDatesSettingsWidgets(
-            hearing_prompt_buffer=hearing_buffer,
-            minute_prompt_buffer=minute_buffer,
-        )
-        return page
-
-    def _build_classify_names_prompt_page(self) -> Gtk.Widget:
-        settings = load_classify_names_settings()
-
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Classification names", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        info_label = Gtk.Label(
-            label="Uses Classification basic vision model credentials.",
-            xalign=0,
-        )
-        info_label.add_css_class("dim-label")
-        page_box.append(info_label)
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-
-        reports_scroller, reports_buffer = self._build_prompt_editor(
-            settings.get("report_prompt") or DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT
-        )
-        self._set_prompt_editor_height(reports_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure(
-                "Report name and date prompt", reports_scroller, expanded=True
-            )
-        )
-
-        forms_scroller, forms_buffer = self._build_prompt_editor(
-            settings.get("form_prompt") or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT
-        )
-        self._set_prompt_editor_height(forms_scroller, 240)
-        prompt_section.append(self._build_disclosure("Form name prompt", forms_scroller))
-
-        page_box.append(prompt_section)
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._classify_names_widgets = ClassifyNamesSettingsWidgets(
-            report_prompt_buffer=reports_buffer,
-            form_prompt_buffer=forms_buffer,
-        )
-        return page
-
 
     def _build_summarize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -4273,136 +3837,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         synthesize_group.add(minute_note)
 
-        # Keep legacy credentials editable for the prompt-testing sandbox only.
-        minute_group = Adw.PreferencesGroup(
-            title="Prompt-test sandbox API",
-            description=(
-                "Legacy direct-API experiments only; none of these settings affect "
-                "the hearing, report, or minute-order pipeline."
-            ),
-        )
-        minute_group.add_css_class("list-stack")
-        minute_group.set_hexpand(True)
-        page_box.append(self._build_disclosure("Prompt-test sandbox (not the pipeline)", minute_group))
-
-        def _window_row(title: str, key: str, default_value: int) -> Adw.EntryRow:
-            row = Adw.EntryRow(title=title)
-            row.set_text(settings.get(key, str(default_value)))
-            minute_group.add(row)
-            return row
-
-        api_url_row = Adw.EntryRow(title="Sandbox API URL")
-        api_url_row.set_text(settings.get("api_url", ""))
-        minute_group.add(api_url_row)
-
-        model_row = Adw.EntryRow(title="Sandbox model ID")
-        model_row.set_text(settings.get("model_id", ""))
-        minute_group.add(model_row)
-
-        api_key_row = self._build_password_row("Sandbox API key")
-        api_key_row.set_text(settings.get("api_key", ""))
-        minute_group.add(api_key_row)
-
-        disable_reasoning_row = Adw.SwitchRow(
-            title="Disable reasoning",
-            subtitle="Leave off to use the model's default behavior.",
-        )
-        disable_reasoning_row.set_active(
-            bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
-        )
-        minute_group.add(disable_reasoning_row)
-
-        minutes_target_chars_row = _window_row(
-            "Sandbox minute-order window target (source characters)",
-            "minutes_target_chars",
-            DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS,
-        )
-        minutes_max_pages_row = _window_row(
-            "Sandbox minute-order maximum pages per window",
-            "minutes_max_pages",
-            DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES,
-        )
-
-        prompt_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        prompt_section.set_hexpand(True)
-        prompt_section.set_vexpand(True)
-
-        # Category guidance is a tracked, file-based resource; Settings only
-        # discloses it read-only. Editing remains file-based.
-        prompt_section.append(
-            self._build_category_guidance_disclosure()
-        )
-
-        def _custom_prompt_subtitle(kind_label: str, phase: str) -> str:
-            return (
-                f"Custom additional {phase} guidance for {kind_label} summaries "
-                "(subordinate to the immutable built-in contract). Empty uses "
-                "the built-in contract only."
-            )
-
-        hearings_scroller, hearings_buffer = self._build_prompt_editor(
-            settings.get("hearings_prompt") or ""
-        )
-        self._set_prompt_editor_height(hearings_scroller, 240)
-        hearings_disclosure = self._build_disclosure(
-            "Hearing extraction custom guidance", hearings_scroller
-        )
-        hearings_disclosure.set_subtitle(_custom_prompt_subtitle("hearing", "extraction"))
-        prompt_section.append(hearings_disclosure)
-
-        reports_scroller, reports_buffer = self._build_prompt_editor(
-            settings.get("reports_prompt") or ""
-        )
-        self._set_prompt_editor_height(reports_scroller, 240)
-        reports_disclosure = self._build_disclosure(
-            "Report extraction custom guidance", reports_scroller
-        )
-        reports_disclosure.set_subtitle(_custom_prompt_subtitle("report", "extraction"))
-        prompt_section.append(reports_disclosure)
-
-        hearings_synthesis_scroller, hearings_synthesis_buffer = self._build_prompt_editor(
-            settings.get("hearings_synthesis_prompt") or ""
-        )
-        self._set_prompt_editor_height(hearings_synthesis_scroller, 240)
-        hearings_synthesis_disclosure = self._build_disclosure(
-            "Hearing synthesis custom guidance", hearings_synthesis_scroller
-        )
-        hearings_synthesis_disclosure.set_subtitle(
-            _custom_prompt_subtitle("hearing", "synthesis")
-        )
-        prompt_section.append(hearings_synthesis_disclosure)
-
-        reports_synthesis_scroller, reports_synthesis_buffer = self._build_prompt_editor(
-            settings.get("reports_synthesis_prompt") or ""
-        )
-        self._set_prompt_editor_height(reports_synthesis_scroller, 240)
-        reports_synthesis_disclosure = self._build_disclosure(
-            "Report synthesis custom guidance", reports_synthesis_scroller
-        )
-        reports_synthesis_disclosure.set_subtitle(
-            _custom_prompt_subtitle("report", "synthesis")
-        )
-        prompt_section.append(reports_synthesis_disclosure)
-
-        minutes_scroller, minutes_buffer = self._build_prompt_editor(
-            settings.get("minutes_prompt") or DEFAULT_SUMMARIZE_MINUTES_PROMPT
-        )
-        self._set_prompt_editor_height(minutes_scroller, 240)
-        prompt_section.append(
-            self._build_disclosure(
-                "Minute orders guidance", minutes_scroller,
-                subtitle="The first-page parent-appearance rules always apply; custom guidance cannot override them.",
-            )
-        )
-
-        page_box.append(
-            self._build_disclosure(
-                "Prompts",
-                prompt_section,
-                subtitle="Extraction, synthesis, and minute orders",
-            )
-        )
-
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         page.set_hexpand(True)
@@ -4410,21 +3844,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         page.set_child(page_box)
 
         self._summarize_widgets = SummarizeSettingsWidgets(
-            api_url_row=api_url_row,
-            model_row=model_row,
-            api_key_row=api_key_row,
-            disable_reasoning_row=disable_reasoning_row,
-            minutes_target_chars_row=minutes_target_chars_row,
-            minutes_max_pages_row=minutes_max_pages_row,
-            hearings_prompt_buffer=hearings_buffer,
-            reports_prompt_buffer=reports_buffer,
-            minutes_prompt_buffer=minutes_buffer,
             extract_model_row=extract_model_row,
             extract_thinking_row=extract_thinking_row,
             synthesize_model_row=synthesize_model_row,
             synthesize_thinking_row=synthesize_thinking_row,
-            hearings_synthesis_prompt_buffer=hearings_synthesis_buffer,
-            reports_synthesis_prompt_buffer=reports_synthesis_buffer,
         )
         self._refresh_summary_model_rows()
         return page
@@ -4866,65 +4289,9 @@ class SettingsWindow(Adw.ApplicationWindow):
             row.add_row(child)
         return row
 
-    def _build_category_guidance_disclosure(self) -> Adw.ExpanderRow:
-        """Read-only disclosure of the effective category-guidance resources.
-
-        Category guidance lives in tracked Markdown files; Settings never
-        saves these files — editing remains file-based.
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        paths = _summary_agents.summary_category_resource_paths()
-        for kind in _summary_agents.SUMMARY_KINDS:
-            path = paths[kind]
-            header = Gtk.Label(
-                label=f"{kind.capitalize()} — {path}", xalign=0.0
-            )
-            header.add_css_class("heading")
-            header.set_ellipsize(3)
-            box.append(header)
-            try:
-                definitions = _summary_agents.summary_category_definitions(
-                    kind, reload=True
-                )
-            except Exception as exc:  # noqa: BLE001 — disclosure stays read-only
-                error_label = Gtk.Label(label=f"Resource error: {exc}", xalign=0.0)
-                error_label.set_wrap(True)
-                error_label.add_css_class("error")
-                box.append(error_label)
-                continue
-            for definition in definitions:
-                text = (
-                    f"{definition.identifier} — {definition.title}\n"
-                    f"{definition.guidance}"
-                )
-                label = Gtk.Label(label=text, xalign=0.0)
-                label.set_wrap(True)
-                label.set_selectable(True)
-                box.append(label)
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
-        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_child(box)
-        scroller.set_max_content_height(320)
-        scroller.set_max_content_width(720)
-        scroller.set_propagate_natural_height(True)
-        return self._build_disclosure(
-            "Category guidance (tracked files)",
-            scroller,
-            subtitle=(
-                "Effective per-category extraction guidance loaded from tracked "
-                "repository files. Read-only here — edit the files directly; "
-                "changes take effect the next time a summary stage runs."
-            ),
-        )
-
     def _save_settings(self) -> None:
         case_widgets = self._prompt_editors.get("case-name")
         classify_basic_widgets = self._prompt_editors.get("classify-basic")
-        advanced_classify_widgets = self._advanced_classify_widgets
-        classify_dates_widgets = self._classify_dates_widgets
-        classify_names_widgets = self._classify_names_widgets
         local_ocr_widgets = self._local_ocr_widgets
         summarize_widgets = getattr(self, "_summarize_widgets", None)
         agent_widgets = self._agent_widgets
@@ -4934,68 +4301,27 @@ class SettingsWindow(Adw.ApplicationWindow):
             if 0 <= selected < len(self._text_source_values):
                 value = self._text_source_values[selected]
             save_text_source_setting(value)
-        if case_widgets:
-            save_case_name_settings(
-                case_widgets.api_url_row.get_text().strip(),
-                case_widgets.model_row.get_text().strip(),
-                case_widgets.api_key_row.get_text().strip(),
-                (
-                    bool(case_widgets.disable_reasoning_row.get_active())
-                    if case_widgets.disable_reasoning_row
-                    else DEFAULT_DISABLE_REASONING
-                ),
-                self._prompt_text(case_widgets.prompt_buffer).strip(),
-            )
+        # Save only machine/API fields. Hidden legacy prose is byte-preserved.
+        runtime_config = _read_config()
+        for widgets, prefix in ((case_widgets, "case_name"), (classify_basic_widgets, "classifier")):
+            if widgets is not None:
+                for key, row in (("api_url", widgets.api_url_row), ("model_id", widgets.model_row), ("api_key", widgets.api_key_row)):
+                    runtime_config[f"{prefix}_{key}"] = row.get_text().strip()
+                reasoning = widgets.disable_reasoning_row or widgets.disable_reasoning_switch
+                runtime_config[f"{prefix}_disable_reasoning"] = bool(reasoning.get_active()) if reasoning else DEFAULT_DISABLE_REASONING
         if classify_basic_widgets:
-            rt_prompt = self._prompt_text(classify_basic_widgets.prompt_buffer).strip()
-            ct_prompt = (
-                self._prompt_text(classify_basic_widgets.ct_prompt_buffer).strip()
-                if classify_basic_widgets.ct_prompt_buffer
-                else rt_prompt
-            )
-            save_classifier_settings(
-                classify_basic_widgets.api_url_row.get_text().strip(),
-                classify_basic_widgets.model_row.get_text().strip(),
-                classify_basic_widgets.api_key_row.get_text().strip(),
-                rt_prompt,
-                ct_prompt,
-                (
-                    bool(classify_basic_widgets.disable_reasoning_switch.get_active())
-                    if classify_basic_widgets.disable_reasoning_switch
-                    else DEFAULT_DISABLE_REASONING
-                ),
-                (
-                    classify_basic_widgets.workers_row.get_text().strip()
-                    if classify_basic_widgets.workers_row
-                    else DEFAULT_CLASSIFIER_WORKERS
-                ),
-                (
-                    bool(classify_basic_widgets.local_server_switch.get_active())
-                    if classify_basic_widgets.local_server_switch
-                    else False
-                ),
-                (
-                    self._prompt_text(classify_basic_widgets.local_start_command_buffer).strip()
-                    if classify_basic_widgets.local_start_command_buffer
-                    else DEFAULT_LOCAL_VISION_START_COMMAND
-                ),
-            )
-        if advanced_classify_widgets:
-            save_advanced_classify_settings(
-                self._prompt_text(advanced_classify_widgets.hearing_prompt_buffer).strip(),
-                self._prompt_text(advanced_classify_widgets.minute_prompt_buffer).strip(),
-                self._prompt_text(advanced_classify_widgets.form_prompt_buffer).strip(),
-            )
-        if classify_dates_widgets:
-            save_classify_dates_settings(
-                self._prompt_text(classify_dates_widgets.hearing_prompt_buffer).strip(),
-                self._prompt_text(classify_dates_widgets.minute_prompt_buffer).strip(),
-            )
-        if classify_names_widgets:
-            save_classify_names_settings(
-                self._prompt_text(classify_names_widgets.report_prompt_buffer).strip(),
-                self._prompt_text(classify_names_widgets.form_prompt_buffer).strip(),
-            )
+            widgets = classify_basic_widgets
+            try:
+                workers = int(widgets.workers_row.get_text().strip())
+                if workers < 1:
+                    raise ValueError
+            except ValueError:
+                widgets.workers_row.set_title("Classification Workers — enter a positive number")
+                return
+            runtime_config[CONFIG_KEY_CLASSIFIER_WORKERS] = workers
+            runtime_config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED] = bool(widgets.local_server_switch.get_active())
+            runtime_config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND] = self._prompt_text(widgets.local_start_command_buffer).strip()
+        _write_config(runtime_config)
         if local_ocr_widgets:
             save_local_ocr_settings(
                 local_ocr_widgets.server_url_row.get_text().strip(),
@@ -5005,16 +4331,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 local_ocr_widgets.slots_row.get_text().strip(),
             )
         if summarize_widgets:
-            summarize_error_row = _validate_summarize_window_rows(
-                minutes_target_chars=summarize_widgets.minutes_target_chars_row,
-                minutes_max_pages=summarize_widgets.minutes_max_pages_row,
-            )
-            if summarize_error_row is not None:
-                error_row, detail = summarize_error_row
-                error_row.set_subtitle(detail)
-                self._select_settings_page("summarize")
-                return
-
             extract_provider, extract_model, extract_thinking = (
                 self._override_row_values(
                     summarize_widgets.extract_model_row,
@@ -5027,31 +4343,12 @@ class SettingsWindow(Adw.ApplicationWindow):
                     summarize_widgets.synthesize_thinking_row,
                 )
             )
-            save_summarize_settings(
-                api_url=summarize_widgets.api_url_row.get_text().strip(),
-                model_id=summarize_widgets.model_row.get_text().strip(),
-                api_key=summarize_widgets.api_key_row.get_text().strip(),
-                disable_reasoning=bool(summarize_widgets.disable_reasoning_row.get_active()),
-                minutes_target_chars=summarize_widgets.minutes_target_chars_row.get_text().strip(),
-                minutes_max_pages=summarize_widgets.minutes_max_pages_row.get_text().strip(),
-                # Custom PI guidance is preserved byte-for-byte from the
-                # buffers, including minute-order guidance.
-                hearings_prompt=self._prompt_text(summarize_widgets.hearings_prompt_buffer),
-                reports_prompt=self._prompt_text(summarize_widgets.reports_prompt_buffer),
-                minutes_prompt=self._prompt_text(summarize_widgets.minutes_prompt_buffer),
-                hearings_synthesis_prompt=self._prompt_text(
-                    summarize_widgets.hearings_synthesis_prompt_buffer
-                ),
-                reports_synthesis_prompt=self._prompt_text(
-                    summarize_widgets.reports_synthesis_prompt_buffer
-                ),
-                extract_provider=extract_provider,
-                extract_model=extract_model,
-                extract_thinking=extract_thinking,
-                synthesize_provider=synthesize_provider,
-                synthesize_model=synthesize_model,
-                synthesize_thinking=synthesize_thinking,
-            )
+            runtime_config = _read_config()
+            for phase, values in (("extract", (extract_provider, extract_model, extract_thinking)),
+                                  ("synthesize", (synthesize_provider, synthesize_model, synthesize_thinking))):
+                for field, value in zip(("provider", "model", "thinking"), values):
+                    runtime_config[f"summary_{phase}_pi_{field}"] = value
+            _write_config(runtime_config)
         if agent_widgets:
             pi_command = agent_widgets.pi_agent_command_row.get_text().strip()
             try:
@@ -5158,337 +4455,6 @@ class TocEditorWindow(Adw.ApplicationWindow):
             self._on_saved(self._toc_path)
 
 
-class TestPromptsWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, parent: "RecordPrepWindow") -> None:
-        super().__init__(application=app, title="Test prompts")
-        self.set_default_size(900, 640)
-        self.set_resizable(True)
-        self._parent = parent
-        self._selected_image_path: Path | None = None
-        self._group_values = [group_id for group_id, _label, _options in TEST_PROMPT_GROUPS]
-        self._mode_values: list[str] = []
-        self._running = False
-        self._updating_mode = False
-        self._paned_position_set = False
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.add_css_class("flat")
-        header.set_title_widget(Adw.WindowTitle(title="Test prompts"))
-        view.add_top_bar(header)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(18)
-        content.set_margin_bottom(12)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
-
-        settings_group = Adw.PreferencesGroup(title="Test settings")
-        settings_group.add_css_class("list-stack")
-        content.append(settings_group)
-
-        group_row = Adw.ComboRow(title="Group")
-        group_row.set_model(
-            Gtk.StringList.new(
-                [label for _group_id, label, _options in TEST_PROMPT_GROUPS]
-            )
-        )
-        group_row.set_selected(0)
-        group_row.connect("notify::selected", self._on_group_changed)
-        settings_group.add(group_row)
-        self._group_row = group_row
-
-        mode_row = Adw.ComboRow(title="Prompt")
-        mode_row.connect("notify::selected", self._on_mode_changed)
-        settings_group.add(mode_row)
-        self._mode_row = mode_row
-
-        details_row = Adw.ActionRow(title="Input")
-        settings_group.add(details_row)
-        self._details_row = details_row
-
-        image_row = Adw.ActionRow(
-            title="Image file",
-            subtitle="Choose a PNG page image.",
-        )
-        choose_button = Gtk.Button(label="Choose image")
-        choose_button.add_css_class("flat")
-        choose_button.connect("clicked", self._on_choose_image_clicked)
-        image_row.add_suffix(choose_button)
-        settings_group.add(image_row)
-        self._image_row = image_row
-        self._choose_image_button = choose_button
-
-        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        paned.set_hexpand(True)
-        paned.set_vexpand(True)
-        paned.set_shrink_start_child(False)
-        paned.set_shrink_end_child(False)
-        paned.set_resize_start_child(True)
-        paned.set_resize_end_child(True)
-        self._paned = paned
-
-        input_stack = Gtk.Stack()
-        input_stack.set_hexpand(True)
-        input_stack.set_vexpand(True)
-        input_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self._input_stack = input_stack
-
-        preview_frame = Gtk.Frame()
-        preview_frame.set_margin_top(6)
-        preview_frame.set_margin_end(6)
-        preview_frame.set_hexpand(True)
-        preview_frame.set_vexpand(True)
-        preview_picture = Gtk.Picture()
-        preview_picture.set_can_shrink(True)
-        preview_picture.set_hexpand(True)
-        preview_picture.set_vexpand(True)
-        preview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        preview_frame.set_child(preview_picture)
-        input_stack.add_named(preview_frame, "image")
-        self._preview_picture = preview_picture
-
-        input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        input_box.set_hexpand(True)
-        input_box.set_vexpand(True)
-        input_box.set_margin_top(6)
-        input_box.set_margin_end(6)
-        input_box.append(Gtk.Label(label="Raw input", xalign=0))
-        input_scroller = Gtk.ScrolledWindow()
-        input_scroller.set_hexpand(True)
-        input_scroller.set_vexpand(True)
-        input_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        input_view = Gtk.TextView()
-        input_view.set_monospace(True)
-        input_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        input_view.set_vexpand(True)
-        input_view.set_hexpand(True)
-        input_view.set_top_margin(10)
-        input_view.set_bottom_margin(10)
-        input_view.set_left_margin(10)
-        input_view.set_right_margin(10)
-        input_scroller.set_child(input_view)
-        input_box.append(input_scroller)
-        input_stack.add_named(input_box, "text")
-        self._input_view = input_view
-        self._input_buffer = input_view.get_buffer()
-
-        output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        output_box.set_hexpand(True)
-        output_box.set_vexpand(True)
-        output_box.set_margin_top(6)
-        output_box.append(Gtk.Label(label="Output", xalign=0))
-        output_scroller = Gtk.ScrolledWindow()
-        output_scroller.set_hexpand(True)
-        output_scroller.set_vexpand(True)
-        output_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        output_view = Gtk.TextView()
-        output_view.set_monospace(True)
-        output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        output_view.set_editable(False)
-        output_view.set_cursor_visible(False)
-        output_view.set_vexpand(True)
-        output_view.set_hexpand(True)
-        output_view.set_top_margin(10)
-        output_view.set_bottom_margin(10)
-        output_view.set_left_margin(10)
-        output_view.set_right_margin(10)
-        output_scroller.set_child(output_view)
-        output_box.append(output_scroller)
-        self._output_view = output_view
-        self._output_buffer = output_view.get_buffer()
-
-        paned.set_start_child(input_stack)
-        paned.set_end_child(output_box)
-        content.append(paned)
-
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        run_button = Gtk.Button(label="Run test")
-        run_button.add_css_class("suggested-action")
-        run_button.add_css_class("flat")
-        run_button.connect("clicked", self._on_run_clicked)
-        action_box.append(run_button)
-        status_spinner = Gtk.Spinner()
-        status_label = Gtk.Label(label="Idle", xalign=0)
-        status_label.set_hexpand(True)
-        status_label.set_ellipsize(3)
-        action_box.append(status_spinner)
-        action_box.append(status_label)
-        content.append(action_box)
-        self._run_button = run_button
-        self._status_spinner = status_spinner
-        self._status_label = status_label
-
-        view.set_content(content)
-        self.set_content(view)
-        self._update_mode_options()
-        GLib.idle_add(self._set_initial_paned_position)
-
-    def _current_group_id(self) -> str | None:
-        selected = self._group_row.get_selected()
-        if 0 <= selected < len(self._group_values):
-            return self._group_values[selected]
-        return None
-
-    def _current_mode_id(self) -> str | None:
-        selected = self._mode_row.get_selected()
-        if 0 <= selected < len(self._mode_values):
-            return self._mode_values[selected]
-        return None
-
-    def _buffer_text(self, buffer: Gtk.TextBuffer) -> str:
-        start, end = buffer.get_bounds()
-        return buffer.get_text(start, end, True)
-
-    def _mode_details(self, mode_id: str) -> str:
-        if _test_prompt_input_kind(mode_id) == "image":
-            return "Choose a page image; the test uses the saved classification prompt."
-        if mode_id == "summarize_hearings":
-            return (
-                "Legacy direct-API experiment: paste direct hearing source "
-                "text; separate simulated source pages with form feeds if "
-                "needed. This sandbox does not exercise the PI summary pipeline."
-            )
-        if mode_id == "summarize_reports":
-            return (
-                "Legacy direct-API experiment: paste direct report source "
-                "text. This sandbox does not exercise the PI summary pipeline."
-            )
-        if mode_id == "summarize_minutes":
-            return "Paste minute-order text; uses the saved minute summary prompt."
-        return "Uses the saved prompt for the selected mode."
-
-    def _update_mode_options(self) -> None:
-        group_id = self._current_group_id()
-        options = _test_prompt_options(group_id or "")
-        self._updating_mode = True
-        self._mode_values = [value for value, _label in options]
-        self._mode_row.set_model(Gtk.StringList.new([label for _value, label in options]))
-        self._mode_row.set_selected(0 if options else Gtk.INVALID_LIST_POSITION)
-        self._updating_mode = False
-        self._apply_selected_mode()
-
-    def _apply_selected_mode(self) -> None:
-        mode_id = self._current_mode_id()
-        if not mode_id:
-            return
-        input_kind = _test_prompt_input_kind(mode_id)
-        self._input_stack.set_visible_child_name(input_kind)
-        self._image_row.set_visible(input_kind == "image")
-        self._details_row.set_subtitle(self._mode_details(mode_id))
-        self._output_view.set_wrap_mode(
-            Gtk.WrapMode.NONE if input_kind == "image" else Gtk.WrapMode.WORD_CHAR
-        )
-        self._output_buffer.set_text("")
-        self._set_status("Idle", False)
-
-    def _on_group_changed(
-        self,
-        _row: Adw.ComboRow,
-        _pspec: GObject.ParamSpec,
-    ) -> None:
-        if not self._running:
-            self._update_mode_options()
-
-    def _on_mode_changed(
-        self,
-        _row: Adw.ComboRow,
-        _pspec: GObject.ParamSpec,
-    ) -> None:
-        if not self._updating_mode and not self._running:
-            self._apply_selected_mode()
-
-    def _set_status(self, message: str, running: bool) -> None:
-        self._status_label.set_text(message)
-        if running:
-            self._status_spinner.start()
-        else:
-            self._status_spinner.stop()
-
-    def _set_running(self, running: bool) -> None:
-        self._running = running
-        self._run_button.set_sensitive(not running)
-        self._group_row.set_sensitive(not running)
-        self._mode_row.set_sensitive(not running)
-        self._choose_image_button.set_sensitive(not running)
-        self._input_view.set_editable(not running)
-
-    def _on_choose_image_clicked(self, _button: Gtk.Button) -> None:
-        dialog = Gtk.FileDialog(title="Choose PNG image")
-        file_filter = Gtk.FileFilter()
-        file_filter.add_mime_type("image/png")
-        file_filter.set_name("PNG images")
-        dialog.set_default_filter(file_filter)
-        root_dir = self._parent._resolve_case_root()
-        if root_dir is not None:
-            image_dir = root_dir / "image_pages"
-            if image_dir.exists():
-                dialog.set_initial_folder(Gio.File.new_for_path(str(image_dir)))
-        dialog.open(self, None, self._on_image_chosen)
-
-    def _on_image_chosen(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        try:
-            gfile = dialog.open_finish(result)
-        except GLib.Error:
-            return
-        if not isinstance(gfile, Gio.File):
-            return
-        path = gfile.get_path()
-        if not path:
-            return
-        self._selected_image_path = Path(path)
-        self._image_row.set_subtitle(self._selected_image_path.name)
-        self._preview_picture.set_filename(str(self._selected_image_path))
-
-    def _set_initial_paned_position(self) -> bool:
-        if self._paned_position_set:
-            return False
-        width = self._paned.get_width()
-        if width <= 0:
-            return True
-        self._paned.set_position(width // 2)
-        self._paned_position_set = True
-        return False
-
-    def _on_run_clicked(self, _button: Gtk.Button) -> None:
-        if self._running:
-            return
-        mode_id = self._current_mode_id()
-        if not mode_id:
-            self._set_status("Choose a prompt.", False)
-            return
-        self._output_buffer.set_text("")
-        self._set_running(True)
-        self._set_status("Running…", True)
-
-        def _on_done(output: str, error: str | None) -> None:
-            if error:
-                self._set_status(f"Failed: {error}", False)
-                output = error
-            else:
-                self._set_status("Done", False)
-            self._output_buffer.set_text(output)
-            self._set_running(False)
-
-        if _test_prompt_input_kind(mode_id) == "image":
-            image_path = self._selected_image_path
-            if image_path is None or not image_path.exists():
-                self._set_running(False)
-                self._set_status("Choose an image first.", False)
-                return
-            self._parent.run_test_classification(mode_id, image_path, _on_done)
-            return
-
-        raw_text = self._buffer_text(self._input_buffer).strip()
-        if not raw_text:
-            self._set_running(False)
-            self._set_status("Enter raw text first.", False)
-            return
-        self._parent.run_test_summarize(mode_id, raw_text, {}, _on_done)
-
-
 class RecordPrepWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=APPLICATION_NAME)
@@ -5519,7 +4485,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_mode_pending: str | None = None
         self._rt_ct_split_updating = False
         self._bundle_reset_required = False
-        self._test_prompts_window: TestPromptsWindow | None = None
         self._log_buffer: Gtk.TextBuffer | None = None
         self._log_view: Gtk.TextView | None = None
         self._activity_terminal: Any | None = None
@@ -5553,10 +4518,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.case_bundle_button.add_css_class("flat")
         self.case_bundle_button.connect("clicked", self.on_choose_case_bundle)
         header_bar.pack_start(self.case_bundle_button)
-        self._practice_profile_button = Gtk.Button(label="Preparation: Legacy")
+        self._practice_profile_button = Gtk.Button()
         self._practice_profile_button.add_css_class("flat")
         self._practice_profile_button.connect("clicked", lambda _button: self._open_practice_profiles())
-        header_bar.pack_start(self._practice_profile_button)
+        from recordprep.profile_editor_ui import wrapped
+        self._practice_profile_label = wrapped("Preparation: Existing settings", hexpand=True)
+        self._practice_profile_button.set_child(self._practice_profile_label)
 
         self.file_button = Gtk.Button.new_from_icon_name("list-add-symbolic")
         self.file_button.set_tooltip_text("Choose PDF(s)")
@@ -5580,6 +4547,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header_bar)
+        toolbar_view.add_top_bar(self._practice_profile_button)
         self.set_content(toolbar_view)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -5987,7 +4955,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _setup_menu(self, app: Adw.Application) -> None:
         menu = Gio.Menu()
         menu.append("Settings", "app.settings")
-        menu.append("Test prompts…", "app.test-prompts")
         self.menu_button.set_menu_model(menu)
 
         action = Gio.SimpleAction.new("settings", None)
@@ -5998,11 +4965,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             save_action = Gio.SimpleAction.new("save-settings", None)
             save_action.connect("activate", self._on_action_save_settings)
             app.add_action(save_action)
-
-        if app.lookup_action("test-prompts") is None:
-            test_action = Gio.SimpleAction.new("test-prompts", None)
-            test_action.connect("activate", self.on_test_prompts)
-            app.add_action(test_action)
 
     def on_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if self._settings_window:
@@ -6026,284 +4988,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _on_settings_close_request(self, _window: SettingsWindow) -> bool:
         self._settings_window = None
         return False
-
-    def on_test_prompts(self, _action: Gio.SimpleAction, _param: object) -> None:
-        if self._test_prompts_window:
-            self._test_prompts_window.present()
-            return
-        test_window = TestPromptsWindow(self.get_application(), parent=self)
-        test_window.connect("close-request", self._on_test_prompts_close_request)
-        self._test_prompts_window = test_window
-        test_window.present()
-
-    def _on_test_prompts_close_request(self, _window: TestPromptsWindow) -> bool:
-        self._test_prompts_window = None
-        return False
-
-    def _build_test_classification_settings(self, mode_id: str) -> dict[str, Any]:
-        if mode_id == "basic_rt":
-            shared = load_classifier_settings()
-            return {
-                "api_url": shared["api_url"],
-                "model_id": shared["model_id"],
-                "api_key": shared["api_key"],
-                "prompt": shared.get("rt_prompt") or shared.get("prompt"),
-                "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "basic_ct":
-            shared = load_classifier_settings()
-            return {
-                "api_url": shared["api_url"],
-                "model_id": shared["model_id"],
-                "api_key": shared["api_key"],
-                "prompt": shared.get("ct_prompt") or shared.get("prompt"),
-                "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "advanced_hearing":
-            settings = load_advanced_classify_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["hearing_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "advanced_minute":
-            settings = load_advanced_classify_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["minute_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "advanced_form":
-            settings = load_advanced_classify_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["form_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "dates_hearing":
-            settings = load_classify_dates_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["hearing_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "dates_minute":
-            settings = load_classify_dates_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["minute_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "names_report":
-            settings = load_classify_names_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["report_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        if mode_id == "names_form":
-            settings = load_classify_names_settings()
-            return {
-                "api_url": settings["api_url"],
-                "model_id": settings["model_id"],
-                "api_key": settings["api_key"],
-                "prompt": settings["form_prompt"],
-                "disable_reasoning": bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-                "local_vision_enabled": bool(settings.get("local_vision_enabled", False)),
-                "local_vision_start_command": str(
-                    settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-                    or ""
-                ).strip(),
-            }
-        raise ValueError(f"Unknown classification mode: {mode_id}")
-
-    def _build_test_summarize_settings(self, mode_id: str) -> dict[str, Any]:
-        if mode_id not in {"summarize_hearings", "summarize_reports", "summarize_minutes"}:
-            raise ValueError(f"Unknown summarize test mode: {mode_id}")
-        settings = load_summarize_settings()
-        prompt_key = {
-            "summarize_hearings": "hearings_prompt",
-            "summarize_reports": "reports_prompt",
-            "summarize_minutes": "minutes_prompt",
-        }[mode_id]
-        if mode_id == "summarize_minutes":
-            prompt = settings[prompt_key]
-            prompt += MINUTE_SUMMARY_WINDOW_GUIDANCE
-        else:
-            # Legacy direct-API experiment: the sandbox always runs the
-            # shipped window-era built-in for hearings/reports and never
-            # exercises the PI summary pipeline or its custom guidance.
-            prompt = (
-                DEFAULT_SUMMARIZE_HEARINGS_PROMPT
-                if mode_id == "summarize_hearings"
-                else DEFAULT_SUMMARIZE_REPORTS_PROMPT
-            )
-        return {**settings, "prompt": prompt}
-
-    def run_test_classification(
-        self,
-        mode_id: str,
-        image_path: Path,
-        on_done: Callable[[str, str | None], None],
-    ) -> None:
-        def _worker() -> None:
-            local_server_started = False
-            try:
-                settings = self._build_test_classification_settings(mode_id)
-                self._validate_vision_settings(settings)
-                if not settings.get("prompt"):
-                    raise ValueError("Prompt is empty in Settings.")
-                if bool(settings.get("local_vision_enabled", False)):
-                    local_server_started = self._ensure_local_vision_server_running()
-                result = self._classify_image(settings, image_path.name, image_path)
-                output = json.dumps(result, indent=2)
-                GLib.idle_add(on_done, output, None)
-            except StopRequested:
-                GLib.idle_add(on_done, "", "Stopped.")
-            except Exception as exc:
-                GLib.idle_add(on_done, "", str(exc))
-            finally:
-                if local_server_started:
-                    self._stop_local_vision_server()
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-
-    def _test_summary_payloads(
-        self,
-        raw_text: str,
-        settings: dict[str, Any],
-        *,
-        category: str,
-        participant_context: str = "",
-        report_marker: ReportProposalMarker | None = None,
-    ) -> list[str]:
-        source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
-        with tempfile.TemporaryDirectory(prefix="recordprep-summary-test.") as temporary:
-            text_dir = Path(temporary) / "text_pages"
-            text_dir.mkdir()
-            for index, text in enumerate(source_pages, start=1):
-                (text_dir / f"{index:04d}.txt").write_text(text, encoding="utf-8")
-            target_chars, max_pages = _summary_window_limits(settings, category)
-            windows = _summary_page_windows(
-                text_dir,
-                1,
-                len(source_pages),
-                max_pages=max_pages,
-                target_chars=target_chars,
-                max_chars=DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-            )
-            return [
-                _render_summary_window_payload(
-                    window,
-                    {page: f"TEST {page}" for page in range(1, len(source_pages) + 1)},
-                    participant_context=participant_context,
-                    report_marker=report_marker,
-                )
-                for window in windows
-            ]
-
-    def run_test_summarize(
-        self,
-        mode_id: str,
-        raw_text: str,
-        overrides: dict[str, Any],
-        on_done: Callable[[str, str | None], None],
-    ) -> None:
-        def _worker() -> None:
-            try:
-                settings = self._build_test_summarize_settings(mode_id)
-                settings.update({key: value for key, value in overrides.items() if value not in (None, "")})
-                if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                    raise ValueError("Enter API URL, model ID, and API key.")
-                participant_context = ""
-                if mode_id == "summarize_hearings":
-                    participant_context = "\n".join(
-                        _hearing_context_lines({"counsel": [], "witness_status": "unknown", "witnesses": []})
-                    )
-                report_marker = None
-                if mode_id == "summarize_reports":
-                    source_pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
-                    report_marker = _detect_report_proposal_marker(
-                        {index: text for index, text in enumerate(source_pages, start=1)},
-                        1,
-                        len(source_pages),
-                    )
-                payloads = self._test_summary_payloads(
-                    raw_text,
-                    settings,
-                    category=SUMMARY_TEST_MODE_CATEGORIES[mode_id],
-                    participant_context=participant_context,
-                    report_marker=report_marker,
-                )
-                responses: list[str] = []
-                for payload in payloads:
-                    self._raise_if_stop_requested()
-                    response = self._request_plain_text(settings, payload)
-                    normalized = " ".join(response.split()).strip()
-                    if mode_id == "summarize_reports" and normalized == NO_SUMMARIZABLE_REPORT_CONTENT:
-                        continue
-                    if normalized:
-                        responses.append(normalized)
-                GLib.idle_add(on_done, "\n\n".join(responses).strip(), None)
-            except StopRequested:
-                GLib.idle_add(on_done, "", "Stopped.")
-            except Exception as exc:
-                GLib.idle_add(on_done, "", str(exc))
-
-        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_action_save_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if not self._settings_window:
@@ -6774,7 +5458,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id == "strip_characters":
             return _dir_has_files(text_dir, "*.txt")
         if step_id == "infer_case":
-            return (root_dir / "case_name.txt").exists()
+            from recordprep.case_profiles import resolve_case_profile
+            from recordprep.case_name_profiles import is_current
+            try:
+                return is_current(root_dir, resolve_case_profile(root_dir), load_case_name_settings())
+            except (ValueError, OSError):
+                return False
         if step_id == "classify_basic":
             return self._classification_output_complete(
                 root_dir,
@@ -8329,12 +7018,25 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             text_dir = root_dir / "text_pages"
             if not text_dir.exists():
                 raise FileNotFoundError("Run Create files to generate text files first.")
+            from recordprep.case_profiles import resolve_case_profile, read_case_profile_ref, case_profile_publication
+            from recordprep.case_name_profiles import compile_case_name, inputs as name_inputs, publish_metadata, validate_output_directory
+            generation = getattr(self, "_case_generation", 0)
+            root_identity = (root_dir.stat().st_dev, root_dir.stat().st_ino)
+            from recordprep.classification_profiles import _digest
+            prior_name = _digest(root_dir / "case_name.txt") if (root_dir / "case_name.txt").exists() else None
+            selected_profile = resolve_case_profile(root_dir)
+            selected_ref = selected_profile.ref if selected_profile is not None else None
             settings = load_case_name_settings()
+            compiled_name = compile_case_name(selected_profile) if selected_profile is not None else None
+            if compiled_name is not None:
+                validate_output_directory(root_dir)
+                settings = settings | {"prompt": compiled_name[0]}
             if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
                 raise ValueError("Configure case name API URL, model ID, and API key in Settings.")
             text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)[:3]
             if not text_files:
                 raise FileNotFoundError("No text files found to infer case name.")
+            signature = name_inputs(selected_profile, settings, text_files) if compiled_name else None
             combined = "\n".join(
                 path.read_text(encoding="utf-8", errors="ignore") for path in text_files
             )
@@ -8346,7 +7048,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 case_name = _limit_case_name_words(_infer_case_name_from_text(combined))
             if not _looks_like_case_name(case_name):
                 raise ValueError("Unable to infer case name from first three pages.")
-            (root_dir / "case_name.txt").write_text(case_name, encoding="utf-8")
+            self._raise_if_stop_requested()
+            current_name = _digest(root_dir / "case_name.txt") if (root_dir / "case_name.txt").exists() else None
+            if (self._resolve_case_root() != root_dir or read_case_profile_ref(root_dir) != selected_ref
+                    or getattr(self, "_case_generation", 0) != generation
+                    or (root_dir.stat().st_dev, root_dir.stat().st_ino) != root_identity or current_name != prior_name
+                    or (signature is not None and signature != name_inputs(selected_profile, load_case_name_settings(),
+                                                                           sorted(text_dir.glob("*.txt"), key=_natural_sort_key)[:3]))):
+                raise ValueError("Case, profile or inputs changed; inferred name was not published.")
+            if selected_ref is not None:
+                with case_profile_publication(root_dir, selected_ref):
+                    if signature is not None:
+                        validate_output_directory(root_dir, create=True)
+                    _summary_agents._atomic_write(root_dir / "case_name.txt", case_name)
+                    if signature is not None:
+                        publish_metadata(root_dir, case_name, signature)
+            else:
+                (root_dir / "case_name.txt").write_text(case_name, encoding="utf-8")
             save_case_context(case_name, base_dir)
             display_name = case_name.replace("_", " ") if case_name else case_name
             GLib.idle_add(self.selected_label.set_text, f"Selected: {display_name}")

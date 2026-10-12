@@ -1,29 +1,29 @@
-"""Offline GTK workflow acceptance. Run with an isolated HOME/XDG and fatal-criticals.
+"""Offline real GTK choose/edit/save/new workflow and bounded wrapping checks.
 
-Uses real widgets, signals, compilers, stores and publication. Only native file
-picker completion is simulated with temporary local destinations; this does not
-claim acceptance of the desktop portal's own file picker implementation.
+Temporary storage only. No picker, repository operation or model request. Set
+PROFILE_ACCEPT_HOLD=1 to inspect the synthetic settings window on this desktop.
 """
 import importlib
 import json
+import uuid
 import os
-import sys
 import tempfile
+import time
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 package = "focus" if (Path(__file__).resolve().parents[1] / "focus").is_dir() else "recordprep"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 api = importlib.import_module(package + ".practice_profiles")
-workflows = importlib.import_module(package + ".profile_workflows")
 manager_ui = importlib.import_module(package + ".profile_manager_ui")
 integration = importlib.import_module(package + ".profile_integration")
-contract = importlib.import_module(package + ".profile_contract")
+workflows = importlib.import_module(package + ".profile_workflows")
 Adw.init()
 
 
@@ -41,179 +41,180 @@ def click(window, label):
     widget.emit("clicked")
 
 
-def entry(window, title, text):
-    widget = next(w for w in descendants(window) if isinstance(w, Adw.EntryRow) and w.get_title() == title)
-    widget.set_text(text)
-
-
-def drain():
+def drain(seconds=.12):
+    until = time.monotonic() + seconds
     context = GLib.MainContext.default()
-    while context.pending():
-        context.iteration(False)
+    while time.monotonic() < until:
+        while context.pending():
+            context.iteration(False)
+        time.sleep(.005)
 
 
-def check_compact_layout(window):
+def layout(window):
     for width in (480, 640, 820):
+        # GNOME attached modal windows can ignore default-size changes after mapping.
+        # Remap the same populated draft; assert actual allocations at every width.
+        window.set_visible(False)
+        drain(.1)
+        window.unmaximize()
         window.set_default_size(width, 680)
-        loop = GLib.MainLoop()
-        GLib.timeout_add(100, lambda: (loop.quit(), False)[1])
-        loop.run()
-    assert window.measure(Gtk.Orientation.HORIZONTAL, -1).minimum <= 600
+        window.present()
+        deadline = time.monotonic() + 2
+        drain(.2)
+        while abs(window.get_width() - width) > 2 and time.monotonic() < deadline:
+            drain(.1)
+        assert window.measure(Gtk.Orientation.HORIZONTAL, -1).minimum <= 480, window.measure(Gtk.Orientation.HORIZONTAL, -1)
+        assert abs(window.get_width() - width) <= 2, (width, window.get_width())
 
 
-class Picker:
-    destination = None
-    def __init__(self, **kwargs):
-        pass
-    def save(self, parent, cancellable, callback):
-        callback(self, None)
-    select_folder = open = save
-    def save_finish(self, result):
-        if self.destination is None:
-            raise GLib.Error.new_literal(Gio.io_error_quark(), "Synthetic cancel", Gio.IOErrorEnum.CANCELLED)
-        return Gio.File.new_for_path(str(self.destination))
-    select_folder_finish = open_finish = save_finish
-
-
-with tempfile.TemporaryDirectory(prefix="profile-gui-acceptance-") as temporary:
+with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
     root = Path(temporary)
     store = api.ProfileStore(package, config_root=root / "config", data_root=root / "data")
-    parent = Adw.Window(title="Synthetic Practice Profile Acceptance", default_width=900, default_height=800)
+    parent = Adw.Window(title="Synthetic Practice Profile Acceptance", default_width=820, default_height=760)
     parent.present()
     allowed = [True]
     selected = []
     preview = integration.preview if package == "focus" else lambda snapshot: integration.preview(snapshot, Path.cwd() / ".pi")
-    with patch.object(api, "profile_store", return_value=store), patch.object(Gtk, "FileDialog", Picker):
+    with patch.object(api, "profile_store", return_value=store):
         manager = manager_ui.ProfileManagerWindow(parent, can_modify=lambda: allowed[0], preview=preview,
                                                   on_select=selected.append, allow_legacy=package == "focus")
         manager.present()
         drain()
-        check_compact_layout(manager)
-        click(manager, "Create from General")
+        assert len(manager.candidates) == len(api.BUNDLED_PROFILES)
+        assert not list(root.iterdir())
+        layout(manager)
+        # Built-in inspection is substantive, read-only and directly editable.
+        manager.list.select_row(manager.list.get_row_at_index(1 if package == "focus" else 0))
+        click(manager, "Profile settings…")
         editor = manager.children_windows[-1]
-        check_compact_layout(editor)
+        layout(editor)
+        assert editor.editor.resources
         click(editor, "Cancel")
         drain()
         assert not list(root.iterdir())
-        click(manager, "Create from General")
+        click(manager, "Profile settings…")
         editor = manager.children_windows[-1]
-        entry(editor, "Display name", "Synthetic third specialty")
-        click(editor, "Add Query terms" if package == "focus" else "Add Hearings")
-        if package == "recordprep":
-            click(editor, "Add Participants")
-            click(editor, "Add Reports")
-            role_label = next(w for w in descendants(editor) if isinstance(w, Adw.EntryRow) and w.get_text() == "New role")
-            role_label.set_text("Independent expert")
-            for row in list(descendants(editor)):
-                if isinstance(row, Adw.EntryRow) and row.get_text() == "New category":
-                    row.set_text("Specialty findings")
-            click(editor, "Add Report titles")
-            title_row = next(w for w in descendants(editor) if isinstance(w, Adw.EntryRow) and w.get_text() == "New term")
-            title_row.set_text("Independent Expert Report")
-            mode = next(w for w in descendants(editor) if isinstance(w, Adw.ComboRow) and w.get_title() == "Mode")
-            mode.set_selected(1)  # Declared approved_titles, not a code-level specialty branch.
-            old_guidance = editor.editor.resources["naming"]["report_guidance"]
-            view = next(w for w in descendants(editor) if isinstance(w, Gtk.TextView)
-                        and w.get_buffer().get_text(w.get_buffer().get_start_iter(), w.get_buffer().get_end_iter(), True) == old_guidance)
-            view.get_buffer().set_text(old_guidance + "\nPreserve a synthetic expert report's source title.")
-        assert editor.editor.manifest["display_name"] == "Synthetic third specialty"
-        assert editor._validate() is not None
-        preview_window = editor._preview()
-        assert preview_window is not None
-        preview_window.close()
-        # Native picker cancellation must have no effects.
-        Picker.destination = None
-        click(editor, "Export…")
-        assert not list(root.iterdir())
-        Picker.destination = root / "exported"
-        click(editor, "Export…")
-        assert (root / "exported/profile.json").is_file()
-        assert not store.read_registry()["accepted"]
-        Picker.destination = root / "accepted"
-        click(editor, "Save & Accept…")
+        resource = "research" if package == "focus" else "case_name"
+        editor.editor.resources[resource] += "\nSynthetic personal instructions.\n"
+        click(editor, "Save")
+        assert store.read_registry()["personal"]
+        ref = editor.editor.base.ref
+        assert not selected
+        click(editor, "Cancel")
         drain()
-        assert len(store.read_registry()["accepted"]) == 1
-        ref = manager._selected()[0].ref
-        assert not selected and store.read_registry()["default"] is None
-        click(manager, "Use for this case")
-        click(manager, "Default for new contexts")
+        click(manager, "Use profile")
         assert selected == [ref]
-        assert store.read_registry()["default"]["content_sha256"] == ref.content_sha256
-        # Concurrent external prose edits reject the stale editor without export.
-        click(manager, "Edit / Export…")
+        click(manager, "Profile settings…")
         editor = manager.children_windows[-1]
-        external_manifest = root / "accepted/profile.json"
-        manifest = json.loads(external_manifest.read_text())
-        manifest["description"] = "Explicit external revision for synthetic acceptance."
-        external_manifest.write_bytes(contract.json_bytes(manifest))
-        entry(editor, "Display name", "Stale draft")
-        Picker.destination = root / "must-not-exist"
-        click(editor, "Save & Accept…")
-        assert "external_profile_changed" in editor.message.get_text()
-        assert not Picker.destination.exists()
-        click(editor, "Cancel")
-        click(manager, "Review external edits")
-        editor = manager.children_windows[-1]
-        assert "conflict/review" in editor.message.get_text()
-        click(editor, "Accept reviewed folder")
-        drain()
-        revised = manager._selected()[0].ref
-        assert revised != ref
-        assert selected == [ref] and store.read_registry()["default"]["content_sha256"] == ref.content_sha256
-        # Explicit folder registration reviews and accepts old exported bytes;
-        # it does not rebind cases or defaults, even when changing the head.
-        Picker.destination = root / "exported"
-        click(manager, "Register folder…")
-        click(manager.children_windows[-1], "Accept reviewed folder")
-        assert manager._selected()[0].ref == ref
-        # Identity-only export/import is independent of instruction resources.
-        Picker.destination = root / "identity.json"
-        click(manager, "Export identity…")
-        identity = contract.parse_identity_descriptor(Picker.destination.read_bytes())
-        assert set(identity) == {"schema_version", "specialty_id", "display_name", "description"}
-        count = len(store.read_registry()["accepted"])
-        click(manager, "Import identity…")
-        assert "already exists locally" in manager.message.get_text()
-        assert len(store.read_registry()["accepted"]) == count
-        if os.environ.get("PROFILE_ACCEPT_IDENTITY"):
-            identity = contract.parse_identity_descriptor(Path(os.environ["PROFILE_ACCEPT_IDENTITY"]).read_bytes())
-        else:
-            identity["specialty_id"] = "synthetic-counterpart"
-            identity["display_name"] = "Independent synthetic counterpart"
-        Picker.destination.write_bytes(contract.json_bytes(identity))
-        click(manager, "Import identity…")
-        editor = manager.children_windows[-1]
-        assert editor.editor.manifest["specialty_id"] == identity["specialty_id"]
-        entry(editor, "Version", "9.1.0")
-        if package == "focus":
-            click(editor, "Add Query terms")
-            entry(editor, "Value", "motion")
-        assert editor.editor.base.ref.application == package
-        assert editor._validate() is not None
+        assert "Synthetic personal instructions" in editor.editor.resources[resource]
+        editor.editor.resources[resource] += "\nSynthetic revised settings.\n"
+        click(editor, "Save")
+        assert selected == [ref]  # Saving alone never binds the case.
+        manager.apply_dialog.response("later")
+        assert selected == [ref]
+        # Explicit application is guarded again after successful persistence.
+        click(editor, "Save")
         allowed[0] = False
-        manager._guard()
+        manager.apply_dialog.response("use")
+        assert selected == [ref]
+        assert editor.message.get_text() == "Profile saved; case settings were not changed."
+        allowed[0] = True
         editor._refresh_guard()
-        assert not editor.save_button.get_sensitive() and not editor.body.get_sensitive()
-        assert all(not widget.get_sensitive() for widget in manager.mutating_buttons)
+        before_cancel = store.registry_path.read_bytes()
+        click(editor, "New profile…")
+        cancelled = editor.new_dialog
+        next(item for item in descendants(cancelled) if isinstance(item, Gtk.Entry)).set_text("Synthetic cancelled draft")
+        click(cancelled, "Create")
+        click(editor, "Cancel")
+        editor.unsaved_dialog.response("cancel")
+        assert store.registry_path.read_bytes() == before_cancel
+        click(editor, "Cancel")
+        editor.unsaved_dialog.response("discard")
+        assert store.registry_path.read_bytes() == before_cancel
+        editor = manager._edit()
+        drain()
+        editor.editor.resources[resource] += "\nSynthetic unsaved switch instruction.\n"
+        editor.selector._choose(1)
+        editor.unsaved_dialog.response("cancel")
+        assert "Synthetic unsaved switch instruction" in editor.editor.resources[resource]
+        editor.selector._choose(1)
+        editor.unsaved_dialog.response("save")
+        # Resolve the explicit case question before changing the viewed draft.
+        assert editor.editor.manifest["specialty_id"] == "general-court-record"
+        manager.apply_dialog.response("later")
+        assert editor.editor.manifest["specialty_id"] == "california-juvenile-dependency"
+        assert selected == [ref]
+        editor.selector._choose(0)
+        editor.editor.resources[resource] += "\nSynthetic draft preserved after a concurrent save.\n"
+        competing = workflows.ProfileEditor(editor.editor.base)
+        competing.resources[resource] += "\nSynthetic competing save.\n"
+        competing.managed_save(store, expected_head=editor.expected_head, expected_default=editor.expected_default,
+                              can_modify=lambda: True, validate=preview, use_for_new_cases=False, personal=True)
+        concurrent_bytes = store.registry_path.read_bytes()
+        assert not editor._save()
+        assert "preserved after a concurrent save" in editor.editor.resources[resource]
+        assert store.registry_path.read_bytes() == concurrent_bytes
+        click(editor, "Cancel")
+        editor.unsaved_dialog.response("discard")
+        manager._refresh()
+        editor = manager._edit()
+        drain()
+        click(editor, "New profile…")
+        dialog = editor.new_dialog
+        name = next(w for w in descendants(dialog) if isinstance(w, Gtk.Entry))
+        click(dialog, "Create")
+        assert "Enter" in next(w for w in descendants(dialog) if isinstance(w, Gtk.Label) and "Enter" in w.get_text()).get_text()
+        long_name = "Synthetic third specialty for complex multi-party court proceedings and complete record research"
+        name.set_text(long_name)
+        click(dialog, "Create")
+        drain()
+        assert editor.editor.manifest["display_name"] == long_name
+        assert len(store.read_registry()["heads"]) == 1
+        layout(editor)
+        if package == "recordprep":
+            click(editor, "Add topic")
+            topic = editor.editor.resources["hearings"][-1]
+            identity = topic["id"]
+            topic["title"] = "Specialty findings"
+            editor.editor.resources["reports"].append({"id": "item-" + uuid.uuid4().hex, "title": "Specialty findings", "guidance": "Capture material source-supported specialty findings."})
+            editor.editor.resources["roles"]["participants"].append({"id": "item-" + uuid.uuid4().hex, "label": "Independent expert", "guidance": "Identify the expert only from explicit source evidence."})
+            assert topic["id"] == identity
+            editor.editor.resources["naming"]["mode"] = "approved_titles"
+            editor.editor.resources["naming"]["report_titles"].append("Independent Expert Report")
+        else:
+            editor.editor.resources["search"]["query_terms"].append("motion")
+            if os.environ.get("PROFILE_ACCEPT_IDENTITY"):
+                # Maintainer-authored counterpart metadata, not an end-user import.
+                descriptor = json.loads(Path(os.environ["PROFILE_ACCEPT_IDENTITY"]).read_text())
+                editor.editor.manifest["specialty_id"] = descriptor["specialty_id"]
+        assert preview(editor.editor.snapshot())
+        allowed[0] = False
         before = store.registry_path.read_bytes()
-        editor._save()
+        assert not editor._save()
         assert store.registry_path.read_bytes() == before
         allowed[0] = True
-        manager._guard()
         editor._refresh_guard()
-        Picker.destination = root / "counterpart-accepted"
-        click(editor, "Save & Accept…")
-        counterpart = manager._selected()[0]
-        assert counterpart.ref.specialty_id == identity["specialty_id"]
-        assert selected == [ref] and store.read_registry()["default"]["content_sha256"] == ref.content_sha256
+        click(editor, "Save")
+        new_ref = editor.editor.base.ref
+        assert new_ref.specialty_id != ref.specialty_id
+        assert len(store.read_registry()["heads"]) == 2
+        assert selected == [ref]
+        count = len(store.read_registry()["accepted"])
+        before = store.registry_path.read_bytes()
+        click(editor, "Save")
+        assert len(store.read_registry()["accepted"]) == count
+        assert store.registry_path.read_bytes() == before
         if os.environ.get("PROFILE_ACCEPT_OUTPUT_ROOT"):
             output = Path(os.environ["PROFILE_ACCEPT_OUTPUT_ROOT"])
             output.mkdir(mode=0o700, parents=True, exist_ok=False)
-            original = store.load_profile_snapshot(ref)
-            workflows.export_profile(original, output / "profile")
-            workflows.export_identity(original, output / "identity.json")
-            workflows.export_profile(counterpart, output / "counterpart")
+            workflows.export_profile(store.load_profile_snapshot(new_ref), output / "profile")
+            workflows.export_identity(store.load_profile_snapshot(new_ref), output / "identity.json")
+        if os.environ.get("PROFILE_ACCEPT_HOLD"):
+            editor.set_default_size(480, 680)
+            GLib.MainLoop().run()
+        editor._closing = True
+        editor.close()
         manager.close()
         parent.close()
         drain()
-print("GTK PROFILE WORKFLOW ACCEPTANCE PASSED", package)
+print("SIMPLE GTK PROFILE WORKFLOW ACCEPTANCE PASSED", package)

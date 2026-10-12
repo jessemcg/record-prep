@@ -153,8 +153,8 @@ GUIDANCE_PHASES = ("extract", "synthesize")
 
 
 # Historical direct-API extraction prompts (the retired window-era built-ins).
-# They remain the live defaults of the legacy prompt sandbox imported by the
-# GTK front end and are frozen historical texts for PI-pipeline migration.
+# Frozen texts remain only for historical-guidance recognition and compatibility
+# loaders. They are not executable end-user prompt-testing paths.
 PREVIOUS_DEFAULT_SUMMARIZE_HEARINGS_PROMPT = (
     "You are summarizing one window of source pages from a juvenile dependency court "
     "hearing. The user message is organized into these labeled sections:\n\n"
@@ -1177,7 +1177,8 @@ def sha256_json(payload: Any) -> str:
     return sha256_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))
 
 
-# --- Window algorithm (shared with the direct-source minute path) ---
+# Historical numeric defaults retained only for compatibility settings readers.
+# Production extraction and minutes read complete documents, never windows.
 
 DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES = 6
 DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS = 6000
@@ -1188,72 +1189,6 @@ DEFAULT_SUMMARIZE_REPORTS_WINDOW_TARGET_CHARS = 10000
 DEFAULT_SUMMARIZE_REPORTS_WINDOW_MAX_PAGES = 10
 DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = 6000
 DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = 6
-
-
-def _summary_page_windows(
-    text_dir: Path,
-    start_page: int,
-    end_page: int,
-    *,
-    max_pages: int = DEFAULT_SUMMARIZE_WINDOW_MAX_PAGES,
-    target_chars: int = DEFAULT_SUMMARIZE_WINDOW_TARGET_CHARS,
-    max_chars: int = DEFAULT_SUMMARIZE_WINDOW_MAX_CHARS,
-    preferred_breaks: set[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Create adaptive, page-aligned, exactly-once primary-page windows."""
-    if start_page <= 0 or end_page < start_page:
-        raise ValueError("Invalid summary source page range.")
-    page_text: dict[int, str] = {}
-    for number in range(start_page, end_page + 1):
-        path = text_dir / f"{number:04d}.txt"
-        if not path.is_file():
-            raise FileNotFoundError(f"Missing text file {path.name}.")
-        page_text[number] = path.read_text(encoding="utf-8", errors="ignore")
-    breaks = sorted(
-        value
-        for value in (preferred_breaks or set())
-        if start_page < value <= end_page
-    )
-    page_limit = max(1, max_pages)
-    character_limit = max(1, max_chars)
-    character_target = min(max(1, target_chars), character_limit)
-    windows: list[dict[str, Any]] = []
-    current = start_page
-    while current <= end_page:
-        candidate_end = min(end_page, current + page_limit - 1)
-        chars = 0
-        primary_end = current - 1
-        for number in range(current, candidate_end + 1):
-            page_chars = len(page_text[number])
-            combined = chars + page_chars
-            if primary_end >= current:
-                if combined > character_limit:
-                    break
-                if combined > character_target:
-                    under_distance = character_target - chars
-                    over_distance = combined - character_target
-                    if over_distance > under_distance:
-                        break
-            chars = combined
-            primary_end = number
-        if primary_end < current:
-            primary_end = current
-        examination_breaks = [
-            value for value in breaks if current < value <= primary_end
-        ]
-        if examination_breaks:
-            primary_end = examination_breaks[0] - 1
-        windows.append(
-            {
-                "primary_start": current,
-                "primary_end": primary_end,
-                "primary_pages": list(range(current, primary_end + 1)),
-                "context_page": current - 1 if current > start_page else None,
-                "page_text": page_text,
-            }
-        )
-        current = primary_end + 1
-    return windows
 
 
 # --- Formal proposed findings/orders detection (reports only) ---
@@ -1354,33 +1289,6 @@ def _detect_report_proposal_marker(
                 _consider(page, match.start(), kind)
 
     return best
-
-
-def _report_proposal_scope_note(
-    window: dict[str, Any],
-    report_marker: ReportProposalMarker | None,
-) -> str:
-    if report_marker is None:
-        return ""
-    primary_pages = window.get("primary_pages") or []
-    if not primary_pages:
-        return ""
-    marker_page = report_marker.source_page
-    if marker_page in primary_pages:
-        return (
-            "A scope delimiter in the source text below marks where a formal package "
-            "of proposed or recommended advisements, findings, and orders, with "
-            "associated boilerplate, begins. Omit that formal package from your summary; "
-            "summarize only the eligible report narrative that precedes the delimiter."
-        )
-    if primary_pages[0] > marker_page:
-        return (
-            "A formal package of proposed or recommended findings and orders began on an "
-            "earlier page and may still be continuing. Summarize only clearly separate "
-            "factual narrative or clearly separate attachments; omit any continuing "
-            "proposed findings or orders."
-        )
-    return ""
 
 
 def _insert_report_proposal_delimiter(text: str, offset: int) -> str:

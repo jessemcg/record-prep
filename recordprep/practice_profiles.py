@@ -14,6 +14,26 @@ from .profile_store import ProfileStore
 
 APPLICATION = "recordprep"
 BUNDLED_PROFILES = ("general", "california_dependency")
+# Reviewed, exact prior bundled snapshots; ordinary acceptance is not ownership.
+KNOWN_BASELINES = (
+    "22c34043d3bb4f17af259a3316b67f521ee454381c3a3e0232618559f2e89ead",
+    "037c2353ba58dbaad2e37d4e1cda4e7b37bec4a81fa32f84ee6bbb6f69289e20",
+    "25d33985b4b14ef70e1308ce4f630277ea17af5ef40d07fb6c499fb8577da2c9",
+    "fca78671abcd14c0ad7e96c26af0ebb53285e983f74fed8660f899d617c01b14",
+)
+
+
+def profile_catalog(*, store=None, customization=None):
+    from .profile_workflows import current_catalog
+    from .profile_customization import initial_candidate
+    bundled = []
+    for name in BUNDLED_PROFILES:
+        snapshot = validate_profile_directory(bundled_profile_directory(name)).draft
+        if snapshot is None:
+            raise ProfileError("invalid_bundled_profile", "profiles")
+        bundled.append(snapshot)
+    return current_catalog(store or profile_store(), bundled, known_baselines=KNOWN_BASELINES,
+                           customization=initial_candidate if customization is None else customization)
 
 
 def bundled_profile_directory(name: str) -> Path:
@@ -42,10 +62,8 @@ def default_profile_candidate(*, store: ProfileStore | None = None) -> ProfileSn
     registry = store.read_registry()
     if registry["default"] is not None:
         return store.load_profile_snapshot(ProfileRef.from_dict(registry["default"]))
-    result = validate_profile_directory(bundled_profile_directory("general"))
-    if result.draft is None:
-        raise ProfileError("invalid_bundled_default", "default")
-    return result.draft
+    return next(candidate.snapshot for candidate in profile_catalog(store=store, customization=lambda _base: None)
+                if candidate.snapshot.ref.specialty_id == "general-court-record")
 
 
 def accept_new_context_default(*, store: ProfileStore | None = None) -> ProfileRef:
@@ -57,11 +75,7 @@ def accept_new_context_default(*, store: ProfileStore | None = None) -> ProfileR
     if any(entry["ref"] == asdict(snapshot.ref) for entry in registry["accepted"]):
         store.load_profile_snapshot(snapshot.ref)
         return snapshot.ref
-    # A local same-identity revision is a conflict requiring explicit review,
-    # not permission for a new-case default to replace its accepted head.
-    if snapshot.ref.specialty_id in registry["heads"]:
-        raise ProfileError("review_default_revision_first", "default")
-    return store.accept_profile(snapshot, expected_previous_digest=None)
+    return store.accept_profile(snapshot, expected_previous_digest=registry["heads"].get(snapshot.ref.specialty_id))
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:

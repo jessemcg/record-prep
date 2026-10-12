@@ -11,7 +11,6 @@ from recordprep.ui.main_window import (
     PIPELINE_PHASES,
     PIPELINE_STEP_PHASE,
     SETTINGS_NAV_GROUPS,
-    TEST_PROMPT_GROUPS,
     VISION_CLASSIFICATION_STEP_IDS,
     _case_context_matches_selection,
     _correct_toc_lines,
@@ -27,9 +26,7 @@ from recordprep.ui.main_window import (
     _settings_destination_keys,
     _step_requires_resolved_layout,
     _terminal_log_line,
-    _test_prompt_input_kind,
     StopRequested,
-    _test_prompt_options,
     _transcript_summary,
     _write_manifest,
 )
@@ -280,25 +277,20 @@ class MainWindowUiStateTests(unittest.TestCase):
             ],
         )
         destination_keys = _settings_destination_keys()
-        self.assertEqual(len(destination_keys), 9)
+        self.assertEqual(len(destination_keys), 6)
         self.assertEqual(len(destination_keys), len(set(destination_keys)))
         self.assertEqual(destination_keys[0], "text-source")
         self.assertEqual(destination_keys[-1], "pi")
 
-    def test_prompt_tests_are_grouped_and_use_adaptive_inputs(self) -> None:
-        mode_ids = [
-            mode_id
-            for _group_id, _title, options in TEST_PROMPT_GROUPS
-            for mode_id, _label in options
-        ]
-        self.assertEqual(len(mode_ids), 12)
-        self.assertEqual(len(mode_ids), len(set(mode_ids)))
-        self.assertEqual(len(_test_prompt_options("classification")), 9)
-        self.assertEqual(len(_test_prompt_options("summarize")), 3)
-        self.assertEqual(_test_prompt_input_kind("basic_rt"), "image")
-        self.assertEqual(_test_prompt_input_kind("names_form"), "image")
-        self.assertEqual(_test_prompt_input_kind("summarize_hearings"), "text")
-        self.assertEqual(_test_prompt_input_kind("summarize_minutes"), "text")
+    def test_prompt_testing_is_absent_and_production_requests_remain(self) -> None:
+        from recordprep.ui import main_window as module
+        for name in ("TestPromptsWindow", "TEST_PROMPT_GROUPS", "SUMMARY_TEST_MODE_CATEGORIES"):
+            self.assertFalse(hasattr(module, name))
+        for name in ("on_test_prompts", "run_test_classification", "run_test_summarize", "_test_summary_payloads",
+                     "_build_test_classification_settings", "_build_test_summarize_settings"):
+            self.assertFalse(hasattr(RecordPrepWindow, name))
+        self.assertTrue(callable(RecordPrepWindow._request_plain_text))
+        self.assertTrue(callable(RecordPrepWindow._classify_image))
 
     def test_terminal_log_sanitizes_untrusted_controls(self) -> None:
         self.assertEqual(
@@ -1013,7 +1005,7 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
         except Exception:  # noqa: BLE001
             return False
 
-    def test_summarize_page_builds_with_minute_only_windows(self) -> None:
+    def test_summarize_page_has_production_models_without_sandbox_or_prompt_fields(self) -> None:
         if not self._display_available():
             self.skipTest("no GTK display available")
         from recordprep import summary_agents as sa
@@ -1035,10 +1027,11 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
 
             self.assertIsNotNone(page)
             widgets = window._summarize_widgets
-            self.assertEqual(
-                widgets.minutes_target_chars_row.get_text(), "6000"
-            )
-            self.assertEqual(widgets.minutes_max_pages_row.get_text(), "6")
+            self.assertIsNotNone(widgets.extract_model_row)
+            self.assertIsNotNone(widgets.synthesize_model_row)
+            for field in ("minutes_target_chars_row", "minutes_max_pages_row", "api_key_row", "api_url_row", "model_row",
+                          "hearings_prompt_buffer", "reports_prompt_buffer", "minutes_prompt_buffer"):
+                self.assertFalse(hasattr(widgets, field))
             # Retired word-target rows no longer exist as fields.
             self.assertFalse(hasattr(widgets, "hearings_target_words_row"))
             self.assertFalse(hasattr(widgets, "reports_target_words_row"))

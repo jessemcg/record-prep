@@ -31,7 +31,8 @@ def synthetic_files(application="focus"):
         "description": "Synthetic fixture only.", "version": "1.0",
         "required_capabilities": sorted(contract.CAPABILITIES[application]),
         "resources": {name: f"resources/{name}.{suffix}"
-                      for name, suffix in contract.RESOURCE_TYPES[application].items()},
+                      for name, suffix in contract.RESOURCE_TYPES[application].items()
+                      if name not in {"classification_tasks", "case_name"}},
     }
     catalog = [{"id": "material_facts", "title": "Material facts", "guidance": "Attribute material facts."}]
     roles = [{"id": role, "label": role.title(), "guidance": "Use explicit source evidence."}

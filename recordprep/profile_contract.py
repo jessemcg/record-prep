@@ -31,6 +31,7 @@ RESOURCE_TYPES = {
         "hearing_extraction": "md", "report_extraction": "md",
         "hearing_synthesis": "md", "report_synthesis": "md",
         "minutes": "md", "participants": "md", "overview": "md",
+        "classification_tasks": "json", "case_name": "md",
     },
 }
 STAGE_RESOURCES = {
@@ -225,6 +226,11 @@ def _structured(name: str, value: Any) -> None:
             _terms(codes, name)
         _require(value["mode"] in ("source_title", "approved_titles"), "unsupported_policy", name)
         _terms(value["report_titles"], name)
+    elif name == "classification_tasks":
+        _object(value, {"rt", "ct", "first_hearing", "first_minute", "first_form",
+                        "date_hearing", "date_minute"}, name)
+        for task, guidance in value.items():
+            _text(guidance, task, MAX_FILE_BYTES)
     elif name == "search":
         _object(value, {"query_terms", "document_terms", "passage_terms", "later_history_terms"}, name)
         for terms in value.values():
@@ -281,8 +287,10 @@ def _manifest(data: bytes, application: str) -> dict:
     value = _json(data, "manifest")
     _object(value, {"schema_version", "profile_api", "specialty_id", "application", "display_name",
                     "description", "version", "required_capabilities", "resources"}, "manifest")
-    for key in ("schema_version", "profile_api"):
-        _require(type(value[key]) is int and value[key] == 1, "unsupported_version", key)
+    _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
+             "unsupported_version", "profile_api")
+    _require(type(value["schema_version"]) is int and value["schema_version"] in
+             ((1, 2) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -293,9 +301,13 @@ def _manifest(data: bytes, application: str) -> dict:
              "unsupported_capabilities", "required_capabilities")
     _require(len(set(caps)) == len(caps) and set(caps) == CAPABILITIES[application],
              "unsupported_capabilities", "required_capabilities")
-    resources = _object(value["resources"], set(RESOURCE_TYPES[application]), "resources")
+    types = dict(RESOURCE_TYPES[application])
+    if application == "recordprep" and value["schema_version"] == 1:
+        for name in ("classification_tasks", "case_name"):
+            types.pop(name)
+    resources = _object(value["resources"], set(types), "resources")
     paths = set()
-    for name, suffix in RESOURCE_TYPES[application].items():
+    for name, suffix in types.items():
         path = _path(resources[name], name, suffix)
         _require(path != "profile.json" and path not in paths, "duplicate_resource_path", name)
         paths.add(path)
@@ -383,11 +395,23 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
     """
     validated = validate_contents(snapshot.files, snapshot.ref.application)
     _require(validated.ref == snapshot.ref, "snapshot_hash_mismatch", "profile")
-    _require(stage in STAGE_RESOURCES[snapshot.ref.application], "unsupported_stage", "stage")
+    task_stages = {"classification_basic": ("rt", "ct"),
+                   "classification_advanced": ("first_hearing", "first_minute", "first_form"),
+                   "classification_corrected": ("rt", "ct", "first_hearing", "first_minute", "first_form"),
+                   "classification_dates": ("date_hearing", "date_minute")}
+    extended = snapshot.ref.application == "recordprep" and snapshot.manifest["schema_version"] == 2
+    _require(stage in STAGE_RESOURCES[snapshot.ref.application] or
+             (extended and stage in {*task_stages, "case_name"}), "unsupported_stage", "stage")
     _require(isinstance(core_contract, bytes) and bool(core_contract), "missing_core_contract", "stage")
     resources = []
-    for name in STAGE_RESOURCES[snapshot.ref.application][stage]:
+    names = (("classification", "classification_tasks") if stage in task_stages else
+             ("case_name",) if stage == "case_name" else STAGE_RESOURCES[snapshot.ref.application][stage])
+    if stage == "classification" and extended:
+        names += ("classification_tasks",)
+    for name in names:
         value = snapshot.resource(name)
+        if name == "classification_tasks" and stage in task_stages:
+            value = {task: value[task] for task in task_stages[stage]}
         # Do not stale report extraction for an attendance-only policy edit.
         if name == "policies":
             key = "report_scope" if stage == "report_extraction" else "attendance"

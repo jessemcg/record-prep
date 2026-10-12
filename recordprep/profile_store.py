@@ -97,6 +97,10 @@ class ProfileStore:
         if not self.config_root.exists():
             # A dangling symlink is not an absent store.
             _require(not self.config_root.is_symlink(), "unsafe_store_directory", "storage")
+            current = self.config_root.parent
+            while not current.exists() and not current.is_symlink():
+                current = current.parent
+            _check_directory(current)
             return self._empty_registry()
         _check_directory(self.config_root, private=True)
         if not self.registry_path.exists():
@@ -108,7 +112,10 @@ class ProfileStore:
             value = _json(read_file_at(fd, "registry.json"), "registry")
         finally:
             os.close(fd)
-        _object(value, {"schema_version", "application", "accepted", "heads", "default"}, "registry")
+        _require(isinstance(value, dict) and
+                 {"schema_version", "application", "accepted", "heads", "default"} <= set(value) and
+                 set(value) <= {"schema_version", "application", "accepted", "heads", "default", "personal", "initialized"},
+                 "invalid_fields", "registry")
         _require(type(value["schema_version"]) is int and value["schema_version"] == 1,
                  "unsupported_version", "registry")
         _require(value["application"] == self.application, "wrong_application", "registry")
@@ -133,7 +140,59 @@ class ProfileStore:
         if value["default"] is not None:
             default = ProfileRef.from_dict(value["default"])
             _require(refs.get(default.content_sha256) == default, "unaccepted_reference", "registry")
+        for key in ("personal", "initialized"):
+            entries = value.get(key, [])
+            _require(isinstance(entries, list) and
+                     all(isinstance(item, str) and item in value["heads"] for item in entries) and
+                     len(entries) == len(set(entries)),
+                     "invalid_registry", "registry")
         return value
+
+    def managed_save(self, draft: ProfileSnapshot, *, expected_head: str | None,
+                     expected_default, use_for_new_cases: bool | None = None,
+                     personal: bool = True, initialized: bool = True, can_modify=lambda: True) -> ProfileRef:
+        """Private immutable publication + atomic head/ownership/default CAS.
+
+        Compiler validation belongs to the app adapter before calling here.
+        No source files or application configuration are touched. An orphaned
+        snapshot after failure never authorizes instructions or changes a case.
+        """
+        validated = validate_contents(draft.files, self.application)
+        _require(validated.ref == draft.ref, "snapshot_hash_mismatch", "profile")
+        _require(can_modify(), "work_active_or_case_changed", "save")
+        with self._locked():
+            registry = self.read_registry()
+            identity = draft.ref.specialty_id
+            _require(registry["heads"].get(identity) == expected_head and
+                     registry["default"] == expected_default, "stale_profile_revision", "save")
+            refs = {entry["ref"]["content_sha256"]: ProfileRef.from_dict(entry["ref"]) for entry in registry["accepted"]}
+            for other_identity, digest in registry["heads"].items():
+                if other_identity != identity:
+                    other = self._read_snapshot(refs[digest])
+                    _require(other.manifest["display_name"].strip().casefold() != validated.manifest["display_name"].strip().casefold(),
+                             "conflicting_profile_name", "name")
+            _require(can_modify(), "work_active_or_case_changed", "save")
+            self._publish_snapshot(validated)
+            _require(can_modify(), "work_active_or_case_changed", "save")
+            before = json_bytes(registry)
+            if not any(entry["ref"] == asdict(draft.ref) for entry in registry["accepted"]):
+                _require(len(registry["accepted"]) < 256, "registry_full", "registry")
+                registry["accepted"].append({"ref": asdict(draft.ref), "source": None})
+            registry["heads"][identity] = draft.ref.content_sha256
+            for key, enabled in (("personal", personal), ("initialized", initialized)):
+                if enabled:
+                    values = registry.setdefault(key, [])
+                    if identity not in values:
+                        values.append(identity)
+            default = registry["default"]
+            if use_for_new_cases is True or (use_for_new_cases is None and default and
+                                              default["specialty_id"] == identity):
+                registry["default"] = asdict(draft.ref)
+            elif use_for_new_cases is False and default and default["specialty_id"] == identity:
+                registry["default"] = None
+            if json_bytes(registry) != before:
+                _atomic_json(self.registry_path, registry)
+        return draft.ref
 
     @contextmanager
     def _locked(self):

@@ -23,6 +23,45 @@ from .profile_contract import (
 from .profile_store import ProfileStore, _check_directory, _fsync_directory
 
 
+@dataclass(frozen=True)
+class ProfileCandidate:
+    snapshot: ProfileSnapshot
+    personal: bool = False
+    notice: str = ""
+
+
+def current_catalog(store, bundled, *, known_baselines=(), customization=None):
+    """Read-only: one current entry per identity, no revision discovery in UI.
+
+    Exact known bundled bytes distinguish old ordinary acceptance from personal
+    edits. Optional ownership metadata is only written by an explicit action.
+    Existing personal settings never receive a second legacy overlay.
+    """
+    registry = store.read_registry()
+    baselines = set(known_baselines) | {snapshot.ref.content_sha256 for snapshot in bundled}
+    result = []
+    seen = set()
+    accepted = {entry["ref"]["content_sha256"]: entry["ref"] for entry in registry["accepted"]}
+    for snapshot in bundled:
+        identity = snapshot.ref.specialty_id
+        head = registry["heads"].get(identity)
+        personal = identity in registry.get("personal", []) or (head is not None and head not in baselines)
+        if personal:
+            snapshot = store.load_profile_snapshot(ProfileRef.from_dict(accepted[head]))
+        notice = ""
+        if not personal and identity not in registry.get("initialized", []) and customization:
+            candidate = customization(snapshot)
+            if candidate is not None:
+                snapshot, notice = candidate
+                personal = snapshot.ref.content_sha256 not in baselines
+        result.append(ProfileCandidate(snapshot, personal, notice))
+        seen.add(identity)
+    for identity, head in registry["heads"].items():
+        if identity not in seen:
+            result.append(ProfileCandidate(store.load_profile_snapshot(ProfileRef.from_dict(accepted[head])), True))
+    return result
+
+
 def checked_folder(path: Path, application: str) -> ProfileSnapshot:
     result = validate_profile_directory(path, application)
     if result.draft is None:
@@ -149,6 +188,16 @@ class ProfileEditor:
             else:
                 files[relative] = json_bytes(value) if RESOURCE_TYPES[self.base.ref.application][name] == "json" else value.encode("utf-8")
         return validate_contents(tuple(files.items()), self.base.ref.application)
+
+    def managed_save(self, store: ProfileStore, *, expected_head, expected_default,
+                     validate, can_modify, use_for_new_cases=None, personal=True):
+        draft = self.snapshot()
+        validate(draft)  # Real application compilers, never validation-only UI.
+        self._check_source()
+        return store.managed_save(draft, expected_head=expected_head,
+                                  expected_default=expected_default,
+                                  use_for_new_cases=use_for_new_cases,
+                                  personal=personal, can_modify=can_modify)
 
     def _check_source(self) -> None:
         if self.source is not None:

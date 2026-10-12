@@ -1,0 +1,9 @@
+{
+  "rt": "Distinguish covers, indexes and substantive hearing dialogue from other reporter-transcript material using the page structure.",
+  "ct": "Distinguish judicial minute orders, authored reports and structured court forms from covers, indexes and other clerk-record material. Use the source document's function, not its topic alone.",
+  "first_hearing": "Look for the court calling the case and participants stating appearances. A continued page number alone does not establish a new hearing.",
+  "first_minute": "Look for the order heading, date and first-page indicators. Do not split a continued order solely because a new issue appears.",
+  "first_form": "Use the form title and first-page indicators to distinguish the start of a form from its continuation.",
+  "date_hearing": "Use the date of the hearing identified on its opening page. Do not substitute a filing, certification or footer date.",
+  "date_minute": "Use the date of the judicial proceeding or order identified on the first page. Preserve uncertainty when multiple dates cannot be resolved."
+}

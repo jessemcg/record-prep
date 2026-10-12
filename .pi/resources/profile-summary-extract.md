@@ -14,8 +14,9 @@ categories or infer a practice area from a case name.
 Original source pages are factual authority. Metadata is attribution context, not
 independent evidence. Preserve chronology, attribution, qualifications and uncertainty.
 Clearly distinguish allegations, proposals and recommendations from actual orders.
-Respect any application-supplied scope delimiter. Return null for a category with no
-material content. Use short continuous verbatim quotation anchors for important
+Evaluate material information throughout the complete document, with no heading-based
+source cutoff. Omit routine boilerplate unless consequential. Return null for a category
+with no material content. Use short continuous verbatim quotation anchors for important
 points without quotas, stitched fragments, or fabricated source language.
 
 Only Python validates and publishes canonical output. Do not access unrelated files,

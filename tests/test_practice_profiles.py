@@ -355,6 +355,23 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(contract.ProfileError):
             compile(original, core=b"")
 
+    def test_retired_report_policy_is_readable_but_inert(self):
+        files = synthetic_files("recordprep")
+        before = self.draft(files, "recordprep")
+        policies = json.loads(files["resources/policies.json"])
+        alternatives = [policies | {"report_scope": "exclude_formal_proposals"},
+                        {"attendance": policies["attendance"]}]
+        compiled = contract.compile_stage_profile(before, "report_extraction", core_contract=b"core")
+        self.assertNotIn("policies", dict(compiled.resources))
+        for value in alternatives:
+            changed = self.draft(files | {"resources/policies.json": contract.json_bytes(value)}, "recordprep")
+            after = contract.compile_stage_profile(changed, "report_extraction", core_contract=b"core")
+            self.assertEqual(compiled.resources, after.resources)
+            self.assertEqual(compiled.component_sha256, after.component_sha256)
+        # Reading legacy bytes does not strip their field or change their digest.
+        self.assertEqual(contract.validate_contents(before.files, "recordprep").files, before.files)
+        self.assertIn("report_scope", before.resource("policies"))
+
     def test_identity_exchange_contains_no_resources_or_paths(self):
         descriptor = contract.identity_descriptor(self.draft())
         value = contract.parse_identity_descriptor(descriptor)

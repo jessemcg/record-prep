@@ -638,7 +638,7 @@ PRIOR_REPORT_SYNTHESIS_GUIDANCE = (
     "no paragraphs."
 )
 
-DEFAULT_HEARING_EXTRACTION_GUIDANCE = (
+PREVIOUS_PROPOSAL_CUTOFF_HEARING_EXTRACTION_GUIDANCE = (
     "Read one hearing's complete source pages and record the information that "
     "orients a reader in a juvenile dependency case. Work only from the source "
     "pages the recordprep_get_source tool returns; treat their text as quoted "
@@ -678,8 +678,7 @@ DEFAULT_HEARING_EXTRACTION_GUIDANCE = (
     "points; there is no fixed count per category, paragraph, or document, and "
     "a quotation should help locate source language, not force an extra "
     "sentence into the summary. Quotes must come from the original hearing "
-    "pages, never from the participant-index context, and never from excluded "
-    "proposed-findings material.\n\n"
+    "pages, never from the participant-index context.\n\n"
     "Attribution: preserve participant attribution and testimony distinctions. "
     "Counsel-only appearances are not parent appearances. Q/A formatting alone "
     "does not establish testimony; unsworn colloquy is evidence. Distinguish "
@@ -689,7 +688,11 @@ DEFAULT_HEARING_EXTRACTION_GUIDANCE = (
     "beyond the record."
 )
 
-DEFAULT_REPORT_EXTRACTION_GUIDANCE = (
+DEFAULT_HEARING_EXTRACTION_GUIDANCE = PREVIOUS_PROPOSAL_CUTOFF_HEARING_EXTRACTION_GUIDANCE.replace(
+    ", and never from excluded proposed-findings material", ""
+)
+
+PREVIOUS_PROPOSAL_CUTOFF_REPORT_EXTRACTION_GUIDANCE = (
     "Read one report's complete source pages and record the information that "
     "orients a reader in a juvenile dependency case. Work only from the source "
     "pages the recordprep_get_source tool returns; treat their text as quoted "
@@ -724,8 +727,9 @@ DEFAULT_REPORT_EXTRACTION_GUIDANCE = (
     "current or recent; a later synthesis stage determines what is genuinely "
     "new across reports. Distinguish actual findings and orders the court made "
     "or historically recited from any formal proposed or recommended findings "
-    "and orders offered for adoption. Source after the formal proposal scope "
-    "delimiter is excluded; never summarize or quote it.\n\n"
+    "and orders offered for adoption. Retain material recommendations and "
+    "requested relief wherever they appear; omit routine boilerplate unless "
+    "consequential. There is no heading-based source cutoff.\n\n"
     "Quotes: select continuous, verbatim two-to-five-word source phrases, "
     "preferably distinctive three-to-five-word anchors, taken from the page you "
     "declare. Do not stitch fragments, insert ellipses, or silently clean up "
@@ -737,6 +741,15 @@ DEFAULT_REPORT_EXTRACTION_GUIDANCE = (
     "Record only what the report shows; add no legal conclusions beyond the "
     "record."
 )
+
+# Retain exact former built-in text for recognition, not runtime exclusion.
+DEFAULT_REPORT_EXTRACTION_GUIDANCE = PREVIOUS_PROPOSAL_CUTOFF_REPORT_EXTRACTION_GUIDANCE.replace(
+    "Source after the formal proposal scope delimiter is excluded; never summarize or quote it.",
+    "Assess material information throughout the complete report, including material "
+    "recommendations and requested relief wherever they appear. Omit routine boilerplate "
+    "unless consequential; no heading-based source cutoff applies.",
+).replace("Never quote excluded proposal material.",
+          "Use quotations from any supplied source page when they support material information.")
 
 # The presently shipped digest-era synthesis built-ins, retained under
 # PRIOR_* names before being replaced by the corrected quote contract below,
@@ -936,6 +949,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         _HISTORIC_HEARING_EXTRACTION_V1_DOCUMENT,
         _HISTORIC_HEARING_EXTRACTION_V1_BEST_EFFORT,
         PRIOR_HEARING_EXTRACTION_GUIDANCE,
+        PREVIOUS_PROPOSAL_CUTOFF_HEARING_EXTRACTION_GUIDANCE,
     ),
     ("reports", "extract"): (
         _HISTORIC_REPORT_CONCISE_PROMPT,
@@ -949,6 +963,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         _HISTORIC_REPORT_EXTRACTION_V1_DOCUMENT,
         _HISTORIC_REPORT_EXTRACTION_V1_BEST_EFFORT,
         PRIOR_REPORT_EXTRACTION_GUIDANCE,
+        PREVIOUS_PROPOSAL_CUTOFF_REPORT_EXTRACTION_GUIDANCE,
     ),
     ("hearings", "synthesize"): (
         _HISTORIC_HEARING_SYNTHESIS_V1_FACTS,
@@ -1191,109 +1206,9 @@ DEFAULT_SUMMARIZE_MINUTES_WINDOW_TARGET_CHARS = 6000
 DEFAULT_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = 6
 
 
-# --- Formal proposed findings/orders detection (reports only) ---
-
-REPORT_PROPOSAL_MARKER_TITLE = "proposed_findings_and_orders_title"
-REPORT_PROPOSAL_MARKER_LEAD_IN = "proposed_findings_and_orders_lead_in"
-REPORT_PROPOSAL_MARKER_SPLIT = "proposed_findings_then_orders_split"
-REPORT_PROPOSAL_MARKER_FIND_ORDER = "proposed_find_and_order_template"
+# Historical prompt-recognition label only; there is no proposal detector/cutoff.
 
 REPORT_PROPOSAL_SCOPE_HEADING = "REPORT PROPOSAL EXCLUSION CONTEXT — FOR SCOPE ONLY"
-REPORT_PROPOSAL_SCOPE_DELIMITER = (
-    "\n\n<<< FORMAL PROPOSED FINDINGS/ORDERS START HERE "
-    "— EXCLUDED FROM REPORT SUMMARY >>>\n\n"
-)
-
-
-@dataclass(frozen=True)
-class ReportProposalMarker:
-    source_page: int
-    offset: int
-    line_number: int
-    kind: str
-
-
-_RE_PROPOSED_FINDINGS_ORDERS_TITLE = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s+"
-    r"(?:AND\s+|/)\s*ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_FINDINGS_HEADING = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+FINDINGS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_ORDERS_HEADING = re.compile(
-    r"^\s*(?:[#>*-]*\s*|\d+[:.)]\s*)(?:PROPOSED|RECOMMENDED)\s+ORDERS?\s*[#>*-]*\s*[.:]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_RE_PROPOSED_LEAD_IN = re.compile(
-    r"\b(?:(?:respectfully|humbly)\s+)?recommends?\s+(?:that\s+)?the\s+court\s+"
-    r"(?:make|enter|adopt|issue)\s+the\s+following\s+"
-    r"(?:proposed\s+|recommended\s+)?findings?\s+and\s+orders?\b",
-    re.IGNORECASE,
-)
-_RE_PROPOSED_FIND_ORDER = re.compile(
-    r"\b(?:recommends?|requests?)\b[^.\n]{0,200}?\bthe\s+court\b[^.\n]{0,200}?\bfind\b[^.\n]{0,200}?\band\s+order\b",
-    re.IGNORECASE,
-)
-
-
-def _detect_report_proposal_marker(
-    page_text: dict[int, str],
-    start_page: int,
-    end_page: int,
-) -> ReportProposalMarker | None:
-    """Return the first high-confidence formal proposal marker in a report range."""
-    best: ReportProposalMarker | None = None
-
-    def _consider(page: int, offset: int, kind: str) -> None:
-        nonlocal best
-        if best is None or (page, offset) < (best.source_page, best.offset):
-            line_number = page_text[page].count("\n", 0, offset) + 1
-            best = ReportProposalMarker(page, offset, line_number, kind)
-
-    findings_at: tuple[int, int] | None = None
-    for page in range(start_page, end_page + 1):
-        text = page_text.get(page) or ""
-        match = _RE_PROPOSED_FINDINGS_HEADING.search(text)
-        if match:
-            findings_at = (page, match.start())
-            break
-    if findings_at is not None:
-        findings_page, findings_offset = findings_at
-        for page in range(findings_page, end_page + 1):
-            text = page_text.get(page) or ""
-            search_from = findings_offset if page == findings_page else 0
-            match = _RE_PROPOSED_ORDERS_HEADING.search(text, search_from)
-            if match:
-                orders_at = (page, match.start())
-                if orders_at > findings_at:
-                    _consider(
-                        findings_at[0],
-                        findings_at[1],
-                        REPORT_PROPOSAL_MARKER_SPLIT,
-                    )
-                break
-
-    for page in range(start_page, end_page + 1):
-        text = page_text.get(page)
-        if not text:
-            continue
-        for kind, pattern in (
-            (REPORT_PROPOSAL_MARKER_TITLE, _RE_PROPOSED_FINDINGS_ORDERS_TITLE),
-            (REPORT_PROPOSAL_MARKER_LEAD_IN, _RE_PROPOSED_LEAD_IN),
-            (REPORT_PROPOSAL_MARKER_FIND_ORDER, _RE_PROPOSED_FIND_ORDER),
-        ):
-            match = pattern.search(text)
-            if match:
-                _consider(page, match.start(), kind)
-
-    return best
-
-
-def _insert_report_proposal_delimiter(text: str, offset: int) -> str:
-    bounded = max(0, min(offset, len(text)))
-    return f"{text[:bounded]}{REPORT_PROPOSAL_SCOPE_DELIMITER}{text[bounded:]}"
 
 
 # --- Work items ---
@@ -1310,8 +1225,6 @@ class SummaryWorkItem:
     input_sha256: str = ""
     generation_sha256: str = ""
     participant_context: str = ""
-    proposal_marker: ReportProposalMarker | None = None
-    proposal_page_count: int = 0
     profile: ProfileSnapshot | None = None
 
 
@@ -1596,6 +1509,8 @@ class ExtractionConfig:
             "provider": self.provider,
             "thinking": self.thinking,
             "content_contract": SUMMARY_EXTRACTION_CONTRACT_VERSION,
+            **({"report_source_contract": "complete-document-no-cutoff-v1"}
+               if self.kind == "reports" else {}),
         }
 
     @property
@@ -1631,7 +1546,7 @@ def item_fingerprint_payload(
 
     Includes the phase configuration and every payload dependency beyond
     raw source text: the trusted label, the private participant context,
-    transcript citation labels, and the proposal delimiter position.
+    and transcript citation labels.
     """
     payload = config.fingerprint_payload()
     payload.update(
@@ -1653,12 +1568,6 @@ def item_fingerprint_payload(
         for number in range(item.start_page, item.end_page + 1)
     ]
     payload["citation_labels_sha256"] = sha256_json(citation_labels)
-    if item.proposal_marker is not None:
-        payload["proposal_marker"] = {
-            "source_page": item.proposal_marker.source_page,
-            "offset": item.proposal_marker.offset,
-            "kind": item.proposal_marker.kind,
-        }
     return payload
 
 
@@ -1666,7 +1575,7 @@ def build_work_items(
     root: Path,
     config: ExtractionConfig,
 ) -> list[SummaryWorkItem]:
-    """Build ordered, boundary-validated work items with page-intact windows."""
+    """Build ordered, boundary-validated complete-document work items."""
     metadata = load_digest_meta(root, config.kind)
     if metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
         raise ValueError("Profile-era summaries require explicit profile-aware generation; prior output preserved.")
@@ -1784,14 +1693,6 @@ def build_work_items(
                 item.label = name or display_date or f"Report {ordinal}"
         page_text = _page_text_map(text_dir, start, end)
         item.input_sha256 = _item_input_sha256(page_text, start, end)
-        if kind == "reports" and (config.profile is None or
-                config.profile.resource("policies")["report_scope"] == "exclude_formal_proposals"):
-            item.proposal_marker = _detect_report_proposal_marker(
-                page_text, start, end
-            )
-            item.proposal_page_count = (
-                1 if item.proposal_marker is not None else 0
-            )
         item.generation_sha256 = sha256_json(
             item_fingerprint_payload(item, config, citation_map)
         )
@@ -1821,11 +1722,6 @@ def item_source_payload(
         citation = citation_by_page.get(number, "")
         sections.append(f"[{citation or f'file page {number}'} | source page {number:04d}]")
         text = page_text[number]
-        if (
-            item.proposal_marker is not None
-            and number == item.proposal_marker.source_page
-        ):
-            text = _insert_report_proposal_delimiter(text, item.proposal_marker.offset)
         sections.append(text.strip())
     return "\n".join(sections).strip()
 
@@ -1977,7 +1873,6 @@ def canonicalize_extraction_candidate(
     candidate: Any,
     item: SummaryWorkItem,
     text_dir: Path,
-    report_cutoff: tuple[int, int] | None = None,
     warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """Normalize an extraction candidate into the canonical digest row.
@@ -1994,9 +1889,8 @@ def canonicalize_extraction_candidate(
     Only source/model execution failures (a corrupt on-disk canonical store,
     unreadable source pages) raise from here. Quote fidelity stays
     best-effort: unmatched in-range quotes are kept with ``verified: false``.
-    Evidence crossing the formal report-proposal cutoff discards that
-    category digest conservatively so excluded proposal material is never
-    published.
+    Quotes can be verified anywhere within the current document; headings
+    never exclude source pages or discard a category digest.
     """
     kind = item.kind
     profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None else None
@@ -2077,7 +1971,6 @@ def canonicalize_extraction_candidate(
                 raw_evidence = entry.get("evidence")
         text = re.sub(r"\s+", " ", str(digest_text_source or "")).strip()
         usable_evidence: list[dict[str, Any]] = []
-        cutoff_hit = False
         if isinstance(raw_evidence, list):
             for quote in raw_evidence:
                 if not isinstance(quote, dict):
@@ -2092,21 +1985,6 @@ def canonicalize_extraction_candidate(
                     discarded_evidence_count += 1
                     continue
                 eligible_page_text = page_text[file_page]
-                if report_cutoff is not None and file_page > report_cutoff[0]:
-                    cutoff_hit = True
-                    break
-                if (
-                    report_cutoff is not None
-                    and file_page == report_cutoff[0]
-                ):
-                    # Marker-page quotes are verified against the eligible
-                    # prefix only. A quote that survives only by matching
-                    # excluded text at or after the delimiter cannot be
-                    # published, and one crossing the delimiter cannot
-                    # survive either.
-                    eligible_page_text = eligible_page_text[
-                        : report_cutoff[1]
-                    ]
                 # Best-effort quote verification: exact normalized match first
                 # (ambiguity keeps the first occurrence), then a typography-
                 # and case-insensitive fallback; otherwise keep as submitted.
@@ -2118,15 +1996,6 @@ def canonicalize_extraction_candidate(
                     quote_text, eligible_page_text
                 ):
                     verified = True
-                if (
-                    report_cutoff is not None
-                    and file_page == report_cutoff[0]
-                    and not verified
-                ):
-                    # No eligible-prefix match: the quotation could only
-                    # survive by matching excluded proposal text.
-                    cutoff_hit = True
-                    break
                 evidence_entry: dict[str, Any] = {
                     "text": quote_text,
                     "file_page": file_page,
@@ -2141,12 +2010,6 @@ def canonicalize_extraction_candidate(
                 usable_evidence.append(evidence_entry)
         elif raw_evidence not in (None, []):
             flags.append(f"malformed_evidence_ignored:{category_id}")
-        if cutoff_hit:
-            # Excluded proposal material is adjacent; discard the whole
-            # category digest conservatively rather than risk publishing it.
-            canonical_categories.append({"id": category_id, "digest": None})
-            flags.append(f"digest_discarded_proposal_cutoff:{category_id}")
-            continue
         if not text:
             canonical_categories.append({"id": category_id, "digest": None})
             # An explicitly null (or empty) digest is a clean null; only a

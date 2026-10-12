@@ -20,8 +20,6 @@ TOPIC_EXPLANATION = (
     "is then used to write the summary; the topics are not required headings in the final narrative."
 )
 POLICIES = {
-    "report_scope": (("include_attributed_proposals", "Include proposals, attributed to their source"),
-                     ("exclude_formal_proposals", "Exclude formal proposed findings and orders")),
     "attendance": (("explicit_complete_order", "Use explicit evidence from the complete order"),
                    ("legacy_first_page_parents", "Parents' personal appearance from the first page only")),
     "mode": (("source_title", "Use the source document's title"),
@@ -404,8 +402,6 @@ class ProfileEditorWindow(Adw.Window):
             self._catalog(group, self.editor.resources[kind])
             self._guidance(group, singular + "_extraction", "Reviewing each document")
             self._guidance(group, singular + "_synthesis", "Writing the summary")
-            if kind == "reports":
-                self._policy(group, self.editor.resources["policies"], "report_scope", "Formal proposals")
         group = self._group("Minute-order summaries")
         self._guidance(group, "minutes", "Writing minute-order summaries")
         self._policy(group, self.editor.resources["policies"], "attendance", "Attendance evidence")
@@ -506,6 +502,7 @@ def editable_profile(snapshot):
     """Explicit edit upgrades a draft only; historical snapshot bytes stay intact."""
     editor = ProfileEditor(snapshot)
     if snapshot.ref.application == "recordprep":
+        editor.resources["policies"].pop("report_scope", None)
         if snapshot.manifest["schema_version"] == 1:
             general = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
             editor.manifest["schema_version"] = 2

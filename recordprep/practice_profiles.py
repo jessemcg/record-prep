@@ -16,6 +16,8 @@ APPLICATION = "recordprep"
 BUNDLED_PROFILES = ("general", "california_dependency")
 # Reviewed, exact prior bundled snapshots; ordinary acceptance is not ownership.
 KNOWN_BASELINES = (
+    "7959a9f50f14b53705f423a4278152b4ff8303c8b45885ac1ad458c43009f472",
+    "1396a9dff51149a63ae343e9613b8168f55cd5c5398762e493ca62f1683c19b3",
     "22c34043d3bb4f17af259a3316b67f521ee454381c3a3e0232618559f2e89ead",
     "037c2353ba58dbaad2e37d4e1cda4e7b37bec4a81fa32f84ee6bbb6f69289e20",
     "25d33985b4b14ef70e1308ce4f630277ea17af5ef40d07fb6c499fb8577da2c9",

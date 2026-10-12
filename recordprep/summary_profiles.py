@@ -28,7 +28,9 @@ has exactly one digest: null if there is no material content, otherwise concise 
 and its supporting source-page evidence bank. Put a development in its best category
 once. Cite only supplied original source pages. Preserve uncertainty explicitly.
 Participant metadata is for attribution only; each factual claim needs source evidence.
-Respect any application-inserted scope delimiter. Only Python publishes canonical rows.
+There is no heading-based source cutoff. Evaluate material information throughout
+the complete document, distinguishing requested relief from actual orders.
+Only Python publishes canonical rows.
 """
 SYNTHESIS = """SYNTHESIS
 Use the supplied validated document digests, in source chronology, without inventing

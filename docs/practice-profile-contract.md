@@ -58,9 +58,12 @@ Every object rejects unknown fields, duplicate keys and nonfinite numbers.
   unique case-insensitively. v2 approved forms require both title and code on the
   supplied first page. The unversioned `{mode, report_titles, form_titles,
   guidance}` shape remains readable without inventing code requirements.
-- Policies: `{report_scope, attendance}`. Scope is `include_attributed_proposals`
-  or `exclude_formal_proposals`; attendance is `explicit_complete_order` or
-  `legacy_first_page_parents`. These select implemented application policies.
+- Policies: `{attendance}`, either `explicit_complete_order` or
+  `legacy_first_page_parents`. For byte-preserving compatibility, old snapshots
+  may also contain `report_scope`, validated as `include_attributed_proposals`
+  or `exclude_formal_proposals` but never compiled or executed. The editor omits
+  this retired field from new saved revisions, never from inspected snapshots.
+  There is no heading-based report source cutoff.
 - Focus search: `{query_terms, document_terms, passage_terms, later_history_terms}`,
   each 0–256 unique literal terms, at most 160 characters each. Never compile
   these as regexes or use them to filter source eligibility.
@@ -90,8 +93,11 @@ snapshots cause verification failure, not automatic revision acceptance.
 resource dependencies. Markdown remains exact; structured content is canonical
 JSON. Component hashes include application, stage and caller-supplied core bytes,
 not unrelated display metadata or the whole-profile digest. Classification task
-groups and caption guidance are isolated. Report extraction selects only scope;
-minutes selects only attendance. Runtime freshness additionally binds source,
+groups and caption guidance are isolated. Report extraction selects topics and
+extraction guidance, not policies; minutes selects only attendance. Report runtime
+freshness includes `complete-document-no-cutoff-v1`, so old cutoff-era extraction
+requires explicit rerunning rather than being silently reused or regenerated.
+Runtime freshness additionally binds source,
 model, upstream artifacts and validators. Application compilers own exact response
 keys, approved-name membership, date validation and publication.
 

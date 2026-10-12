@@ -38,7 +38,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
             root = Path(temporary)
             for page in range(1, 21):
                 (root / f"{page:04d}.txt").write_text(f"Synthetic source page {page}. " + "X" * 1800)
-            item = SimpleNamespace(start_page=1, end_page=20, participant_context="Synthetic counsel and witness attribution.", proposal_marker=None)
+            item = SimpleNamespace(start_page=1, end_page=20, participant_context="Synthetic counsel and witness attribution.")
             payload = sa.item_source_payload(item, root, {page: f"TEST {page}" for page in range(1, 21)})
             for page in range(1, 21):
                 self.assertEqual(payload.count(f"source page {page:04d}]"), 1)

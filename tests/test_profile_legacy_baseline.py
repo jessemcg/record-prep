@@ -55,13 +55,21 @@ class LegacyProfileBaselineTests(unittest.TestCase):
             practice_profiles.bundled_profile_directory("california_dependency"))
         self.assertEqual(result.issues, ())
         for kind, expected in self.fixture["categories"].items():
-            self.assertEqual(result.draft.resource(kind), expected)
+            current = result.draft.resource(kind)
+            for actual, historical in zip(current, expected, strict=True):
+                if actual["id"] == "agency_recommendations":
+                    self.assertEqual(actual["id"], historical["id"])
+                    self.assertEqual(actual["title"], historical["title"])
+                    self.assertIn("wherever they appear", actual["guidance"])
+                    self.assertIn("clear distinction from actual court", actual["guidance"])
+                else:
+                    self.assertEqual(actual, historical)
         roles = result.draft.resource("roles")
         for key, legacy_key in (("counsel", "valid_roles"), ("participants", "valid_participant_roles")):
             self.assertEqual({entry["id"] for entry in roles[key]},
                              set(self.fixture["roles"][legacy_key]) | {"unknown", "other"})
         self.assertEqual(result.draft.resource("policies"), {
-            "report_scope": "exclude_formal_proposals", "attendance": "legacy_first_page_parents"})
+            "attendance": "legacy_first_page_parents"})
 
     def test_general_has_neutral_categories_and_different_policies(self):
         result = practice_profiles.validate_profile_directory(practice_profiles.bundled_profile_directory("general"))
@@ -70,7 +78,7 @@ class LegacyProfileBaselineTests(unittest.TestCase):
         self.assertEqual(len(result.draft.resource("reports")), 7)
         self.assertEqual(result.draft.resource("hearings")[0]["id"], "party_appearances")
         self.assertEqual(result.draft.resource("policies"), {
-            "report_scope": "include_attributed_proposals", "attendance": "explicit_complete_order"})
+            "attendance": "explicit_complete_order"})
         self.assertNotIn("dependency", " ".join(data.decode() for _name, data in result.draft.files).lower())
 
     def test_no_premature_artifact_schema_transition(self):

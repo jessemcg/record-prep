@@ -89,6 +89,21 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         editor = manager.children_windows[-1]
         layout(editor)
         assert editor.editor.resources
+        assert "report_scope" not in importlib.import_module(package + ".profile_editor_ui").POLICIES
+        assert not any(isinstance(item, Gtk.Label) and item.get_text() == "Formal proposals"
+                       for item in descendants(editor))
+        if package == "recordprep":
+            assert "report_scope" not in editor.editor.resources["policies"]
+            # An old saved value is readable, but editing drops it only in memory.
+            legacy = workflows.ProfileEditor(editor.editor.base)
+            legacy.resources["policies"]["report_scope"] = "exclude_formal_proposals"
+            historical = legacy.snapshot()
+            old_files = historical.files
+            draft = importlib.import_module(package + ".profile_editor_ui").editable_profile(historical)
+            assert "report_scope" not in draft.resources["policies"]
+            assert historical.files == old_files
+            assert historical.resource("policies")["report_scope"] == "exclude_formal_proposals"
+            assert preview(draft.snapshot())
         click(editor, "Cancel")
         drain()
         assert not list(root.iterdir())

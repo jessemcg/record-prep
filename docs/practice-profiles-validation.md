@@ -33,7 +33,7 @@ history remains in Git, not the current ordinary workflow.
   first-three-page inventory, or redirected metadata directory. Missing metadata
   directories are created only during successful explicit publication.
 - End-user prompt testing and executable sandbox payload/request paths are absent.
-  Direct-source production tests verify complete pages, one proposal delimiter,
+  Direct-source production tests verify complete pages without a proposal delimiter,
   attribution and retained historical-default recognition. Four previously
   shadowed historical prompt tests are now independently discovered.
 
@@ -102,3 +102,28 @@ exported. Personal customization is persisted only by explicit application Save
 or Use profile; no public-resource promotion follows. Existing contexts remain
 legacy or pinned. Restoring unavailable instructions and further paid/private-record
 quality evaluation are separate user actions, not consequences of these tests.
+
+## Follow-up: remove formal-proposal exclusion
+
+The Formal proposals control, heading detectors, injected delimiter, work-item
+markers and cutoff-based digest rejection are removed. Complete-document evidence
+remains eligible before, within and after proposed-findings/order sections. Tests
+cover heading variations, split headings, later-page and same-page quotes, and the
+actual guarded summary runner publishing a verified post-heading quote in its digest
+and retaining the material requested relief in final prose. Old `report_scope` bytes
+remain readable and inert; editing omits the field without modifying the original
+snapshot. Changing or omitting it does not change report compilation. Exact former
+built-in prompts and shipped baseline hashes remain recognized; frozen fixtures are
+unchanged. Report freshness explicitly distinguishes the complete-source contract.
+
+Follow-up validation in `/tmp/simple-profiles-AKJKox/`: RecordPrep **457 tests, OK**
+(`proposal-rp-tests-final.log`); Focus **655 passed + 38 subtests**, with its two
+existing warnings (`proposal-focus-tests.log`). The lower RecordPrep count replaces
+obsolete detector/cutoff tests with complete-source and historical-recognition tests;
+source/evidence/publication guards remain tested. Both real GTK workflow acceptances
+pass with fatal criticals and exact 480/640/820 allocations, explicitly checking that
+no Formal proposals label or policy option exists. Scoped AT-SPI observation of the
+owned synthetic editor confirms report controls and retained Attendance evidence,
+without the retired control; no screenshot or broad screen-reader claim is made.
+Native resources and the changed skill validate. Original unrelated RecordPrep
+AGENTS/README edits, private configurations and real cases remain untouched.

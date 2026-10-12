@@ -41,7 +41,7 @@ STAGE_RESOURCES = {
         "naming": ("naming",),
         "participants": ("roles", "participants"),
         "hearing_extraction": ("hearings", "roles", "hearing_extraction"),
-        "report_extraction": ("reports", "report_extraction", "policies"),
+        "report_extraction": ("reports", "report_extraction"),
         "hearing_synthesis": ("hearings", "hearing_synthesis"),
         "report_synthesis": ("reports", "report_synthesis"),
         "minutes": ("roles", "minutes", "policies"),
@@ -192,9 +192,13 @@ def _structured(name: str, value: Any) -> None:
         for catalog in value.values():
             _catalog(catalog, name, roles=True)
     elif name == "policies":
-        _object(value, {"report_scope", "attendance"}, name)
-        _require(value["report_scope"] in ("include_attributed_proposals", "exclude_formal_proposals"),
-                 "unsupported_policy", name)
+        _require(isinstance(value, dict) and set(value) in
+                 ({"attendance"}, {"attendance", "report_scope"}), "invalid_fields", name)
+        # Accept the retired field only to keep existing snapshot bytes readable.
+        # It is not compiled or consulted by any producer.
+        if "report_scope" in value:
+            _require(value["report_scope"] in ("include_attributed_proposals", "exclude_formal_proposals"),
+                     "unsupported_policy", name)
         _require(value["attendance"] in ("explicit_complete_order", "legacy_first_page_parents"),
                  "unsupported_policy", name)
     elif name == "naming":
@@ -412,10 +416,9 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
         value = snapshot.resource(name)
         if name == "classification_tasks" and stage in task_stages:
             value = {task: value[task] for task in task_stages[stage]}
-        # Do not stale report extraction for an attendance-only policy edit.
+        # Only minute-order attendance remains an implemented policy.
         if name == "policies":
-            key = "report_scope" if stage == "report_extraction" else "attendance"
-            value = {key: value[key]}
+            value = {"attendance": value["attendance"]}
         data = value.encode("utf-8") if isinstance(value, str) else json_bytes(value)
         resources.append((name, data))
     digest = _content_digest(tuple(resources) + (("@core", core_contract),

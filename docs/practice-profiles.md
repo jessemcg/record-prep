@@ -145,8 +145,9 @@ inference uses its own compiler and source/model/output freshness marker.
 Credentials, first-three-page bounds, filename validation and guarded publication
 remain application-owned. Selecting a profile never renames the case.
 
-Schema-1 snapshots remain byte-preserved and compile as before, including
-historical caption behavior. Explicit editing upgrades only an in-memory draft.
+Schema-1 snapshots remain byte-preserved, including historical caption behavior.
+The retired report-scope field is an explicit exception: it remains readable but
+no longer controls extraction. Explicit editing upgrades only an in-memory draft.
 Old unversioned naming catalogs remain readable; known structured title/code
 rules can be retained on edit, while unresolved historical titles remain visible
 in guidance with a review notice rather than invented rules.
@@ -155,9 +156,17 @@ Manifests reject unknown/missing fields, unsupported capabilities/versions,
 noncanonical/traversing/executable resource paths, duplicate JSON keys, unsafe
 links, oversized files and invalid Unicode. Resources are frozen and verified by
 content hash. Topics/roles use stable bounded IDs; roles retain unknown/other
-fallbacks; naming uses closed source/approved-title modes; scope/attendance use
-only application-implemented policies. Profiles cannot weaken evidence, citations,
-source scope, tools, output schema or publication safeguards.
+fallbacks; naming uses closed source/approved-title modes; attendance uses only
+application-implemented policies. There is no Formal proposals switch or heading-
+based report cutoff. Complete reports remain available for material recommendations,
+requested relief and later discussion; guidance distinguishes proposals from actual
+orders and omits routine boilerplate unless consequential. Quote/citation checks and
+publication guards remain. Old `report_scope` fields are accepted but ignored and
+omitted from an edited draft on explicit Save; inspection does not rewrite snapshots,
+private configuration or cases. Existing outputs are not regenerated automatically;
+report freshness requires explicit rerunning under the new complete-source contract.
+Profiles cannot weaken evidence, citations, source scope, tools, output schema or
+publication safeguards.
 
 Existing participant/source-map schema 3, digest format 2/row 3/metadata 5,
 minute checkpoint 2 and saved-answer schema 2 remain descriptive reader contracts,

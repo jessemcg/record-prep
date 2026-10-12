@@ -131,8 +131,8 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
     name: "recordprep_get_source",
     label: "Get document source",
     description:
-      "Return the current document's complete source pages, including any " +
-      "scope delimiters. Read it fully before submitting.",
+      "Return the current document's complete source pages. " +
+      "Read every page before submitting.",
     parameters: Type.Object({}),
     async execute(_id) {
       const spec = requireSpec(_id, "source.prerequisite_unavailable");

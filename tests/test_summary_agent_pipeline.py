@@ -579,7 +579,7 @@ class QuoteResolutionTests(unittest.TestCase):
         self.assertIn("disposi", page[start:end])
         self.assertIn("nal order", page[start:end])
 
-    def test_report_proposal_cutoff_discards_category_digest(self) -> None:
+    def test_report_quotes_after_proposals_remain_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -590,8 +590,7 @@ class QuoteResolutionTests(unittest.TestCase):
             )
             builder.finish([], [(1, 3, "March 3, 2025", "Detention Report")])
             items = sa.build_work_items(root, _extraction_config("reports"))
-            self.assertIsNotNone(items[0].proposal_marker)
-            self.assertEqual(items[0].proposal_marker.source_page, 2)
+            self.assertFalse(hasattr(items[0], "proposal_marker"))
 
             def candidate(page: int, quote: str) -> dict:
                 return {
@@ -613,27 +612,20 @@ class QuoteResolutionTests(unittest.TestCase):
                 candidate(1, "unique phrase"),
                 items[0],
                 root / "text_pages",
-                report_cutoff=(items[0].proposal_marker.source_page, 0),
             )
             self.assertEqual(
                 row["categories"][0]["digest"]["evidence"][0]["file_page"], 1
             )
-            # Evidence past the cutoff conservatively discards the whole
-            # category digest so excluded proposal material is not published.
+            # Later material remains eligible after a formal proposal heading.
             row = sa.canonicalize_extraction_candidate(
-                candidate(3, "unique phrase"),
-                items[0],
-                root / "text_pages",
-                report_cutoff=(items[0].proposal_marker.source_page, 0),
+                candidate(3, "unique phrase"), items[0], root / "text_pages",
             )
-            self.assertIsNone(row["categories"][0]["digest"])
-            self.assertIn(
-                "digest_discarded_proposal_cutoff:agency_recommendations",
-                row["quality_flags"],
-            )
+            self.assertIsNotNone(row["categories"][0]["digest"])
+            self.assertEqual(row["categories"][0]["digest"]["evidence"][0]["file_page"], 3)
+            self.assertTrue(row["categories"][0]["digest"]["evidence"][0]["verified"])
 
-    def test_report_proposal_cutoff_enforces_marker_page_offset(self) -> None:
-        """Marker-page quotes verify against the eligible prefix only."""
+    def test_report_quotes_after_heading_verify_against_the_whole_page(self) -> None:
+        """A proposal heading does not truncate same-page quotation verification."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -646,17 +638,6 @@ class QuoteResolutionTests(unittest.TestCase):
             )
             builder.finish([], [(1, 2, "March 3, 2025", "Detention Report")])
             items = sa.build_work_items(root, _extraction_config("reports"))
-            marker = items[0].proposal_marker
-            self.assertIsNotNone(marker)
-            self.assertEqual(marker.source_page, 2)
-            # The detector's offset lands at the excluded title; the quote
-            # from the eligible prefix precedes it.
-            page_text = (root / "text_pages" / "0002.txt").read_text(
-                encoding="utf-8"
-            )
-            offset = marker.offset
-            self.assertIn("Eligible narrative", page_text[:offset])
-            self.assertIn("excluded material", page_text[offset:])
 
             def candidate(quote: str) -> dict:
                 return {
@@ -674,30 +655,23 @@ class QuoteResolutionTests(unittest.TestCase):
                     ],
                 }
 
-            # A marker-page quote that matches the eligible prefix survives.
+            # Quotes on either side of the heading use the complete page.
             row = sa.canonicalize_extraction_candidate(
                 candidate("Eligible narrative"),
                 items[0],
                 root / "text_pages",
-                report_cutoff=(marker.source_page, offset),
             )
             evidence = row["categories"][0]["digest"]["evidence"]
             self.assertEqual(evidence[0]["file_page"], 2)
             self.assertTrue(evidence[0]["verified"])
 
-            # A quote that can only match excluded text cannot survive: the
-            # category digest is conservatively discarded.
+            # Formerly excluded text is ordinary valid source evidence.
             row = sa.canonicalize_extraction_candidate(
-                candidate("excluded material"),
-                items[0],
-                root / "text_pages",
-                report_cutoff=(marker.source_page, offset),
+                candidate("excluded material"), items[0], root / "text_pages",
             )
-            self.assertIsNone(row["categories"][0]["digest"])
-            self.assertIn(
-                "digest_discarded_proposal_cutoff:agency_recommendations",
-                row["quality_flags"],
-            )
+            evidence = row["categories"][0]["digest"]["evidence"]
+            self.assertTrue(evidence[0]["verified"])
+            self.assertEqual(evidence[0]["text"], "excluded material")
 
 
 class SynthesisDiagnosticsTests(unittest.TestCase):
@@ -757,7 +731,7 @@ class SourcePayloadTests(unittest.TestCase):
             self.assertIn("COMPLETE SOURCE PAGES 0001-0004", payload)
             self.assertLess(payload.index("[RT 1 |"), payload.index("[RT 4 |"))
 
-    def test_source_payload_carries_participant_context_and_proposal_marker(self) -> None:
+    def test_report_source_payload_has_all_text_without_scope_insertion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             builder = BundleBuilder(root)
@@ -771,11 +745,10 @@ class SourcePayloadTests(unittest.TestCase):
             payload = sa.item_source_payload(
                 items[0], root / "text_pages", {}
             )
-            self.assertIn(sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip(), payload)
-            self.assertLess(
-                payload.index("QUOTEME:rr 01"),
-                payload.index(sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip()),
-            )
+            self.assertIn("PROPOSED FINDINGS AND ORDERS", payload)
+            self.assertIn("cc dd excluded material", payload)
+            self.assertNotIn("EXCLUDED FROM REPORT SUMMARY", payload)
+            self.assertLess(payload.index("QUOTEME:rr 01"), payload.index("PROPOSED FINDINGS AND ORDERS"))
             self.assertNotIn("PARTICIPANT INDEX CONTEXT", payload)
 
     def test_hearing_source_payload_includes_participant_context(self) -> None:
@@ -1770,7 +1743,7 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(historical, (kind, phase))
             for text in historical:
                 resolution = sa.resolve_phase_guidance(kind, phase, text)
-                self.assertEqual(resolution.origin, "migrated", (kind, phase))
+                self.assertIn(resolution.origin, {"default", "migrated"}, (kind, phase))
                 self.assertEqual(
                     resolution.immutable_guidance,
                     sa.default_guidance(kind, phase),

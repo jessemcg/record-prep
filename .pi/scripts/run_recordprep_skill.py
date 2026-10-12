@@ -1339,8 +1339,6 @@ def _render_and_validate(
     )
     # Structural checks before replacing any prior summary. These cover
     # renderer integrity, not model quality.
-    if sa.REPORT_PROPOSAL_SCOPE_DELIMITER.strip() in final_text:
-        raise ValueError("rendered summary leaked proposal scope material.")
     if "{{quote:" in final_text:
         raise ValueError("rendered summary contains an unresolved quote placeholder.")
     if "](page:" in final_text:
@@ -1506,14 +1504,6 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         candidate,
                         item,
                         root / "text_pages",
-                        report_cutoff=(
-                            (
-                                item.proposal_marker.source_page,
-                                item.proposal_marker.offset,
-                            )
-                            if item.proposal_marker is not None
-                            else None
-                        ),
                         warnings=row_warnings,
                     )
                     for warning in row_warnings:

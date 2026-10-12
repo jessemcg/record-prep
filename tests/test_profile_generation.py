@@ -66,12 +66,16 @@ class ProfileGenerationTests(unittest.TestCase):
         (self.root / "text_pages/0001.txt").write_text("The author described disputed facts.")
         (self.root / "text_pages/0002.txt").write_text("PROPOSED FINDINGS AND ORDERS\nThe court is asked to grant relief.")
 
-    def test_profiles_have_independent_categories_and_scope(self):
+    def test_profiles_have_independent_categories_and_complete_source(self):
         configs = [sa.ExtractionConfig("reports", "ignored legacy text", profile=bundled(name))
                    for name in ("general", "california_dependency")]
         general, dependency = [sa.build_work_items(self.root, config)[0] for config in configs]
-        self.assertIsNone(general.proposal_marker)
-        self.assertIsNotNone(dependency.proposal_marker)
+        for item in (general, dependency):
+            self.assertFalse(hasattr(item, "proposal_marker"))
+            source = sa.item_source_payload(item, self.root / "text_pages", {})
+            self.assertIn("PROPOSED FINDINGS AND ORDERS", source)
+            self.assertIn("grant relief", source)
+            self.assertNotIn("EXCLUDED FROM REPORT SUMMARY", source)
         self.assertNotIn("ignored legacy text", configs[0].guidance)
         self.assertEqual(len(configs[0].definitions), 7)
         self.assertEqual(len(configs[1].definitions), 12)
@@ -148,13 +152,24 @@ class ProfileGenerationTests(unittest.TestCase):
              patch("recordprep.summary_preflight.pi_runtime.available_pi_models", return_value=[]), \
              patch.object(runner, "_stage_capacity", return_value=None), \
              patch.object(runner, "_report_capacity"), \
-             patch.object(runner, "_run_extraction_child", return_value={"categories": []}) as extract, \
+             patch.object(runner, "_run_extraction_child", return_value={"categories": [{
+                 "id": profile.resource("reports")[0]["id"],
+                 "digest": {"text": "The agency requested relief, not an actual order.",
+                            "evidence": [{"file_page": 2, "text": "grant relief"}]},
+             }]}) as extract, \
              patch.object(runner, "_run_synthesis_child", return_value=([], [])) as synthesize:
             seed_profile_preparation(self.root, profile, project / ".pi")
             self.assertEqual(runner._run_summary_stage(stage, self.root, project / ".pi"), 0)
             self.assertEqual(extract.call_count, 1)
             self.assertEqual(synthesize.call_count, 1)
             self.assertEqual(sa.validate_summary_agent_outputs(self.root, "reports"), [])
+            document = sa.load_digest_markdown(self.root, "reports")
+            evidence = document[0]["categories"][0]["digest"]["evidence"][0]
+            self.assertEqual(evidence["file_page"], 2)
+            self.assertEqual(evidence["text"], "grant relief")
+            self.assertTrue(evidence["verified"])
+            self.assertIn("The agency requested relief, not an actual order.",
+                          sa.summary_final_path(self.root, "reports").read_text())
             self.assertEqual(sa.summary_stage_freshness_issues(self.root, "reports", project_dir=project / ".pi"), [])
             self.assertEqual(runner._run_summary_stage(stage, self.root, project / ".pi"), 0)
             self.assertEqual(extract.call_count, 1)

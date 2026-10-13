@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from recordprep import config, documents, manifest, prompts, summaries
 from recordprep import summary_agents as sa
 from recordprep.ui import main_window as ui
 
@@ -18,10 +19,55 @@ class DirectSourcePipelineTests(unittest.TestCase):
         self.assertFalse(hasattr(sa, "_summary_page_windows"))
         self.assertFalse(hasattr(ui.RecordPrepWindow, "_request_plain_text"))
         self.assertTrue(callable(ui.RecordPrepWindow._classify_image))
-        for step in ("_run_step_create_hearing_summaries", "_run_step_create_report_summaries", "_run_step_create_minute_order_summaries"):
-            # Existing GUI adapters still use the guided agentic pipeline.
-            if hasattr(ui.RecordPrepWindow, step):
-                self.assertTrue(callable(getattr(ui.RecordPrepWindow, step)))
+
+    def test_retired_execution_paths_are_absent(self):
+        for name in ("_extract_embedding_vectors", "_infer_case_name_from_text",
+                     "_limit_case_name_words", "_looks_like_case_name"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(ui, name))
+        for name in ("_build_summarize_request_settings", "_classify_text",
+                     "_stream_text_with_retries", "_read_sse_text_response",
+                     "_extract_stream_text_parts", "_coerce_stream_text"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(ui.RecordPrepWindow, name))
+
+    def test_summary_handlers_dispatch_to_existing_pi_stages(self):
+        for kind, step, row in (
+            ("hearing", "create_hearing_summaries", "step_hearing_summaries_row"),
+            ("report", "create_report_summaries", "step_report_summaries_row"),
+            ("minute_order", "create_minute_order_summaries", "step_minute_order_summaries_row"),
+        ):
+            with self.subTest(kind=kind):
+                handler = getattr(ui.RecordPrepWindow, f"_run_step_{step}")
+                sentinel = object()
+                for result in (True, False, None):
+                    dispatch = Mock(return_value=result)
+                    window = SimpleNamespace(_run_pi_skill_step=dispatch, **{row: sentinel})
+                    self.assertIs(handler(window), result)
+                    dispatch.assert_called_once_with(step, sentinel)
+
+    def test_supported_compatibility_import_surfaces_remain_available(self):
+        # Historical settings APIs are supported even though direct requests retired.
+        for category in ("advanced_classify", "case_name", "classifier", "classify_dates",
+                         "classify_names", "local_ocr", "summarize"):
+            for action in ("load", "save"):
+                name = f"{action}_{category}_settings"
+                with self.subTest(name=name):
+                    self.assertIs(getattr(config, name), getattr(ui, name))
+        for module, names in (
+            (documents, ("_merge_pdfs", "_generate_text_files", "_generate_image_page_files")),
+            (manifest, ("_read_manifest", "_write_manifest")),
+            (summaries, ("_summary_output_paths", "_minutes_summary_output_path")),
+        ):
+            for name in names:
+                with self.subTest(module=module.__name__, name=name):
+                    self.assertIs(getattr(module, name), getattr(ui, name))
+        for name in ("DEFAULT_CASE_NAME_PROMPT", "DEFAULT_SUMMARIZE_HEARINGS_PROMPT",
+                     "DEFAULT_SUMMARIZE_REPORTS_PROMPT", "DEFAULT_SUMMARIZE_MINUTES_PROMPT"):
+            self.assertEqual(getattr(prompts, name), getattr(ui, name))
+        for name in ("legacy_summary_digest_jsonl_path", "migrate_legacy_digest_jsonl",
+                     "load_digest_markdown", "cleanup_legacy_digest_jsonl"):
+            self.assertIs(getattr(summaries, name), getattr(sa, name))
 
     def test_production_model_loader_does_not_read_inert_sandbox_controls(self):
         config = {"summarize_api_url": "INERT_CANARY", "summarize_api_key": "INERT_CANARY",

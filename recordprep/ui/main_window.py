@@ -668,25 +668,6 @@ def _apply_disable_reasoning_to_body(
         body["reasoning_effort"] = "none"
 
 
-def _extract_embedding_vectors(response: Any) -> list[list[float]]:
-    embeddings = getattr(response, "embeddings", None)
-    if embeddings is None and isinstance(response, dict):
-        embeddings = response.get("embeddings")
-    if not isinstance(embeddings, list):
-        raise ValueError("Invalid embeddings response format.")
-    vectors: list[list[float]] = []
-    for item in embeddings:
-        vector = getattr(item, "embedding", None)
-        if vector is None and isinstance(item, dict):
-            vector = item.get("embedding")
-        if not isinstance(vector, list):
-            raise ValueError("Missing embedding vector in response.")
-        vectors.append(vector)
-    return vectors
-
-
-
-
 def _unique_in_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
@@ -751,17 +732,6 @@ def _normalize_rt_ct_split_mode(value: str | None) -> str:
     return "split"
 
 
-def _read_rt_ct_split_page(root_dir: Path) -> int | None:
-    manifest = _read_manifest(root_dir)
-    value = manifest.get("rt_ct_split_page")
-    return _normalize_rt_ct_split_page(value)
-
-
-def _read_rt_ct_split_mode(root_dir: Path) -> str:
-    manifest = _read_manifest(root_dir)
-    return _normalize_rt_ct_split_mode(manifest.get("rt_ct_split_mode"))
-
-
 def _count_text_pages(text_dir: Path) -> int:
     if not text_dir.exists():
         return 0
@@ -784,127 +754,6 @@ def _is_truthy(value: str) -> bool:
     return value.strip().lower() in {"true", "yes", "y", "1", "relevant", "keep"}
 
 
-def _load_classify_date_targets(classify_path: Path) -> list[tuple[str, str]]:
-    targets: list[tuple[str, str]] = []
-    if not classify_path.exists():
-        return targets
-    entries: list[tuple[str, str, int]] = []
-    with classify_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            file_name = str(payload.get("file_name", "") or "").strip()
-            page_type = str(payload.get("page_type", "") or "").strip().lower()
-            if not file_name or not page_type:
-                continue
-            page_number = _extract_page_number(file_name)
-            if page_number is None:
-                continue
-            entries.append((file_name, page_type, page_number))
-    for file_name, page_type, page_number in entries:
-        if page_type in {
-            "hearing_first_page",
-            "rt_body_first_page",
-            "minute_order_first_page",
-            "minute_order_page_first_page",
-            "ct_minute_order_first_page",
-        }:
-            targets.append((file_name, page_type))
-    return targets
-
-
-def _load_classify_report_targets(classify_path: Path) -> list[tuple[str, str]]:
-    targets: list[tuple[str, str]] = []
-    if not classify_path.exists():
-        return targets
-    entries: list[tuple[str, str, int]] = []
-    with classify_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            file_name = str(payload.get("file_name", "") or "").strip()
-            page_type = str(payload.get("page_type", "") or "").strip().lower()
-            if not file_name or not page_type:
-                continue
-            page_number = _extract_page_number(file_name)
-            if page_number is None:
-                continue
-            entries.append((file_name, page_type, page_number))
-    prev_type: str | None = None
-    prev_number: int | None = None
-    for file_name, page_type, page_number in entries:
-        if page_type in {"report", "report_page"}:
-            if prev_type not in {"report", "report_page"} or prev_number is None or page_number != prev_number + 1:
-                targets.append((file_name, page_type))
-            prev_type = page_type
-            prev_number = page_number
-        else:
-            prev_type = None
-            prev_number = None
-    return targets
-
-
-def _load_classify_form_targets(classify_path: Path) -> list[tuple[str, str]]:
-    targets: list[tuple[str, str]] = []
-    if not classify_path.exists():
-        return targets
-    with classify_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            file_name = str(payload.get("file_name", "") or "").strip()
-            page_type = str(payload.get("page_type", "") or "").strip().lower()
-            if not file_name or page_type not in {
-                "form_first_page",
-                "form_page_first_page",
-                "ct_form_first_page",
-            }:
-                continue
-            targets.append((file_name, page_type))
-    return targets
-
-
-def _load_relevant_form_targets(path: Path) -> list[str]:
-    entries = _load_jsonl_entries(path)
-    targets: list[str] = []
-    for entry in entries:
-        file_name = _extract_entry_value(entry, "file_name", "filename")
-        if file_name:
-            targets.append(file_name)
-    return targets
-
-
-def _load_relevant_report_targets(path: Path) -> list[str]:
-    entries = _load_jsonl_entries(path)
-    targets: list[str] = []
-    for entry in entries:
-        file_name = _extract_entry_value(entry, "file_name", "filename")
-        if file_name:
-            targets.append(file_name)
-    return targets
-
-
 def _load_jsonl_entries(path: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     if not path.exists():
@@ -921,14 +770,6 @@ def _load_jsonl_entries(path: Path) -> list[dict[str, Any]]:
             if isinstance(payload, dict):
                 entries.append(payload)
     return entries
-
-
-def _write_jsonl_entries(path: Path, entries: list[dict[str, Any]]) -> None:
-    lines = [json.dumps(entry, ensure_ascii=False) for entry in entries if isinstance(entry, dict)]
-    payload = "\n".join(lines)
-    if payload:
-        payload += "\n"
-    path.write_text(payload, encoding="utf-8")
 
 
 def _load_combined_jsonl_entries(paths: list[Path]) -> list[dict[str, Any]]:
@@ -1143,33 +984,6 @@ def _sanitize_case_name_value(value: str) -> str:
     return cleaned.strip("_")
 
 
-def _limit_case_name_words(value: str, max_words: int = 8) -> str:
-    sanitized = _sanitize_case_name_value(value)
-    if not sanitized:
-        return ""
-    parts = [part for part in sanitized.split("_") if part]
-    if len(parts) <= max_words:
-        return sanitized
-    return "_".join(parts[:max_words])
-
-
-def _looks_like_case_name(value: str) -> bool:
-    sanitized = _sanitize_case_name_value(value)
-    if not sanitized:
-        return False
-    lowered = sanitized.lower().replace("_", " ")
-    if "we are given" in lowered or "we're given" in lowered:
-        return False
-    if "first" in lowered and ("page" in lowered or "pages" in lowered):
-        return False
-    if "given" in lowered and "pages" in lowered:
-        return False
-    if "transcript" in lowered or "ocr" in lowered:
-        return False
-    tokens = re.findall(r"[a-zA-Z]+", lowered)
-    return bool(tokens)
-
-
 def _image_path_for_filename(filename: str, image_dir: Path) -> Path:
     if not filename:
         raise FileNotFoundError("Missing filename for image lookup.")
@@ -1264,38 +1078,6 @@ def _strip_nonstandard_characters(text: str) -> str:
     return "".join(cleaned_chars)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _collapse_blank_lines(text: str) -> str:
-    return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
-
-
 def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
     """Remove only obsolete, reproducible artifacts in the selected bundle."""
     candidates = (
@@ -1321,22 +1103,6 @@ def _cleanup_legacy_generated_artifacts(root: Path) -> list[str]:
             path.unlink()
         removed.append(path.relative_to(root).as_posix())
     return removed
-
-
-def _strip_hearing_date_prefix(text: str) -> tuple[str, str | None]:
-    match = re.match(r"^\s*Hearing date:\s*([^.\n]+)\.\s*(.*)$", text, re.DOTALL)
-    if match:
-        return match.group(2).strip(), match.group(1).strip()
-    return text.strip(), None
-
-
-def _remove_hearing_date_mentions(text: str) -> str:
-    return re.sub(
-        r"Hearing date:\s*[^.\n]{3,80}\.?\s*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    ).strip()
 
 
 def _normalize_hearing_date(value: str) -> str:
@@ -1368,10 +1134,6 @@ def _format_long_us_date(value: str) -> str:
     return cleaned
 
 
-def _hearing_date_key(value: str) -> str:
-    return _format_long_us_date(value).lower()
-
-
 def _format_report_label(report_name: str, report_date: str) -> str:
     normalized_name = re.sub(r"\s+", " ", report_name.strip())
     normalized_date = _format_long_us_date(report_date) or _normalize_hearing_date(report_date)
@@ -1386,54 +1148,6 @@ def _report_id_from_start_page(start_page: str) -> str:
         return f"report:{page_number:04d}"
     normalized = re.sub(r"[^A-Za-z0-9]+", "_", start_page.strip()).strip("_")
     return f"report:{normalized}" if normalized else ""
-
-
-def _remove_standalone_date_lines(text: str) -> str:
-    if not text:
-        return text
-    date_patterns = (
-        r"^[A-Za-z]+\s+\d{1,2},\s*\d{4}$",
-        r"^[A-Za-z]+\s+\d{1,2}\s+\d{4}$",
-        r"^\d{1,2}/\d{1,2}/\d{2,4}$",
-        r"^Hearing date:\s*.+$",
-    )
-    cleaned_lines: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            cleaned_lines.append("")
-            continue
-        if any(re.match(pattern, stripped, re.IGNORECASE) for pattern in date_patterns):
-            continue
-        cleaned_lines.append(line)
-    return "\n".join(cleaned_lines).strip()
-
-
-def _infer_case_name_from_text(text: str) -> str:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    patterns = [
-        re.compile(r"\bIn\s+re\b", re.IGNORECASE),
-        re.compile(r"\bIn\s+the\s+Matter\s+of\b", re.IGNORECASE),
-    ]
-    for line in lines:
-        if any(pattern.search(line) for pattern in patterns):
-            tokens = re.findall(r"[A-Za-z0-9]+", line)
-            if tokens:
-                return _sanitize_case_name_tokens(tokens)
-    for line in lines:
-        if re.search(r"\b(vs\.?|v\.)\b", line, re.IGNORECASE):
-            tokens = re.findall(r"[A-Za-z0-9]+", line)
-            if tokens:
-                return _sanitize_case_name_tokens(tokens)
-    for line in lines:
-        tokens = [token for token in re.findall(r"[A-Za-z0-9]+", line) if token.isalpha()]
-        if len(tokens) >= 2:
-            return _sanitize_case_name_tokens(tokens[:8])
-    return ""
-
-
-
-
 
 
 def _strip_ascii_and_html_tables(text: str) -> str:
@@ -1474,82 +1188,6 @@ def _strip_ascii_and_html_tables(text: str) -> str:
             continue
         cleaned_lines.append(stripped)
     return "\n".join(cleaned_lines)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _load_classify_basic_entries(classify_path: Path) -> list[tuple[str, str, int]]:
-    entries: list[tuple[str, str, int]] = []
-    if not classify_path.exists():
-        return entries
-    with classify_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            file_name = str(payload.get("file_name", "") or "").strip()
-            page_type = str(payload.get("page_type", "") or "").strip().lower()
-            if not file_name or not page_type:
-                continue
-            page_number = _extract_page_number(file_name)
-            if page_number is None:
-                continue
-            entries.append((file_name, page_type, page_number))
-    return entries
 
 
 def _natural_sort_key(path: Path | str) -> list[object]:
@@ -5892,9 +5530,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return False
         return True
 
-    def _ensure_rt_ct_split_ready(self) -> bool:
-        return self._require_resolved_layout(allow_unresolved=False)
-
     def _raise_if_stop_requested(self) -> None:
         if self._stop_event.is_set():
             raise StopRequested()
@@ -9141,22 +8776,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "create_minute_order_summaries", self.step_minute_order_summaries_row
         )
 
-
-    def _build_summarize_request_settings(
-        self,
-        summarize_settings: dict[str, Any],
-        prompt: str,
-    ) -> dict[str, Any]:
-        return {
-            "api_url": summarize_settings["api_url"],
-            "model_id": summarize_settings["model_id"],
-            "api_key": summarize_settings["api_key"],
-            "disable_reasoning": bool(
-                summarize_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-            ),
-            "prompt": prompt,
-        }
-
     def _run_step_build_summary_editions(self) -> bool:
         """Build and publish page-matched Letter PDFs and Focus page maps.
 
@@ -9391,168 +9010,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 result[expected_key] = ""
         return result
-
-    def _classify_text(
-        self,
-        settings: dict[str, Any],
-        filename: str,
-        content: str,
-    ) -> dict[str, str]:
-        self._raise_if_stop_requested()
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {settings['api_key']}",
-            "User-Agent": "RecordPrep/0.1",
-        }
-        body = {
-            "model": settings["model_id"],
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": settings["prompt"]},
-                {"role": "user", "content": content},
-            ],
-        }
-        _apply_disable_reasoning_to_body(
-            body,
-            model_id=str(settings["model_id"]),
-            disable_reasoning=bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
-        )
-        data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(settings["api_url"], data=data, headers=headers, method="POST")
-        payload = _post_json_with_retries(req, timeout=300, error_label="Classifier request failed")
-        response_text = self._extract_response_text(payload)
-        try:
-            parsed = json.loads(self._extract_json_payload(response_text))
-        except json.JSONDecodeError:
-            parsed = {}
-        if not isinstance(parsed, dict):
-            parsed = {}
-        if not _extract_entry_value(parsed, "page_type", "pagetype"):
-            fallback_page_type = _extract_page_type_from_jsonish(response_text)
-            if fallback_page_type:
-                parsed["page_type"] = fallback_page_type
-        expected_keys = _extract_prompt_keys(settings.get("prompt", ""))
-        filename_key = "file_name"
-        if not expected_keys:
-            result = {str(key): str(value) if value is not None else "" for key, value in parsed.items()}
-            result[filename_key] = filename
-            return result
-        if filename_key not in expected_keys:
-            expected_keys = [filename_key, *expected_keys]
-        normalized_parsed = {_normalize_key(key): key for key in parsed.keys()}
-        result: dict[str, str] = {}
-        for expected_key in expected_keys:
-            normalized_expected = _normalize_key(expected_key)
-            if "filename" in normalized_expected and filename:
-                result[expected_key] = filename
-                continue
-            source_key = normalized_parsed.get(normalized_expected)
-            if source_key is not None:
-                value = parsed.get(source_key)
-                result[expected_key] = str(value) if value is not None else ""
-            else:
-                result[expected_key] = ""
-        return result
-
-    def _stream_text_with_retries(
-        self,
-        req: urllib.request.Request,
-        *,
-        timeout: int,
-        error_label: str,
-    ) -> str:
-        for attempt in range(1, LLM_MAX_RETRIES + 1):
-            try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return self._read_sse_text_response(resp)
-            except urllib.error.HTTPError as exc:
-                retry_after = _retry_after_seconds(exc)
-                if exc.code in LLM_RETRYABLE_HTTP_CODES and attempt < LLM_MAX_RETRIES:
-                    time.sleep(_retry_delay_seconds(attempt, retry_after))
-                    continue
-                error_body = ""
-                try:
-                    error_body = exc.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    error_body = ""
-                detail = error_body.strip() or exc.reason or "request failed"
-                raise RuntimeError(f"{error_label}: HTTP {exc.code} {detail}") from exc
-            except (urllib.error.URLError, TimeoutError) as exc:
-                if attempt < LLM_MAX_RETRIES:
-                    time.sleep(_retry_delay_seconds(attempt, None))
-                    continue
-                raise RuntimeError(f"{error_label}: {exc}") from exc
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"{error_label}: {exc}") from exc
-        raise RuntimeError(f"{error_label}: exhausted retries")
-
-    def _read_sse_text_response(self, resp: Any) -> str:
-        parts: list[str] = []
-        while True:
-            self._raise_if_stop_requested()
-            raw = resp.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="ignore").strip()
-            if not line:
-                continue
-            payload_text = ""
-            if line.startswith("data:"):
-                payload_text = line[5:].lstrip()
-            else:
-                payload_text = line
-            if payload_text == "[DONE]":
-                break
-            if not payload_text:
-                continue
-            try:
-                payload = json.loads(payload_text)
-            except json.JSONDecodeError:
-                continue
-            answer_text, _reasoning_text = self._extract_stream_text_parts(payload)
-            if answer_text:
-                parts.append(answer_text)
-        return "".join(parts).strip()
-
-    def _extract_stream_text_parts(self, payload: Any) -> tuple[str, str]:
-        answer_text = ""
-        reasoning_text = ""
-        choices = payload.get("choices") if isinstance(payload, dict) else None
-        if isinstance(choices, list) and choices:
-            first = choices[0] or {}
-            delta = first.get("delta") or first.get("message") or first
-            if isinstance(delta, dict):
-                answer_text = self._coerce_stream_text(
-                    delta.get("content") if "content" in delta else delta.get("text")
-                )
-                reasoning_text = self._coerce_stream_text(
-                    delta.get("reasoning_content")
-                    if "reasoning_content" in delta
-                    else delta.get("reasoning")
-                    if "reasoning" in delta
-                    else delta.get("thinking")
-                )
-        if isinstance(payload, dict):
-            fallback = payload.get("data") or payload.get("text")
-            if isinstance(fallback, str):
-                answer_text = answer_text or fallback
-        return answer_text, reasoning_text
-
-    def _coerce_stream_text(self, value: Any) -> str:
-        if isinstance(value, str):
-            return value
-        if not isinstance(value, list):
-            return ""
-        merged: list[str] = []
-        for item in value:
-            if isinstance(item, dict):
-                candidate = item.get("text")
-                if isinstance(candidate, str):
-                    merged.append(candidate)
-            elif isinstance(item, str):
-                merged.append(item)
-        return "".join(merged)
 
     def _extract_response_text(self, payload: Any) -> str:
         if isinstance(payload, dict):

@@ -121,7 +121,7 @@ normal HOME defaults. Relative overrides fail. Directories/files are private
 Unsafe permissions/paths or corrupt registries fail; no automatic repair.
 
 The registry retains accepted references, heads, optional source references,
-default, and optional personal/initialized identity lists. Older metadata remains
+default, and optional personal/initialized/deleted identity lists. Older metadata remains
 readable without inspection-time rewriting. Exact known shipped hashes identify
 ordinary public acceptance; unknown private content is not replaced speculatively.
 
@@ -133,6 +133,20 @@ An interrupted write may leave an unauthorized orphan, never a selected revision
 Capacity is bounded to 256 accepted revisions; no automatic pruning. Saving the
 current default advances it; explicitly clearing it returns to personal or public
 General. Missing configured defaults are errors, not fallback permission.
+
+`ProfileStore.delete_profile(ref, expected_default=..., can_modify=...)` hides a
+user-created specialty using an optional `deleted` identity list, under the same
+private lock and atomic publication rules. It checks the exact accepted head,
+expected default and work/case guard before commit; built-in identities are
+protected even if personally customized. Deleting the configured new-case default
+clears it to General. Heads, accepted references, ownership metadata and immutable
+snapshot bytes remain intact: historical pins still authorize their exact saved
+instructions, while catalog discovery excludes deleted identities. Managed Save,
+accept_profile and set_default reject a tombstoned identity rather than resurrecting
+it from a stale editor. Deleted names can be reused with a new generated identity.
+The user-facing adapter clears only matching no-case pending proposals, never an
+existing case pin. There is no garbage collection, automatic migration or launch-time
+write; deletion happens only after explicit confirmation.
 
 Low-level `accept_profile`, explicit folder export/review and identity helpers
 remain for maintainers/tests. Their acceptance/default semantics are distinct

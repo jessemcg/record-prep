@@ -57,7 +57,7 @@ def current_catalog(store, bundled, *, known_baselines=(), customization=None):
         result.append(ProfileCandidate(snapshot, personal, notice))
         seen.add(identity)
     for identity, head in registry["heads"].items():
-        if identity not in seen:
+        if identity not in seen and identity not in registry.get("deleted", []):
             result.append(ProfileCandidate(store.load_profile_snapshot(ProfileRef.from_dict(accepted[head])), True))
     return result
 

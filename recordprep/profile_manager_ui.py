@@ -63,7 +63,7 @@ class ProfileManagerWindow(Gtk.Box):
     """Embedded controls: historical adapter name, no separate chooser window."""
     def __init__(self, parent, *, can_modify, preview, on_select, context_text="", allow_legacy=True,
                  selected_ref=None, customization=None, can_select=None, settings=False, case_ref=None, case_confirmed=True,
-                 has_case=True):
+                 has_case=True, on_deleted=lambda _ref: None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.parent_window = parent
         self.store = api.profile_store()
@@ -72,6 +72,7 @@ class ProfileManagerWindow(Gtk.Box):
         self.allow_legacy, self.selected_ref = allow_legacy, case_ref
         self.case_confirmed = case_confirmed
         self.has_case = has_case
+        self.on_deleted = on_deleted
         self.children_windows = []
         self._guard_id = 0
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -86,6 +87,12 @@ class ProfileManagerWindow(Gtk.Box):
         self.settings_button.add_css_class("profile-menu-item")
         self.settings_button.set_child(menu_label("Profile settings"))
         self.body.append(self.settings_button)
+        self.new_profile_button = None
+        if self.store.application == "recordprep":
+            self.new_profile_button = button("", self._new)
+            self.new_profile_button.add_css_class("profile-menu-item")
+            self.new_profile_button.set_child(menu_label("Create profiles"))
+            self.body.append(self.new_profile_button)
         self._refresh(selected_ref)
         self.connect("map", self._mapped)
         self.connect("unmap", self._closed)
@@ -107,6 +114,8 @@ class ProfileManagerWindow(Gtk.Box):
     def _guard(self):
         allowed = self.can_modify()
         self.selector.set_sensitive(allowed and self.can_select())
+        if self.new_profile_button is not None:
+            self.new_profile_button.set_sensitive(allowed)
         blocked = "Profile changes are unavailable while work is active or the case has changed."
         if not allowed:
             self.message.set_text(blocked)
@@ -163,6 +172,9 @@ class ProfileManagerWindow(Gtk.Box):
                 self.preview(snapshot)
                 ref = self.store.managed_save(snapshot, expected_head=self.revision_heads.get(snapshot.ref.specialty_id),
                                               expected_default=self.expected_default, personal=candidate.personal,
+                                              # An explicit next-case choice is also the next-launch
+                                              # default. Existing cases and Focus keep their own semantics.
+                                              use_for_new_cases=True if self.store.application == "recordprep" and not self.has_case else None,
                                               can_modify=self.can_modify)
             self.on_select(ref)
             self.selected_ref = ref
@@ -198,7 +210,9 @@ class ProfileManagerWindow(Gtk.Box):
                                          expected_head=self.revision_heads.get(candidate.snapshot.ref.specialty_id),
                                          can_modify=self.can_modify, preview=self.preview, on_saved=self._saved,
                                          candidates=self.candidates, notice=candidate.notice, personal=candidate.personal,
-                                         expected_heads=self.revision_heads, case_ref=lambda: self.selected_ref)
+                                         expected_heads=self.revision_heads,
+                                         case_ref=lambda: self.selected_ref if self.has_case else None,
+                                         on_deleted=self._deleted)
             self.children_windows.append(editor)
             def closed(window):
                 if window in self.children_windows:
@@ -211,6 +225,34 @@ class ProfileManagerWindow(Gtk.Box):
             return editor
         except (ValueError, OSError):
             self.message.set_text("Profile settings are unavailable. Existing output remains readable.")
+
+    def _new(self):
+        if not self.can_modify():
+            self._guard()
+            return None
+        # Keep an open draft and its Save/Discard guard, rather than replacing it.
+        editor = next((window for window in reversed(self.children_windows) if window.get_visible()), None)
+        if editor is None:
+            editor = self._edit()
+        else:
+            popover = self.get_ancestor(Gtk.Popover)
+            if popover:
+                popover.popdown()
+            editor.present()
+        if editor is not None:
+            editor._new()
+        return editor
+
+    def _deleted(self, ref):
+        pending_deleted = not self.has_case and self.selected_ref is not None and self.selected_ref.specialty_id == ref.specialty_id
+        if pending_deleted:
+            self.selected_ref = None
+        self.on_deleted(ref)
+        if pending_deleted:
+            self.selected_ref = api.default_profile_candidate(store=self.store).ref
+        self._refresh(self.selected_ref)
+        for editor in self.children_windows:
+            editor.refresh_case_notice()
 
     def _saved(self, ref):
         self._refresh(ref)

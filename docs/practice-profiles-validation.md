@@ -280,3 +280,95 @@ Local Work evidence is in `/tmp/recordprep-general-mflas9`:
 - Native-resource validation, Python compilation, mirrored manager/docs parity
   and whitespace checks pass. No production provisioning, real case/configuration
   changes, chmod repair, paid calls or remote-computer actions were performed.
+
+### No-case settings notice regression
+
+The manager passes a case reference to the editor only when `has_case` is true;
+a pending next-case profile is not a case pin. `tests/acceptance_profile_case_notice.py`
+passes in both apps with disposable HOME/XDG/stores: Save and reopen without a
+case show no earlier-settings warning, while a real-case earlier revision still
+shows it. RecordPrep's case-selection GTK acceptance also checks the warning
+stays absent after Clear, Save and reopen. Native synthetic desktop inspection
+confirmed the warning is absent. Full RecordPrep unit tests pass (488, 4 skipped).
+The broader window-sizing workflow could not run on this local tiled desktop
+(exact 480px allocation became 1233px); `xvfb-run` is unavailable locally.
+No real configuration, profile store or case was changed.
+
+### New-profile menu and action styling
+
+`tests/acceptance_new_profile_menu.py` passes in both apps with disposable stores:
+RecordPrep exposes New profile immediately after Profile settings in the menu,
+removes the sidebar button, dismisses the menu, preserves an open draft through
+the Save/Discard/Cancel guard, validates names, creates an unsaved draft and saves
+only explicitly. Active/stale guards disable the new link. Focus retains its
+General-page entry. Cancel/Create are direct flat buttons in a Gtk.Box, with no
+FlowBoxChild wrapper to add a second hover background. Scoped native AT-SPI
+confirmed the menu link; a synthetic dialog screenshot with button prelight
+states confirmed one hover background per button. No real app state was changed.
+RecordPrep's 488 unit tests pass (4 skipped), both new-menu GTK tests and its
+case-selection/no-case-notice GTK tests pass; 55 focused Focus tests pass.
+The broader exact-width workflow remains subject to the local sizing limitation
+noted above; no cross-computer validation was attempted.
+
+### Edit profiles: creation and safe deletion
+
+The entry/dialog are now **Create profiles** (without an ellipsis), superseding
+the earlier New profile and Edit profiles labels. Creation retains the explicit draft/Save flow and flat action strip.
+`tests/test_profile_deletion.py` has 11 shared tests for catalog hiding, immutable
+historical revision retention, default clearing/preservation, protected built-ins,
+stale head/default and work guards, tombstone validation, name reuse under a new
+identity, refusal to resurrect a deleted identity, permissions and failed atomic
+publication. No snapshots or case pins are deleted.
+
+`tests/acceptance_profile_deletion.py` passes in both applications: cancellation
+is read-only; concurrent saves and active work block stale deletion; successful
+Delete refreshes the chooser, preserves existing case refs/synthetic pin bytes and
+accepted snapshots, clears only a matching next-case proposal/default, and offers
+no delete targets when only built-ins remain. The menu creation and no-case notice
+GTK regressions pass in both apps; RecordPrep's actual Clear workflow also passes.
+Full RecordPrep unit suite: 499 tests, 4 skipped. Focus profile-focused suite:
+66 passed, one existing CSS deprecation warning. Compilation and shared parity pass.
+Scoped native screenshot/AT-SPI of a synthetic dialog confirmed Create and Delete
+sections, personal-profile selector and Delete profile action. No real user profile,
+application configuration or case was read, repaired, deleted or rewritten by tests.
+The local exact-width workflow limitation remains as described above.
+
+### Classification explanation and RT/CT order
+
+Reviewed the production Basic/Advanced/Dates/Names handlers, `classifier_prompt`,
+`compile_naming_profile` and Build TOC before writing the UI explanation. It
+accurately distinguishes Common+current-task composition from separate naming
+instructions, dated hearing labels (no separate hearing-name prompt), minute-order
+first-page dates, report name/date extraction at continuous report-group starts
+and form naming on marked first pages. No classifier/runtime contracts changed.
+
+`tests/acceptance_classification_guidance.py` passes for both apps: RecordPrep
+shows the pinned explanation on all ten Classification fields, hides it on other
+categories, orders shared → RT → CT fields and labels stages, preserves exact
+resource/widget binding and unsaved text/scroll position, and keeps frozen files
+and the private registry untouched. Focus keeps the explanation hidden everywhere.
+Native scoped screenshots/AT-SPI verified both narrow and maximized synthetic
+windows, the ordered sidebar/subtitles and the pinned readable explanation.
+The existing exact-width sweep limitation is not claimed to be resolved.
+The explainer is an ordinary non-selectable/non-focusable label: GTK text-selection
+paint must not turn it into a light panel. Acceptance checks those label properties
+on first presentation, before navigation or text-editor focus can clear selection.
+The RecordPrep case-selection acceptance also clicks the actual Dependency choice
+button and checks the settings button and a reopened menu preserve that identity;
+all choices/configuration/cases in that test remain synthetic.
+
+RecordPrep's explicit no-existing-case selection now sets the private new-case
+default in the same guarded head/default-CAS `managed_save` transaction. The
+case-selection GTK acceptance launches a genuinely fresh Python/GTK process with
+only the temporary HOME/XDG/configuration: no in-memory pending choice exists,
+and both the main header and Profile settings restore California Juvenile
+Dependency. Existing-case selection does not change the default, and previous
+case metadata stays byte-preserved during the no-case choice and cold launch.
+The mirrored case-notice GTK acceptance checks default revision advancement,
+failed/blocked selection preservation, existing-case isolation and unchanged
+Focus dropdown/default-switch semantics. RecordPrep's 499-test suite (4 skipped)
+and deletion GTK regression still pass. No real preference migration was run;
+a choice made before this change must be explicitly selected again to remember it.
+Full RecordPrep suite remains 499 tests OK/4 skipped; Create/Delete GTK regressions
+and 66 focused Focus tests pass. All data was synthetic; no model calls or real
+case/profile/configuration writes occurred.

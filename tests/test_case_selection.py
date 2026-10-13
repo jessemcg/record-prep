@@ -246,8 +246,15 @@ class ClearCaseTests(unittest.TestCase):
                 self.assertEqual(integration.pending_profile(owner, None), general.ref)
                 self.assertEqual(integration.pending_profile(owner, root / "new/case_bundle"), general.ref)
                 self.assertFalse(list(root.iterdir()))
+                captured["on_deleted"](SimpleNamespace(specialty_id="unrelated-profile"))
+                self.assertEqual(integration.pending_profile(owner, None), general.ref)
+                captured["on_deleted"](general.ref)
+                self.assertIsNone(integration.pending_profile(owner, None))
+                captured["on_select"](general.ref)
                 owner._case_generation += 1
                 self.assertFalse(captured["can_modify"]())
+                captured["on_deleted"](general.ref)
+                self.assertEqual(integration.pending_profile(owner, None), general.ref)
                 with self.assertRaises(ProfileError):
                     captured["on_select"](general.ref)
 

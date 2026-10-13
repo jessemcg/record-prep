@@ -124,6 +124,15 @@ def open_manager(owner, project_dir: Path, parent=None):
             except (ValueError, OSError):
                 owner.show_toast("Profile selected. Preparation statuses could not be refreshed; reopen the case.")
         update_indicator(owner)
+    def deleted(ref):
+        # A next-case proposal must not keep a removed profile alive in the chooser.
+        # Existing case pins deliberately remain usable through accepted snapshots.
+        if not allowed():
+            return
+        pending = pending_profile(owner, root)
+        if (root is None or not root.exists()) and pending is not None and pending.specialty_id == ref.specialty_id:
+            owner._pending_preparation_profile = None
+        update_indicator(owner)
     proposed = previous
     if root is None or not root.exists():
         try:
@@ -135,7 +144,8 @@ def open_manager(owner, project_dir: Path, parent=None):
                                       preview=lambda snapshot: preview(snapshot, project_dir), on_select=select,
                                       allow_legacy=False, selected_ref=proposed,
                                       case_ref=proposed if root is None or not root.exists() else previous,
-                                      has_case=root is not None and root.exists(), settings=parent is not None)
+                                      has_case=root is not None and root.exists(), settings=parent is not None,
+                                      on_deleted=deleted)
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None

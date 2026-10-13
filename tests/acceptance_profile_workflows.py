@@ -43,6 +43,14 @@ def click(window, label):
     widget.emit("clicked")
 
 
+def new_profile(manager, editor):
+    if package == "recordprep":
+        manager._guard()
+        click(manager, "Create profiles")
+    else:
+        click(editor, "Create profiles")
+
+
 def drain(seconds=.12):
     until = time.monotonic() + seconds
     context = GLib.MainContext.default()
@@ -209,6 +217,15 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         editor.editor.resources[resource] += "\nSynthetic revised settings.\n"
         click(editor, "Save")
         assert selected == [ref]  # Saving alone never binds the case.
+        assert editor.case_notice.get_visible()
+        assert "This case uses earlier settings" in editor.case_notice.get_text()
+        # A pending choice is not a case pin, even when revisions differ.
+        manager.has_case = False
+        editor.refresh_case_notice()
+        assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
+        manager.has_case = True
+        editor.refresh_case_notice()
+        assert editor.case_notice.get_visible()
         assert manager._selected().snapshot.ref != ref
         assert not manager.message.get_visible()
         assert not any(isinstance(widget, Gtk.Label) and "This case uses earlier settings" in widget.get_text()
@@ -224,7 +241,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         allowed[0] = True
         editor._refresh_guard()
         before_cancel = store.registry_path.read_bytes()
-        click(editor, "New profile…")
+        new_profile(manager, editor)
         cancelled = editor.new_dialog
         next(item for item in descendants(cancelled) if isinstance(item, Gtk.Entry)).set_text("Synthetic cancelled draft")
         click(cancelled, "Create")
@@ -272,7 +289,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         editor = manager._edit()
         drain()
         editor._select_page(first_page)
-        click(editor, "New profile…")
+        new_profile(manager, editor)
         dialog = editor.new_dialog
         name = next(w for w in descendants(dialog) if isinstance(w, Gtk.Entry))
         click(dialog, "Create")

@@ -14,10 +14,33 @@ from gi.repository import Adw, GLib, Gtk, Pango, GObject
 from . import practice_profiles as api
 from .profile_contract import ProfileError, ProfileSnapshot
 from .profile_workflows import ProfileEditor
+from .profile_store import BUILTIN_SPECIALTIES
 
 TOPIC_EXPLANATION = (
     "These topics tell the agent what to capture from each document. The captured information "
     "is then used to write the summary; the topics are not required headings in the final narrative."
+)
+CLASSIFICATION_EXPLANATION = (
+    "Each classification step uses Common guidance plus the instructions for that step—identifying page types, "
+    "first pages, or dates. Document naming uses separate instructions.\n\n"
+    "Reporter’s transcript (RT): Basic separates hearing dialogue from covers and indexes; Advanced marks hearing starts; "
+    "Dates reads their dates. Hearing labels use those dates, not a separate name prompt.\n\n"
+    "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced marks minute-order and form starts; "
+    "Dates reads minute-order dates. Names uses separate naming instructions to read report names and dates "
+    "at the start of each continuous group of report pages, and form names on marked first pages. "
+    "Bold list entries supply approved names.\n\n"
+    "Later stages build on earlier results; these labels feed the table of contents and document boundaries."
+)
+CLASSIFICATION_PAGES = (
+    ("rt", "Reporter transcript pages", "RT · Basic"),
+    ("first_hearing", "Hearing first pages", "RT · Advanced"),
+    ("date_hearing", "Hearing dates", "RT · Dates"),
+    ("ct", "Clerk transcript pages", "CT · Basic"),
+    ("first_minute", "Minute-order first pages", "CT · Advanced"),
+    ("first_form", "Form first pages", "CT · Advanced"),
+    ("date_minute", "Minute-order dates", "CT · Dates"),
+    ("report-naming", "Report names and dates", "CT · Names"),
+    ("form-naming", "Form naming instructions", "CT · Names"),
 )
 POLICIES = {
     "attendance": (("explicit_complete_order", "Use explicit evidence from the complete order"),
@@ -155,7 +178,7 @@ class ProfileEditorWindow(Adw.Window):
     _navigation_style = None
 
     def __init__(self, parent, editor: ProfileEditor, store, *, expected_head,
-                 can_modify, preview, on_saved, candidates=None, notice="", personal=False, expected_heads=None, case_ref=lambda: None):
+                 can_modify, preview, on_saved, candidates=None, notice="", personal=False, expected_heads=None, case_ref=lambda: None, on_deleted=lambda _ref: None):
         # No transient relationship: GNOME attaches transient dialogs to their parent.
         super().__init__(application=parent.get_application(), modal=False, resizable=True,
                          title="Profile settings", default_width=1040, default_height=800,
@@ -169,6 +192,16 @@ class ProfileEditorWindow(Adw.Window):
                 .profile-settings-layout > .sidebar-pane {
                     background: transparent;
                     color: inherit;
+                    box-shadow: none;
+                }
+                /* Keep the explanation as plain text on the window surface,
+                   not a contrasting content-pane or label panel. */
+                .profile-settings-layout > .content-pane,
+                .profile-settings-content,
+                .profile-classification-explainer,
+                .profile-classification-explainer > label {
+                    background: transparent;
+                    border: none;
                     box-shadow: none;
                 }
                 .profile-navigation row.profile-destination { min-height: 40px; }
@@ -189,6 +222,7 @@ class ProfileEditorWindow(Adw.Window):
         self.personal = personal
         self.notice = notice
         self.case_ref = case_ref
+        self.on_deleted = on_deleted
         self._closing = False
         self._loading = False
         self._guard_id = 0
@@ -316,7 +350,21 @@ class ProfileEditorWindow(Adw.Window):
         self.page_groups = {}
         self.stack = Gtk.Stack(hexpand=True, vexpand=True, hhomogeneous=False, vhomogeneous=False)
         self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
-        self.body.set_content(self.stack)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.add_css_class("profile-settings-content")
+        self.classification_explainer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+            margin_start=18, margin_end=18, margin_top=12, visible=False)
+        self.classification_explainer.add_css_class("profile-classification-explainer")
+        explanation_title = wrapped("How classification builds the record")
+        explanation_title.add_css_class("heading")
+        self.classification_explainer.append(explanation_title)
+        # A selectable label can receive focus/selection, painting persistent
+        # inactive-selection rectangles after focus moves.
+        # This is explanation text, not an editor or a focus/selection target.
+        self.classification_explainer.append(wrapped(CLASSIFICATION_EXPLANATION))
+        content.append(self.classification_explainer)
+        content.append(self.stack)
+        self.body.set_content(content)
         self.navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, valign=Gtk.Align.START,
                                       margin_start=12, margin_end=12, margin_top=12, margin_bottom=12)
         self.navigation.add_css_class("boxed-list")
@@ -326,8 +374,6 @@ class ProfileEditorWindow(Adw.Window):
         sidebar.set_child(self.navigation)
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_box.append(sidebar)
-        if self.store.application == "recordprep":
-            sidebar_box.append(button("New profile…", self._new))
         self.body.set_sidebar(sidebar_box)
         self.title_widget.set_subtitle(self.editor.manifest["display_name"])
         self.title_widget.set_tooltip_text(self.editor.manifest["display_name"])
@@ -365,7 +411,7 @@ class ProfileEditorWindow(Adw.Window):
         self.selector.set_selected(index if index is not None else len(names) - 1, notify=False)
         group = self._group("Profile and defaults")
         group.add(self.selector)
-        group.add(button("New profile…", self._new))
+        group.add(button("Create profiles", self._new))
         registry = self.store.read_registry()
         self.expected_default = registry["default"]
         self.default_row = Adw.SwitchRow(title="Use for new cases")
@@ -417,6 +463,8 @@ class ProfileEditorWindow(Adw.Window):
             return
         self._active_page = key
         self.stack.set_visible_child_name(key)
+        self.classification_explainer.set_visible(self.store.application == "recordprep"
+                                                 and self.page_groups[key] == "Classification")
         self._nav_updating = True
         for category, row in self.nav_groups.items():
             row.set_expanded(category == self.page_groups[key])
@@ -529,16 +577,16 @@ class ProfileEditorWindow(Adw.Window):
 
     def _recordprep_form(self):
         self._prompt_page("Classification", "classification", "Common guidance", "classification")
-        labels = {"rt": "Reporter transcript pages", "ct": "Clerk transcript pages", "first_hearing": "Hearing first pages",
-                  "first_minute": "Minute-order first pages", "first_form": "Form first pages",
-                  "date_hearing": "Hearing dates", "date_minute": "Minute-order dates"}
-        for task, label in labels.items():
-            self._prompt_page("Classification", task, label, "classification_tasks",
-                              owner=self.editor.resources["classification_tasks"], field=task)
-        naming = self.editor.resources["naming"]
-        for kind in ("report", "form"):
-            self._prompt_page("Classification", kind + "-naming", kind.capitalize() + " naming instructions",
-                              "naming", owner=naming, field=kind + "_guidance")
+        self.nav_rows["classification"].set_subtitle("Shared · Basic / Advanced / Dates")
+        for key, title, stage in CLASSIFICATION_PAGES:
+            if key.endswith("-naming"):
+                kind = key.removesuffix("-naming")
+                self._prompt_page("Classification", key, title, "naming",
+                                  owner=self.editor.resources["naming"], field=kind + "_guidance")
+            else:
+                self._prompt_page("Classification", key, title, "classification_tasks",
+                                  owner=self.editor.resources["classification_tasks"], field=key)
+            self.nav_rows[key].set_subtitle(stage)
         for kind, singular, title in (("hearings", "hearing", "Hearing"), ("reports", "report", "Report")):
             self._page("Summaries", kind + "-topics", title + " topics")
             self._catalog(self._group(title + " topics", TOPIC_EXPLANATION), self.editor.resources[kind])
@@ -555,22 +603,44 @@ class ProfileEditorWindow(Adw.Window):
         self._prompt_page("Case Overview", "overview", "Overview instructions", "overview")
 
     def _new(self):
+        if not self.can_modify():
+            self._refresh_guard()
+            return
         def open_dialog():
-            dialog = Adw.Window(transient_for=self, modal=True, title="New profile", default_width=480)
+            if not self.can_modify():
+                self._refresh_guard()
+                return
+            try:
+                candidates = list(api.profile_catalog(store=self.store))
+                registry = self.store.read_registry()
+            except (ValueError, OSError):
+                self.message.set_text("Profiles could not be verified. No settings were changed.")
+                return
+            dialog = Adw.Window(transient_for=self, modal=True, title="Create profiles", default_width=480)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_start=18, margin_end=18, margin_top=18, margin_bottom=18)
+            heading = wrapped("Create profiles")
+            heading.add_css_class("title-2")
+            box.append(heading)
+            box.append(wrapped("Create a profile"))
             box.append(wrapped("Name"))
             name = Gtk.Entry()
             name.update_property([Gtk.AccessibleProperty.LABEL], ["Name"])
             box.append(name)
             box.append(wrapped("Start with"))
-            choice = ProfileSelector([item.snapshot.manifest["display_name"] for item in self.candidates])
-            choice.set_selected(next(i for i, item in enumerate(self.candidates) if item.snapshot.ref.specialty_id == "general-court-record"), notify=False)
+            choice = ProfileSelector([item.snapshot.manifest["display_name"] for item in candidates])
+            choice.set_selected(next(i for i, item in enumerate(candidates) if item.snapshot.ref.specialty_id == "general-court-record"), notify=False)
             box.append(choice)
             message = wrapped("")
             box.append(message)
-            actions = action_row()
+            # FlowBoxChild adds its own hover background around flat buttons.
+            # This is an action strip, not a selectable flow of items.
+            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+                              halign=Gtk.Align.END)
             actions.append(button("Cancel", dialog.close))
             def create():
+                if not self.can_modify():
+                    message.set_text("The case changed or work is active. Close and reopen Create profiles.")
+                    return
                 value = name.get_text().strip()
                 if not value:
                     message.set_text("Enter a profile name.")
@@ -578,10 +648,10 @@ class ProfileEditorWindow(Adw.Window):
                 if len(value) > 160:
                     message.set_text("Enter a profile name with at most 160 characters.")
                     return
-                if any(item.snapshot.manifest["display_name"].strip().casefold() == value.casefold() for item in self.candidates):
+                if any(item.snapshot.manifest["display_name"].strip().casefold() == value.casefold() for item in candidates):
                     message.set_text("A profile with this name already exists. Choose another name.")
                     return
-                self.editor = ProfileEditor.create(editable_profile(self.candidates[choice.get_selected()].snapshot).snapshot(), value)
+                self.editor = ProfileEditor.create(editable_profile(candidates[choice.get_selected()].snapshot).snapshot(), value)
                 self.expected_head, self.personal, self.notice = None, True, ""
                 self.message.set_text("New profile draft. Save to keep your settings.")
                 self._render()
@@ -590,6 +660,61 @@ class ProfileEditorWindow(Adw.Window):
                 dialog.close()
             actions.append(button("Create", create))
             box.append(actions)
+            box.append(Gtk.Separator())
+            box.append(wrapped("Delete a personal profile"))
+            box.append(wrapped("Remove it from the chooser. Existing cases and saved revisions are kept. Built-in profiles cannot be deleted."))
+            deletable = sorted((item for item in candidates if item.snapshot.ref.specialty_id not in BUILTIN_SPECIALTIES),
+                               key=lambda item: item.snapshot.manifest["display_name"].casefold())
+            self.delete_selector = None
+            self.delete_button = None
+            if deletable:
+                selector = ProfileSelector([item.snapshot.manifest["display_name"] for item in deletable])
+                selector.set_selected(next((index for index, item in enumerate(deletable)
+                    if item.snapshot.ref.specialty_id == self.editor.manifest["specialty_id"]), 0), notify=False)
+                self.delete_selector = selector
+                box.append(selector)
+                def delete():
+                    if not self.can_modify():
+                        message.set_text("The case changed or work is active. Close and reopen Create profiles.")
+                        return
+                    target = deletable[selector.get_selected()].snapshot
+                    def respond(response):
+                        if response != "delete":
+                            return
+                        try:
+                            self.store.delete_profile(target.ref, expected_default=registry["default"],
+                                                      can_modify=self.can_modify)
+                        except (ValueError, OSError):
+                            message.set_text("Profile could not be deleted. The profile or case may have changed; close and reopen Create profiles.")
+                            return
+                        # Deletion is committed. Never re-save/resurrect this identity
+                        # from the editor, and never rebind an existing case.
+                        dialog.close()
+                        self.message.set_text("Profile deleted from the chooser. Existing cases are unchanged.")
+                        try:
+                            self.on_deleted(target.ref)
+                            self.candidates = list(api.profile_catalog(store=self.store))
+                            updated = self.store.read_registry()
+                            self.expected_heads = dict(updated["heads"])
+                            if self.editor.manifest["specialty_id"] == target.ref.specialty_id:
+                                candidate = next(item for item in self.candidates if item.snapshot.ref.specialty_id == "general-court-record")
+                                self.editor = editable_profile(candidate.snapshot)
+                                self.expected_head = updated["heads"].get(candidate.snapshot.ref.specialty_id)
+                                self.personal, self.notice = candidate.personal, candidate.notice
+                                self._render()
+                            else:
+                                self.expected_default = updated["default"]
+                        except (ValueError, OSError):
+                            self.message.set_text("Profile deleted, but the settings or menu could not be refreshed. Close and reopen Profile settings.")
+                    default_note = " It will no longer be the default for new cases." if registry["default"] and registry["default"]["specialty_id"] == target.ref.specialty_id else ""
+                    self.delete_dialog = confirmation(dialog, "Delete profile?",
+                        f'“{target.manifest["display_name"]}” will be removed from the chooser. Existing cases and saved revisions are kept.' + default_note,
+                        (("delete", "Delete profile"), ("cancel", "Cancel")), respond)
+                self.delete_button = button("Delete profile…", delete)
+                self.delete_button.set_halign(Gtk.Align.END)
+                box.append(self.delete_button)
+            else:
+                box.append(wrapped("No personal profiles to delete."))
             dialog.set_content(box)
             dialog.present()
             self.new_dialog = dialog

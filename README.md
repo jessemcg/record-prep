@@ -50,13 +50,23 @@ add approved names there, or use Dependency's supplied list. Unknown names retai
 provisional document labels. A boxed category list on the left opens the selected
 settings on the right: Classification, Summaries, Participants / Witnesses,
 and Case Overview. There is no General section, duplicate profile picker or default
-checkbox. The selected profile is named in the header; New profile remains below
-the category list. Case naming uses one built-in, practice-neutral prompt rather
+checkbox. The selected profile is named in the header; **Create profiles** is a link
+in the hamburger menu, immediately below **Profile settings**. Case naming uses one built-in, practice-neutral prompt rather
 than editable profile instructions. Saved legacy caption prompts remain untouched
-but no longer affect inference. Each classification prompt has its own tall editor. Summary
+but no longer affect inference. Each classification prompt has its own tall editor.
+A brief **How classification builds the record** explanation stays above every
+Classification editor. Common guidance is first, followed by all reporter’s-transcript
+(RT) prompts, then clerk’s-transcript (CT) prompts; small stage labels show Basic,
+Advanced, Dates and Names. **Report names and dates** accurately describes the
+report naming prompt. Hearing labels are dates, not separately extracted names.
+Summary
 topics, document-review instructions and summary-writing instructions have separate
-pages. At narrow widths, a categories button opens the sidebar as an overlay. **New profile…** asks
-only for a name and starting profile. Personal edits save privately, never into
+pages. At narrow widths, a categories button opens the sidebar as an overlay.
+**Create profiles** creates a profile from a name and starting profile, or deletes
+a personal profile with confirmation. Built-ins are protected; deletion removes
+an entry from the chooser while preserving all revisions used by existing cases.
+Deleting the new-case default returns it to General; no case is rebound.
+Personal edits save privately, never into
 installed application files or `config.json`; the public specialties stay tracked
 and useful on every fresh installation.
 
@@ -71,8 +81,10 @@ The dim header buttons are **Choose case bundle**, **Choose PDF(s)** and
 selection and resets displayed progress; it never deletes PDFs, bundles, case
 names or generated files. Stop active work and close the TOC editor first.
 With no case selected, Model settings and Profile settings remain available.
-Choosing/editing a profile holds a pending choice for the next new bundle without
-rebinding an old case. Clearing also invalidates older case-bound dialogs.
+An explicit profile choice with no existing case selected is remembered across
+launches as the new-case default, without rebinding an old case. Choosing a profile
+for an existing case does not change that default. Clearing also invalidates older
+case-bound dialogs, but preserves the remembered default.
 Synchronized `.recordprep` metadata can retain ordinary `0755`/`0775` directory
 and `0644`/`0664` file modes; ownership, link safety and concurrent-selection
 checks still apply. The local accepted-profile store remains owner-only.

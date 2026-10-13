@@ -1,7 +1,7 @@
 """Explicit, private, app-owned profile acceptance; no launch-time writes.
 
 Vendored identically in both applications. Store construction and snapshot reads
-are read-only. Only accept_profile and set_default publish application state.
+are read-only. Explicit acceptance, Save, Delete and default changes publish state.
 """
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ from .profile_contract import (
     _json, _object, _require, json_bytes, read_file_at, validate_contents,
     validate_profile_directory,
 )
+
+
+BUILTIN_SPECIALTIES = frozenset({"general-court-record", "california-juvenile-dependency"})
 
 
 def _check_directory(path: Path, *, private: bool = False) -> None:
@@ -114,7 +117,7 @@ class ProfileStore:
             os.close(fd)
         _require(isinstance(value, dict) and
                  {"schema_version", "application", "accepted", "heads", "default"} <= set(value) and
-                 set(value) <= {"schema_version", "application", "accepted", "heads", "default", "personal", "initialized"},
+                 set(value) <= {"schema_version", "application", "accepted", "heads", "default", "personal", "initialized", "deleted"},
                  "invalid_fields", "registry")
         _require(type(value["schema_version"]) is int and value["schema_version"] == 1,
                  "unsupported_version", "registry")
@@ -140,13 +143,42 @@ class ProfileStore:
         if value["default"] is not None:
             default = ProfileRef.from_dict(value["default"])
             _require(refs.get(default.content_sha256) == default, "unaccepted_reference", "registry")
-        for key in ("personal", "initialized"):
+        for key in ("personal", "initialized", "deleted"):
             entries = value.get(key, [])
             _require(isinstance(entries, list) and
                      all(isinstance(item, str) and item in value["heads"] for item in entries) and
                      len(entries) == len(set(entries)),
                      "invalid_registry", "registry")
+        deleted = value.get("deleted", [])
+        _require(not BUILTIN_SPECIALTIES.intersection(deleted), "protected_profile", "registry")
+        _require(value["default"] is None or value["default"]["specialty_id"] not in deleted,
+                 "deleted_profile", "registry")
         return value
+
+    def delete_profile(self, ref: ProfileRef, *, expected_default, can_modify=lambda: True) -> None:
+        """Hide a user-created identity atomically; retain all accepted revisions.
+
+        A tombstone removes it from discovery, not from historical instruction
+        authorization. Existing case pins and snapshot bytes remain untouched.
+        """
+        ref = ProfileRef.from_dict(asdict(ref))
+        _require(ref.application == self.application, "wrong_application", "delete")
+        _require(ref.specialty_id not in BUILTIN_SPECIALTIES, "protected_profile", "delete")
+        _require(can_modify(), "work_active_or_case_changed", "delete")
+        with self._locked():
+            registry = self.read_registry()
+            identity = ref.specialty_id
+            _require(registry["heads"].get(identity) == ref.content_sha256 and
+                     registry["default"] == expected_default, "stale_profile_revision", "delete")
+            _require(any(entry["ref"] == asdict(ref) for entry in registry["accepted"]),
+                     "unaccepted_reference", "delete")
+            deleted = registry.setdefault("deleted", [])
+            _require(identity not in deleted, "deleted_profile", "delete")
+            deleted.append(identity)
+            if registry["default"] and registry["default"]["specialty_id"] == identity:
+                registry["default"] = None
+            _require(can_modify(), "work_active_or_case_changed", "delete")
+            _atomic_json(self.registry_path, registry)
 
     def managed_save(self, draft: ProfileSnapshot, *, expected_head: str | None,
                      expected_default, use_for_new_cases: bool | None = None,
@@ -163,11 +195,12 @@ class ProfileStore:
         with self._locked():
             registry = self.read_registry()
             identity = draft.ref.specialty_id
+            _require(identity not in registry.get("deleted", []), "deleted_profile", "save")
             _require(registry["heads"].get(identity) == expected_head and
                      registry["default"] == expected_default, "stale_profile_revision", "save")
             refs = {entry["ref"]["content_sha256"]: ProfileRef.from_dict(entry["ref"]) for entry in registry["accepted"]}
             for other_identity, digest in registry["heads"].items():
-                if other_identity != identity:
+                if other_identity != identity and other_identity not in registry.get("deleted", []):
                     other = self._read_snapshot(refs[digest])
                     _require(other.manifest["display_name"].strip().casefold() != validated.manifest["display_name"].strip().casefold(),
                              "conflicting_profile_name", "name")
@@ -279,6 +312,7 @@ class ProfileStore:
                      "absolute_source_required", "source")
         with self._locked():
             registry = self.read_registry()
+            _require(draft.ref.specialty_id not in registry.get("deleted", []), "deleted_profile", "registry")
             current = registry["heads"].get(draft.ref.specialty_id)
             _require(current == expected_previous_digest, "stale_profile_revision", "registry")
             self._publish_snapshot(validated)
@@ -300,5 +334,6 @@ class ProfileStore:
         with self._locked():
             self.load_profile_snapshot(ref)
             registry = self.read_registry()
+            _require(ref.specialty_id not in registry.get("deleted", []), "deleted_profile", "default")
             registry["default"] = asdict(ref)
             _atomic_json(self.registry_path, registry)

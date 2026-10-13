@@ -46,11 +46,21 @@ caption inference/freshness lives in case_name_stage.py and uses the native Pi
 runner/shared model, not a direct API. All old names stay readable but require an
 explicit inference run for the schema-2 source/model/contract/output marker. Profile settings has no General page,
 profile picker or default switch; Save preserves existing default semantics and
-New profile remains below the navigation list.
+Create profiles (no ellipsis) is a hamburger-menu link below Profile settings, not a sidebar button.
+Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrappers.
+Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
+accepted revisions and existing case pins remain usable. A deleted default is cleared,
+matching no-case pending choices are reset, and old drafts cannot resurrect it.
+Classification has a pinned, display-only explainer above its editors and RT-first,
+CT-second navigation with stage subtitles. Common guidance combines only with the
+current page-type/first-page/date task; naming uses separate approved-name instructions.
+Hearing labels are dates; report Names extracts name/date at continuous report-run starts.
+Keep all resource keys, prompt bytes, compiler contracts and pipeline order unchanged.
 Header Clear current case is selection-only: preserve all case/PDF artifacts and
 unrelated configuration, invalidate stale dialogs and reset pending case state.
-Profile settings works with no case; accepted choices stay pending until a new
-bundle is created. Case metadata tolerates synchronized 0755/0775 and 0644/0664
+Profile settings works with no case; explicit dropdown choices without an existing
+case atomically update the private new-case default and survive restart. Selection
+for an existing case must not replace that default; Clear preserves it. Case metadata tolerates synchronized 0755/0775 and 0644/0664
 modes with ownership/link/world-write checks; never relax the private profile-store
 validators or chmod real synchronized metadata to work around selection failures.
 Model settings has one OCR page: embedded-text/local-OCR selection above local OCR

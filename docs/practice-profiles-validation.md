@@ -1,5 +1,61 @@
 # Practice profiles: validation and limits
 
+## Simplified minute-order summaries — 2026-10-13
+
+Home only, same disposable checkouts/environments and synthetic HOME/XDG/records.
+No private settings/profile/case changes and no live model calls.
+
+- RecordPrep **515 tests OK, 4 skipped**, existing unclosed-file warning; Focus
+  profile/shared coverage **91 passed + 40 subtests**, existing GTK CSS warning.
+- New minute tests cover hearing identity, parent presence/absence on either page,
+  attributed positions, findings/orders, next-hearing details and missing settings,
+  fixed attendance irrespective of saved historical policies, exact old-default
+  recognition without writes, custom prose preservation, schema-3 checkpoints and
+  historical1/2 readability. The existing generated/resume test exercises fresh
+  publication, current-output reuse and unrelated-profile-change isolation.
+- Both targeted GTK suites pass with no attendance selector. Native synthetic
+  Dependency settings screenshot confirms the revised instructions and the three
+  Summaries entries. Historical attendance is stripped only from explicit edit
+  drafts, never by modifying an accepted snapshot.
+- Sequential resource validation and the generated minute skill validator pass.
+  These are contract/pipeline checks, not semantic model-quality evaluation.
+- New profile-bound rows use checkpoint/final metadata3 and omit reporting status;
+  old rows keep their historical reader rendering. The minute core/tool changes
+  make old minute generation pending until an explicit run; no outputs are rewritten
+  by opening settings. Hearing/report prompts and extension are unchanged by this
+  minute-specific work.
+
+## Topic-only summaries and contract reconciliation — 2026-10-13
+
+Current Home computer only; disposable source/environment paths under
+`/tmp/classification-preview-EKHCHA`, synthetic source pages and HOME/XDG stores.
+No private profiles/configuration/case outputs modified; no model or remote calls.
+
+- RecordPrep: **508 tests OK, 4 skipped**, with the existing unclosed-file warning.
+- Focus shared/profile coverage: **91 passed and 40 subtests passed**, one existing
+  GTK CSS deprecation warning.
+- Both apps' targeted GTK explainer/navigation and topic-wrapping checks pass under
+  fatal GTK criticals. RecordPrep shows exactly Hearing digest topics, Report digest
+  topics and Minute orders; the removed final explainer paragraph is absent.
+- Native screenshot checked the three-entry layout and topic editor. Old-schema
+  edit drafts lose the four extra fields only in memory, produce valid schema 3,
+  preserve historical snapshot bytes and never write a registry on inspection.
+- Shared compiler tests prove old extra-summary fields affect neither prompts nor
+  component fingerprints; schema 3 rejects them. New bundled profiles physically
+  omit all eight old instruction files. Legacy settings no longer import them.
+- Restored-contract tests cover materiality, sparse/dense complete sources,
+  multi-paragraph candidate content (existing whitespace normalization retained),
+  quotations, chronology, topic-local freshness and historical compatibility.
+- Native resource validation and all four generated summary-skill validators pass.
+- The broader `acceptance_profile_workflows.py` resize harness is locally blocked
+  before its workflows: the desktop tiles a requested 480px window to 1233px.
+  `xvfb-run` is unavailable. This is not counted as a pass; targeted native GTK
+  checks above and automated save/store tests supply the current evidence.
+
+Prompt/pipeline checks are not an empirical model-quality comparison. The baseline,
+intentional differences, regeneration implications and controlled A/B procedure
+are documented in RecordPrep's `docs/summary-contract-reconciliation.md`.
+
 ## Simple shipped-profile acceptance — 2026-10-11
 
 Validated on the current **Home** computer only, with disposable source copies

@@ -80,7 +80,9 @@ class NativeProfileTests(unittest.TestCase):
                 seed_profile_preparation(root, profile, PROJECT / ".pi")
                 self.assertEqual(runner._run_stage(runner.STAGES["build_participant_index"], root, PROJECT / ".pi"), 0)
                 self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
-                revised = changed(profile, "report_extraction", "Unrelated report guidance.")
+                topics = profile.resource("reports")
+                topics[0]["guidance"] += " Unrelated report topic guidance."
+                revised = changed(profile, "reports", topics)
                 self.assertEqual(participant_freshness_issues(root, revised, PROJECT / ".pi"), [])
                 revised = changed(profile, "participants", "Different role interpretation guidance.")
                 self.assertTrue(participant_freshness_issues(root, revised, PROJECT / ".pi"))

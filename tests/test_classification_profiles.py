@@ -42,7 +42,9 @@ class ClassificationProfileTests(unittest.TestCase):
             (run.directory / output_names(stage)[1]).write_text('{"file_name":"0001.txt","page_type":"CT_report"}\n')
             run.publish(self.settings)
             self.assertEqual(stage_issues(self.root, stage, self.profile, self.settings), [])
-        unrelated = changed(self.profile, "report_extraction", "Different summary guidance.")
+        topics = self.profile.resource("reports")
+        topics[0]["guidance"] += " Different summary topic guidance."
+        unrelated = changed(self.profile, "reports", topics)
         self.assertEqual(stage_issues(self.root, "names", unrelated, self.settings), [])
         naming = changed(self.profile, "naming", self.profile.resource("naming") | {"report_guidance": "Different title guidance."})
         self.assertEqual(stage_issues(self.root, "basic", naming, self.settings), [])

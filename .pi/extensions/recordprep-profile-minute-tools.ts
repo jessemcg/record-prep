@@ -9,7 +9,7 @@ export default function minuteTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "recordprep_get_minute_source",
     label: "Read minute order",
-    description: "Read every original source page of this order. Apply only the attendance policy supplied by the application.",
+    description: "Read every original source page of this complete minute order, including appearance entries and future hearing settings.",
     parameters: Type.Object({}),
     async execute() {
       if (!spec) {
@@ -24,17 +24,18 @@ export default function minuteTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "recordprep_submit_minute_summary",
     label: "Submit minute-order summary",
-    description: "Submit the hearing, reporting status, source-supported appearances using declared role IDs, and concise actual orders. Follow the application attendance policy; cite the page and verbatim evidence for attendance claims. Python independently validates evidence locations and renders the paragraph. Submission ends this session.",
+    description: "Submit source-supported appearances, attributed party positions, main findings and orders, and the next hearing scheduled. Attendance evidence can come from any page; counsel alone proves neither presence nor absence. Cite the page and verbatim evidence for attendance claims. Use complete sentences for positions, orders and next_hearing. Python validates evidence locations and renders one concise paragraph. Submission ends this session.",
     parameters: Type.Object({
       hearing: Type.String(),
-      reporting: Type.Union([Type.Literal("reported"), Type.Literal("not_reported"), Type.Literal("unclear")]),
       appearances: Type.Array(Type.Object({
         person: Type.String(),
         role_id: Type.String({ description: "An exact role ID from the supplied participant catalog." }),
         status: Type.Union([Type.Literal("present"), Type.Literal("not_present"), Type.Literal("unclear")]),
         evidence: Type.Array(Type.Object({ file_page: Type.Integer({ minimum: 1 }), text: Type.String() }), { maxItems: 128 }),
       }), { maxItems: 128 }),
-      orders: Type.String({ description: "Concise actual orders, attributed to the court; no duplicate appearance/reporting claims." }),
+      positions: Type.String({ description: "Material requests, objections, agreements or positions actually recorded, attributed to each party; empty if none recorded. Do not infer agreement from silence or from a ruling." }),
+      orders: Type.String({ description: "Main findings and orders actually made by the court, distinguished from requested relief; no duplicate appearances or party positions." }),
+      next_hearing: Type.String({ description: "Next hearing type, date and time as recorded; distinguish other material settings if several were scheduled. Say 'Next hearing not stated.' if none is recorded, or 'Next hearing unclear.' if illegible/ambiguous. Never invent missing details." }),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!spec || !read) throw new Error("Read the complete minute order before submitting.");

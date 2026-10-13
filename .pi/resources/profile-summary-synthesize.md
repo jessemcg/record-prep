@@ -11,8 +11,9 @@ sections as they are completed; preserve the sections already submitted if a lat
 read cannot be completed. Use the private scratchpad for orientation, never evidence.
 It survives context compaction but not a restarted synthesis process.
 
-The runtime prompt supplies the frozen application contract and subordinate practice
-guidance. Render material developments in source chronology, without moving later
+The runtime prompt supplies the frozen application contract and profile topics.
+Follow the full narrative, quotation and continuity rules in that contract; topics
+customize substantive focus, not the synthesis method. Render material developments in source chronology, without moving later
 knowledge into earlier events or repeating carried-forward facts unnecessarily.
 Preserve attribution, uncertainty, and distinctions between proposed and actual orders.
 Use only known quote placeholders; Python supplies exact quotations and navigation.

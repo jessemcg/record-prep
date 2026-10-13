@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import uuid
 from typing import Callable
 
@@ -12,24 +13,35 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango, GObject
 
 from . import practice_profiles as api
-from .profile_contract import ProfileError, ProfileSnapshot
+from .profile_contract import ProfileError, ProfileSnapshot, RETIRED_SUMMARY_RESOURCES
 from .profile_workflows import ProfileEditor
 from .profile_store import BUILTIN_SPECIALTIES
 
-TOPIC_EXPLANATION = (
-    "These topics tell the agent what to capture from each document. The captured information "
-    "is then used to write the summary; the topics are not required headings in the final narrative."
+SUMMARY_TITLE = "Topic-guided agentic summarization"
+SUMMARY_PROGRESSION = "Each hearing / report → Topic digest + quotes → Narrative section → Hearing / report summary"
+SUMMARY_EXPLANATION = (
+    "Capture what matters, whether a hearing or report has a few relevant passages or is dense with important information. "
+    "Topics guide selection; detail follows substance, not a word count or a quota.\n\n"
+    "Stage 1 — Build digests: an agent reads each complete hearing or report, across all its pages, and captures material "
+    "information by topic, with supporting source quotes. Personalize what it captures by editing the topic names "
+    "and instructions below. Each topic can be brief or detailed according to its substantive importance.\n\n"
+    "Stage 2 — Write narratives: after the digests are ready, a synthesis agent works hearing by hearing or report "
+    "by report, weaving each hearing’s or report’s digest into a cohesive narrative section with short direct quotes. "
+    "It connects developments without repeating carried-forward history; hearings and reports have separate final summaries. "
+    "Topics organize the digest, not the final narrative’s headings."
 )
+CLASSIFICATION_PROGRESSION = "Page types → First pages → Dates & names → Table of contents → Boundaries"
 CLASSIFICATION_EXPLANATION = (
-    "Each classification step uses Common guidance plus the instructions for that step—identifying page types, "
-    "first pages, or dates. Document naming uses separate instructions.\n\n"
+    "The vision model reads page images to both classify pages and extract information, such as dates and document names. "
+    "Common guidance is combined with the instructions for the current page-type, first-page or date task; "
+    "document naming uses separate instructions.\n\n"
     "Reporter’s transcript (RT): Basic separates hearing dialogue from covers and indexes; Advanced marks hearing starts; "
     "Dates reads their dates. Hearing labels use those dates, not a separate name prompt.\n\n"
     "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced marks minute-order and form starts; "
     "Dates reads minute-order dates. Names uses separate naming instructions to read report names and dates "
-    "at the start of each continuous group of report pages, and form names on marked first pages. "
-    "Bold list entries supply approved names.\n\n"
-    "Later stages build on earlier results; these labels feed the table of contents and document boundaries."
+    "at the start of each continuous group of report pages, and form names on marked first pages.\n\n"
+    "Each stage builds on earlier results: page types guide first-page checks, and first pages guide date and name extraction. "
+    "The resulting labels help build the table of contents; later boundary stages determine each document’s page range."
 )
 CLASSIFICATION_PAGES = (
     ("rt", "Reporter transcript pages", "RT · Basic"),
@@ -42,10 +54,6 @@ CLASSIFICATION_PAGES = (
     ("report-naming", "Report names and dates", "CT · Names"),
     ("form-naming", "Form naming instructions", "CT · Names"),
 )
-POLICIES = {
-    "attendance": (("explicit_complete_order", "Use explicit evidence from the complete order"),
-                   ("legacy_first_page_parents", "Parents' personal appearance from the first page only")),
-}
 
 
 def friendly(value):
@@ -71,6 +79,25 @@ def action_row():
 def clear(box):
     while box.get_first_child() is not None:
         box.remove(box.get_first_child())
+
+
+def topic_editor_text(text):
+    """Unwrap prose for display only; opening a topic never rewrites its resource.
+
+    Keep paragraph separators and structured blocks (lists, headings, code,
+    quotations and explicit Markdown line breaks) verbatim. Once edited, the
+    displayed text becomes the user's draft through the normal Save flow.
+    """
+    blocks = re.split(r"(\n[ \t]*\n)", text)
+    for index in range(0, len(blocks), 2):
+        lines = blocks[index].split("\n")
+        structured = any(
+            re.match(r"^(?:\s*(?:[-+*] |\d+[.)] |[#>`~|])| {4}|\t)", line)
+            or line.endswith(("  ", "\\")) for line in lines
+        )
+        if not structured:
+            blocks[index] = re.sub(r"(?<=\S)[ \t]*\n[ \t]*(?=\S)", " ", blocks[index])
+    return "".join(blocks)
 
 
 def text_editor(text, changed=None, *, label="Instructions", tall=False):
@@ -358,11 +385,27 @@ class ProfileEditorWindow(Adw.Window):
         explanation_title = wrapped("How classification builds the record")
         explanation_title.add_css_class("heading")
         self.classification_explainer.append(explanation_title)
+        progression = wrapped(CLASSIFICATION_PROGRESSION)
+        progression.add_css_class("accent")
+        progression.add_css_class("heading")
+        self.classification_explainer.append(progression)
         # A selectable label can receive focus/selection, painting persistent
         # inactive-selection rectangles after focus moves.
         # This is explanation text, not an editor or a focus/selection target.
         self.classification_explainer.append(wrapped(CLASSIFICATION_EXPLANATION))
         content.append(self.classification_explainer)
+        self.summary_explainer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+            margin_start=18, margin_end=18, margin_top=12, visible=False)
+        self.summary_explainer.add_css_class("profile-classification-explainer")
+        summary_title = wrapped(SUMMARY_TITLE)
+        summary_title.add_css_class("heading")
+        self.summary_explainer.append(summary_title)
+        summary_progression = wrapped(SUMMARY_PROGRESSION)
+        summary_progression.add_css_class("accent")
+        summary_progression.add_css_class("heading")
+        self.summary_explainer.append(summary_progression)
+        self.summary_explainer.append(wrapped(SUMMARY_EXPLANATION))
+        content.append(self.summary_explainer)
         content.append(self.stack)
         self.body.set_content(content)
         self.navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, valign=Gtk.Align.START,
@@ -465,6 +508,8 @@ class ProfileEditorWindow(Adw.Window):
         self.stack.set_visible_child_name(key)
         self.classification_explainer.set_visible(self.store.application == "recordprep"
                                                  and self.page_groups[key] == "Classification")
+        self.summary_explainer.set_visible(self.store.application == "recordprep"
+                                          and self.page_groups[key] == "Summaries")
         self._nav_updating = True
         for category, row in self.nav_groups.items():
             row.set_expanded(category == self.page_groups[key])
@@ -492,13 +537,6 @@ class ProfileEditorWindow(Adw.Window):
             group.add(wrapped(label, margin_top=6, margin_bottom=4))
         group.set_vexpand(True)
         group.add(text_editor(owner[key], lambda text: owner.__setitem__(key, text), label=label, tall=True))
-
-    def _policy(self, group, owner, key, title):
-        values = POLICIES[key]
-        row = Adw.ComboRow(title=title, model=Gtk.StringList.new([title for _, title in values]))
-        row.set_selected(next(i for i, (value, _) in enumerate(values) if value == owner[key]))
-        row.connect("notify::selected", lambda widget, _pspec: owner.__setitem__(key, values[widget.get_selected()][0]))
-        group.add(row)
 
     def _terms(self, group, owner, key, label):
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -548,8 +586,11 @@ class ProfileEditorWindow(Adw.Window):
                     entry.connect("changed", change)
                     inner.append(entry)
                 if not forms:
-                    inner.append(text_editor(value["guidance"], lambda text, value=value: value.__setitem__("guidance", text), label="Role instructions" if roles else "Topic instructions"))
-                tools = action_row()
+                    displayed = value["guidance"] if roles else topic_editor_text(value["guidance"])
+                    inner.append(text_editor(displayed, lambda text, value=value: value.__setitem__("guidance", text), label="Role instructions" if roles else "Topic instructions"))
+                # Avoid FlowBoxChild's second hover background around the
+                # flat buttons, as in the Create profiles action row.
+                tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
                 inner.append(tools)
                 def move(offset, index=index):
                     other = index + offset
@@ -587,14 +628,12 @@ class ProfileEditorWindow(Adw.Window):
                 self._prompt_page("Classification", key, title, "classification_tasks",
                                   owner=self.editor.resources["classification_tasks"], field=key)
             self.nav_rows[key].set_subtitle(stage)
-        for kind, singular, title in (("hearings", "hearing", "Hearing"), ("reports", "report", "Report")):
-            self._page("Summaries", kind + "-topics", title + " topics")
-            self._catalog(self._group(title + " topics", TOPIC_EXPLANATION), self.editor.resources[kind])
-            self._prompt_page("Summaries", kind + "-review", title + " review instructions", singular + "_extraction")
-            self._prompt_page("Summaries", kind + "-writing", title + " writing instructions", singular + "_synthesis")
+        for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
+            self._page("Summaries", kind + "-topics", title + " digest topics")
+            self._catalog(self._group(title + " digest topics"), self.editor.resources[kind])
+            self.nav_rows[kind + "-topics"].set_subtitle("1 · Build digest")
         self._page("Summaries", "minutes", "Minute orders")
-        group = self._group("Minute orders")
-        self._policy(group, self.editor.resources["policies"], "attendance", "Attendance evidence")
+        group = self._group("Minute orders", "One agent summarizes each complete minute order directly, without a topic-digest stage.")
         self._guidance(group, "minutes", "Writing minute-order summaries")
         self._prompt_page("Participants / Witnesses", "participants", "Identification instructions", "participants")
         for key, title in (("counsel", "Counsel roles"), ("participants", "Participant roles")):
@@ -771,12 +810,19 @@ def editable_profile(snapshot):
     editor = ProfileEditor(snapshot)
     if snapshot.ref.application == "recordprep":
         editor.resources["policies"].pop("report_scope", None)
+        editor.resources["policies"].pop("attendance", None)
+        from .minute_summaries import minute_profile_text
+        editor.resources["minutes"] = minute_profile_text(snapshot)
         if snapshot.manifest["schema_version"] == 1:
             general = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
             editor.manifest["schema_version"] = 2
             for name in ("classification_tasks", "case_name"):
                 editor.manifest["resources"][name] = general.manifest["resources"][name]
                 editor.resources[name] = general.resource(name)
+        editor.manifest["schema_version"] = 3
+        for name in RETIRED_SUMMARY_RESOURCES:
+            editor.manifest["resources"].pop(name, None)
+            editor.resources.pop(name, None)
         from .document_naming import editable_naming
         editor.resources["naming"] = editable_naming(editor.resources["naming"])
     return editor

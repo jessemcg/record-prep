@@ -360,12 +360,43 @@ class ProfileTests(unittest.TestCase):
         policies["attendance"] = "legacy_first_page_parents"
         policy_change = self.draft(files | {"resources/policies.json": contract.json_bytes(policies)}, "recordprep")
         self.assertEqual(before.component_sha256, compile(policy_change).component_sha256)
-        self.assertNotEqual(compile(original, "minutes").component_sha256,
-                            compile(policy_change, "minutes").component_sha256)
+        self.assertEqual(compile(original, "minutes").component_sha256,
+                         compile(policy_change, "minutes").component_sha256)
         with self.assertRaises(contract.ProfileError):
             compile(original, "shell")
         with self.assertRaises(contract.ProfileError):
             compile(original, core=b"")
+
+    def test_topic_only_schema_and_historical_summary_fields(self):
+        files = synthetic_files("recordprep")
+        old = self.draft(files, "recordprep")
+        for name in contract.RETIRED_SUMMARY_RESOURCES:
+            revised = self.draft(files | {old.manifest["resources"][name]: b"REMOVED_INSTRUCTION_CANARY"}, "recordprep")
+            for stage in contract.RETIRED_SUMMARY_RESOURCES:
+                before = contract.compile_stage_profile(old, stage, core_contract=b"core")
+                after = contract.compile_stage_profile(revised, stage, core_contract=b"core")
+                self.assertEqual(before.resources, after.resources)
+                self.assertEqual(before.component_sha256, after.component_sha256)
+                self.assertNotIn(b"REMOVED_INSTRUCTION_CANARY", b"".join(data for _, data in after.resources))
+        manifest = old.manifest
+        manifest["schema_version"] = 3
+        for name in contract.RETIRED_SUMMARY_RESOURCES:
+            files.pop(manifest["resources"].pop(name))
+        manifest["resources"].update(classification_tasks="tasks.json", case_name="caption.md")
+        files["tasks.json"] = contract.json_bytes({key: "Synthetic task." for key in
+            ("rt", "ct", "first_hearing", "first_minute", "first_form", "date_hearing", "date_minute")})
+        files["caption.md"] = b"Historical caption."
+        files["profile.json"] = contract.json_bytes(manifest)
+        current = self.draft(files, "recordprep")
+        self.assertFalse(contract.RETIRED_SUMMARY_RESOURCES.intersection(current.manifest["resources"]))
+        for stage in ("classification_basic", "classification_advanced", "classification_dates"):
+            self.assertTrue(contract.compile_stage_profile(current, stage, core_contract=b"core").resources)
+        for name in contract.RETIRED_SUMMARY_RESOURCES:
+            bad = current.manifest
+            bad["resources"][name] = name + ".md"
+            with self.assertRaises(contract.ProfileError):
+                self.draft(files | {"profile.json": contract.json_bytes(bad), name + ".md": b"Not allowed."}, "recordprep")
+        self.assertEqual(contract.validate_contents(old.files, "recordprep").files, old.files)
 
     def test_retired_report_policy_is_readable_but_inert(self):
         files = synthetic_files("recordprep")

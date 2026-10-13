@@ -21,17 +21,10 @@ TASK_KEYS = {
     "date_hearing": ("classify_dates_hearing_prompt", "DEFAULT_CLASSIFY_HEARING_DATES_PROMPT"),
     "date_minute": ("classify_dates_minute_prompt", "DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT"),
 }
-SUMMARY_KEYS = {
-    "summarize_hearings_prompt": "hearing_extraction",
-    "summarize_reports_prompt": "report_extraction",
-    "summarize_hearings_synthesis_prompt": "hearing_synthesis",
-    "summarize_reports_synthesis_prompt": "report_synthesis",
-}
 
 
 def legacy_customization_editor(config: Mapping[str, object], *, categories=None, base=None) -> ProfileEditor:
     from .ui import main_window as defaults
-    from .summary_agents import resolve_phase_guidance
     from .minute_summaries import DEFAULT_MINUTES_PROMPT
     base = base or validate_profile_directory(bundled_profile_directory("california_dependency")).draft
     if base is None:
@@ -55,18 +48,9 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
     value = custom("case_name_prompt", defaults.DEFAULT_CASE_NAME_PROMPT)
     if value is not None:
         editor.resources["case_name"] = value
-    for key, resource in SUMMARY_KEYS.items():
-        value = config.get(key)
-        if isinstance(value, str):
-            kind = "hearings" if resource.startswith("hearing_") else "reports"
-            phase = "synthesize" if resource.endswith("synthesis") else "extract"
-            if resolve_phase_guidance(kind, phase, value).custom_guidance:
-                editor.resources[resource] = value
     value = custom("summarize_minutes_prompt", DEFAULT_MINUTES_PROMPT)
     if value is not None:
         editor.resources["minutes"] = value
-    # Unassigned minute work historically used first-page parental attendance.
-    editor.resources["policies"]["attendance"] = "legacy_first_page_parents"
     for kind, field, default_name in (
         ("report", "report_guidance", "DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT"),
         ("form", "form_guidance", "DEFAULT_CLASSIFY_FORM_NAMES_PROMPT"),

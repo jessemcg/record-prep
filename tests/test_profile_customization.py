@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from recordprep import practice_profiles as api
-from recordprep.profile_customization import legacy_customization_editor, initial_candidate, TASK_KEYS, SUMMARY_KEYS
+from recordprep.profile_customization import legacy_customization_editor, initial_candidate, TASK_KEYS
 from recordprep.profile_workflows import export_profile, checked_folder
 from recordprep.ui import main_window as defaults
 
@@ -18,7 +18,15 @@ class PrivateCustomizationTests(unittest.TestCase):
             for value in values:
                 with self.subTest(kind=kind, phase=phase):
                     editor = legacy_customization_editor({key: value})
-                    self.assertEqual(editor.resources[SUMMARY_KEYS[key]], base.resource(SUMMARY_KEYS[key]))
+                    self.assertEqual(editor.snapshot().files, base.files)
+
+    def test_extra_summary_instructions_are_not_imported(self):
+        base = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
+        config = {f"summarize_{kind}{suffix}_prompt": "REMOVED_GUIDANCE_CANARY"
+                  for kind in ("hearings", "reports") for suffix in ("", "_synthesis")}
+        before = dict(config)
+        self.assertEqual(legacy_customization_editor(config).snapshot().files, base.files)
+        self.assertEqual(config, before)
 
     def test_shipped_category_defaults_do_not_become_personal_overrides(self):
         from recordprep.summary_categories import load_category_descriptions
@@ -31,7 +39,7 @@ class PrivateCustomizationTests(unittest.TestCase):
                               if row["id"] == "agency_recommendations"), "Synthetic personal agency guidance.")
 
     def test_allowlist_keeps_raw_text_by_task_and_case_name(self):
-        keys = [key for key, _ in TASK_KEYS.values()] + list(SUMMARY_KEYS) + ["case_name_prompt", "summarize_minutes_prompt", "classify_names_report_prompt", "classify_names_form_prompt"]
+        keys = [key for key, _ in TASK_KEYS.values()] + ["case_name_prompt", "summarize_minutes_prompt", "classify_names_report_prompt", "classify_names_form_prompt"]
         config = {key: f"\n  Synthetic personal prose for {key}.\t\n\n" for key in keys}
         config.update({"api_key": "SECRET_CANARY", "model_id": "MODEL_CANARY", "api_url": "ENDPOINT_CANARY",
                        "case_root": "CASE_PATH_CANARY", "unrecognized_prompt": "UNKNOWN_CANARY"})
@@ -51,8 +59,6 @@ class PrivateCustomizationTests(unittest.TestCase):
                 for other_task, text in loaded.resource("classification_tasks").items():
                     if task != other_task:
                         self.assertNotIn(config[key], text)
-            for key, resource in SUMMARY_KEYS.items():
-                self.assertEqual(config[key], loaded.resource(resource))
             self.assertEqual(config["case_name_prompt"], loaded.resource("case_name"))
             self.assertTrue(loaded.resource("naming")["report_guidance"].endswith(config["classify_names_report_prompt"]))
             self.assertIn("- **Detention Report**", loaded.resource("naming")["report_guidance"])
@@ -63,7 +69,8 @@ class PrivateCustomizationTests(unittest.TestCase):
     def test_missing_empty_historical_defaults_and_shared_precedence(self):
         base = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
         config = {key: "" for key, _ in TASK_KEYS.values()}
-        config.update({key: "" for key in SUMMARY_KEYS})
+        config.update({f"summarize_{kind}{suffix}_prompt": "" for kind in ("hearings", "reports")
+                       for suffix in ("", "_synthesis")})
         config["case_name_prompt"] = ""
         self.assertEqual(legacy_customization_editor(config).snapshot().ref, base.ref)
         for task, (key, constant) in TASK_KEYS.items():

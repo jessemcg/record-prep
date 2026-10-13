@@ -66,6 +66,27 @@ class ProfileGenerationTests(unittest.TestCase):
         (self.root / "text_pages/0001.txt").write_text("The author described disputed facts.")
         (self.root / "text_pages/0002.txt").write_text("PROPOSED FINDINGS AND ORDERS\nThe court is asked to grant relief.")
 
+    def test_narrative_contract_uses_only_topics_for_profile_guidance(self):
+        for name in ("general", "california_dependency"):
+            profile = bundled(name)
+            for kind in ("hearings", "reports"):
+                with self.subTest(profile=name, kind=kind):
+                    compiled = compile_summary(profile, kind, "synthesize")
+                    self.assertIn("one cohesive narrative section", compiled.prompt)
+                    self.assertIn("Weave short direct quotations", compiled.prompt)
+                    self.assertIn("whether relevant information is sparse", compiled.prompt)
+                    topics = profile.resource(kind)
+                    topics[0]["guidance"] += " Synthetic topic emphasis."
+                    revised = changed(profile, kind, topics)
+                    self.assertIn("Synthetic topic emphasis.", compile_summary(revised, kind, "synthesize").prompt)
+                    for phase in ("extract", "synthesize"):
+                        self.assertNotEqual(compile_summary(profile, kind, phase).component_sha256,
+                            compile_summary(revised, kind, phase).component_sha256)
+                    other = "reports" if kind == "hearings" else "hearings"
+                    for phase in ("extract", "synthesize"):
+                        self.assertEqual(compile_summary(profile, other, phase).component_sha256,
+                            compile_summary(revised, other, phase).component_sha256)
+
     def test_profiles_have_independent_categories_and_complete_source(self):
         configs = [sa.ExtractionConfig("reports", "ignored legacy text", profile=bundled(name))
                    for name in ("general", "california_dependency")]
@@ -99,7 +120,9 @@ class ProfileGenerationTests(unittest.TestCase):
         self.assertEqual(sa.load_digest_markdown(self.root, "reports"), [row])
         self.assertEqual(len(sa.SUMMARY_CATEGORY_IDS["reports"]), 12)
         # Unrelated hearing guidance does not stale report work or require model calls.
-        revised = changed(profile, "hearing_extraction", "New hearing-only instructions.")
+        topics = profile.resource("hearings")
+        topics[0]["guidance"] += " New hearing-only topic guidance."
+        revised = changed(profile, "hearings", topics)
         newconfig = sa.ExtractionConfig("reports", "", profile=revised)
         self.assertEqual(config.fingerprint, newconfig.fingerprint)
         newitems = sa.build_work_items(self.root, newconfig)
@@ -127,7 +150,9 @@ class ProfileGenerationTests(unittest.TestCase):
         self.assertEqual(parsed, [])
         self.assertIsNotNone(parsed.profile_metadata)
         self.assertTrue(meta["complete"])
-        revised = changed(profile, "report_extraction", "Changed report salience.")
+        topics = profile.resource("reports")
+        topics[0]["guidance"] += " Changed report topic salience."
+        revised = changed(profile, "reports", topics)
         self.assertNotEqual(config.fingerprint, sa.ExtractionConfig("reports", "", profile=revised).fingerprint)
         self.assertEqual(compile_summary(profile, "hearings", "extract").component_sha256,
                          compile_summary(revised, "hearings", "extract").component_sha256)
@@ -191,7 +216,7 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertIn("classification/naming", diagnostic["error"])
             self.assertTrue(sa.summary_stage_freshness_issues(self.root, "reports", project_dir=project / ".pi"))
 
-    def test_profile_minute_policies_and_actual_resume(self):
+    def test_profile_minute_fixed_attendance_and_actual_resume(self):
         from recordprep import minute_summaries as minutes
         profile = bundled("general")
         (self.root / "text_pages/0002.txt").write_text("Synthetic Plaintiff appeared in person. Motion denied.")
@@ -202,11 +227,13 @@ class ProfileGenerationTests(unittest.TestCase):
         _, config = minutes.stage_config(project / ".pi", profile=profile)
         item = minutes.build_items(self.root, config)[0]
         candidate = {"artifact": "recordprep-minute-candidate", "hearing": "Review", "reporting": "reported",
-                     "orders": "Motion denied.", "appearances": [{"person": "Synthetic Plaintiff", "role_id": "plaintiff",
+                     "orders": "Motion denied.", "positions": "Plaintiff requested relief.",
+                     "next_hearing": "Review hearing set for March 4, 2026 at 9:00 a.m.", "appearances": [{"person": "Synthetic Plaintiff", "role_id": "plaintiff",
                      "status": "present", "evidence": [{"file_page": 2, "text": "Plaintiff appeared in person"}]}]}
         self.assertEqual(minutes.normalize_candidate(candidate, item, profile=profile)["appearances"][0]["status"], "present")
         first_only = changed(profile, "policies", profile.resource("policies") | {"attendance": "legacy_first_page_parents"})
-        self.assertEqual(minutes.normalize_candidate(candidate, item, profile=first_only)["appearances"][0]["status"], "unclear")
+        self.assertEqual(minutes.normalize_candidate(candidate, item, profile=first_only)["appearances"][0]["status"], "present")
+        self.assertEqual(minutes.stage_config(project / ".pi", profile=first_only)[1], config)
         store = ProfileStore("recordprep", config_root=self.root / "config", data_root=self.root / "data")
         store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
@@ -220,10 +247,16 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(minutes.freshness_issues(self.root, project / ".pi"), [])
             self.assertNotIn("Parent", sa.summary_final_path(self.root, "minutes").read_text())
-            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 2)
+            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 3)
+            output = sa.summary_final_path(self.root, "minutes").read_text()
+            self.assertIn("Review. Synthetic Plaintiff appeared. Plaintiff requested relief. Motion denied.", output)
+            self.assertIn("March 4, 2026 at 9:00 a.m.", output)
+            self.assertNotIn("Reported.", output)
             minutes.run_stage(self.root, project / ".pi", generate)
             self.assertEqual(len(calls), 1)
-            revised = changed(profile, "report_extraction", "Unrelated report changes.")
+            topics = profile.resource("reports")
+            topics[0]["guidance"] += " Unrelated report topic changes."
+            revised = changed(profile, "reports", topics)
             store.accept_profile(revised, expected_previous_digest=profile.ref.content_sha256)
             apply_case_profile(self.root, revised.ref, expected_previous=profile.ref, store=store)
             minutes.run_stage(self.root, project / ".pi", generate)
@@ -272,7 +305,9 @@ class ProfileGenerationTests(unittest.TestCase):
         store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
         self.assertEqual(resolve_case_profile(self.root, store=store), profile)
-        revised = changed(profile, "report_extraction", "New accepted revision.")
+        topics = profile.resource("reports")
+        topics[0]["guidance"] += " New accepted topic revision."
+        revised = changed(profile, "reports", topics)
         store.accept_profile(revised, expected_previous_digest=profile.ref.content_sha256)
         store.set_default(revised.ref)
         self.assertEqual(resolve_case_profile(self.root, store=store), profile)

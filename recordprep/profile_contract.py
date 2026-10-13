@@ -34,17 +34,23 @@ RESOURCE_TYPES = {
         "classification_tasks": "json", "case_name": "md",
     },
 }
+# Required only by historical content schemas 1/2, never compiled into summaries.
+RETIRED_SUMMARY_RESOURCES = frozenset({
+    "hearing_extraction", "report_extraction", "hearing_synthesis", "report_synthesis",
+})
 STAGE_RESOURCES = {
     "focus": {"research": ("research", "answer_guidance", "search")},
     "recordprep": {
         "classification": ("classification",),
         "naming": ("naming",),
         "participants": ("roles", "participants"),
-        "hearing_extraction": ("hearings", "roles", "hearing_extraction"),
-        "report_extraction": ("reports", "report_extraction"),
-        "hearing_synthesis": ("hearings", "hearing_synthesis"),
-        "report_synthesis": ("reports", "report_synthesis"),
-        "minutes": ("roles", "minutes", "policies"),
+        # Historical extra-summary instruction files remain schema-readable,
+        # but only topic catalogs (and hearing attribution roles) affect new work.
+        "hearing_extraction": ("hearings", "roles"),
+        "report_extraction": ("reports",),
+        "hearing_synthesis": ("hearings",),
+        "report_synthesis": ("reports",),
+        "minutes": ("roles", "minutes"),
         "overview": ("roles", "hearings", "reports", "overview"),
     },
 }
@@ -205,15 +211,16 @@ def _structured(name: str, value: Any) -> None:
         for catalog in value.values():
             _catalog(catalog, name, roles=True)
     elif name == "policies":
-        _require(isinstance(value, dict) and set(value) in
-                 ({"attendance"}, {"attendance", "report_scope"}), "invalid_fields", name)
+        _require(isinstance(value, dict) and set(value) <= {"attendance", "report_scope"},
+                 "invalid_fields", name)
         # Accept the retired field only to keep existing snapshot bytes readable.
         # It is not compiled or consulted by any producer.
         if "report_scope" in value:
             _require(value["report_scope"] in ("include_attributed_proposals", "exclude_formal_proposals"),
                      "unsupported_policy", name)
-        _require(value["attendance"] in ("explicit_complete_order", "legacy_first_page_parents"),
-                 "unsupported_policy", name)
+        if "attendance" in value:
+            _require(value["attendance"] in ("explicit_complete_order", "legacy_first_page_parents"),
+                     "unsupported_policy", name)
     elif name == "naming":
         _require(isinstance(value, dict), "invalid_fields", name)
         if value.get("schema_version") == 3:
@@ -313,7 +320,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -325,9 +332,13 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(len(set(caps)) == len(caps) and set(caps) == CAPABILITIES[application],
              "unsupported_capabilities", "required_capabilities")
     types = dict(RESOURCE_TYPES[application])
-    if application == "recordprep" and value["schema_version"] == 1:
-        for name in ("classification_tasks", "case_name"):
-            types.pop(name)
+    if application == "recordprep":
+        if value["schema_version"] == 1:
+            for name in ("classification_tasks", "case_name"):
+                types.pop(name)
+        if value["schema_version"] == 3:
+            for name in RETIRED_SUMMARY_RESOURCES:
+                types.pop(name)
     resources = _object(value["resources"], set(types), "resources")
     paths = set()
     for name, suffix in types.items():
@@ -422,7 +433,7 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
                    "classification_advanced": ("first_hearing", "first_minute", "first_form"),
                    "classification_corrected": ("rt", "ct", "first_hearing", "first_minute", "first_form"),
                    "classification_dates": ("date_hearing", "date_minute")}
-    extended = snapshot.ref.application == "recordprep" and snapshot.manifest["schema_version"] == 2
+    extended = snapshot.ref.application == "recordprep" and snapshot.manifest["schema_version"] >= 2
     _require(stage in STAGE_RESOURCES[snapshot.ref.application] or
              (extended and stage in {*task_stages, "case_name"}), "unsupported_stage", "stage")
     _require(isinstance(core_contract, bytes) and bool(core_contract), "missing_core_contract", "stage")
@@ -435,9 +446,6 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
         value = snapshot.resource(name)
         if name == "classification_tasks" and stage in task_stages:
             value = {task: value[task] for task in task_stages[stage]}
-        # Only minute-order attendance remains an implemented policy.
-        if name == "policies":
-            value = {"attendance": value["attendance"]}
         data = value.encode("utf-8") if isinstance(value, str) else json_bytes(value)
         resources.append((name, data))
     digest = _content_digest(tuple(resources) + (("@core", core_contract),

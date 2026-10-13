@@ -42,7 +42,10 @@ class ManagedProfilesTests(unittest.TestCase):
         for item in catalog:
             self.assertFalse(item.personal)
             for resource in item.snapshot.manifest["resources"]:
-                self.assertTrue(item.snapshot.resource(resource))
+                if resource == "policies":
+                    self.assertEqual(item.snapshot.resource(resource), {})
+                else:
+                    self.assertTrue(item.snapshot.resource(resource))
         self.assertEqual(list(self.root.iterdir()), [])
 
     def test_direct_save_unchanged_idempotence_default_advance_and_clear(self):

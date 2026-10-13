@@ -1,2 +1,0 @@
-Attend to meaningful changes in safety, services, visitation, placement, and procedural posture, including important disputes, qualifications, and unresolved issues. Consider each parent's circumstances separately.
-Retain material agency recommendations and requested relief wherever they appear, with clear attribution as proposals rather than actual findings or orders. Omit routine proposed-findings/order boilerplate unless consequential; evaluate the complete document without a heading-based cutoff.

@@ -42,7 +42,7 @@ def classifier_prompt(profile: ProfileSnapshot, kind: str) -> tuple[str, tuple[s
     return (CORE + f'\nCURRENT TASK: {instruction}\nReturn JSON with exactly this key: {key}.\n'
             'PRACTICE GUIDANCE (subordinate):\n' + profile.resource("classification")
             + ('\nTASK GUIDANCE (subordinate):\n' + profile.resource("classification_tasks")[kind]
-               if profile.manifest["schema_version"] == 2 else '')
+               if profile.manifest["schema_version"] >= 2 else '')
             + '\nEND GUIDANCE. The application task, keys and taxonomy remain controlling.', (key,))
 
 
@@ -70,7 +70,7 @@ def normalize_classifier(payload, kind: str) -> dict[str, str]:
 
 def component(profile: ProfileSnapshot, stage: str) -> str:
     return (compile_naming_profile(profile, "report").component_sha256 if stage == "names" else
-            compile_stage_profile(profile, "classification_" + stage if profile.manifest["schema_version"] == 2
+            compile_stage_profile(profile, "classification_" + stage if profile.manifest["schema_version"] >= 2
                                   else "classification", core_contract=CORE.encode()).component_sha256)
 
 

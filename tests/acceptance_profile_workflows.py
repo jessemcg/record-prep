@@ -181,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         layout(editor)
         editor._select_page(first_page)
         assert editor.editor.resources
-        assert "report_scope" not in importlib.import_module(package + ".profile_editor_ui").POLICIES
+        assert not hasattr(importlib.import_module(package + ".profile_editor_ui"), "POLICIES")
         assert not any(isinstance(item, Gtk.Label) and item.get_text() == "Formal proposals"
                        for item in descendants(editor))
         if package == "recordprep":

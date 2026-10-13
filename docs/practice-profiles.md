@@ -55,7 +55,12 @@ RecordPrep opens at Classification. Its main categories are **Classification**, 
 **Participants / Witnesses**, and **Case Overview**. Every Classification page
 shows a short, display-only **How classification builds the record** explanation
 above its scrolling editor, as plain text on the window background without a box,
-border, shadow or contrasting panel. Common guidance is first; reporter’s-transcript (RT)
+border, shadow or contrasting panel. A wrapping, accent-colored progression reads
+**Page types → First pages → Dates & names → Table of contents → Boundaries**.
+The explanation describes the vision model's dual role: classifying page images
+and extracting dates and document names. The progression is a display-only overview,
+not clickable navigation or live progress; correction steps still run in their usual places.
+Common guidance is first; reporter’s-transcript (RT)
 page types → hearing starts → hearing dates come next, followed by clerk’s-transcript
 (CT) page types → minute-order/form starts → minute-order dates → report names/dates
 and form names. Subtitles identify RT/CT and Basic/Advanced/Dates/Names without a
@@ -70,9 +75,32 @@ name and date at the start of each continuous group of report pages, and reads f
 names from marked form first pages. Hearing TOC labels come from hearing dates—not
 a separate hearing-name prompt. Correction stages retain their existing positions;
 TOC and document boundaries use these classification results. This is an explanation
-and navigation reorder only: no instructions, resource IDs or pipeline behavior change. Summaries separates hearing/report
-topics, document-review instructions and summary-writing instructions; minute orders
-have their own page. Identification instructions, counsel roles and participant roles
+and navigation reorder only: no instructions, resource IDs or pipeline behavior change.
+
+Summaries shows one pinned **Topic-guided agentic summarization** explainer above
+exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
+report → Topic digest + quotes → Narrative section → Hearing / report summary**.
+Stage 1 reads each complete hearing or report across all its pages; after the digests
+are ready, Stage 2 synthesizes hearing by hearing or report by report, producing
+separate final hearing and report summaries. Relevant information may be sparse or
+dense; substance determines detail, without word targets or quotas.
+**Digest topics** are the hearing/report customization surface. Fixed application
+instructions preserve the pre-profile materiality, adaptive-detail, quotation and
+cohesive-narrative method. No additional digest or narrative instruction fields
+exist in new profiles or the UI; old snapshot fields are never compiled or imported
+from legacy settings. Minute orders retain their separate single-stage,
+complete-order summary flow, described on their page. There is no attendance-policy
+selector. California Dependency minute guidance asks for the hearing's identity,
+each parent's attendance, attributed party positions, main findings/orders and the
+next scheduled hearing, in that order. All pages may supply attendance evidence;
+counsel alone establishes neither presence nor absence. Unclear attendance and
+missing/unclear future settings remain explicit; no reporting-status sentence is
+added. Exact former bundled minute prompts resolve to the new default without
+rewriting private snapshots; genuinely custom minute prose remains unchanged. The shared explainer ends
+with the distinction between topic-organized digests and narrative sections.
+Restored contracts mark profile-bound digests and narratives regeneration-pending;
+existing output stays untouched until an explicit summary run.
+Identification instructions, counsel roles and participant roles
 are separate pages under Participants / Witnesses. Report naming and form naming
 each have just one instructions editor. Their approved names appear once, as `- **Name**` entries in that editor;
 optional matching requirements follow an em dash. The same entries supply both
@@ -84,9 +112,15 @@ until you add practice-appropriate entries, so unmatched documents retain provis
 labels rather than being discarded. Dates can still be extracted independently.
 Summary topics are expandable cards with editable names/instructions and add,
 remove and reorder actions. Renaming a topic does not change its stable ID.
-Topics guide capture from each document, not required headings in the narrative.
-Review and writing instructions are separate pages beside the topic page in the
-Summaries category. Focus uses the same navigation layout with **General**,
+Topic instruction editors unwrap hard-wrapped prose to use the available width,
+while preserving paragraph breaks and structured blocks such as lists. This is
+initial display formatting only: opening or browsing does not change saved guidance
+or mark the profile dirty. Editing a topic makes its displayed text the draft;
+only the normal Save flow persists that draft.
+Topics guide capture from each complete hearing or report, not required headings
+in the narrative. New RecordPrep profiles use content schema 3, without the four
+extra instruction resources. Explicit editing upgrades only a draft; historical
+accepted revisions are never rewritten. Focus uses the same navigation layout with **General**,
 **Research**, **Answers**, and **Search priorities** categories and tall prompt editors. Priorities rank results; they never exclude parts of the record.
 
 Changing profiles or closing an unsaved draft offers **Save / Discard / Cancel**.
@@ -184,8 +218,8 @@ Empty overrides inherit public guidance. Genuine prose is retained without
 unnecessary stripping. Historical built-ins are recognized so retired output
 instructions are not reattached as personal guidance. RecordPrep preserves
 classification by task, historical case-name text (stored but inert), report/form guidance and known
-structured naming rules, hearing/report topics and phase guidance, minutes and
-effective historical attendance. Ambiguous naming prose is retained with a
+structured naming rules, hearing/report topics and minute guidance. Extra summary
+phase instructions and historical attendance choices are not imported. Ambiguous naming prose is retained with a
 focused review notice: prose does not invent approved-title/catalog rules.
 Focus preserves applicable prior research/answer prose beneath current safeguards,
 not tools or runtime settings. No credentials, endpoints, paths, commands or
@@ -228,7 +262,9 @@ suites exercise both apps; do not introduce sibling runtime imports.
 `profile_api` remains 1. Focus content schema remains 1. RecordPrep content
 schema 2 adds `classification_tasks` (strict JSON keys `rt`, `ct`, `first_hearing`,
 `first_minute`, `first_form`, `date_hearing`, `date_minute`) and `case_name` text,
-retaining every schema-1 resource. Common classification guidance is composed
+retaining every schema-1 resource. Schema 3 keeps those task fields but removes
+the four extra summary instruction resources; historical schemas 1/2 remain
+readable and their extra-summary fields are inert. Common classification guidance is composed
 with application-owned taxonomy and only the current task's guidance. Component
 fingerprints isolate basic, first-page/correction and date guidance; caption
 inference uses one application-owned, practice-neutral prompt and its own
@@ -260,12 +296,12 @@ Manifests reject unknown/missing fields, unsupported capabilities/versions,
 noncanonical/traversing/executable resource paths, duplicate JSON keys, unsafe
 links, oversized files and invalid Unicode. Resources are frozen and verified by
 content hash. Topics/roles use stable bounded IDs; roles retain unknown/other
-fallbacks; naming uses closed source/approved-title modes; attendance uses only
-application-implemented policies. There is no Formal proposals switch or heading-
+fallbacks; naming uses closed source/approved-title modes; profile-bound attendance
+uses a fixed complete-order source-evidence rule, not a selectable policy. There is no Formal proposals switch or heading-
 based report cutoff. Complete reports remain available for material recommendations,
 requested relief and later discussion; guidance distinguishes proposals from actual
 orders and omits routine boilerplate unless consequential. Quote/citation checks and
-publication guards remain. Old `report_scope` fields are accepted but ignored and
+publication guards remain. Old `report_scope` and `attendance` fields are accepted but ignored and
 omitted from an edited draft on explicit Save; inspection does not rewrite snapshots,
 private configuration or cases. Existing outputs are not regenerated automatically;
 report freshness requires explicit rerunning under the new complete-source contract.
@@ -273,7 +309,7 @@ Profiles cannot weaken evidence, citations, source scope, tools, output schema o
 publication safeguards.
 
 Existing participant/source-map schema 3, digest format 2/row 3/metadata 5,
-minute checkpoint 2 and saved-answer schema 2 remain descriptive reader contracts,
+minute checkpoint 3 (with 1/2 compatibility) and saved-answer schema 2 remain descriptive reader contracts,
 not instruction authority. Legacy readers and frozen fixtures remain intact.
 Prepared provenance and research choices remain separate; different specialties
 are not intrinsically structural incompatibility. Source pages remain authority.

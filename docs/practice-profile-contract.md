@@ -31,18 +31,25 @@ Focus content schema 1 requires capability `research-v1` and `research`,
 | --- | --- |
 | classification | Markdown |
 | naming, roles, hearings, reports, policies | JSON |
-| hearing_extraction, report_extraction | Markdown |
-| hearing_synthesis, report_synthesis | Markdown |
+| hearing_extraction, report_extraction (historical schemas 1/2 only; inert) | Markdown |
+| hearing_synthesis, report_synthesis (historical schemas 1/2 only; inert) | Markdown |
 | minutes, participants, overview | Markdown |
-| classification_tasks (content schema 2) | JSON |
-| case_name (content schema 2) | Markdown |
+| classification_tasks (content schemas 2/3) | JSON |
+| case_name (content schemas 2/3; inert historical caption guidance) | Markdown |
 
-RecordPrep schema 1 retains its old required resources/compilation. Schema 2 adds
+RecordPrep schema 1 retains its old required resources for read compatibility. Schema 2 adds
 exact task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
 `date_hearing`, `date_minute`. Only the current task is composed beneath the
 application's protected classification contract. Caption inference uses its own
 resource/component; schema-1 caption behavior is unchanged. Editing an old draft
 may upgrade it, but never rewrites the accepted snapshot.
+
+Content schema 3 removes all four extra summary instruction resources and rejects
+them if present. Bundled defaults and ordinary GUI edit/create use schema 3.
+Summary compilation for every supported schema uses only the matching topic catalog
+(and hearing attribution roles for extraction), never the historical four fields.
+Their text and presence do not affect summary component hashes. Old saved schemas
+remain readable byte-for-byte; no private revision migration is performed.
 
 ## Structured resources
 
@@ -69,12 +76,13 @@ Every object rejects unknown fields, duplicate keys and nonfinite numbers.
   unique case-insensitively. v2 approved forms require both title and code on the
   supplied first page. The unversioned `{mode, report_titles, form_titles,
   guidance}` shape remains readable without inventing code requirements.
-- Policies: `{attendance}`, either `explicit_complete_order` or
-  `legacy_first_page_parents`. For byte-preserving compatibility, old snapshots
-  may also contain `report_scope`, validated as `include_attributed_proposals`
-  or `exclude_formal_proposals` but never compiled or executed. The editor omits
-  this retired field from new saved revisions, never from inspected snapshots.
-  There is no heading-based report source cutoff.
+- Policies: new profiles contain `{}`. Historical `attendance` values
+  (`explicit_complete_order` / `legacy_first_page_parents`) and `report_scope`
+  values (`include_attributed_proposals` / `exclude_formal_proposals`) remain
+  readable but are neither compiled nor consulted for profile-bound generation.
+  Explicit editing omits both keys from the in-memory draft; inspection never
+  rewrites accepted snapshots. Attendance always uses source evidence from the
+  complete order; no heading-based report source cutoff exists.
 - Focus search: `{query_terms, document_terms, passage_terms, later_history_terms}`,
   each 0–256 unique literal terms, at most 160 characters each. Never compile
   these as regexes or use them to filter source eligibility.
@@ -104,8 +112,9 @@ snapshots cause verification failure, not automatic revision acceptance.
 resource dependencies. Markdown remains exact; structured content is canonical
 JSON. Component hashes include application, stage and caller-supplied core bytes,
 not unrelated display metadata or the whole-profile digest. Classification task
-groups and caption guidance are isolated. Report extraction selects topics and
-extraction guidance, not policies; minutes selects only attendance. Report runtime
+groups and caption guidance are isolated. Report extraction selects topics, not
+retired extra instructions or policies; minutes selects roles and minute guidance,
+never the historical policy resource. Report runtime
 freshness includes `complete-document-no-cutoff-v1`, so old cutoff-era extraction
 requires explicit rerunning rather than being silently reused or regenerated.
 Runtime freshness additionally binds source,
@@ -176,10 +185,14 @@ provenance describes output; it cannot resolve or authorize current instructions
 - Digest Markdown format 2/row 3 records category catalog/provenance in the header;
   metadata 5 must agree. Mixed revisions/catalogs and broken escaping/quote grammar
   fail. Legacy format 1/row 2 uses frozen categories, not current instructions.
-- Minute checkpoint 2 records policy/catalog/provenance, with appearance rows
-  `{person, role_id, status, evidence}` and `{file_page, text}` evidence. Explicit
-  presence/absence needs evidence. Location checks are not semantic proof.
-  Legacy checkpoint 1 remains readable.
+- Minute checkpoint/final metadata 3 records the fixed complete-order evidence
+  rule, role catalog and provenance. Rows contain hearing, appearances,
+  positions, orders (including main findings), next_hearing and quality flags;
+  there is no reporting-status field in new rows. Appearance entries remain
+  `{person, role_id, status, evidence}` with `{file_page, text}` evidence.
+  Presence/absence needs source evidence from any page. Location checks are not
+  semantic proof. Checkpoints 1/2 remain readable with their historical rendering;
+  old final metadata is pending regeneration, not rewritten on inspection.
 - Saved-answer schema 2 records research separately from consumed preparation.
   Older answers remain readable. Different specialty identities are notices,
   not automatic structural incompatibility or instructions to refresh output.

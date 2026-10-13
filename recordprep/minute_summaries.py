@@ -103,10 +103,9 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
     }
     if profile is not None:
         compiled = compile_stage_profile(profile, "minutes", core_contract=(CORE + PROFILE_MINUTE_CORE).encode())
-        policy = profile.resource("policies")["attendance"]
         guidance = profile_guidance(profile)
-        config.update(contract_version=2, guidance=guidance, additional_guidance="",
-                      attendance_policy=policy, profile_component=compiled.component_sha256)
+        config.update(contract_version=3, guidance=guidance, additional_guidance="",
+                      attendance_policy="explicit_complete_order", profile_component=compiled.component_sha256)
         config["resources"] = {str(path.relative_to(project_dir)): sa._resource_sha256(path) for path in (
             project_dir / "SYSTEM.md", project_dir / "resources/profile-minutes.md",
             project_dir / "extensions/recordprep-profile-minute-tools.ts")}
@@ -114,24 +113,66 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
 
 
 PROFILE_MINUTE_CORE = """\nMINUTE CONTRACT
-Read the complete current order. Submit hearing, reporting, appearances and actual
-orders. Each appearance has person, declared role_id, status (present, not_present,
-unclear) and evidence [{file_page, text}]. Attendance evidence must be continuous
-verbatim source text on a supplied page allowed by the selected policy. Preserve
-uncertainty. Python checks location, not semantic truth. Do not repeat attendance
-or reporting in the orders field. Short quotes may anchor important actual orders.
-Only the application renders and publishes the concise one-paragraph summary.
+Read all pages of the complete current minute order. Use only that order; do not
+borrow facts from other hearings. Begin by identifying the current hearing's name
+or type and its purpose when useful, exactly as supported by the order. If its type
+is unclear, say so rather than guessing from the result. Submit the hearing name,
+appearances, party positions, main findings and orders, and the next hearing scheduled.
+
+Attendance has one fixed rule: use explicit evidence from any page of the order.
+Record present, not_present or unclear for each identified person covered by the
+profile guidance, with person, declared role_id and evidence [{file_page, text}].
+Present includes expressly recorded personal remote attendance. Counsel appearing
+alone establishes neither a client's presence nor absence. A missing name is not
+proof of absence. If attendance is unstated, conflicting or illegible, use unclear.
+Evidence must be continuous verbatim source text on a supplied page identifying the
+person's attendance or absence, not just their attorney. Python checks location,
+not semantic truth. Never infer agreement or attendance from the court's ruling.
+
+In positions, briefly attribute requests, objections, agreements and other material
+positions actually recorded to the party taking them. An attorney's stated position
+may be attributed to their identified client; it does not establish the client's
+personal attendance. Do not invent arguments or assume silence means agreement.
+Use an empty positions string if no party positions are recorded.
+In orders, summarize the main findings and orders actually made. Distinguish party
+requests and agency recommendations from the court's rulings. Omit routine boilerplate
+and procedural detail unless consequential; do not duplicate appearances or positions.
+In next_hearing, state the next hearing's type, date and time when recorded, including
+its stated purpose when useful. Do not invent missing details or confuse the current
+hearing date with the next one. If multiple hearings are set, identify the next and
+briefly distinguish other material settings. Say 'Next hearing not stated.' when no
+setting is recorded, or 'Next hearing unclear.' when the setting cannot be determined.
+
+Write concise, plain prose, one paragraph per order. Do not report whether proceedings
+were reported or transcribed. No digest, quotation placeholders or numerical length
+quota. Only the application renders and publishes the summary. Incomplete evidence
+must remain explicit rather than guessed.
 """
+
+# Exact shipped predecessors only: old private bytes remain untouched. Custom prose
+# is not rewritten; fixed attendance/output rules take priority over it.
+_HISTORICAL_MINUTE_GUIDANCE = {
+    "Identify the hearing and reporting status, first-page parental appearances under the selected legacy policy, and concise actual juvenile court orders. Counsel-only listings do not establish a parent's personal appearance. Preserve unclear evidence rather than guessing.": "california_dependency",
+    "Identify the hearing and reporting status, parties' appearances supported by the complete order, and concise actual orders. Counsel representation alone establishes neither a party's presence nor absence.": "general",
+}
+
+
+def minute_profile_text(profile: ProfileSnapshot) -> str:
+    text = profile.resource("minutes")
+    builtin = _HISTORICAL_MINUTE_GUIDANCE.get(text.strip())
+    if builtin is None:
+        return text
+    from .practice_profiles import bundled_profile_directory, validate_profile_directory
+    result = validate_profile_directory(bundled_profile_directory(builtin))
+    if result.draft is None:
+        raise ValueError("Minute-order default guidance is unavailable.")
+    return result.draft.resource("minutes")
 
 
 def profile_guidance(profile: ProfileSnapshot) -> str:
     """The exact runtime instructions, also used by read-only GUI preview."""
-    policy = profile.resource("policies")["attendance"]
-    guidance = CORE + PROFILE_MINUTE_CORE + "\nATTENDANCE POLICY: " + policy + "\n"
-    guidance += ("Use explicit attendance evidence from any page of the complete order. Counsel representation alone proves neither presence nor absence.\n"
-                 if policy == "explicit_complete_order" else
-                 "Legacy parental policy: restrict attendance evidence to the first page; attorney-only listings mean the parent did not appear. Preserve uncertainty when illegible or ambiguous.\n")
-    guidance += "\nPRACTICE GUIDANCE (subordinate):\n" + profile.resource("minutes")
+    guidance = CORE + PROFILE_MINUTE_CORE
+    guidance += "\nPRACTICE GUIDANCE (subordinate):\n" + minute_profile_text(profile)
     guidance += "\nDECLARED ROLES (data):\n" + json.dumps(profile.resource("roles"), ensure_ascii=False)
     return guidance
 
@@ -199,7 +240,7 @@ def _text(value: Any) -> str:
 
 
 def normalize_candidate(candidate: Any, item: MinuteItem, *, profile: ProfileSnapshot | None = None) -> dict[str, Any]:
-    """Require usable output; enforce the selected policy's evidence locations."""
+    """Require usable output; profile-bound work always uses the complete order."""
     if profile is not None:
         return _normalize_profile_candidate(candidate, item, profile)
     if not isinstance(candidate, dict) or candidate.get("artifact") != "recordprep-minute-candidate":
@@ -244,13 +285,8 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
             or not _text(candidate.get("hearing")) or not _text(candidate.get("orders"))):
         raise ValueError("Minute candidate lacks usable hearing/orders; prior output preserved.")
     catalog = dict(validate_role_descriptor(role_descriptor(profile))["participants"])
-    first_only = profile.resource("policies")["attendance"] == "legacy_first_page_parents"
     pages = dict(item.page_text) or {item.start: item.first_page}
     flags = []
-    reporting = candidate.get("reporting")
-    if reporting not in ("reported", "not_reported", "unclear"):
-        reporting = "unclear"
-        flags.append("reporting_unclear")
     raw = candidate.get("appearances")
     if not isinstance(raw, list):
         raw = []
@@ -276,7 +312,7 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
                 if not isinstance(quote, dict):
                     continue
                 page, text = quote.get("file_page"), _text(quote.get("text"))
-                if (type(page) is int and page in pages and (not first_only or page == item.start)
+                if (type(page) is int and page in pages
                         and text and sa.find_quote_span(text, pages[page], allow_ambiguous=True) is not None):
                     evidence.append({"file_page": page, "text": text})
         if status != "unclear" and not evidence:
@@ -285,23 +321,32 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
         appearances.append({"person": _text(entry["person"]), "role_id": role, "status": status, "evidence": evidence})
     if not appearances:
         flags.append("appearances_unclear")
+    positions = _text(candidate.get("positions"))
+    next_hearing = _text(candidate.get("next_hearing"))
+    if not next_hearing:
+        next_hearing = "Next hearing unclear."
+        flags.append("next_hearing_unusable")
+    if not isinstance(candidate.get("positions"), str):
+        flags.append("positions_unusable")
     return {"item_id": item.item_id, "fingerprint": item.fingerprint, "hearing": _text(candidate["hearing"]),
-            "reporting": reporting, "appearances": appearances, "orders": _text(candidate["orders"]),
-            "quality_flags": sorted(set(flags))}
+            "appearances": appearances, "positions": positions, "orders": _text(candidate["orders"]),
+            "next_hearing": next_hearing, "quality_flags": sorted(set(flags))}
 
 
 def render_paragraph(row: dict[str, Any]) -> str:
-    reporting = {"reported": "Reported.", "not_reported": "Not Reported.", "unclear": "Reporting status unclear."}[row["reporting"]]
+    current = "next_hearing" in row
+    reporting = "" if current else {"reported": "Reported.", "not_reported": "Not Reported.", "unclear": "Reporting status unclear."}[row["reporting"]]
     appearances = []
     generic = "appearances" in row
     for person in row["appearances"] if generic else row["parents"]:
         suffix = {"present": "appeared.", "not_present": "did not appear.", "unclear": "appearance unclear."}[person["status"]]
         name = person["person"] if generic else person["parent"]
         appearances.append(f"{name} {suffix}")
-    return " ".join([
+    return " ".join(part for part in [
         row["hearing"].rstrip(". ") + ".", reporting,
-        " ".join(appearances) or ("Appearances unclear." if generic else "Parent appearances unclear."), row["orders"],
-    ])
+        " ".join(appearances) or ("Appearances unclear." if generic else "Parent appearances unclear."),
+        row.get("positions", ""), row["orders"], row.get("next_hearing", ""),
+    ] if part)
 
 
 def checkpoint_path(root: Path) -> Path:
@@ -329,15 +374,16 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     payload = _read_json(path)
     rows = payload.get("rows")
     version = payload.get("schema_version")
-    if (type(version) is not int or version not in (1, 2) or payload.get("artifact") != "recordprep-minute-rows"
+    if (type(version) is not int or version not in (1, 2, 3) or payload.get("artifact") != "recordprep-minute-rows"
             or not isinstance(rows, list) or payload.get("rows_sha256") != sa.sha256_json(rows)):
         raise ValueError("Minute-order checkpoint is corrupt; prior output preserved.")
     catalog = None
-    if version == 2:
+    if version in (2, 3):
         if set(payload) != {"schema_version", "artifact", "rows", "rows_sha256", "attendance_policy",
                             "role_catalog", "profile_provenance"}:
             raise ValueError("Minute-order checkpoint metadata is invalid.")
-        if payload["attendance_policy"] not in ("explicit_complete_order", "legacy_first_page_parents"):
+        if payload["attendance_policy"] not in (("explicit_complete_order",) if version == 3 else
+                                                 ("explicit_complete_order", "legacy_first_page_parents")):
             raise ValueError("Minute-order attendance policy is unsupported.")
         provenance = preparation_provenance(payload["profile_provenance"])
         if "minutes" not in provenance["components"]:
@@ -350,8 +396,8 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
         if not isinstance(row, dict) or not isinstance(row.get("item_id"), str) or row["item_id"] in ids:
             raise ValueError("Minute-order checkpoint contains invalid or duplicate rows.")
         ids.add(row["item_id"])
-        if version == 2:
-            _validate_appearance_row(row, catalog)
+        if version in (2, 3):
+            _validate_appearance_row(row, catalog, version=version)
         elif "appearances" in row:
             raise ValueError("Legacy minute checkpoints cannot carry generic appearances.")
         try:
@@ -363,10 +409,14 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _validate_appearance_row(row: dict, catalog: dict) -> None:
-    """Structural reader validation only; no reinterpretation of recorded policy."""
-    if set(row) != {"item_id", "fingerprint", "hearing", "reporting", "appearances", "orders", "quality_flags"}:
+def _validate_appearance_row(row: dict, catalog: dict, *, version: int = 3) -> None:
+    """Keep historical rows readable without reinterpreting their attendance."""
+    fields = {"item_id", "fingerprint", "hearing", "appearances", "orders", "quality_flags"}
+    fields |= {"positions", "next_hearing"} if version == 3 else {"reporting"}
+    if set(row) != fields:
         raise ValueError("Minute-order appearance row fields are invalid.")
+    if version == 3 and (not isinstance(row["positions"], str) or not _text(row["next_hearing"])):
+        raise ValueError("Minute-order positions/next-hearing fields are invalid.")
     appearances = row["appearances"]
     if not isinstance(appearances, list) or len(appearances) > 128:
         raise ValueError("Minute-order appearances must be a bounded list.")
@@ -397,17 +447,17 @@ def _profile_provenance(profile: ProfileSnapshot) -> dict:
 def publish_rows(root: Path, rows: list[dict[str, Any]], *, profile: ProfileSnapshot | None = None) -> None:
     existing = checkpoint_path(root)
     if profile is None and (any("appearances" in row for row in rows)
-            or (existing.exists() and _read_json(existing).get("schema_version") == 2)):
+            or (existing.exists() and _read_json(existing).get("schema_version") in (2, 3))):
         raise ValueError("Generic appearances require a profile-aware publisher; prior output preserved.")
     metadata = {}
     if profile is not None:
         catalog = role_descriptor(profile)
         for row in rows:
             _validate_appearance_row(row, dict(validate_role_descriptor(catalog)["participants"]))
-        metadata = {"role_catalog": catalog, "attendance_policy": profile.resource("policies")["attendance"],
+        metadata = {"role_catalog": catalog, "attendance_policy": "explicit_complete_order",
                     "profile_provenance": _profile_provenance(profile)}
     sa._atomic_write(checkpoint_path(root), json.dumps({
-        "artifact": "recordprep-minute-rows", "schema_version": 2 if profile is not None else 1,
+        "artifact": "recordprep-minute-rows", "schema_version": 3 if profile is not None else 1,
         "rows": rows, "rows_sha256": sa.sha256_json(rows), **metadata,
     }, ensure_ascii=True, indent=2) + "\n")
 
@@ -443,7 +493,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
             publish_rows(root, rows, profile=profile) if profile is not None else publish_rows(root, rows)
 
     with sa.SummaryKindLock(root, "minutes"):
-        if profile is None and checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") == 2:
+        if profile is None and checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") in (2, 3):
             raise ValueError("Profile-era minute work requires explicit profile-aware generation; prior output preserved.")
         settings, config = stage_config(project_dir, profile=profile) if profile is not None else stage_config(project_dir)
         items = build_items(root, config)
@@ -478,7 +528,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
         with case_profile_publication(root, expected_ref):
             sa._atomic_write(final, text)
             sa._atomic_write(meta_path(root), json.dumps({
-                "artifact": "recordprep-minute-summary", "schema_version": 2 if profile is not None else 1,
+                "artifact": "recordprep-minute-summary", "schema_version": 3 if profile is not None else 1,
                 **({"profile_provenance": _profile_provenance(profile)} if profile is not None else {}),
                 "final_sha256": sa.sha256_text(text), "rows_sha256": sa.sha256_json(rows),
                 "inputs": {item.item_id: item.fingerprint for item in items},
@@ -503,7 +553,7 @@ def freshness_issues(root: Path, project_dir: Path | None = None) -> list[str]:
         profile = resolve_case_profile(root)
         from .boundary_profiles import require_current_boundaries
         require_current_boundaries(root, profile, project_dir)
-        version = 2 if profile is not None else 1
+        version = 3 if profile is not None else 1
         if meta.get("artifact") != "recordprep-minute-summary" or meta.get("schema_version") != version:
             raise ValueError("Minute-order final metadata is invalid or requires explicit profile selection.")
         if profile is not None:

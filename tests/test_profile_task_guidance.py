@@ -46,6 +46,9 @@ class TaskGuidanceTests(unittest.TestCase):
     def test_old_schema_bytes_and_classification_stay_unchanged(self):
         editor = ProfileEditor(self.base)
         editor.manifest["schema_version"] = 1
+        for name in ("hearing_extraction", "report_extraction", "hearing_synthesis", "report_synthesis"):
+            editor.manifest["resources"][name] = name + ".md"
+            editor.resources[name] = "Synthetic historical instructions."
         for key in ("classification_tasks", "case_name"):
             editor.manifest["resources"].pop(key)
             editor.resources.pop(key)

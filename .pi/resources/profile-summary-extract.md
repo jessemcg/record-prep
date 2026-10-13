@@ -8,7 +8,8 @@ description: Extract one complete court-record document into the application-dec
 Use only `recordprep_get_source` and `recordprep_submit_extraction`. Read the complete
 current document once through the source tool, then submit its category digests.
 The runtime prompt and work specification contain the exact frozen application
-contract, profile categories, and subordinate practice guidance. Do not invent
+contract and profile topic guidance. Topics are the hearing/report customization
+surface; there are no additional extraction or narrative instruction fields. Do not invent
 categories or infer a practice area from a case name.
 
 Original source pages are factual authority. Metadata is attribution context, not

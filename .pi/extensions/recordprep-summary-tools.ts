@@ -157,8 +157,10 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       "This terminates the session on success.\n\n" +
       "Desired shape: one entry per configured category id, in the configured " +
       "order. Preferred form per entry: { \"id\": string, \"digest\": {\n" +
-      "  \"text\": \"one concise synthesized digest paragraph\",\n" +
+      "  \"text\": \"one synthesized digest, with detail proportional to material content\",\n" +
       "  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\n" +
+      "A digest may contain multiple paragraphs for distinct material points; " +
+      "there is no word, sentence, or paragraph quota. " +
       "Set digest to exactly null when the category has no material " +
       "orientation-worthy content. Evidence quotes are continuous verbatim " +
       "two-to-five-word source phrases, preferably distinctive " +

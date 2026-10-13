@@ -68,17 +68,15 @@ class LegacyProfileBaselineTests(unittest.TestCase):
         for key, legacy_key in (("counsel", "valid_roles"), ("participants", "valid_participant_roles")):
             self.assertEqual({entry["id"] for entry in roles[key]},
                              set(self.fixture["roles"][legacy_key]) | {"unknown", "other"})
-        self.assertEqual(result.draft.resource("policies"), {
-            "attendance": "legacy_first_page_parents"})
+        self.assertEqual(result.draft.resource("policies"), {})
 
-    def test_general_has_neutral_categories_and_different_policies(self):
+    def test_general_has_neutral_categories_and_no_selectable_policies(self):
         result = practice_profiles.validate_profile_directory(practice_profiles.bundled_profile_directory("general"))
         self.assertEqual(result.issues, ())
         self.assertEqual(len(result.draft.resource("hearings")), 6)
         self.assertEqual(len(result.draft.resource("reports")), 7)
         self.assertEqual(result.draft.resource("hearings")[0]["id"], "party_appearances")
-        self.assertEqual(result.draft.resource("policies"), {
-            "attendance": "explicit_complete_order"})
+        self.assertEqual(result.draft.resource("policies"), {})
         self.assertNotIn("dependency", " ".join(data.decode() for _name, data in result.draft.files).lower())
 
     def test_no_premature_artifact_schema_transition(self):

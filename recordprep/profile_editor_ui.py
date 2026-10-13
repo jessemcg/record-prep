@@ -211,6 +211,10 @@ class ProfileEditorWindow(Adw.Window):
         self.message.set_visible(False)
         self.message.connect("notify::label", lambda label, _spec: label.set_visible(bool(label.get_text())))
         outer.append(self.message)
+        self.profile_notice = wrapped("", margin_start=18, margin_end=18)
+        outer.append(self.profile_notice)
+        self.case_notice = wrapped("", margin_start=18, margin_end=18)
+        outer.append(self.case_notice)
         self.body = Adw.OverlaySplitView(vexpand=True, min_sidebar_width=220, max_sidebar_width=260,
                                          sidebar_width_fraction=.26)
         self.body.add_css_class("profile-settings-layout")
@@ -231,7 +235,8 @@ class ProfileEditorWindow(Adw.Window):
         self._refresh_guard()
 
     def _state(self):
-        return copy.deepcopy((self.editor.manifest, self.editor.resources, self.default_row.get_active()))
+        return copy.deepcopy((self.editor.manifest, self.editor.resources,
+                              self.default_row.get_active() if self.default_row is not None else None))
 
     def _dirty(self):
         return self._state() != self._saved_state
@@ -319,33 +324,20 @@ class ProfileEditorWindow(Adw.Window):
         sidebar = Gtk.ScrolledWindow(vexpand=True)
         sidebar.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sidebar.set_child(self.navigation)
-        self.body.set_sidebar(sidebar)
-        self._page("General", "profile", "Profile and defaults")
+        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sidebar_box.append(sidebar)
+        if self.store.application == "recordprep":
+            sidebar_box.append(button("New profile…", self._new))
+        self.body.set_sidebar(sidebar_box)
         self.title_widget.set_subtitle(self.editor.manifest["display_name"])
         self.title_widget.set_tooltip_text(self.editor.manifest["display_name"])
-        identity = self.editor.manifest["specialty_id"]
-        names = [item.snapshot.manifest["display_name"] for item in self.candidates]
-        index = next((i for i, item in enumerate(self.candidates) if item.snapshot.ref.specialty_id == identity), None)
-        if index is None:
-            names.append(self.editor.manifest["display_name"])
-            # Draft exists only in this editor, never in the registry.
-        self.selector = ProfileSelector(names, self._switch)
-        self.selector.set_selected(index if index is not None else len(names) - 1, notify=False)
-        group = self._group("Profile and defaults")
-        group.add(self.selector)
-        group.add(button("New profile…", self._new))
-        if self.notice:
-            group.add(wrapped(self.notice))
-        self.case_notice = wrapped("")
-        group.add(self.case_notice)
+        self.profile_notice.set_text(self.notice)
+        self.profile_notice.set_visible(bool(self.notice))
         self.refresh_case_notice()
-        registry = self.store.read_registry()
-        self.expected_default = registry["default"]
-        self.default_row = Adw.SwitchRow(title="Use for new cases")
-        self.default_row.set_active(bool(registry["default"] and registry["default"]["specialty_id"] == identity)
-                                   or (registry["default"] is None and identity == "general-court-record"))
-        group.add(self.default_row)
+        self.expected_default = self.store.read_registry()["default"]
+        self.default_row = None
         if self.store.application == "focus":
+            self._general_form()
             self._prompt_page("Research", "research", "Research instructions", "research")
             self._prompt_page("Answers", "answer", "Answer-writing instructions", "answer_guidance")
             labels = {"query_terms": "Question terms", "document_terms": "Document priorities",
@@ -357,9 +349,29 @@ class ProfileEditorWindow(Adw.Window):
         else:
             self._recordprep_form()
         self._nav_updating = False
-        self._select_page(self._active_page if self._active_page in self.pages else "profile")
+        self._select_page(self._active_page if self._active_page in self.pages else next(iter(self.pages)))
         self._saved_state = self._state()
         self._loading = False
+
+    def _general_form(self):
+        self._page("General", "profile", "Profile and defaults")
+        identity = self.editor.manifest["specialty_id"]
+        names = [item.snapshot.manifest["display_name"] for item in self.candidates]
+        index = next((i for i, item in enumerate(self.candidates) if item.snapshot.ref.specialty_id == identity), None)
+        if index is None:
+            names.append(self.editor.manifest["display_name"])
+            # Draft exists only in this editor, never in the registry.
+        self.selector = ProfileSelector(names, self._switch)
+        self.selector.set_selected(index if index is not None else len(names) - 1, notify=False)
+        group = self._group("Profile and defaults")
+        group.add(self.selector)
+        group.add(button("New profile…", self._new))
+        registry = self.store.read_registry()
+        self.expected_default = registry["default"]
+        self.default_row = Adw.SwitchRow(title="Use for new cases")
+        self.default_row.set_active(bool(registry["default"] and registry["default"]["specialty_id"] == identity)
+                                   or (registry["default"] is None and identity == "general-court-record"))
+        group.add(self.default_row)
 
     def refresh_case_notice(self):
         ref = self.case_ref()
@@ -516,7 +528,6 @@ class ProfileEditorWindow(Adw.Window):
         render()
 
     def _recordprep_form(self):
-        self._prompt_page("General", "case-name", "Case name", "case_name")
         self._prompt_page("Classification", "classification", "Common guidance", "classification")
         labels = {"rt": "Reporter transcript pages", "ct": "Clerk transcript pages", "first_hearing": "Hearing first pages",
                   "first_minute": "Minute-order first pages", "first_form": "Form first pages",
@@ -602,7 +613,8 @@ class ProfileEditorWindow(Adw.Window):
             personal = self.personal or draft.ref != self.editor.base.ref
             ref = self.editor.managed_save(self.store, expected_head=self.expected_head, expected_default=self.expected_default,
                                            validate=self.preview, can_modify=self.can_modify,
-                                           use_for_new_cases=self.default_row.get_active(), personal=personal)
+                                           use_for_new_cases=self.default_row.get_active() if self.default_row is not None else None,
+                                           personal=personal)
             saved_ref = ref
             self.expected_head = ref.content_sha256
             self.expected_default = self.store.read_registry()["default"]

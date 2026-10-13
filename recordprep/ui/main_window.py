@@ -50,6 +50,7 @@ from pylatexenc.latex2text import LatexNodes2Text
 from tabulate import tabulate
 
 from recordprep import APPLICATION_ID, APPLICATION_NAME
+from recordprep.case_name_prompt import CASE_NAME_PROMPT as DEFAULT_CASE_NAME_PROMPT
 from recordprep.classification import run_classifier_jobs
 from recordprep.classification_profiles import ClassificationRun, classifier_prompt
 from recordprep.document_naming import NamingContract, provisional_document_title
@@ -236,13 +237,9 @@ PIPELINE_STEP_PHASE = {
 COMPLETED_STEP_STATUSES = {"Done", "Skipped"}
 SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
-        "prepare",
-        "Prepare",
-        (
-            ("text-source", "Create files"),
-            ("local-ocr", "Local OCR"),
-            ("case-name", "Infer case"),
-        ),
+        "ocr",
+        "OCR",
+        (("ocr", "OCR"),),
     ),
     (
         "classify",
@@ -640,13 +637,6 @@ DEFAULT_CLASSIFY_FORM_NAMES_PROMPT = (
     "Only return a form name if it matches the approved list provided. "
     "Return JSON with keys: name. "
     "name must be the matching form title from the list; otherwise use an empty string."
-)
-DEFAULT_CASE_NAME_PROMPT = (
-    "You are inferring the case name from the first three pages of a legal transcript. "
-    "Return only the case name as plain text. "
-    "Preserve the source-supported case caption and replace spaces with underscores, "
-    "for example Smith_v_Jones. Do not infer a legal specialty or invent party names. "
-    "If unknown, use an empty string."
 )
 DEFAULT_SUMMARIZE_MINUTES_PROMPT = _minute_summaries.DEFAULT_MINUTES_PROMPT
 DEFAULT_DISABLE_REASONING = False
@@ -2147,10 +2137,10 @@ def _read_config() -> dict[str, Any]:
     return {}
 
 
-def _write_config(config: dict[str, Any]) -> None:
+def _write_config(config: dict[str, Any], *, preserve_obsolete: bool = False, raise_errors: bool = False) -> None:
     serializable: dict[str, Any] = {}
     for key, value in config.items():
-        if not isinstance(key, str) or key in OBSOLETE_PIPELINE_CONFIG_KEYS:
+        if not isinstance(key, str) or (not preserve_obsolete and key in OBSOLETE_PIPELINE_CONFIG_KEYS):
             continue
         serializable[key] = value
     # Atomic replace: a crash or concurrent Dropbox sync mid-write must never
@@ -2168,7 +2158,17 @@ def _write_config(config: dict[str, Any]) -> None:
         finally:
             temp.unlink(missing_ok=True)
     except OSError:
-        pass
+        if raise_errors:
+            raise
+
+
+def clear_case_context() -> None:
+    """Explicit user action: forget selection, preserving every other setting."""
+    config = json.loads(CONFIG_FILE.read_text(encoding="utf-8")) if CONFIG_FILE.exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError("Invalid application settings; current selection was not cleared.")
+    config.update({CONFIG_KEY_CASE_NAME: "", CONFIG_KEY_CASE_ROOT_DIR: "", CONFIG_KEY_SELECTED_PDFS: []})
+    _write_config(config, preserve_obsolete=True, raise_errors=True)
 
 
 def _read_config_bool(config: dict[str, Any], key: str, default: bool) -> bool:
@@ -2439,6 +2439,7 @@ def save_classify_names_settings(
 
 
 def load_case_name_settings() -> dict[str, Any]:
+    """Retired import compatibility only; production inference uses native Pi."""
     config = _read_config()
     api_url = str(config.get(CONFIG_KEY_CASE_NAME_API_URL, "") or "").strip()
     model_id = str(config.get(CONFIG_KEY_CASE_NAME_MODEL_ID, "") or "").strip()
@@ -2448,13 +2449,12 @@ def load_case_name_settings() -> dict[str, Any]:
         CONFIG_KEY_CASE_NAME_DISABLE_REASONING,
         DEFAULT_DISABLE_REASONING,
     )
-    prompt = str(config.get(CONFIG_KEY_CASE_NAME_PROMPT, DEFAULT_CASE_NAME_PROMPT) or "").strip()
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
         "disable_reasoning": disable_reasoning,
-        "prompt": prompt or DEFAULT_CASE_NAME_PROMPT,
+        "prompt": DEFAULT_CASE_NAME_PROMPT,
     }
 
 
@@ -3295,12 +3295,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._on_saved = on_saved
         self._prompt_editors: dict[str, ClassifySettingsWidgets] = {}
         self._local_ocr_widgets: LocalOcrSettingsWidgets | None = None
-        self._settings_group_rows: dict[str, Adw.ExpanderRow] = {}
-        self._settings_group_destinations: dict[str, tuple[str, ...]] = {}
-        self._settings_key_groups: dict[str, str] = {}
+        self._settings_group_rows: dict[str, Adw.ActionRow] = {}
         self._settings_destination_labels: dict[str, str] = {}
         self._settings_destination_markers: dict[str, Gtk.Image] = {}
-        self._settings_nav_updating = False
         self._active_settings_key: str | None = None
         self._text_source_row: Adw.ComboRow | None = None
         self._text_source_values: list[str] = []
@@ -3368,7 +3365,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         box.set_margin_bottom(12)
         box.set_margin_start(18)
         box.set_margin_end(18)
-        box.append(Gtk.Label(label="Practice guidance is edited in Profile settings. API credentials, models and machine settings stay here.",
+        box.append(Gtk.Label(label="Edit processing instructions in Profile settings. Configure models and connections here.",
                              wrap=True, xalign=0))
 
         split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -3382,23 +3379,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_list.set_vexpand(False)
         self._prompt_list = prompt_list
 
-        for group_id, title, destinations in SETTINGS_NAV_GROUPS:
-            group_row = Adw.ExpanderRow(
-                title=title,
-                subtitle=f"{len(destinations)} settings",
-            )
-            group_row.set_expanded(False)
-            group_row.connect(
-                "notify::expanded",
-                self._on_settings_group_expanded,
-                group_id,
-            )
-            self._settings_group_rows[group_id] = group_row
-            self._settings_group_destinations[group_id] = tuple(
-                key for key, _label in destinations
-            )
-            prompt_list.append(group_row)
-
         prompt_list_scroller = Gtk.ScrolledWindow()
         prompt_list_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         prompt_list_scroller.set_min_content_width(240)
@@ -3411,23 +3391,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         prompt_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._prompt_stack = prompt_stack
 
-        self._add_settings_destination("prepare", "text-source", "Create files")
-        text_source_page = self._build_text_source_page()
-        prompt_stack.add_named(text_source_page, "text-source")
+        self._add_settings_destination("ocr", "ocr")
+        ocr_page = self._build_ocr_page(load_local_ocr_settings())
+        prompt_stack.add_named(ocr_page, "ocr")
 
-        self._add_settings_destination("prepare", "local-ocr", "Local OCR")
-        local_ocr_page = self._build_local_ocr_page(load_local_ocr_settings())
-        prompt_stack.add_named(local_ocr_page, "local-ocr")
-
-        prompt_definitions = [
-            ("case-name", "Infer Case Name", load_case_name_settings(), DEFAULT_CASE_NAME_PROMPT),
-        ]
-        for key, title, settings, default_prompt in prompt_definitions:
-            self._add_settings_destination("prepare", key, "Infer case")
-            page = self._build_prompt_page(key, title, settings, default_prompt)
-            prompt_stack.add_named(page, key)
-
-        self._add_settings_destination("classify", "classify-basic", "Basic")
+        self._add_settings_destination("classify", "classify-basic")
         classify_page = self._build_prompt_page(
             "classify-basic",
             "Classification basic",
@@ -3436,16 +3404,15 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         prompt_stack.add_named(classify_page, "classify-basic")
 
-        self._add_settings_destination("summarize", "summarize", "Summarize")
+        self._add_settings_destination("summarize", "summarize")
         summarize_page = self._build_summarize_prompt_page(load_summary_model_settings())
         prompt_stack.add_named(summarize_page, "summarize")
 
-        self._add_settings_destination("agent", "pi", "PI")
+        self._add_settings_destination("agent", "pi")
         pi_page = self._build_pi_settings_page()
         prompt_stack.add_named(pi_page, "pi")
 
-        self._set_settings_group_expanded("prepare")
-        self._select_settings_page("text-source")
+        self._select_settings_page("ocr")
 
         split.append(prompt_list_scroller)
         split.append(prompt_stack)
@@ -3454,28 +3421,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         view.set_content(box)
         self.set_content(view)
 
-    def _build_text_source_page(self) -> Gtk.Widget:
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Create files", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        info_label = Gtk.Label(
-            label="Choose how text files are generated during Create files.",
-            xalign=0,
+    def _build_text_source_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(
+            title="Text extraction",
+            description="Choose how text files are generated during Create files.",
         )
-        info_label.add_css_class("dim-label")
-        page_box.append(info_label)
-
-        group = Adw.PreferencesGroup(title="Text extraction")
         group.add_css_class("list-stack")
-        page_box.append(group)
 
         options = [
             ("Use embedded text", TEXT_SOURCE_EMBEDDED),
@@ -3495,13 +3446,7 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         self._text_source_row = row
         self._text_source_values = values
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-        return page
+        return group
 
     def _build_prompt_editor(self, text: str) -> tuple[Gtk.ScrolledWindow, Gtk.TextBuffer]:
         scroller = Gtk.ScrolledWindow()
@@ -3532,7 +3477,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         scroller.set_min_content_height(min_height)
         scroller.set_size_request(-1, min_height)
 
-    def _build_local_ocr_page(self, settings: dict[str, str]) -> Gtk.Widget:
+    def _build_ocr_page(self, settings: dict[str, str]) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         page_box.set_margin_top(12)
         page_box.set_margin_bottom(12)
@@ -3540,21 +3485,23 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.set_margin_end(12)
         page_box.set_vexpand(True)
 
-        title_label = Gtk.Label(label="Local OCR", xalign=0)
+        title_label = Gtk.Label(label="OCR", xalign=0)
         title_label.add_css_class("title-3")
         page_box.append(title_label)
+        page_box.append(self._build_text_source_group())
 
         info_label = Gtk.Label(
             label=(
-                "Configure the local OCR server and model used for Create files. "
+                "The settings below apply when OCR with local model is selected. "
                 "Use {slots} in the start command to insert the llama.cpp slot count."
             ),
+            wrap=True,
             xalign=0,
         )
         info_label.add_css_class("dim-label")
         page_box.append(info_label)
 
-        server_group = Adw.PreferencesGroup(title="Server")
+        server_group = Adw.PreferencesGroup(title="Local OCR")
         server_group.add_css_class("list-stack")
         server_group.set_hexpand(True)
         page_box.append(server_group)
@@ -3630,7 +3577,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.append(title_label)
 
         is_classify_basic = key == "classify-basic"
-        is_case_name = key == "case-name"
 
         if is_classify_basic:
             info_label = Gtk.Label(
@@ -3695,15 +3641,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             local_server_row.add_suffix(local_server_switch)
             local_server_row.set_activatable_widget(local_server_switch)
             credentials_group.add(local_server_row)
-        elif is_case_name:
-            disable_reasoning_row = Adw.SwitchRow(
-                title="Disable reasoning",
-                subtitle="Leave off to use the model's default behavior.",
-            )
-            disable_reasoning_row.set_active(
-                bool(settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING))
-            )
-            credentials_group.add(disable_reasoning_row)
 
         if is_classify_basic:
             command_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -3799,34 +3736,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             "Synthesis reasoning level", settings.get("synthesize_thinking", "")
         )
         synthesize_group.add(synthesize_thinking_row)
-
-        # Summary length follows substantive complexity: conciseness comes
-        # from selecting significant information and avoiding repetition, not
-        # from a numerical target.
-        length_note = Adw.ActionRow(title="Summary length")
-        length_note.add_suffix(
-            Gtk.Label(
-                label=(
-                    "Summary length follows each document's substantive "
-                    "complexity; conciseness comes from selecting significant "
-                    "information and avoiding repetition."
-                ),
-                wrap=True,
-                xalign=0.0,
-                max_width_chars=48,
-            )
-        )
-        synthesize_group.add(length_note)
-
-        minute_note = Adw.ActionRow(
-            title="Minute orders (PI)",
-            subtitle=(
-                "Uses the PI synthesis model and reasoning above. Reads each complete "
-                "order, reports parents' first-page appearances, and resumes completed "
-                "orders. No separate API credentials or window settings are needed."
-            ),
-        )
-        synthesize_group.add(minute_note)
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -3975,25 +3884,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         thinking_level_row.set_selected(selected_thinking_index)
         launch_group.add(thinking_level_row)
-
-        configuration_row = Adw.ActionRow(
-            title="PI configuration",
-            subtitle=(
-                "The provider, model, and reasoning level for all five stages "
-                "are saved in project .pi/settings.json. Credentials remain in "
-                "your global PI configuration."
-            ),
-        )
-        launch_group.add(configuration_row)
-
-        access_row = Adw.ActionRow(
-            title="Skill access",
-            subtitle=(
-                "Five project skills use narrow local-file tools; no web-search "
-                "tools are enabled."
-            ),
-        )
-        launch_group.add(access_row)
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4212,9 +4102,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         self,
         group_id: str,
         key: str,
-        label: str,
     ) -> None:
-        row = Adw.ActionRow(title=label)
+        title = next(title for candidate, title, _items in SETTINGS_NAV_GROUPS if candidate == group_id)
+        row = Adw.ActionRow(title=title)
         row.set_activatable(True)
         marker = Gtk.Image.new_from_icon_name("object-select-symbolic")
         marker.set_visible(False)
@@ -4223,48 +4113,18 @@ class SettingsWindow(Adw.ApplicationWindow):
             "activated",
             lambda _row, destination=key: self._select_settings_page(destination),
         )
-        self._settings_key_groups[key] = group_id
-        self._settings_destination_labels[key] = label
+        self._settings_destination_labels[key] = title
         self._settings_destination_markers[key] = marker
-        self._settings_group_rows[group_id].add_row(row)
-
-    def _set_settings_group_expanded(self, group_id: str | None) -> None:
-        self._settings_nav_updating = True
-        try:
-            for candidate_id, row in self._settings_group_rows.items():
-                row.set_expanded(candidate_id == group_id)
-        finally:
-            self._settings_nav_updating = False
-
-    def _on_settings_group_expanded(
-        self,
-        row: Adw.ExpanderRow,
-        _pspec: GObject.ParamSpec,
-        group_id: str,
-    ) -> None:
-        if self._settings_nav_updating or not row.get_expanded():
-            return
-        self._set_settings_group_expanded(group_id)
-        if self._settings_key_groups.get(self._active_settings_key or "") != group_id:
-            destinations = self._settings_group_destinations.get(group_id, ())
-            if destinations:
-                self._select_settings_page(destinations[0])
+        self._settings_group_rows[group_id] = row
+        self._prompt_list.append(row)
 
     def _select_settings_page(self, key: str) -> None:
         if key not in self._settings_destination_labels:
             return
-        group_id = self._settings_key_groups[key]
         self._active_settings_key = key
-        self._set_settings_group_expanded(group_id)
         self._prompt_stack.set_visible_child_name(key)
         for destination, marker in self._settings_destination_markers.items():
             marker.set_visible(destination == key)
-        for candidate_id, _title, destinations in SETTINGS_NAV_GROUPS:
-            group_row = self._settings_group_rows[candidate_id]
-            if candidate_id == group_id:
-                group_row.set_subtitle(self._settings_destination_labels[key])
-            else:
-                group_row.set_subtitle(f"{len(destinations)} settings")
 
     def _build_disclosure(
         self,
@@ -4281,7 +4141,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         return row
 
     def _save_settings(self) -> None:
-        case_widgets = self._prompt_editors.get("case-name")
         classify_basic_widgets = self._prompt_editors.get("classify-basic")
         local_ocr_widgets = self._local_ocr_widgets
         summarize_widgets = getattr(self, "_summarize_widgets", None)
@@ -4294,11 +4153,11 @@ class SettingsWindow(Adw.ApplicationWindow):
             save_text_source_setting(value)
         # Save only machine/API fields. Hidden legacy prose is byte-preserved.
         runtime_config = _read_config()
-        for widgets, prefix in ((case_widgets, "case_name"), (classify_basic_widgets, "classifier")):
+        for widgets, prefix in ((classify_basic_widgets, "classifier"),):
             if widgets is not None:
                 for key, row in (("api_url", widgets.api_url_row), ("model_id", widgets.model_row), ("api_key", widgets.api_key_row)):
                     runtime_config[f"{prefix}_{key}"] = row.get_text().strip()
-                reasoning = widgets.disable_reasoning_row or widgets.disable_reasoning_switch
+                reasoning = widgets.disable_reasoning_switch or widgets.disable_reasoning_row
                 runtime_config[f"{prefix}_disable_reasoning"] = bool(reasoning.get_active()) if reasoning else DEFAULT_DISABLE_REASONING
         if classify_basic_widgets:
             widgets = classify_basic_widgets
@@ -4452,6 +4311,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.set_default_size(900, 600)
 
         self.selected_pdfs: list[Path] = []
+        self._case_generation = 0
         self._settings_window: SettingsWindow | None = None
         self._toc_editor_window: TocEditorWindow | None = None
         self._pipeline_running = False
@@ -4504,17 +4364,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         header_bar = Adw.HeaderBar()
 
-        self.case_bundle_button = Gtk.Button.new_from_icon_name("folder-open-symbolic")
-        self.case_bundle_button.set_tooltip_text("Choose case bundle")
-        self.case_bundle_button.add_css_class("flat")
+        self.case_bundle_button = self._case_header_button("folder-open-symbolic", "Choose case bundle")
         self.case_bundle_button.connect("clicked", self.on_choose_case_bundle)
         header_bar.pack_start(self.case_bundle_button)
 
-        self.file_button = Gtk.Button.new_from_icon_name("list-add-symbolic")
-        self.file_button.set_tooltip_text("Choose PDF(s)")
-        self.file_button.add_css_class("flat")
+        self.file_button = self._case_header_button("list-add-symbolic", "Choose PDF(s)")
         self.file_button.connect("clicked", self.on_choose_pdf)
         header_bar.pack_start(self.file_button)
+
+        self.clear_case_button = self._case_header_button("user-trash-symbolic", "Clear current case")
+        self.clear_case_button.set_tooltip_text("Clear current case selection; no files are deleted")
+        self.clear_case_button.connect("clicked", self.on_clear_case)
+        header_bar.pack_start(self.clear_case_button)
 
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         status_box.set_halign(Gtk.Align.CENTER)
@@ -4707,7 +4568,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_infer_case_row = Adw.ActionRow(
             title="Infer case",
-            subtitle="Use the first pages to infer the case name and save it.",
+            subtitle="Use PI to infer the case name from the first three pages.",
         )
         self.step_infer_case_row.set_activatable(False)
         self._attach_step_controls(
@@ -5450,12 +5311,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id == "strip_characters":
             return _dir_has_files(text_dir, "*.txt")
         if step_id == "infer_case":
-            from recordprep.case_profiles import resolve_case_profile
-            from recordprep.case_name_profiles import is_current
-            try:
-                return is_current(root_dir, resolve_case_profile(root_dir), load_case_name_settings())
-            except (ValueError, OSError):
-                return False
+            from recordprep.case_name_stage import is_current
+            return is_current(root_dir, PI_PROJECT_DIR)
         if step_id == "classify_basic":
             return self._classification_output_complete(
                 root_dir,
@@ -5607,6 +5464,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         from recordprep.profile_integration import update_indicator
         update_indicator(self)
         running = self._pipeline_running
+        busy = running or self._pi_terminal_active
+        self.case_bundle_button.set_sensitive(not busy)
+        self.file_button.set_sensitive(not busy)
+        self.clear_case_button.set_sensitive(not busy and bool(self.selected_pdfs or self._resolve_case_root() is not None))
         self.run_all_button.set_visible(not running)
         self.run_all_button.set_sensitive(not running and bool(self.selected_pdfs))
         self.resume_button.set_visible(not running and self._resume_is_available())
@@ -6244,27 +6105,84 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         except Exception as exc:
             GLib.idle_add(self.show_toast, f"Manifest update failed: {exc}")
 
+    @staticmethod
+    def _case_header_button(icon_name: str, label: str) -> Gtk.Button:
+        button = Gtk.Button()
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.add_css_class("dim-label")
+        button.set_child(icon)
+        button.add_css_class("flat")
+        button.set_valign(Gtk.Align.CENTER)
+        button.set_tooltip_text(label)
+        button.update_property([Gtk.AccessibleProperty.LABEL], [label])
+        return button
+
+    def on_clear_case(self, _button: Gtk.Button) -> None:
+        if self._pipeline_running or self._pi_terminal_active:
+            self.show_toast("Stop the pipeline before clearing the current case.")
+            return
+        if self._toc_editor_window is not None:
+            self.show_toast("Close the TOC editor before clearing the current case.")
+            return
+        try:
+            clear_case_context()
+        except (OSError, ValueError):
+            self.show_toast("Current case could not be cleared because application settings could not be saved.")
+            return
+        self._case_generation += 1
+        self.selected_pdfs = []
+        self._pending_preparation_profile = None
+        self._rt_ct_split_pending = None
+        self._rt_ct_split_mode_pending = None
+        self._bundle_reset_required = False
+        self._active_bundle_root = None
+        self._bundle_identity_warning_roots.clear()
+        self._active_step_id = None
+        self._run_completion_message = None
+        self._run_pause_message = None
+        self._pi_terminal_sequence_started = False
+        self._stop_event.clear()
+        self.selected_label.set_text("Selected: None")
+        self._load_rt_ct_split()
+        self._update_source_summary()
+        self._source_row.set_expanded(False)
+        self._reset_step_statuses()
+        self._stop_status()
+        self._set_activity_status_text("No activity yet")
+        if self._log_buffer is not None:
+            self._log_buffer.set_text("")
+        if self._activity_terminal is not None:
+            self._activity_terminal.reset(True, True)
+        self.show_toast("Current case cleared. No files were deleted.", level="INFO")
+
     def on_choose_pdf(self, _button: Gtk.Button) -> None:
+        if self._pipeline_running or self._pi_terminal_active:
+            self.show_toast("Stop the pipeline before choosing PDF files.")
+            return
+        generation = self._case_generation
         dialog = Gtk.FileDialog(title="Choose PDF files")
         file_filter = Gtk.FileFilter()
         file_filter.add_mime_type("application/pdf")
         file_filter.set_name("PDF files")
         dialog.set_default_filter(file_filter)
-        dialog.open_multiple(self, None, self._on_files_chosen)
+        dialog.open_multiple(self, None, lambda dialog, result: self._on_files_chosen(dialog, result, generation))
 
     def on_choose_case_bundle(self, _button: Gtk.Button) -> None:
-        if self._pipeline_running:
+        if self._pipeline_running or self._pi_terminal_active:
             self.show_toast("Stop the pipeline before choosing a case bundle.")
             return
         dialog = Gtk.FileDialog(title="Choose case bundle folder")
         base_dir = self._resolve_case_base()
         if base_dir is not None:
             dialog.set_initial_folder(Gio.File.new_for_path(str(base_dir)))
-        dialog.select_folder(self, None, self._on_case_bundle_chosen)
+        generation = self._case_generation
+        dialog.select_folder(self, None, lambda dialog, result: self._on_case_bundle_chosen(dialog, result, generation))
 
     def _on_case_bundle_chosen(
-        self, dialog: Gtk.FileDialog, result: Gio.AsyncResult
+        self, dialog: Gtk.FileDialog, result: Gio.AsyncResult, generation: int | None = None
     ) -> None:
+        if self._pipeline_running or self._pi_terminal_active or (generation is not None and generation != self._case_generation):
+            return
         try:
             folder = dialog.select_folder_finish(result)
         except GLib.Error:
@@ -6290,6 +6208,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not case_name:
             case_name = _sanitize_case_name_value(base_dir.name)
         save_case_context(case_name, base_dir)
+        self._case_generation += 1
+        self._pending_preparation_profile = None
+        self._rt_ct_split_pending = None
+        self._rt_ct_split_mode_pending = None
         self.selected_pdfs = []
         self._bundle_reset_required = False
         save_selected_pdfs([])
@@ -6302,8 +6224,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._refresh_step_statuses_from_artifacts()
 
     def _on_files_chosen(
-        self, dialog: Gtk.FileDialog, result: Gio.AsyncResult
+        self, dialog: Gtk.FileDialog, result: Gio.AsyncResult, generation: int | None = None
     ) -> None:
+        if self._pipeline_running or self._pi_terminal_active or (generation is not None and generation != self._case_generation):
+            return
         try:
             files = dialog.open_multiple_finish(result)
         except GLib.Error:
@@ -6335,6 +6259,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._bundle_reset_required = (
             selection_changed_in_place or manifest_inputs_changed
         )
+        self._case_generation += 1
+        pending = getattr(self, "_pending_preparation_profile", None)
+        if pending is not None:
+            retain_choice = root_dir is not None and not root_dir.exists() and pending[0] in (None, root_dir)
+            self._pending_preparation_profile = (root_dir, pending[1]) if retain_choice else None
+        self._rt_ct_split_pending = None
+        self._rt_ct_split_mode_pending = None
         self.selected_pdfs = selected_pdfs
         save_selected_pdfs(self.selected_pdfs)
         label = (
@@ -6998,89 +6929,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return success is True
 
     def _run_step_infer_case(self) -> bool:
-        success: bool | None = False
-        try:
-            self._raise_if_stop_requested()
-            base_dir = self._resolve_case_base()
-            if base_dir is None:
-                if self.selected_pdfs:
-                    raise ValueError("Selected PDFs must be in the same folder.")
-                raise ValueError("Choose PDF files or select a saved case first.")
-            root_dir = base_dir / "case_bundle"
-            text_dir = root_dir / "text_pages"
-            if not text_dir.exists():
-                raise FileNotFoundError("Run Create files to generate text files first.")
-            from recordprep.case_profiles import resolve_case_profile, read_case_profile_ref, case_profile_publication
-            from recordprep.case_name_profiles import compile_case_name, inputs as name_inputs, publish_metadata, validate_output_directory
-            generation = getattr(self, "_case_generation", 0)
-            root_identity = (root_dir.stat().st_dev, root_dir.stat().st_ino)
-            from recordprep.classification_profiles import _digest
-            prior_name = _digest(root_dir / "case_name.txt") if (root_dir / "case_name.txt").exists() else None
-            selected_profile = resolve_case_profile(root_dir)
-            selected_ref = selected_profile.ref if selected_profile is not None else None
-            settings = load_case_name_settings()
-            compiled_name = compile_case_name(selected_profile) if selected_profile is not None else None
-            if compiled_name is not None:
-                validate_output_directory(root_dir)
-                settings = settings | {"prompt": compiled_name[0]}
-            if not settings["api_url"] or not settings["model_id"] or not settings["api_key"]:
-                raise ValueError("Configure case name API URL, model ID, and API key in Model settings.")
-            text_files = sorted(text_dir.glob("*.txt"), key=_natural_sort_key)[:3]
-            if not text_files:
-                raise FileNotFoundError("No text files found to infer case name.")
-            signature = name_inputs(selected_profile, settings, text_files) if compiled_name else None
-            combined = "\n".join(
-                path.read_text(encoding="utf-8", errors="ignore") for path in text_files
-            )
-            response_text = self._request_plain_text(settings, combined)
-            case_name = _limit_case_name_words(response_text)
-            if not _looks_like_case_name(case_name):
-                case_name = _limit_case_name_words(_infer_case_name_from_text(response_text))
-            if not _looks_like_case_name(case_name):
-                case_name = _limit_case_name_words(_infer_case_name_from_text(combined))
-            if not _looks_like_case_name(case_name):
-                raise ValueError("Unable to infer case name from first three pages.")
-            self._raise_if_stop_requested()
-            current_name = _digest(root_dir / "case_name.txt") if (root_dir / "case_name.txt").exists() else None
-            if (self._resolve_case_root() != root_dir or read_case_profile_ref(root_dir) != selected_ref
-                    or getattr(self, "_case_generation", 0) != generation
-                    or (root_dir.stat().st_dev, root_dir.stat().st_ino) != root_identity or current_name != prior_name
-                    or (signature is not None and signature != name_inputs(selected_profile, load_case_name_settings(),
-                                                                           sorted(text_dir.glob("*.txt"), key=_natural_sort_key)[:3]))):
-                raise ValueError("Case, profile or inputs changed; inferred name was not published.")
-            if selected_ref is not None:
-                with case_profile_publication(root_dir, selected_ref):
-                    if signature is not None:
-                        validate_output_directory(root_dir, create=True)
-                    _summary_agents._atomic_write(root_dir / "case_name.txt", case_name)
-                    if signature is not None:
-                        publish_metadata(root_dir, case_name, signature)
-            else:
-                (root_dir / "case_name.txt").write_text(case_name, encoding="utf-8")
-            save_case_context(case_name, base_dir)
-            display_name = case_name.replace("_", " ") if case_name else case_name
-            GLib.idle_add(self.selected_label.set_text, f"Selected: {display_name}")
-        except StopRequested:
-            success = None
-        except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Infer case name failed: {exc}")
-        else:
-            success = True
-            self._safe_update_manifest(
-                root_dir,
-                {
-                    "last_completed_step": "infer_case",
-                    "last_failed_step": None,
-                    "last_failed_at": None,
-                },
-            )
-            GLib.idle_add(self.show_toast, "Infer case name complete.")
-        finally:
-            GLib.idle_add(self.step_infer_case_row.set_sensitive, True)
-            GLib.idle_add(self._finish_step, self.step_infer_case_row, success)
-            GLib.idle_add(self._stop_status_if_idle)
-            GLib.idle_add(self._stop_button_if_idle)
-        return success is True
+        return self._run_pi_skill_step("infer_case", self.step_infer_case_row)
 
     def on_step_two_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
@@ -7581,6 +7430,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     f"{self._pi_terminal_exit_status}."
                 )
 
+            if step_id == "infer_case":
+                from recordprep.case_name_stage import is_current
+                if self._resolve_case_root() != root_dir or not is_current(root_dir, PI_PROJECT_DIR):
+                    raise ValueError("Case-name output changed; rerun Infer case.")
+                case_name = _load_case_name_from_file(root_dir)
+                save_case_context(case_name, root_dir.parent)
+                GLib.idle_add(self.selected_label.set_text, f"Selected: {case_name.replace('_', ' ')}")
+                self._safe_update_manifest(root_dir, {"last_completed_step": "infer_case",
+                                                       "last_failed_step": None, "last_failed_at": None})
             success = True
             GLib.idle_add(self.show_toast, f"{step_title} complete.")
         except StopRequested:
@@ -9531,91 +9389,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             else:
                 result[expected_key] = ""
         return result
-
-    def _request_plain_text(self, settings: dict[str, Any], content: str) -> str:
-        self._raise_if_stop_requested()
-        api_url = str(settings.get("api_url", "") or "").strip()
-        model_id = str(settings.get("model_id", "") or "").strip()
-        api_key = str(settings.get("api_key", "") or "").strip()
-        max_tokens_raw = str(settings.get("max_tokens", "") or "").strip()
-        if not api_url:
-            raise ValueError("API URL is empty.")
-        if not model_id:
-            raise ValueError("Model ID is empty.")
-        if not api_key:
-            raise ValueError("API key is empty.")
-        max_tokens: int | None = None
-        if max_tokens_raw:
-            try:
-                max_tokens = max(1, int(max_tokens_raw))
-            except ValueError:
-                max_tokens = None
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-            "Authorization": f"Bearer {api_key}",
-            "User-Agent": "RecordPrep/0.1",
-        }
-        disable_reasoning = bool(
-            settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
-        )
-        body = {
-            "model": model_id,
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": settings["prompt"]},
-                {"role": "user", "content": content},
-            ],
-        }
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        _apply_disable_reasoning_to_body(
-            body,
-            model_id=model_id,
-            disable_reasoning=disable_reasoning,
-        )
-        error_label = "Text request failed"
-        attempted_without_thinking = False
-        attempted_without_reasoning_effort = False
-
-        while True:
-            data = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(api_url, data=data, headers=headers, method="POST")
-            try:
-                if body.get("stream"):
-                    return self._stream_text_with_retries(
-                        req,
-                        timeout=300,
-                        error_label=error_label,
-                    ).strip()
-                payload = _post_json_with_retries(req, timeout=300, error_label=error_label)
-                response_text = self._extract_response_text(payload).strip()
-                if response_text:
-                    return response_text
-                # Some OpenAI-compatible providers behave better with SSE than JSON mode.
-                body["stream"] = True
-                continue
-            except RuntimeError as exc:
-                message = str(exc).lower()
-                if (
-                    not attempted_without_thinking
-                    and "thinking" in body
-                    and "thinking" in message
-                    and any(marker in message for marker in ("unsupported", "unknown", "invalid"))
-                ):
-                    attempted_without_thinking = True
-                    body.pop("thinking", None)
-                    continue
-                if (
-                    not attempted_without_reasoning_effort
-                    and "reasoning_effort" in body
-                    and "reasoning_effort" in message
-                    and any(marker in message for marker in ("unsupported", "unknown", "invalid"))
-                ):
-                    attempted_without_reasoning_effort = True
-                    body.pop("reasoning_effort", None)
-                    continue
-                raise
 
     def _stream_text_with_retries(
         self,

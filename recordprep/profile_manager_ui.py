@@ -62,7 +62,8 @@ def menu_label(text):
 class ProfileManagerWindow(Gtk.Box):
     """Embedded controls: historical adapter name, no separate chooser window."""
     def __init__(self, parent, *, can_modify, preview, on_select, context_text="", allow_legacy=True,
-                 selected_ref=None, customization=None, can_select=None, settings=False, case_ref=None, case_confirmed=True):
+                 selected_ref=None, customization=None, can_select=None, settings=False, case_ref=None, case_confirmed=True,
+                 has_case=True):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.parent_window = parent
         self.store = api.profile_store()
@@ -70,6 +71,7 @@ class ProfileManagerWindow(Gtk.Box):
         self.can_select = can_select or (lambda: True)
         self.allow_legacy, self.selected_ref = allow_legacy, case_ref
         self.case_confirmed = case_confirmed
+        self.has_case = has_case
         self.children_windows = []
         self._guard_id = 0
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -166,11 +168,26 @@ class ProfileManagerWindow(Gtk.Box):
             self.selected_ref = ref
             self.case_confirmed = True
             self.message.set_text("")
-            self._refresh(ref)
-            return True
-        except (ValueError, OSError):
-            self.message.set_text("The profile could not be selected. Case settings were not changed; reopen the saved settings before retrying.")
+        except (ValueError, OSError) as exc:
+            if isinstance(exc, ProfileError):
+                code = exc.issue.code
+                if code in {"store_permissions", "unsafe_case_profile_directory", "unsafe_case_profile_file", "unsafe_store_directory"}:
+                    reason = "Profile storage or case metadata has unsafe permissions or links."
+                elif code in {"unaccepted_reference", "unreadable_snapshot", "snapshot_hash_mismatch"}:
+                    reason = "A required saved profile revision is unavailable or could not be verified on this computer."
+                elif code in {"stale_profile_revision", "stale_case_selection", "case_changed_or_active"}:
+                    reason = "The case or saved settings changed; close and reopen this menu."
+                else:
+                    reason = f"Profile verification failed ({code})."
+            else:
+                reason = "Profile storage or case metadata could not be read or written."
+            self.message.set_text("The profile could not be selected. " + reason)
             return False
+        try:
+            self._refresh(ref)
+        except (ValueError, OSError):
+            self.message.set_text("Profile selected, but the menu could not be refreshed. Close and reopen it.")
+        return True
 
     def _edit(self):
         try:
@@ -200,6 +217,17 @@ class ProfileManagerWindow(Gtk.Box):
         eligible = (self.selected_ref is not None and self.selected_ref.specialty_id == ref.specialty_id) or (
             self.case_confirmed and self.selected_ref is None and ref.specialty_id == "california-juvenile-dependency")
         if not eligible or not self.can_select():
+            return
+        if not self.has_case:
+            # Save may advance an in-memory new-case choice, never an existing pin.
+            try:
+                if not self.can_modify():
+                    raise ProfileError("case_changed_or_active", "selection")
+                self.on_select(ref)
+                self.selected_ref = ref
+                self._refresh(ref)
+            except (ValueError, OSError):
+                self.message.set_text("Profile saved; the pending profile choice could not be updated.")
             return
         def respond(response):
             if response != "use":

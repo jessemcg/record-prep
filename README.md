@@ -1,5 +1,19 @@
 # RecordPrep
 
+## Machine-local runtime
+
+Home/Work only; do not provision/use on Laptop. Provision managed Python 3.13 with
+`../UvEnvironments/project-env sync RecordPrep`, then execute
+`../UvEnvironments/project-env run RecordPrep python -m recordprep app`.
+Before uv examples below, source `../UvEnvironments/terminal.sh RecordPrep` in a
+dedicated project subshell and stop on failure; it verifies local runtime and
+disables automatic sync/downloads. Same-project Python children retain sys.executable;
+cross-project callers select the callee helper identity. Never use real case/config
+files in tests. See ../UvEnvironments/README.md for disposable overrides.
+If pdftotext imports fail after a distro Poppler upgrade, rebuild the **same locked**
+package against local headers (see UvEnvironments/migration-progress.md); do not upgrade
+or copy an environment from another host.
+
 ## Operational run metrics
 
 Summary tools now emit fixed private observations for prerequisites, correction,
@@ -34,8 +48,12 @@ there is no separate naming mode or duplicate list editor. The approved entries 
 supply Python's name validation. General starts without a practice-specific list;
 add approved names there, or use Dependency's supplied list. Unknown names retain
 provisional document labels. A boxed category list on the left opens the selected
-settings on the right: General, Classification, Summaries, Participants / Witnesses,
-and Case Overview. Each classification prompt has its own tall editor. Summary
+settings on the right: Classification, Summaries, Participants / Witnesses,
+and Case Overview. There is no General section, duplicate profile picker or default
+checkbox. The selected profile is named in the header; New profile remains below
+the category list. Case naming uses one built-in, practice-neutral prompt rather
+than editable profile instructions. Saved legacy caption prompts remain untouched
+but no longer affect inference. Each classification prompt has its own tall editor. Summary
 topics, document-review instructions and summary-writing instructions have separate
 pages. At narrow widths, a categories button opens the sidebar as an overlay. **New profile…** asks
 only for a name and starting profile. Personal edits save privately, never into
@@ -47,6 +65,17 @@ nonexistent bundle; an explicit pending choice takes priority. Existing bundles
 remain legacy or retain their accepted revision. Changing a selection never runs
 models or rewrites old artifacts: explicitly rerun affected upstream stages before
 later preparation. Missing instructions block new work, not reading old output.
+
+The dim header buttons are **Choose case bundle**, **Choose PDF(s)** and
+**Clear current case** (trash, immediately after the plus). Clear forgets the
+selection and resets displayed progress; it never deletes PDFs, bundles, case
+names or generated files. Stop active work and close the TOC editor first.
+With no case selected, Model settings and Profile settings remain available.
+Choosing/editing a profile holds a pending choice for the next new bundle without
+rebinding an old case. Clearing also invalidates older case-bound dialogs.
+Synchronized `.recordprep` metadata can retain ordinary `0755`/`0775` directory
+and `0644`/`0664` file modes; ownership, link safety and concurrent-selection
+checks still apply. The local accepted-profile store remains owner-only.
 
 Profile-bound classification, boundaries, participants, summaries and minutes share
 pinned preflight/freshness checks. Models edit private candidates; Python validates
@@ -86,13 +115,14 @@ launcher. `recordprep_icon-symbolic.svg` is the separate 16×16 monochrome compa
 - [uv](https://docs.astral.sh/uv/)
 - PI 0.80+ and Node.js 20+ for the project-local knowledge-work stages
 - `pdftotext`, PyMuPDF, and PyPDF for extraction/rendering
-- An OpenAI-compatible vision endpoint for page classification and case-name inference
+- An OpenAI-compatible vision endpoint for page classification
 - An authenticated Pi model for all three summary stages
 
 Install:
 
 ```bash
-uv sync
+../UvEnvironments/project-env sync RecordPrep
+source ../UvEnvironments/terminal.sh RecordPrep || exit
 ```
 
 Run:
@@ -108,7 +138,7 @@ uv run python -m recordprep app
 1. **Create files** — create `text_pages/NNNN.txt` and 300-DPI grayscale `image_pages/NNNN.png`; merge selected PDFs in natural order when needed.
 2. **Detect transcript layout** — PI searches all extracted OCR text for structural RT/CT markers and opens only targeted page images (soft budget of 12 PNGs); it publishes the case-local schema-v1 `artifacts/transcript_layout.json` (RT-only, CT-only, or RT-then-CT with the exact boundary).
 3. **Strip characters** — remove nonprinting extraction artifacts.
-4. **Infer case** — write `case_name.txt`.
+4. **Infer case (PI)** — infer the caption from the first three text pages using the shared native-Pi model. The skill reads only private staged copies and writes a private candidate; Python validates and publishes `case_name.txt`. Unknown/ambiguous captions, Stop, failed runs or changed inputs preserve the previous name. No separate caption API settings are needed.
 
 ### Local OCR with LightOnOCR-3
 
@@ -243,9 +273,11 @@ Tracked PI resources live under `.pi/`:
 - `SYSTEM.md`
 - `settings.json`
 - `extensions/recordprep-auto-exit.ts`
+- `extensions/recordprep-case-name-tools.ts`
 - `extensions/recordprep-summary-tools.ts`
 - `extensions/recordprep-minute-tools.ts`
 - `skills/recordprep-detect-transcript-layout/`
+- `skills/recordprep-infer-case/`
 - `skills/recordprep-number-transcript-pages/`
 - `skills/recordprep-build-participant-index/`
 - `skills/recordprep-extract-hearing/`
@@ -257,12 +289,21 @@ Tracked PI resources live under `.pi/`:
 - `skills/recordprep-build-source-map/`
 - `scripts/run_recordprep_skill.py`
 
-The four native VTE rows launch one explicitly loaded Agent Skill each in PI's native VTE UI. The two summary stages run headless JSON-mode children instead: one fresh `--no-session` PI process per document for extraction and one per completed JSONL for synthesis, staged with the summary extension and the phase skill only, with an exact custom-tool allowlist and no general tools. The runner captures JSON events but prints only phase, ordinal, event class, PID, elapsed/stall information, and sanitized error codes — never prompts, source text, tool arguments, or model prose. Stall monitoring tracks event activity rather than session growth; stalls warn but are never auto-killed. Stop terminates the active child's process group, escalates after the grace period, releases locks, and leaves the row Pending without starting the next item or synthesis. Each child gets a unique private cache workspace and candidate path removed in `finally`. The runner accepts a structurally valid `needs_review` layout artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Only the final source-map stage updates the manifest (including the `transcript_layout` path). Skills validate outputs before the pipeline advances.
+The native VTE rows launch one explicitly loaded Agent Skill each in PI's native VTE UI. The two summary stages run headless JSON-mode children instead: one fresh `--no-session` PI process per document for extraction and one per completed JSONL for synthesis, staged with the summary extension and the phase skill only, with an exact custom-tool allowlist and no general tools. The runner captures JSON events but prints only phase, ordinal, event class, PID, elapsed/stall information, and sanitized error codes — never prompts, source text, tool arguments, or model prose. Stall monitoring tracks event activity rather than session growth; stalls warn but are never auto-killed. Stop terminates the active child's process group, escalates after the grace period, releases locks, and leaves the row Pending without starting the next item or synthesis. Each child gets a unique private cache workspace and candidate path removed in `finally`. The runner accepts a structurally valid `needs_review` layout artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Only the final source-map stage updates the manifest (including the `transcript_layout` path). Skills validate outputs before the pipeline advances.
 
 ## Model settings
 
 The general settings menu and window are labeled **Model settings**, distinct from
-**Profile settings**. Model settings includes source extraction, local OCR, production classification/case-name API credentials, workers, PI extraction/synthesis model and reasoning selection, and launch settings. Practice instructions belong on the single Profile settings page, including task-specific classification and case naming. Summary model overrides remain private `summary_extract_pi_*`/`summary_synthesize_pi_*` settings. Minute orders use the PI synthesis selection. The removed sandbox API/window keys and legacy prompt values are not edited or rewritten by the ordinary Settings UI; historical guidance recognition remains available to compatibility loaders. Personal profile Save leaves `config.json` and bundled files unchanged. Numeric entries are validated before saving. The model and reasoning level for all five native PI skill stages (layout detection, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are ignored on read and removed only by an explicit Settings save. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. Retired paragraph-count and sandbox window settings are not reinterpreted by the production pipeline or ordinary Settings UI.
+**Profile settings**. Clicking a left-hand category immediately shows its settings;
+there are no nested subcategories or navigation dropdowns. Model settings opens on **OCR**, a single page with the embedded-text/local-OCR source selector at the top and local OCR server, model, worker, slot and advanced start-command settings below. These replace the former Prepare → Create files / Local OCR pages; existing saved values are unchanged. Model settings also includes production classification API credentials, workers, PI extraction/synthesis model and reasoning selection, and launch settings. Practice instructions belong on the single Profile settings page, including task-specific classification. Case naming uses application-owned instructions. Summary model overrides remain private `summary_extract_pi_*`/`summary_synthesize_pi_*` settings. Minute orders use the PI synthesis selection. The removed sandbox API/window keys and legacy prompt values are not edited or rewritten by the ordinary Settings UI; historical guidance recognition remains available to compatibility loaders. Personal profile Save leaves `config.json` and bundled files unchanged. Numeric entries are validated before saving. The model and reasoning level for all six native PI skill stages (layout detection, case-name inference, page numbering, participant index, case overview, source map) are stored in the project `.pi/settings.json`; choosing the global default removes the project override. There are no per-stage overrides. Summary stage saves never call `save_project_pi_model()` or mutate `.pi/settings.json`. Retired artifact-pipeline credentials and prompts — including the old cross-case `rt_ct_split_page` key and the per-stage `pi_stage_<step>_pi_*` overrides — are ignored on read and removed only by an explicit Settings save. The transcript expander offers automatic detection plus case-local manual overrides; a stale global value never populates a new case. Retired paragraph-count and sandbox window settings are not reinterpreted by the production pipeline or ordinary Settings UI.
+
+**Infer case migration:** restart RecordPrep to load the new skill and remove the old
+Infer Case Name settings page. Retired `case_name_api_*`, `case_name_model_id`,
+`case_name_disable_reasoning` and prompt values are inert and left untouched.
+Existing case names are not changed on opening. They may show inference pending
+until an explicit run creates the new source/model/contract-bound freshness marker.
+No model has unrestricted file access for caption inference; classification is the
+only remaining direct cloud-model request path (local OCR is separate).
 
 Saved run-until targets migrate as follows:
 

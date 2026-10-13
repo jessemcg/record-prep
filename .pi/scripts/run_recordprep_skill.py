@@ -26,6 +26,7 @@ SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
 MINUTE_EXTENSION_NAME = "recordprep-minute-tools.ts"
 PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
 PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
+CASE_NAME_EXTENSION_NAME = "recordprep-case-name-tools.ts"
 MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
 MINUTE_STEP_ID = "create_minute_order_summaries"
 
@@ -79,6 +80,7 @@ class SkillStage:
 STAGES = {
     stage.step_id: stage
     for stage in (
+        SkillStage("infer_case", "Infer case", "recordprep-infer-case", "read,write,edit"),
         SkillStage(
             "detect_transcript_layout",
             "Detect transcript layout",
@@ -206,7 +208,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
     if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
         issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
-    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME):
+    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME):
         if not (project_dir / "extensions" / name).is_file():
             issues.append(f"extensions/{name} is missing.")
     for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-minutes.md", "profile-participants.md", "profile-overview.md"):
@@ -220,7 +222,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -1812,7 +1814,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir),
                 "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
             native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
-    pi_command = _pi_command()
+    pi_command = _resolve_pi_command() if stage.step_id == "infer_case" else _pi_command()
     _check_pi_version(pi_command)
     cache_root = Path(
         os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
@@ -1821,12 +1823,14 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     workspace_parent.mkdir(parents=True, exist_ok=True)
     workspace = Path(tempfile.mkdtemp(prefix="skill.", dir=workspace_parent))
     try:
+        if stage.step_id == "infer_case":
+            from recordprep import case_name_stage as caption
+            caption_before_staging = caption.capture(root, project_dir)[1]
         staged_pi = workspace / ".pi"
         staged_skill = staged_pi / "skills" / stage.skill_name
         staged_extension = staged_pi / "extensions" / AUTO_EXIT_EXTENSION_NAME
         staged_skill.parent.mkdir(parents=True)
         staged_extension.parent.mkdir(parents=True)
-        shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
         shutil.copy2(project_dir / "SYSTEM.md", staged_pi / "SYSTEM.md")
         shutil.copytree(project_dir / "skills" / stage.skill_name, staged_skill)
         shutil.copy2(
@@ -1836,12 +1840,22 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         (workspace / "tmp").mkdir()
         (workspace / "sessions").mkdir()
         env = os.environ.copy()
-        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC"):
+        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC"):
             env.pop(key, None)
         stage_prompt = _stage_prompt(stage, root, project_dir)
         candidate_path = None
         native_extension_args = []
         native_tools = stage.tools
+        caption_guard = None
+        if stage.step_id == "infer_case":
+            from recordprep import case_name_stage as caption
+            caption_guard, caption_ref, candidate_path, access_spec, stage_prompt = caption.stage_inputs(root, project_dir, workspace)
+            if caption_guard != caption_before_staging:
+                raise ValueError("Case or inputs changed during staging; no model work started.")
+            env["RECORDPREP_CASE_NAME_ACCESS_SPEC"] = str(access_spec)
+            guard_extension = staged_pi / "extensions" / CASE_NAME_EXTENSION_NAME
+            shutil.copy2(project_dir / "extensions" / CASE_NAME_EXTENSION_NAME, guard_extension)
+            native_extension_args = ["--extension", str(guard_extension)]
         if profile is not None:
             from dataclasses import asdict
             candidate_path = workspace / ("participant-candidate.json" if native_kind == "participants" else "overview-candidate.md")
@@ -1890,6 +1904,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             stage_prompt = (f"/skill:{stage.skill_name}\nCase bundle: {root}\nPrivate output candidate: {candidate_path}\n"
                             + (f"Private participant worklist: {worklist}\n" if worklist else "")
                             + "Write only the private candidate, never the published artifact or manifest. Shell access is unavailable.\n" + native_guidance)
+        # Capture caption inputs before copying settings; the pre-spawn recheck
+        # rejects a model change during staging instead of labeling old settings new.
+        shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
         env["TMPDIR"] = str(workspace / "tmp")
         env["PI_CODING_AGENT_SESSION_DIR"] = str(workspace / "sessions")
         executable = Path(pi_command[0]).expanduser()
@@ -1927,6 +1944,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             from recordprep.case_profiles import case_profile_publication
             with case_profile_publication(root, profile.ref):
                 pass  # Recheck explicit selection after staging, before paid work.
+        if caption_guard is not None and caption.capture(root, project_dir)[1] != caption_guard:
+            raise ValueError("Case or inputs changed before inference; no model work started.")
         _active_process = subprocess.Popen(
             command,
             cwd=workspace,
@@ -2007,6 +2026,11 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         if return_code != 0:
             _line(f"\033[31mPI exited with code {return_code}.\033[0m")
             return return_code
+        if caption_guard is not None:
+            def check_caption_stop():
+                if _stopped:
+                    raise ValueError("Case-name inference stopped; prior name preserved.")
+            caption.publish(root, project_dir, caption_guard, caption_ref, candidate_path, check_stop=check_caption_stop)
         if stage.step_id == "number_transcript_pages":
             # Citation labels are derived data: never trust model-authored
             # page notation ("RT p. 3") through to participant indexing,

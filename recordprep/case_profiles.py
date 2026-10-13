@@ -3,14 +3,30 @@ from __future__ import annotations
 
 import fcntl
 import os
+import stat
 from dataclasses import asdict
 from contextlib import contextmanager
 from pathlib import Path
 
 from .practice_profiles import profile_store
 from .profile_artifacts import preparation_selection
-from .profile_contract import ProfileError, ProfileRef, ProfileSnapshot, _json, read_file_at
-from .profile_store import ProfileStore, _atomic_json, _check_directory, _private_file
+from .profile_contract import ProfileError, ProfileRef, ProfileSnapshot, _json, _require, read_file_at
+from .profile_store import ProfileStore, _atomic_json, _check_directory
+
+
+def _case_directory(path: Path) -> None:
+    """Case metadata may sync with 0755/0775 modes; private stores stay strict."""
+    _check_directory(path)
+    info = path.stat()
+    _require(info.st_uid == os.getuid() and not info.st_mode & 0o002,
+             "unsafe_case_profile_directory", "case")
+
+
+def _case_file(path: Path) -> None:
+    info = path.lstat()
+    _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+             and info.st_uid == os.getuid() and not info.st_mode & 0o113,
+             "unsafe_case_profile_file", "case")
 
 
 def read_case_profile_ref(root: Path) -> ProfileRef | None:
@@ -18,9 +34,10 @@ def read_case_profile_ref(root: Path) -> ProfileRef | None:
     path = directory / "practice-profile.json"
     if not directory.exists() and not directory.is_symlink():
         return None
-    _check_directory(directory)
+    _case_directory(directory)
     if not path.exists() and not path.is_symlink():
         return None
+    _case_file(path)
     try:
         fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -47,11 +64,14 @@ def case_profile_publication(root: Path, expected: ProfileRef | None):
     """
     directory = root / ".recordprep"
     directory.mkdir(mode=0o700, exist_ok=True)
-    _check_directory(directory, private=True)
+    _case_directory(directory)
     lock = directory / ".practice-profile.lock"
     fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
-        _private_file(lock)
+        _case_file(lock)
+        opened, current = os.fstat(fd), lock.stat()
+        _require((opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino),
+                 "unsafe_case_profile_file", "case")
         fcntl.flock(fd, fcntl.LOCK_EX)
         if read_case_profile_ref(root) != expected:
             raise ProfileError("stale_case_selection", "publication")
@@ -72,17 +92,6 @@ def apply_case_profile(root: Path, ref: ProfileRef, *, expected_previous: Profil
         raise ProfileError("wrong_application", "case")
     store.load_profile_snapshot(ref)  # Fail before any case mutation if unavailable.
     _check_directory(root)
-    directory = root / ".recordprep"
-    directory.mkdir(mode=0o700, exist_ok=True)
-    _check_directory(directory, private=True)
-    lock = directory / ".practice-profile.lock"
-    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    try:
-        _private_file(lock)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        if read_case_profile_ref(root) != expected_previous:
-            raise ProfileError("stale_case_selection", "case")
+    with case_profile_publication(root, expected_previous):
         store.load_profile_snapshot(ref)
-        _atomic_json(directory / "practice-profile.json", {"schema_version": 1, "profile_ref": asdict(ref)})
-    finally:
-        os.close(fd)
+        _atomic_json(root / ".recordprep/practice-profile.json", {"schema_version": 1, "profile_ref": asdict(ref)})

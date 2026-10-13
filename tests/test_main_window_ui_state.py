@@ -270,16 +270,20 @@ class MainWindowUiStateTests(unittest.TestCase):
         self.assertEqual(
             [(group_id, title) for group_id, title, _items in SETTINGS_NAV_GROUPS],
             [
-                ("prepare", "Prepare"),
+                ("ocr", "OCR"),
                 ("classify", "Classify"),
                 ("summarize", "Summarize"),
                 ("agent", "Agent"),
             ],
         )
         destination_keys = _settings_destination_keys()
-        self.assertEqual(len(destination_keys), 6)
+        self.assertEqual(len(destination_keys), 4)
+        self.assertNotIn("case-name", destination_keys)
+        self.assertNotIn("text-source", destination_keys)
+        self.assertNotIn("local-ocr", destination_keys)
+        self.assertEqual(SETTINGS_NAV_GROUPS[0][2], (("ocr", "OCR"),))
         self.assertEqual(len(destination_keys), len(set(destination_keys)))
-        self.assertEqual(destination_keys[0], "text-source")
+        self.assertEqual(destination_keys[0], "ocr")
         self.assertEqual(destination_keys[-1], "pi")
 
     def test_prompt_testing_is_absent_and_production_requests_remain(self) -> None:
@@ -289,7 +293,7 @@ class MainWindowUiStateTests(unittest.TestCase):
         for name in ("on_test_prompts", "run_test_classification", "run_test_summarize", "_test_summary_payloads",
                      "_build_test_classification_settings", "_build_test_summarize_settings"):
             self.assertFalse(hasattr(RecordPrepWindow, name))
-        self.assertTrue(callable(RecordPrepWindow._request_plain_text))
+        self.assertFalse(hasattr(RecordPrepWindow, "_request_plain_text"))
         self.assertTrue(callable(RecordPrepWindow._classify_image))
 
     def test_terminal_log_sanitizes_untrusted_controls(self) -> None:
@@ -992,6 +996,22 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
     Skipped when no GTK display is available (headless environments).
     """
 
+    def _action_row_titles(self, page) -> set[str]:
+        from gi.repository import Adw
+
+        titles = set()
+
+        def collect(widget) -> None:
+            if isinstance(widget, Adw.PreferencesRow):
+                titles.add(widget.get_title())
+            child = widget.get_first_child()
+            while child is not None:
+                collect(child)
+                child = child.get_next_sibling()
+
+        collect(page)
+        return titles
+
     def _display_available(self) -> bool:
         try:
             import gi
@@ -1026,6 +1046,10 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
             page = SettingsWindow._build_summarize_prompt_page(window, settings)
 
             self.assertIsNotNone(page)
+            self.assertEqual(self._action_row_titles(page), {
+                "Extraction model", "Extraction reasoning level",
+                "Synthesis model", "Synthesis reasoning level",
+            })
             widgets = window._summarize_widgets
             self.assertIsNotNone(widgets.extract_model_row)
             self.assertIsNotNone(widgets.synthesize_model_row)
@@ -1068,6 +1092,10 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
                 child = child.get_next_sibling()
 
         collect(page)
+        self.assertEqual(self._action_row_titles(page), {
+            "PI command", "PI model for all five stages",
+            "PI reasoning level for all five stages",
+        })
         group_titles = {
             widget.get_title()
             for widget in widgets

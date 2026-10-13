@@ -246,3 +246,37 @@ Local Work evidence remains in `/tmp/profile-menu-ZDH5eg`:
 
 Only temporary synthetic preview windows were moved/resized/closed. Private
 settings/cases and unrelated existing repository edits remain untouched.
+
+### Synchronized selection and clear-current-case (2026-10-12)
+
+RecordPrep now separates synchronized case-metadata permissions from owner-only
+accepted-profile storage. A missing old snapshot does not prevent an explicit
+choice of an available replacement. The dim header trash button clears selection,
+not files. Profile settings also supports a pending choice with no case selected;
+RecordPrep's General/default controls and caption prompt page remain removed.
+Shared manager changes are vendored identically in Focus; its existing-case Save
+confirmation and General controls remain unchanged.
+
+Local Work evidence is in `/tmp/recordprep-general-mflas9`:
+
+- `case-selection-final-tests.log`: **488 unittest tests, OK, 4 skipped**.
+  New regressions cover normal synchronized modes, retained private-store checks,
+  ownership/symlink/hardlink/nonregular/world-write rejection, stale selection,
+  clear-state/preserved settings and files, busy/editor blocking, failed save,
+  stale file dialogs, pending no-case choice and multi-directory PDF selections.
+- `case-selection-focus-pytest.log`: **656 passed + 38 subtests**, two existing
+  deprecation warnings. The narrower unittest run also passed (98 tests).
+- `case-selection-ui.log` / `case-selection-preview.log`: real local GTK acceptance
+  replaces an unavailable synthetic Dependency pin with General using 0755/0644
+  metadata, verifies icon styling/order and busy sensitivity, clicks Clear,
+  confirms all rows Pending and no selected case, saves and reads back profile content
+  without a case confirmation, and verifies the old bundle is untouched.
+  Scoped native screenshot/AT-SPI inspection confirms the empty selection and
+  three header controls. Default-renderer swapchain warnings were avoided in
+  the second preview by using Cairo; no desktop setting was changed.
+- `case-selection-{rp,focus}-workflows.log`: both shared GTK workflow suites pass
+  under local Xvfb, including existing Save/application/cancellation behavior.
+  These are synthetic GTK checks, not a full keyboard or screen-reader audit.
+- Native-resource validation, Python compilation, mirrored manager/docs parity
+  and whitespace checks pass. No production provisioning, real case/configuration
+  changes, chmod repair, paid calls or remote-computer actions were performed.

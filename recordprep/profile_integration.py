@@ -8,7 +8,7 @@ from .profile_contract import ProfileError
 
 def pending_profile(owner, root):
     pending = getattr(owner, "_pending_preparation_profile", None)
-    return pending[1] if pending is not None and pending[0] == root else None
+    return pending[1] if pending is not None and pending[0] in (None, root) else None
 
 
 def new_case_profile(owner, root):
@@ -112,14 +112,17 @@ def open_manager(owner, project_dir: Path, parent=None):
                 and getattr(owner, "_case_generation", 0) == generation)
     def select(ref):
         nonlocal previous
-        if not allowed() or root is None or ref is None:
+        if not allowed() or ref is None:
             raise ProfileError("case_changed_or_active", "selection")
-        if not root.exists():
+        if root is None or not root.exists():
             owner._pending_preparation_profile = (root, ref)
         else:
             apply_case_profile(root, ref, expected_previous=previous)
             previous = ref
-            owner._refresh_step_statuses_from_artifacts()
+            try:
+                owner._refresh_step_statuses_from_artifacts()
+            except (ValueError, OSError):
+                owner.show_toast("Profile selected. Preparation statuses could not be refreshed; reopen the case.")
         update_indicator(owner)
     proposed = previous
     if root is None or not root.exists():
@@ -130,8 +133,9 @@ def open_manager(owner, project_dir: Path, parent=None):
     try:
         window = ProfileManagerWindow(parent or owner, can_modify=allowed,
                                       preview=lambda snapshot: preview(snapshot, project_dir), on_select=select,
-                                      allow_legacy=False, selected_ref=proposed, case_ref=previous,
-                                      can_select=lambda: root is not None, settings=parent is not None)
+                                      allow_legacy=False, selected_ref=proposed,
+                                      case_ref=proposed if root is None or not root.exists() else previous,
+                                      has_case=root is not None and root.exists(), settings=parent is not None)
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None

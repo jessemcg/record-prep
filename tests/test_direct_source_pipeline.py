@@ -16,7 +16,7 @@ class DirectSourcePipelineTests(unittest.TestCase):
                      "_render_summary_window_payload", "_test_summary_payloads", "_summary_window_limits"):
             self.assertNotIn(text, source)
         self.assertFalse(hasattr(sa, "_summary_page_windows"))
-        self.assertTrue(callable(ui.RecordPrepWindow._request_plain_text))
+        self.assertFalse(hasattr(ui.RecordPrepWindow, "_request_plain_text"))
         self.assertTrue(callable(ui.RecordPrepWindow._classify_image))
         for step in ("_run_step_create_hearing_summaries", "_run_step_create_report_summaries", "_run_step_create_minute_order_summaries"):
             # Existing GUI adapters still use the guided agentic pipeline.

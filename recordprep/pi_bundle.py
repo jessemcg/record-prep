@@ -23,6 +23,7 @@ PREPARE_BUNDLE_MANIFEST_KEYS = {
 }
 PI_STEP_IDS = (
     "detect_transcript_layout",
+    "infer_case",
     "number_transcript_pages",
     "build_participant_index",
     "create_case_overview",
@@ -678,6 +679,10 @@ def prepare_bundle_complete(root: Path) -> bool:
 
 
 def validate_pi_step_outputs(step_id: str, root: Path, *, project_dir: Path | None = None) -> list[str]:
+    if step_id == "infer_case":
+        from recordprep.case_name_stage import is_current
+        project_dir = project_dir or Path(__file__).resolve().parents[1] / ".pi"
+        return [] if is_current(root, project_dir) else ["Case-name inference is missing or stale; rerun Infer case."]
     if step_id == "detect_transcript_layout":
         return validate_transcript_layout_output(root)
     if step_id == "number_transcript_pages":

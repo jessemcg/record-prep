@@ -145,6 +145,7 @@ class PiResourceTests(unittest.TestCase):
             extensions,
             [
                 "recordprep-auto-exit.ts",
+                "recordprep-case-name-tools.ts",
                 "recordprep-minute-tools.ts",
                 "recordprep-profile-minute-tools.ts",
                 "recordprep-profile-native-tools.ts",
@@ -177,6 +178,7 @@ class PiResourceTests(unittest.TestCase):
                 "recordprep-detect-transcript-layout",
                 "recordprep-extract-hearing",
                 "recordprep-extract-report",
+                "recordprep-infer-case",
                 "recordprep-number-transcript-pages",
                 "recordprep-summarize-minutes",
                 "recordprep-synthesize-hearings",
@@ -310,7 +312,7 @@ printf '# Citation series\\n' > "$RECORDPREP_CASE_BUNDLE/artifacts/transcript_pa
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             argv = invocation.read_text(encoding="utf-8")
             # The single project default in .pi/settings.json now governs all
-            # five stages; stale config.json keys must be ignored entirely.
+            # native stages; stale config.json keys must be ignored entirely.
             self.assertNotIn("--provider", argv)
             self.assertNotIn("synthetic", argv)
             self.assertNotIn("--model", argv)

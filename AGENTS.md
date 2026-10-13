@@ -1,5 +1,16 @@
 # RecordPrep Agent Notes
 
+## Machine-local runtime
+
+Read ../UvEnvironments/README.md. Provision `../UvEnvironments/project-env sync RecordPrep`
+(managed Python 3.13, Home/Work only; excluded on Laptop). Execute via
+`../UvEnvironments/project-env run RecordPrep COMMAND`. Before uv examples below,
+source `../UvEnvironments/terminal.sh RecordPrep` in a dedicated project subshell and
+stop on failure; it verifies runtime and disables automatic sync/downloads. Never
+inherit another project's UV_PROJECT_ENVIRONMENT/VIRTUAL_ENV. Same-project Python
+children use sys.executable. All test checkouts/environments must be disposable;
+private config/case bundles remain untouched.
+
 ## Practice profiles
 
 See `docs/practice-profiles.md` and `docs/practice-profiles-validation.md` for the
@@ -28,8 +39,23 @@ initialization is an allowlisted read-only candidate shared by chooser/editor,
 persisted only on Save
 or Use profile, never a migration script or public-resource update. Public profiles
 are complete tracked specialties; personal saves use the managed private store.
-RecordPrep content schema 2 adds task-specific classification and case-name guidance;
-schema-1 snapshots retain their original bytes/behavior until explicit editing.
+RecordPrep content schema 2 stores task-specific classification and historical case-name
+guidance. Caption inference now always uses case_name_prompt.py's fixed, neutral
+prompt; profile/legacy caption text stays byte-preserved but inert. Production
+caption inference/freshness lives in case_name_stage.py and uses the native Pi
+runner/shared model, not a direct API. All old names stay readable but require an
+explicit inference run for the schema-2 source/model/contract/output marker. Profile settings has no General page,
+profile picker or default switch; Save preserves existing default semantics and
+New profile remains below the navigation list.
+Header Clear current case is selection-only: preserve all case/PDF artifacts and
+unrelated configuration, invalidate stale dialogs and reset pending case state.
+Profile settings works with no case; accepted choices stay pending until a new
+bundle is created. Case metadata tolerates synchronized 0755/0775 and 0644/0664
+modes with ownership/link/world-write checks; never relax the private profile-store
+validators or chmod real synchronized metadata to work around selection failures.
+Model settings has one OCR page: embedded-text/local-OCR selection above local OCR
+settings. Left-hand categories are direct ActionRow destinations, not expanders
+with single nested pages. Keep existing persistence keys; do not restore separate Prepare pages.
 
 The legacy category, role, formal-proposal and first-page parental-attendance
 rules described below apply to unassigned compatibility contexts. Bound profiles
@@ -72,7 +98,7 @@ Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and 
 1. Create files.
 2. Detect transcript layout (PI).
 3. Strip characters.
-4. Infer case.
+4. Infer case (PI; first three pages, private candidate, Python-only publication).
 5. Basic/advanced/corrected/date/name classification.
 6. Build/correct TOC.
 7. Find/correct hearing, report, and minute boundaries.
@@ -123,12 +149,19 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - Invoke one explicit skill per UI row with `.pi/scripts/run_recordprep_skill.py`.
 - Native VTE stages stage `.pi/SYSTEM.md`, one skill, and only `extensions/recordprep-auto-exit.ts` into a private workspace. Summary stages stage `.pi/SYSTEM.md`, the phase skill, and only `extensions/recordprep-summary-tools.ts` (or `extensions/recordprep-minute-tools.ts` for minute orders), with `--mode json --no-session --approve`, an exact custom-tool allowlist, optional runner-owned `--provider`/`--model`/`--thinking` overrides, and a unique private cache workspace and candidate path removed in `finally`.
 - Preserve PI's native interactive VTE UI for the native stages.
+- Infer case uses recordprep-infer-case and its dedicated case-name-tools guard:
+  read only up to three staged text pages, write/edit only the private candidate,
+  no shell or canonical file access. Python checks case identity/selection, source
+  inventory/bytes, shared model preferences, contract resources and prior output
+  before atomic publication. Unknown/invalid/missing candidates and Stop preserve
+  the old name. Model settings no longer exposes a caption API; retired credentials
+  and prompts stay inert/untouched. Keep the separate native profile guard unchanged.
 - Validate each stage after PI exits; summary children publish only after Python-side validation of the candidate.
 - The runner monitors session-file growth and child CPU state for native stages and JSON-event activity for summary children. Summary children are consumed through timed non-blocking polling, so a silently hanging child still triggers a visible stalled-stage warning and Stop stays responsive; a stall never kills PI automatically — the user must press Stop. Each summary child reports sanitized aggregate telemetry (elapsed time, supplied usage numbers with authoritative final-message usage replacing streamed totals, peak reported context, compaction count, tool-call count) — never model text, tool arguments/results, scratchpad notes, or provider error bodies.
 - Stop signals the runner, terminates the active child's complete process group, escalates to SIGKILL only when SIGTERM fails, releases locks, restores the row to Pending, and prevents the next child or downstream stages from starting.
 - PI launch logs the immutable bundle root. RecordPrep warns when a parent folder's apparent appellate case number conflicts with manifest/PDF identity, but never moves or renames private case data. Summary child output never contains prompts, source text, tool arguments/results, model prose, or digest facts — only phase, ordinal/count, event class, PID, elapsed/stall information, and sanitized error codes. Synthesis children receive structured, nonfatal correction feedback from the section-submission tool (invalid quote ids with the allowed ids, advisory typed-quotation-mark and zero-placeholder notes); the feedback stays inside the private model/tool exchange, and public logs carry sanitized codes and counts only.
 - Harden executable resolution before any `--version` or agent spawn: never attempt a nonexistent configured path; rediscover only for `pi` or a known legacy default location and fail early with the discovered alternative for an arbitrary missing custom command. The summary-resource minimum is PI 0.85 while Node 20+ stays a documentation-level dependency; never hard-code an absolute installer path.
-- The five native PI stages share one project model and reasoning level from `.pi/settings.json`; there are no per-stage overrides. The retired `pi_stage_<step>_pi_*` config keys are ignored on read and removed only by an explicit Settings save.
+- The six native PI stages share one project model and reasoning level from `.pi/settings.json`; there are no per-stage overrides. The retired `pi_stage_<step>_pi_*` config keys are ignored on read and removed only by an explicit Settings save.
 - The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Direct participant-stage invocation of the runner exits 0 with the explicit skip reason for a CT-only record before any PI executable/version check or workspace creation.
 - Transcript numbering, participant, and summary stages must not update `manifest.json`.
 - The case-overview skill writes only `artifacts/case_overview.md`.

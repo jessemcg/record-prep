@@ -48,7 +48,7 @@ class FixedOverviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_contents(tuple(files.items()), "recordprep")
 
-    def test_recovered_method_is_identical_in_both_runtime_workflows(self):
+    def test_orientation_method_is_identical_in_both_runtime_workflows(self):
         bound = (PROJECT / ".pi/resources/profile-overview.md").read_text()
         legacy = (PROJECT / ".pi/skills/recordprep-create-case-overview/SKILL.md").read_text()
         method = bound.split("## Orientation method", 1)[1]
@@ -63,6 +63,68 @@ class FixedOverviewTests(unittest.TestCase):
         for old_quota in ("150–700", "900 words", "five to ten"):
             self.assertNotIn(old_quota, method)
         self.assertIn("Python independently validates", bound)
+
+    def test_compact_selection_contract_in_both_runtime_skills(self):
+        for resource in ("resources/profile-overview.md",
+                         "skills/recordprep-create-case-overview/SKILL.md"):
+            prompt = (PROJECT / ".pi" / resource).read_text()
+            with self.subTest(resource=resource):
+                for phrase in (
+                    "Read comprehensively; output selectively",
+                    "Use short Markdown bullets under every section",
+                    "State each fact in its best section",
+                    "A small, simple record warrants a small overview",
+                    "not page count, summary length",
+                    "never invent content to balance the sections",
+                    "unless they change the orientation",
+                    "Preserve any qualification needed to avoid misleading",
+                    "Omission from this selective map does not establish irrelevance or absence",
+                    "neutral topic labels with brief research leads",
+                    "Perform a final selection pass",
+                    "without word quotas or mechanical truncation",
+                ):
+                    self.assertIn(phrase, prompt)
+
+    def test_synthetic_examples_teach_selection_without_weakening_fidelity(self):
+        for resource in ("resources/profile-overview.md",
+                         "skills/recordprep-create-case-overview/SKILL.md"):
+            prompt = (PROJECT / ".pi" / resource).read_text()
+            with self.subTest(resource=resource):
+                for phrase in (
+                    "Parties: name and central role only",
+                    "Posture: latest stage and operative result only",
+                    "Events: date and turning point, not a hearing synopsis",
+                    "Issues: topic and a short indication of what to investigate",
+                    "Scope: material types, coverage and consequential limitations",
+                    "These fictional examples illustrate selection and brevity",
+                    "do not sacrifice a material qualification",
+                    "Attribute status to each included claim or issue",
+                    'collectively as "not adjudicated" or "unresolved."',
+                    "required CT-only attribution limitation",
+                    "Do not copy fictional example facts",
+                    "remove evidence inventories and unnecessary negative checklists",
+                ):
+                    self.assertIn(phrase, prompt)
+                examples = prompt.split("### Synthetic compression examples", 1)[1].split("### Content rules", 1)[0]
+                for section in ("Party", "Posture", "Event", "Issue", "Scope"):
+                    self.assertIn(f"**{section} —", examples)
+                self.assertEqual(examples.count("- Too detailed:"), 5)
+                self.assertEqual(examples.count("- Prefer:"), 5)
+
+    def test_short_bullet_overview_is_valid_in_both_modes(self):
+        text = "---\nartifact: recordprep-case-overview\nschema_version: 1\nstatus: nonauthoritative-orientation\n---\n# Case Overview\n"
+        text += "> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.\n"
+        sections = {
+            "Parties and Roles": "Claimant: Morgan; respondent: Example Company.",
+            "Procedural Posture": "Latest supplied order: motion denied; trial not yet recorded.",
+            "Key Events": "2025-01-10 — Motion hearing.",
+            "Principal Issues": "Notice: parties dispute receipt; inspect motion materials.",
+            "Record Scope": "One hearing and order; later outcomes not supplied.",
+        }
+        for heading, bullet in sections.items():
+            text += f"## {heading}\n- {bullet}\n"
+        for profile_mode in (False, True):
+            self.assertEqual(validate_case_overview_text(text, profile_mode=profile_mode), [])
 
     def test_format_stays_compatible_without_word_limits(self):
         text = "---\nartifact: recordprep-case-overview\nschema_version: 1\nstatus: nonauthoritative-orientation\n---\n# Case Overview\n"

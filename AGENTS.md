@@ -75,10 +75,18 @@ or fabricate metadata to reuse incompatible checkpoints.
 Summaries has exactly Hearing digest topics, Report digest topics and Minute orders.
 Content schema 5 additionally removes overview instructions; the overview stage
 compiles no profile resources. Profile settings has only Classification and Summaries.
-Restore the detailed neutral pre-migration orientation method in both overview skill
-paths: complete summary reads, record-bounded posture, chronological material events,
-neutral disputes, scope gaps, identity-only participant metadata, no inferred appeal,
-no word/event quotas, and unchanged five headings/disclaimer. Historical overview
+Keep both overview skill paths identical in method: complete summary reads followed
+by selective, short Markdown bullets, not another narrative summary. Include only
+identity, latest posture and initial research leads; one fact in its best section,
+major chronological turning points, neutral issue labels and material scope gaps.
+Small/simple records warrant small overviews; no padding, word/event quotas or
+page-count formula. Omit supporting particulars unless orientation-changing; preserve
+material qualifications, identity-only participant metadata, no inferred appeal,
+and the unchanged five headings/disclaimer. Use short fictional before/after examples
+for each section to teach selection, not case facts or fixed section sizes. Omit evidence
+inventories and routine negative checklists; preserve necessary qualifications and
+claim-specific adjudication status, never blanket-label mixed matters unadjudicated.
+Historical overview
 prose is inert; only explicit Save publishes a schema-5 draft. Preserve private
 candidate guards and Focus's nonauthoritative orientation contract.
 Content schema 4 removes role catalogs and participant instructions in addition to

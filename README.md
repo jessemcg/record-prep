@@ -361,17 +361,31 @@ For CT-only records the hearing summary stage runs its existing zero-item flow: 
 16. **Build source map** — publish `artifacts/source_map.json` schema v2 and update `manifest.json`.
 
 The case overview is fixed, practice-neutral application behavior, not a profile
-setting. Its detailed method is restored from the pre-profile skill: read every
-summary completely (continue after truncation), identify central parties, describe
-posture as of the latest supplied materials, present material events chronologically,
-explain principal disputes neutrally, and identify record scope/gaps. Participant
-metadata is only for identity, roles and representation, never substantive facts.
+setting. Read every summary completely (continue after truncation), but publish a
+compact starting map in short Markdown bullets, not a narrative summary of summaries.
+Include only what helps Focus identify the case, understand the latest recorded posture,
+or decide what to inspect next. State each fact in its best section once: central
+parties, latest operative result, major chronological turning points, neutral issue
+labels/research leads, and material record scope/gaps. Supporting detail stays in the
+summaries and source record; omit routine appearance rosters, contact attempts and
+incidental dates unless central to orientation. Small/simple records warrant small
+overviews, without heading filler, word targets or mechanical page-count scaling.
+Short fictional before/after examples demonstrate the intended detail level for each
+section: name/role, operative result, dated landmark, research lead and consolidated
+coverage limitation. They are not case facts or output quotas. Avoid paragraph-length
+bullets, evidence inventories and routine negative checklists. Attribute each issue's
+status separately, never label a mixture of allegations and sustained matters as
+collectively unadjudicated. Preserve qualifications needed to avoid misleading compression. Participant metadata
+is only for identity, roles and representation, never substantive facts.
 Distinguish allegations, positions, evidence and actual rulings; do not assume an
 appeal, infer nonoccurrence from silence, use outside knowledge or predict outcomes.
 Keep it concise without word caps or event quotas. The five-section format/disclaimer
 is unchanged for Focus. Profile-bound work retains private candidate validation and
 Python-only publication. Old profile overview prose is readable but inert; existing
-overviews remain untouched until explicit regeneration. The pipeline step remains.
+overviews remain untouched until explicit regeneration. To adopt the compact method,
+rerun **Create case overview**, then **Build source map**, with current upstream inputs;
+this instruction change does not require regenerating participants or summaries.
+The pipeline step remains.
 Profile-bound overview generation receives an explicit manifest of exact allowed input
 paths, including all three canonical summaries. It does not discover filenames by
 listing directories or guessing paths. The access guard remains restrictive; a failure

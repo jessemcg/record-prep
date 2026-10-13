@@ -46,8 +46,10 @@ settings in an independent, movable and maximizable window for editing and **Sav
 Report/form naming each has one instructions editor containing the approved names;
 there is no separate naming mode or duplicate list editor. The approved entries also
 supply Python's name validation. General starts without a practice-specific list;
-add approved names there, or use Dependency's supplied list. Unknown names retain
-provisional document labels. A boxed category list on the left opens the selected
+add approved names there, or use Dependency's supplied list. Unnamed reports retain
+provisional labels and document ranges. Unnamed forms are omitted from the Forms TOC;
+their source pages and classification remain intact. Existing TOCs change only when
+you explicitly run Build TOC, without needing to repeat classification or naming. A boxed category list on the left opens the selected
 settings on the right: Classification and Summaries.
 Participant identification is fixed application behavior, not a settings category.
 The same general instructions identify hearing participants in every area of law,
@@ -55,7 +57,13 @@ using source-described roles and attorney representation instead of a role catal
 checkbox. The selected profile is named in the header; **Create profiles** is a link
 in the hamburger menu, immediately below **Profile settings**. Case naming uses one built-in, practice-neutral prompt rather
 than editable profile instructions. Saved legacy caption prompts remain untouched
-but no longer affect inference. Each classification prompt has its own tall editor.
+but no longer affect inference. Each classification prompt has its own tall editor. Structural labels are fixed
+across practice areas; profiles customize recognition clues, not label names.
+Task editors display their output contract and warn about unsupported label references
+without blocking Save or changing historical profiles. General Court Record 1.5.0
+supplies detailed, practice-neutral category definitions, continuation/date clues
+and customization suggestions; add your own approved report/form names separately.
+Existing personal profiles and case pins are not automatically updated.
 A brief **How classification builds the record** explanation stays above every
 Classification editor. Common guidance is first, followed by all reporter’s-transcript
 (RT) prompts, then clerk’s-transcript (CT) prompts; small stage labels show Basic,
@@ -156,6 +164,25 @@ Run:
 uv run python -m recordprep app
 ```
 
+## Safe continuation
+
+During a run, a step bypassed because its artifact completion check is satisfied
+shows **Already complete**, not **Skipped**. It counts toward phase completion;
+a later artifact refresh may show the usual completion checkmark. **Skipped** is
+reserved for actual skip paths, such as inapplicable participant indexing.
+
+**Resume** skips completed stages and continues at the first pending stage. It
+never clears the bundle. If the selected PDFs/layout require a reset, or source
+pages are missing while prepared work remains, Resume stops with an explanation
+before starting work. Existing outputs that fail freshness checks may still need
+an explicit rerun; file existence alone does not establish currentness.
+
+**Create files** also refuses automatic resets, including from Run and Run from
+here. For an already-prepared bundle with complete source pages it is a no-op;
+for changed inputs/layout, use a separate folder rather than clearing old work.
+Re-selecting the same resolved manual layout preserves its bytes and fingerprints.
+Changing layout after preparation is blocked before writing anything.
+
 ## Direct-source pipeline
 
 ### Prepare
@@ -186,6 +213,20 @@ ready (that step can reset downstream generated work).
 7. Build/correct the TOC.
 8. Find/correct hearing, report, and minute-order boundaries.
 
+Basic classification retries malformed or unsupported profile-model page types up
+to three attempts per page, using the same strict RT/CT taxonomy each time. A
+persistent failure identifies the page and a content-free reason, preserves prior
+published classifications, and leaves the stage pending. Retry **Classification
+basic**; if the failure persists, check the classifier model and profile guidance.
+Source, configuration and transport failures do not enter this model-output retry.
+The profile taxonomy retains the pre-profile structural labels: reporter certificates
+(`RT_certificate`), clerk certificates (`CT_certificate`), motions (`CT_motion`),
+notices (`CT_notice`) and proofs of service (`CT_proof_of_service`), alongside the
+cover/index/body/report/form/minute-order/other categories. Prompt and validator
+share one allowlist; these labels are preserved, not coerced into reports or orders.
+The corrected contract changes classification freshness; explicitly rerun Classification
+basic when needed, not Create files. Private guidance and old outputs are not migrated.
+
 ### Record context
 
 9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata. Python deterministically normalizes each citation label to `PREFIX N` (for example `RT 3`), never model-authored `p.`/`pp.` page notation, before participant indexing, summaries, or the source map read it.
@@ -206,8 +247,9 @@ require transcript-layout detection to run again. The manifest
 `rt_ct_split_mode`/`rt_ct_split_page` fields are legacy compatibility mirrors only, and the retired cross-case
 `rt_ct_split_page` config value is removed during migration. Old bundles with
 only legacy split fields are detection-pending; a detected result that differs
-from the legacy fields after dependent work exists requires a rebuild from
-Create files (RT-specific text cleanup is destructive).
+from the legacy fields after dependent work exists pauses for review. A changed
+layout requires deliberate preparation in a separate folder (RT-specific text
+cleanup is destructive); Create files will not erase the existing bundle.
 
 Counsel, non-counsel participants, and witnesses are separate hearing-scoped records.
 Identification is practice-neutral for both profile-bound and unassigned cases.
@@ -217,6 +259,20 @@ absence from an omitted name. Role labels and whom counsel represents come from
 the transcript, never predefined specialty categories. Historical profile role and
 participant instructions are ignored. The index still supports hearing attribution,
 case overview and Focus's participant/witness navigation. Law firms and agency abbreviations are stored as organizations rather than attorney aliases. Witness status is explicit: `verified`, `none`, `unknown`, or `conflict`; Q/A formatting alone never establishes testimony. The participant stage never concatenates a complete transcript or multi-hundred-page range. When its bounded evidence budget cannot resolve a hearing, it preserves hearing-specific uncertainty instead of stalling.
+
+For profile-bound participant indexing, Python conservatively normalizes new private
+candidates before validation: missing optional statuses become unknown, navigation
+IDs are repaired, and unsupported entries are omitted with explicit warnings rather
+than invented. Supported names, roles and evidence are retained. Quality warnings
+are not a reason to repeat the review. Unreviewed hearings, unsafe paths and invalid
+page ranges still block publication. The model receives the validator's actual
+stdout/stderr diagnostics, has only one repair opportunity (two failed validations
+end the stage), and finishes immediately when full validation succeeds—even if it
+requested a partial check. Partial checks must advance the count of reviewed hearings;
+a repeated check without progress stops the stage and preserves prior publication.
+The staged instruction file is explicitly readable, including the exact evidence-array
+schema; its directory, helper scripts and arbitrary schema files remain inaccessible.
+Existing indices and private settings are never rewritten by opening the app.
 
 During PI stages, RecordPrep displays the immutable bundle root used by the runner. It warns when the parent folder appears to name a different appellate case than the manifest/PDF, but never moves or renames private case data. The runner also monitors session-file progress and PI CPU state. Sustained CPU activity without session progress produces an actionable Activity/VTE warning; work continues until the user explicitly presses **Stop**. Stop terminates PI's complete process group, returns the active row to Pending, and prevents later stages from starting.
 

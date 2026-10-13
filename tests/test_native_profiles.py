@@ -30,6 +30,18 @@ def load(name, path):
 
 class NativeProfileTests(unittest.TestCase):
     def test_actual_participant_runner_publishes_private_general_candidate(self):
+        self._run_private_candidate()
+
+    def test_actual_participant_runner_normalizes_quality_issues(self):
+        self._run_private_candidate(quality=True)
+
+    def test_actual_participant_runner_never_publishes_after_validation_exhaustion(self):
+        self._run_private_candidate(exhausted=True)
+
+    def test_actual_participant_runner_never_publishes_after_no_progress(self):
+        self._run_private_candidate(exhausted='partial_validation_no_progress')
+
+    def _run_private_candidate(self, *, quality=False, exhausted=False):
         runner = load("native_profile_runner", PROJECT / ".pi/scripts/run_recordprep_skill.py")
         helper = load("native_profile_helper", PROJECT / ".pi/skills/recordprep-build-participant-index/scripts/participant_index.py")
         with tempfile.TemporaryDirectory() as temporary:
@@ -55,6 +67,10 @@ class NativeProfileTests(unittest.TestCase):
                 self.assertTrue(any(str(argument).endswith("recordprep-profile-native-tools.ts") for argument in command))
                 access = json.loads(Path(env["RECORDPREP_NATIVE_ACCESS_SPEC"]).read_text())
                 self.assertEqual(access["root"], str(root))
+                skill = Path(cwd) / ".pi/skills/recordprep-build-participant-index/SKILL.md"
+                self.assertIn(str(skill), access["reads"])
+                self.assertNotIn(str(skill.parent), access["reads"])
+                self.assertNotIn(str(skill.parent / "scripts/participant_index.py"), access["reads"])
                 self.assertTrue((Path(cwd) / "participant-worklist.json").is_file())
                 with patch.dict(os.environ, env, clear=True):
                     output = Path(env["RECORDPREP_PARTICIPANT_CANDIDATE"])
@@ -71,6 +87,20 @@ class NativeProfileTests(unittest.TestCase):
                         text = text.replace(old, new)
                     output.write_text(text)
                     self.assertEqual(helper.validate(root), [])
+                    if quality:
+                        candidate = json.loads(output.read_text())
+                        for person in candidate['hearings'][0]['counsel']:
+                            person.pop('speaking_status')
+                            person.pop('sworn_status')
+                            person.pop('represents')
+                        output.write_text(json.dumps(candidate))
+                        self.assertTrue(helper.validate(root))
+                    if exhausted:
+                        # Even an otherwise valid candidate must not publish
+                        # after the native guard has explicitly stopped repair.
+                        (Path(cwd) / 'participant-validation-failed').write_text(
+                            (exhausted if isinstance(exhausted, str) else 'validation_attempts_exhausted') + '\n')
+                        (root / 'artifacts/participant_index.json').write_text('prior publication sentinel')
                 return SimpleNamespace(pid=os.getpid(), wait=lambda **kwargs: 0)
             with patch("recordprep.case_profiles.profile_store", return_value=store), \
                     patch.object(runner, "_pi_command", return_value=["/usr/bin/true"]), \
@@ -78,7 +108,16 @@ class NativeProfileTests(unittest.TestCase):
                     patch("recordprep.run_metrics.instrument", side_effect=lambda command, env, *args: (command, env)), \
                     patch.object(runner.subprocess, "Popen", side_effect=child):
                 seed_profile_preparation(root, profile, PROJECT / ".pi")
+                if exhausted:
+                    with self.assertRaisesRegex(ValueError, 'validation stopped'):
+                        runner._run_stage(runner.STAGES['build_participant_index'], root, PROJECT / '.pi')
+                    self.assertEqual((root / 'artifacts/participant_index.json').read_text(), 'prior publication sentinel')
+                    return
                 self.assertEqual(runner._run_stage(runner.STAGES["build_participant_index"], root, PROJECT / ".pi"), 0)
+                if quality:
+                    published = json.loads((root / 'artifacts/participant_index.json').read_text())
+                    self.assertEqual(published['hearings'][0]['counsel'][0]['speaking_status'], 'unknown')
+                    self.assertTrue(published['hearings'][0]['warnings'])
                 self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
                 topics = profile.resource("reports")
                 topics[0]["guidance"] += " Unrelated report topic guidance."

@@ -57,6 +57,40 @@ STAGE_RESOURCES = {
 }
 CAPABILITIES = {"focus": {"research-v1"}, "recordprep": {"preparation-v1"}}
 
+# Structural vocabulary belongs to the application, not a legal specialty.
+# Shared by the RecordPrep runtime and the vendored profile editor; changing
+# these labels requires corresponding pipeline support, never private migration.
+CLASSIFICATION_PAGE_TYPES = {
+    "rt": ("RT_cover", "RT_index", "RT_body", "RT_certificate", "RT_other"),
+    "ct": ("CT_cover", "CT_index", "CT_minute_order", "CT_report", "CT_form",
+           "CT_certificate", "CT_motion", "CT_notice", "CT_proof_of_service", "CT_other"),
+}
+CLASSIFICATION_FIRST_PAGE_TYPES = {
+    "first_hearing": "RT_body_first_page",
+    "first_minute": "CT_minute_order_first_page",
+    "first_form": "CT_form_first_page",
+}
+
+
+def classification_guidance_warning(text: str, task: str) -> str:
+    """Advisory token lint, not semantic validation or a profile-load gate.
+
+    References can be comparisons/negations, so never block Save or rewrite
+    guidance. CR is included to catch a common mistaken CT prefix. This cannot
+    detect every natural-language contradiction or replace model validation.
+    """
+    known = set(sum(CLASSIFICATION_PAGE_TYPES.values(), ())) | set(CLASSIFICATION_FIRST_PAGE_TYPES.values())
+    allowed = set(CLASSIFICATION_PAGE_TYPES.get(task, ())) or known
+    references = set(re.findall(r"\b(?:RT|CT|CR)_[a-z0-9_]+\b", text, re.IGNORECASE))
+    suspicious = sorted(value for value in references if value.casefold() not in {item.casefold() for item in allowed})
+    if not suspicious:
+        return ""
+    # Bounded, literal label text only; never interpret profile text as markup.
+    labels = ", ".join(value[:80] for value in suspicious[:12])
+    return ("Review page-type references: " + labels + ". These are not supported outputs for this task. "
+            "Use the application labels shown above; customize recognition clues, not the labels. "
+            "Comparisons or instructions not to use a label may be intentional. This warning does not block Save.")
+
 
 @dataclass(frozen=True)
 class Issue:

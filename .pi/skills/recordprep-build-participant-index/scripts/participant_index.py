@@ -617,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("prepare", "worklist", "cleanup", "validate"))
     parser.add_argument("case_bundle", type=Path)
+    parser.add_argument("--normalize", action="store_true", help="Conservatively repair only a private schema-4 candidate before validation.")
     parser.add_argument(
         "--partial",
         action="store_true",
@@ -633,11 +634,38 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "cleanup":
             print(f"Removed {cleanup(args.case_bundle)}")
             return 0
+        if args.normalize:
+            _application_root()
+            from recordprep.participant_candidates import normalize_participant_candidate, ParticipantCandidateError
+            path = _output_path(args.case_bundle)
+            if (not os.environ.get("RECORDPREP_PARTICIPANT_CANDIDATE")
+                    or path.resolve() == (args.case_bundle / "artifacts/participant_index.json").resolve()
+                    or path.is_symlink() or path.stat().st_nlink != 1):
+                raise ParticipantCandidateError("Normalization requires an unlinked private candidate, never the published index.")
+            try:
+                repaired, codes = normalize_participant_candidate(read_json(path), partial=args.partial)
+            except ParticipantCandidateError as exc:
+                print(f"participant-index validation: {exc}")
+                return 1
+            write_json(path, repaired)
+            path.chmod(0o600)
+            if codes:
+                print("Participant candidate retained with quality warnings: " + ", ".join(codes))
         issues = validate(args.case_bundle, partial=args.partial)
         if issues:
             for issue in issues:
                 print(f"participant-index validation: {issue}", file=sys.stderr)
             return 1
+        if args.normalize:
+            from recordprep.profile_artifacts import PARTICIPANT_TEMPLATE_WARNING
+            hearings = repaired["hearings"]
+            reviewed = sum(PARTICIPANT_TEMPLATE_WARNING not in h.get("warnings", []) for h in hearings)
+            # Full validation is cheap and independent of the model's partial
+            # flag. Warnings are not a reason to keep refining a complete index.
+            complete = not validate_payload(repaired, partial=False)
+            print("RECORDPREP_PARTICIPANT_PROGRESS=" + json.dumps({
+                "reviewed": reviewed, "total": len(hearings), "complete": complete,
+            }))
         if args.partial:
             print("participant_index.json partial validation passed.")
         else:

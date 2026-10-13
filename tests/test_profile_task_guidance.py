@@ -32,6 +32,32 @@ class TaskGuidanceTests(unittest.TestCase):
                     self.assertEqual(compile_stage_profile(changed, name, core_contract=b"core").component_sha256,
                                      compile_stage_profile(self.base, name, core_contract=b"core").component_sha256)
 
+    def test_general_is_complete_neutral_and_uses_supported_labels(self):
+        from recordprep.profile_contract import CLASSIFICATION_PAGE_TYPES, classification_guidance_warning
+        from recordprep.document_naming import compile_naming_profile
+        tasks = self.base.resource("classification_tasks")
+        for kind, labels in CLASSIFICATION_PAGE_TYPES.items():
+            for label in labels:
+                self.assertIn(label + ":", tasks[kind])
+        for kind, guidance in tasks.items():
+            self.assertIn("To tailor this task", guidance)
+            self.assertEqual(classification_guidance_warning(guidance, kind), "")
+            for specialty in ("dependency", "juvenile", "JV-", "child-welfare"):
+                self.assertNotIn(specialty.casefold(), guidance.casefold())
+        for kind in ("report", "form"):
+            compiled = compile_naming_profile(self.base, kind)
+            # Instructions describe how to add names, without preapproving examples.
+            self.assertEqual(compiled.normalize({"name": "Invented title", "date": ""}).name, "")
+
+    def test_guidance_warning_does_not_reject_or_rewrite_profile(self):
+        from recordprep.profile_contract import classification_guidance_warning
+        editor = ProfileEditor(self.base)
+        editor.resources["classification_tasks"]["ct"] += " Return CT_custom_report."
+        draft = editor.snapshot()
+        self.assertIn("CT_custom_report", classification_guidance_warning(draft.resource("classification_tasks")["ct"], "ct"))
+        self.assertEqual(validate_contents(draft.files, "recordprep").files, draft.files)
+        self.assertNotIn("CT_custom_report", self.base.resource("classification_tasks")["ct"])
+
     def test_legacy_caption_settings_are_inert_and_not_rewritten(self):
         config = {"case_name_prompt": "Synthetic old custom prompt", "case_name_model_id": "synthetic"}
         original = dict(config)

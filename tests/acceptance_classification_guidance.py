@@ -100,6 +100,29 @@ with patch.object(api, "profile_store", return_value=store):
             valid, explanation_bounds = editor.classification_explainer.compute_bounds(editor)
             valid_page, page_bounds = editor.pages[key].compute_bounds(editor)
             assert valid and valid_page and explanation_bounds.get_y() + explanation_bounds.get_height() <= page_bounds.get_y()
+        # Task-local output contracts and live, advisory-only conflict warnings.
+        for key in expected[:8]:
+            texts = [item.get_text() for item in descendants(editor.pages[key]) if isinstance(item, Gtk.Label)]
+            assert editor_ui.classification_task_contract(key) in texts
+        editor._select_page("ct")
+        view = next(item for item in descendants(editor.pages["ct"]) if isinstance(item, Gtk.TextView))
+        buffer = view.get_buffer()
+        original = editor.editor.resources["classification_tasks"]["ct"]
+        buffer.set_text(original + "\nReturn CT_custom_report or CR_other.")
+        drain()
+        warnings = [item for item in descendants(editor.pages["ct"])
+                    if isinstance(item, Gtk.Label) and item.has_css_class("warning")]
+        assert len(warnings) == 1 and warnings[0].get_visible()
+        assert "CT_custom_report" in warnings[0].get_text() and "CR_other" in warnings[0].get_text()
+        assert "does not block Save" in warnings[0].get_text()
+        assert editor.editor.snapshot().resource("classification_tasks")["ct"].endswith("CR_other.")
+        if os.environ.get("CLASSIFICATION_GUIDANCE_HOLD") == "taxonomy":
+            loop = GLib.MainLoop()
+            editor.connect("close-request", lambda *_args: (loop.quit(), False)[1])
+            loop.run()
+        buffer.set_text(original)
+        assert not warnings[0].get_visible()
+        assert editor._state() == before
         # Moving fields does not cross-wire their owners or discard unsaved text.
         editor._select_page("date_hearing")
         view = next(item for item in descendants(editor.pages["date_hearing"]) if isinstance(item, Gtk.TextView))

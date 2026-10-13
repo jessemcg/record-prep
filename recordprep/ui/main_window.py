@@ -52,7 +52,7 @@ from tabulate import tabulate
 from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.case_name_prompt import CASE_NAME_PROMPT as DEFAULT_CASE_NAME_PROMPT
 from recordprep.classification import run_classifier_jobs
-from recordprep.classification_profiles import ClassificationRun, classifier_prompt
+from recordprep.classification_profiles import ClassificationRun, ClassifierResponseError, classifier_prompt
 from recordprep.document_naming import NamingContract, provisional_document_title
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
@@ -234,7 +234,7 @@ PIPELINE_STEP_PHASE = {
     for phase_id, _title, step_ids in PIPELINE_PHASES
     for step_id in step_ids
 }
-COMPLETED_STEP_STATUSES = {"Done", "Skipped"}
+COMPLETED_STEP_STATUSES = {"Done", "Already complete", "Skipped"}
 SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "ocr",
@@ -5454,7 +5454,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._selected_run_until_step(),
             )
         except ValueError:
-            return False
+            # Keep the action visible so clicking explains why Resume is
+            # blocked, rather than nudging users toward a fresh Run instead.
+            return True
         if start_index is None:
             return False
         step_id = self._pipeline_steps()[start_index][0]
@@ -5735,6 +5737,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if mode == "split" and rt_end is None:
             self._load_rt_ct_split()
             return False
+        previous = read_resolved_layout(root_dir)
+        same_layout = (previous is not None and previous.get("mode") == mode
+                       and (mode != "split" or previous.get("rt_end_file_page") == rt_end))
+        if same_layout:
+            # Re-selecting the current layout must not rewrite its fingerprint
+            # or invalidate completed classification and downstream work.
+            self._rt_ct_split_mode_pending = None
+            self._rt_ct_split_pending = None
+            return True
+        if self._has_layout_dependent_work(root_dir):
+            self._rt_ct_split_mode_pending = None
+            self._rt_ct_split_pending = None
+            self.show_toast(
+                "Layout change blocked: this bundle contains prepared work. "
+                "Existing files were preserved. Use a separate folder for a changed layout.", "WARN")
+            self._load_rt_ct_split()
+            return False
         try:
             apply_manual_override(
                 root_dir,
@@ -5752,15 +5771,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return False
         self._rt_ct_split_mode_pending = None
         self._rt_ct_split_pending = None
-        if self._has_layout_dependent_work(root_dir):
-            self._bundle_reset_required = True
-            self.show_toast(
-                "Transcript layout changed; re-run Create files to rebuild "
-                "from the new layout.",
-                "WARN",
-            )
-        else:
-            self.show_toast("Transcript layout updated.")
+        self.show_toast("Transcript layout updated.")
         return True
 
     def _commit_rt_ct_split_entry(self, entry: Gtk.Entry, allow_ui_update: bool) -> None:
@@ -5826,6 +5837,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         """True when layout-dependent (destructive-cleanup) work exists."""
         if not root_dir.exists():
             return False
+        for directory in (root_dir / "summaries", root_dir / ".recordprep/profile-work"):
+            if directory.is_dir() and any(path.is_file() for path in directory.rglob("*")):
+                return True
         classification = root_dir / "classification"
         if classification.is_dir() and any(classification.iterdir()):
             return True
@@ -5917,12 +5931,26 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         max_attempts: int = 3,
     ) -> dict[str, str]:
         entry: dict[str, str] = {}
+        response_error: ClassifierResponseError | None = None
         for attempt in range(1, max_attempts + 1):
             self._raise_if_stop_requested()
-            entry = self._classify_image(settings, filename, image_path)
+            try:
+                entry = self._classify_image(settings, filename, image_path)
+            except ClassifierResponseError as exc:
+                # Profile validation must not bypass the existing bounded retry.
+                # Never retry source/configuration/transport failures here, and
+                # never coerce an unsupported label into a valid classification.
+                response_error = exc
+                continue
             page_type = _extract_entry_value(entry, "page_type", "pagetype").strip()
             if page_type:
                 return entry
+        if response_error is not None:
+            raise RuntimeError(
+                f"Classification basic returned an invalid page_type for {filename} "
+                f"after {max_attempts} attempts. {response_error} "
+                "Retry Classification basic; if it persists, check the classifier model and profile guidance."
+            ) from response_error
         raise RuntimeError(
             f"Classification basic returned blank page_type for {filename} "
             f"after {max_attempts} attempts."
@@ -6451,6 +6479,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         return base_dir
 
     def _resume_start_index(self, root_dir: Path, end_step_id: str | None) -> int | None:
+        if (getattr(self, "_bundle_reset_required", False)
+                or (self.selected_pdfs and _bundle_inputs_changed(root_dir, self.selected_pdfs))):
+            raise ValueError("Resume blocked: PDF selection or transcript layout needs review. "
+                             "Existing files were preserved; Resume never resets a bundle.")
         steps = self._pipeline_steps()
         end_index = len(steps) - 1
         if end_step_id:
@@ -6460,6 +6492,31 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             end_index = step_ids.index(end_step_id)
         for index, (step_id, _row, _handler) in enumerate(steps[: end_index + 1]):
             if not self._step_artifact_complete(step_id, root_dir, self.selected_pdfs):
+                if step_id == "create_files" and self._has_layout_dependent_work(root_dir):
+                    raise ValueError("Resume blocked: source pages are incomplete but prepared work exists. "
+                                     "Existing files were preserved; restore missing source pages before continuing.")
+                # A freshness failure is not permission to silently regenerate
+                # already-published work. Missing output is resumable; stale
+                # existing output needs an explicit per-step rerun.
+                published_paths = {
+                    "detect_transcript_layout": ["artifacts/transcript_layout.json"],
+                    "infer_case": ["case_name.txt"],
+                    "number_transcript_pages": ["artifacts/transcript_page_numbers.json"],
+                    "build_participant_index": ["artifacts/participant_index.json"],
+                    "create_case_overview": ["artifacts/case_overview.md"],
+                    "build_source_map": ["artifacts/source_map.json"],
+                }
+                stages = {"classify_basic": "basic", "classify_advanced": "advanced",
+                          "correct_classify_advanced": "corrected", "classify_dates": "dates",
+                          "classify_names": "names"}
+                if step_id in stages:
+                    # In-progress JSONL outputs can resume missing pages. A
+                    # profile marker denotes an already-published stage.
+                    published_paths[step_id] = [f"classification/profile-{stages[step_id]}.json"]
+                if any((root_dir / path).exists() for path in published_paths.get(step_id, [])):
+                    title = _row.get_title() or step_id
+                    raise ValueError(f"Resume paused at {title}: existing output needs review or regeneration. "
+                                     "Files were preserved. Use this step's Run or Run from here to rerun it explicitly.")
                 return index
         return None
 
@@ -6727,13 +6784,18 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 or _bundle_inputs_changed(root_dir, self.selected_pdfs)
             )
             if reset_required:
-                GLib.idle_add(
-                    self._append_log_message,
-                    "New PDF selection detected; clearing the previous generated bundle.",
-                    "INFO",
-                )
-                _reset_generated_case_bundle(root_dir)
-                self._bundle_reset_required = False
+                raise ValueError(
+                    "Create files blocked: PDF selection or layout differs from this bundle. "
+                    "Existing files were preserved. Use the original selection or a separate folder; "
+                    "RecordPrep will not clear an existing bundle automatically.")
+            if self._has_layout_dependent_work(root_dir):
+                if not self._step_artifact_complete("create_files", root_dir, self.selected_pdfs):
+                    raise ValueError("Create files blocked: prepared work exists with incomplete source pages. "
+                                     "Restore missing source pages in a recovery copy; existing files were preserved.")
+                # This is already a prepared record, not a new extraction. In
+                # particular, never re-merge PDFs or rewrite its manifest here.
+                success = True
+                return True
             root_dir, text_dir, image_pages_dir = _ensure_case_bundle_dirs(base_dir)
             if new_case_profile is not None:
                 from recordprep.case_profiles import apply_case_profile
@@ -6830,8 +6892,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if not self._has_layout_dependent_work(root_dir):
             return True
         self._run_pause_message = (
-            "Detected transcript layout differs from the legacy split; "
-            "re-run Create files to rebuild from the new layout."
+            "Detected transcript layout differs from the prepared split. "
+            "Existing work is preserved; review the layout and use a separate "
+            "folder if the source layout must change."
         )
         self._bundle_reset_required = True
         return False
@@ -7167,7 +7230,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         self.selected_pdfs,
                     )
                 ):
-                    GLib.idle_add(self._finish_step, row, "Skipped")
+                    GLib.idle_add(self._finish_step, row, "Already complete")
                     continue
                 if manage_local_vision and offset == first_classify_offset:
                     if root_dir is None:
@@ -8531,9 +8594,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if page_number is None or page_number <= split_page:
                     continue
                 if not name_value:
-                    if page_type in form_first_types:
-                        name_value = provisional_document_title("form", page_number)
-                    elif is_report_start:
+                    # An unmatched form is intentionally absent from the Forms
+                    # TOC. Its source page and structural classification remain.
+                    # Reports differ: keep their ranges discoverable even when
+                    # title evidence is unresolved.
+                    if is_report_start:
                         name_value = provisional_document_title("report", page_number)
                     else:
                         continue

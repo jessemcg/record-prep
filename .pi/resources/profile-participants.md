@@ -66,6 +66,12 @@ instructions, and may differ for different people in the same hearing.
   continued or other. Examiner role is descriptive text (empty if unresolved).
 - Evidence: `{text_path, file_page, citation_label, citation_key, note}`. Cite original
   text_pages paths and resolved numbering. Notes describe evidence, not worklist hits.
+  Every evidence field is an ARRAY of these objects, not a single object or a string.
+  `text_path` and a nonempty `note` are required; keys such as `path`, `quote`,
+  `citations` or flat person-level page fields do not substitute for them. Copy
+  page/citation identity from the supplied numbering, and write a source-supported
+  note explaining what that page establishes. Do not search for an external schema:
+  this skill defines the entry format.
 
 Counsel/participant evidence must support identity/role and each non-unknown status.
 Examinations stay within the hearing and in source order. Use 0/empty fields only
@@ -82,6 +88,22 @@ in hearing warnings. Absence of an index alone never establishes no testimony.
 Persist each completed hearing with write/edit. Remove its template-review warning
 only after review; remove the top-level placeholder after all hearings are reviewed.
 Call recordprep_validate_candidate with partial: true after at most five hearings,
-then partial: false before finishing. Correct structural errors without changing
-sources or metadata. Real uncertainty remains explicit. Only Python publishes the
-validated candidate. Boundaries, numbering, summaries and manifest are read-only.
+then partial: false when finished. Python conservatively normalizes the private
+candidate: missing optional fields/statuses become empty/unknown, internal IDs are
+repaired, and unsupported entries may be omitted with explicit quality warnings.
+Read the candidate again after validation before any further edit, because Python
+may have normalized it. Do not refine just to remove quality warnings; a useful
+supported index with explicit uncertainty is complete. Never fabricate evidence,
+attendance, absence or testimony to satisfy a validator.
+
+The tool returns specific structural diagnostics from the validator. There is only
+one repair opportunity: a second failed validation ends the stage, preserving the
+previous published index. Fix only the reported structural problem without changing
+sources or runner metadata. An untouched/unreviewed hearing is not a completed empty
+hearing. Full successful validation ends model work immediately; Python independently
+checks and publishes the candidate. A partial check also finishes automatically
+if the candidate passes full validation. Otherwise continue reviewing unreviewed
+hearings: a repeated partial check without more reviewed hearings stops the stage,
+not a request to keep rewriting completed hearings. Never mark unreviewed hearings
+reviewed to satisfy the progress check. Boundaries, numbering, summaries and manifest
+are read-only.

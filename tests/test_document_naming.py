@@ -263,7 +263,8 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertIn("Untitled report — file page 1", toc)
         self.assertIn("Untitled report — file page 4", toc)
         self.assertNotIn("Untitled report — file page 2", toc)
-        self.assertIn("Untitled form — file page 5", toc)
+        self.assertNotIn("Untitled form", toc)
+        self.assertNotIn("0005", toc)
         self.assertIn("Detention Report", toc)
         self.assertTrue(any("Review required" in str(call) for call in self.worker.show_toast.call_args_list))
         self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_toc(self.worker))
@@ -290,6 +291,24 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertEqual(len(documents), 4)
         self.assertIn("Untitled report", documents[0]["label"])
         self.assertEqual(documents[1]["metadata"]["boundary_review"], "required")
+
+    def test_toc_omits_unmatched_forms_but_retains_named_forms_and_sources(self):
+        classification = self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl"
+        entries = [json.loads(line) for line in classification.read_text().splitlines()]
+        entries[2] = {"file_name": "0003.txt", "page_type": "CT_form_first_page", "name": "Approved Form"}
+        # The unmatched first page has no name field at all, as in real output.
+        entries[4].pop("name")
+        classification.write_text("\n".join(json.dumps(row) for row in entries) + "\n")
+        sources = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                   for path in [classification, *(self.root / "text_pages").glob("*.txt")]}
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_six(self.worker))
+        toc = (self.root / "artifacts/toc.txt").read_text()
+        forms = toc.split("REPORTS")[0]
+        self.assertIn("Approved Form 0003", forms)
+        self.assertNotIn("0005", forms)
+        self.assertNotIn("Untitled form", forms)
+        self.assertIn("Untitled report", toc)
+        self.assertEqual(sources, {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in sources})
 
     def test_unnamed_range_on_explicit_append_never_disappears(self):
         rows = []

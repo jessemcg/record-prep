@@ -81,8 +81,29 @@ checks; Dates uses marked hearing/minute-order first pages. Names reads a report
 name and date at the start of each continuous group of report pages, and reads form
 names from marked form first pages. Hearing TOC labels come from hearing dates—not
 a separate hearing-name prompt. Correction stages retain their existing positions;
-TOC and document boundaries use these classification results. This is an explanation
-and navigation reorder only: no instructions, resource IDs or pipeline behavior change.
+TOC and document boundaries use these classification results.
+
+Structural page types and response keys are application-owned, shared across legal
+fields. Profiles customize recognition clues, not category names. Each Basic editor
+shows the supported RT or CT labels from the same definition used by the runtime
+validator. Advanced returns `first_page: yes/no`; Python adds `RT_body_first_page`,
+`CT_minute_order_first_page` or `CT_form_first_page`. Dates returns `date` or an empty
+string. Naming uses separate approved names, not new page types. Certificates,
+motions, notices and proofs of service remain recognized structural categories.
+
+The editor warns as you type when an RT_/CT_/CR_ label reference is unsupported for
+the current task. This is advisory token checking, not semantic proof: comparisons
+and negations can intentionally mention other labels, and prose-only contradictions
+may go undetected. Warnings do not block Save, rewrite guidance, reject historical
+profiles or loosen runtime validation. Review a warning before running a case.
+
+General Court Record 1.5.0 provides a practice-neutral starting point: definitions
+of every Basic category, start/continuation clues, competing-date guidance and
+instructions for adding your practice's headings, terminology and examples. Add
+approved report/form names in the separate naming editors; General deliberately
+ships without a specialty-specific title list. Dependency's bundled and private
+instructions are untouched. Existing personal profiles and accepted case revisions
+are never automatically replaced by these new General resources.
 
 Summaries shows one pinned **Topic-guided agentic summarization** explainer above
 exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
@@ -120,8 +141,11 @@ the model prompt and Python's exact approved-name check. There is no naming-mode
 selector, separate title list, or form-rule card editor. Editing the prompt's list
 changes the approved names; prose outside those entries does not silently add names.
 Dependency retains its reviewed names and form codes. General has no approved names
-until you add practice-appropriate entries, so unmatched documents retain provisional
-labels rather than being discarded. Dates can still be extracted independently.
+until you add practice-appropriate entries. Unmatched reports retain provisional
+labels and their ranges; report dates can still be extracted independently. Forms
+with no accepted name are omitted from the Forms TOC, without deleting their source
+pages or structural classifications. An empty form name is not replaced by an
+“Untitled form” entry. Existing TOCs stay unchanged until Build TOC is explicitly run.
 Summary topics are expandable cards with editable names/instructions and add,
 remove and reorder actions. Renaming a topic does not change its stable ID.
 Topic instruction editors unwrap hard-wrapped prose to use the available width,

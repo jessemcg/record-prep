@@ -15,12 +15,15 @@ from pathlib import Path
 
 from .case_profiles import read_case_profile_ref, resolve_case_profile, case_profile_publication
 from .document_naming import compile_naming_profile
-from .profile_contract import ProfileSnapshot, compile_stage_profile, read_file_at, _json
+from .profile_contract import ProfileSnapshot, compile_stage_profile, read_file_at, _json, CLASSIFICATION_PAGE_TYPES
 from .summary_agents import _atomic_write, sha256_json
 
+# Preserve the structural categories supported by pre-profile personal prompts.
+# One source of truth keeps the model contract and its validator in agreement.
+PAGE_TYPES = CLASSIFICATION_PAGE_TYPES
 KINDS = {
-    "rt": ('page_type', 'Classify this reporter page as RT_cover, RT_index, RT_body, or RT_other. RT_body is hearing dialogue; indexes and covers are not hearings.'),
-    "ct": ('page_type', 'Classify this clerk page as CT_cover, CT_index, CT_minute_order, CT_report, CT_form, or CT_other. Distinguish judicial minute orders, authored reports, and structured court forms. Do not restrict forms to any specialty.'),
+    "rt": ('page_type', 'Classify this reporter page as exactly one of: ' + ', '.join(PAGE_TYPES['rt']) + '. RT_body is hearing dialogue; indexes, covers and reporter certificates are not hearings.'),
+    "ct": ('page_type', 'Classify this clerk page as exactly one of: ' + ', '.join(PAGE_TYPES['ct']) + '. Distinguish judicial minute orders, authored reports, structured court forms, certificates, motions, notices and proofs of service. Do not restrict forms to any specialty.'),
     "first_hearing": ('first_page', 'Is this the first page of a hearing? Use the court calling the case and appearances, not printed page numbers. Return yes or no.'),
     "first_minute": ('first_page', 'Is this the first page of this minute order? Consider its heading and Page 1 of X. Return yes or no.'),
     "first_form": ('first_page', 'Is this the first page of this form? Consider its heading and Page 1 of X. Return yes or no.'),
@@ -46,18 +49,24 @@ def classifier_prompt(profile: ProfileSnapshot, kind: str) -> tuple[str, tuple[s
             + '\nEND GUIDANCE. The application task, keys and taxonomy remain controlling.', (key,))
 
 
+class ClassifierResponseError(ValueError):
+    """Invalid model output, distinct from source, configuration or transport errors."""
+
+
 def normalize_classifier(payload, kind: str) -> dict[str, str]:
     if not isinstance(payload, dict):
-        raise ValueError("Classifier response must be an object; source remains unclassified.")
+        raise ClassifierResponseError("Classifier response must be an object; source remains unclassified.")
     key = KINDS[kind][0]
     raw = payload.get(key)
     value = str(raw).strip() if isinstance(raw, (str, bool)) else ""
     if kind in ("rt", "ct"):
-        allowed = (("RT_cover", "RT_index", "RT_body", "RT_other") if kind == "rt" else
-                   ("CT_cover", "CT_index", "CT_minute_order", "CT_report", "CT_form", "CT_other"))
+        allowed = PAGE_TYPES[kind]
         value = next((entry for entry in allowed if entry.casefold() == value.casefold()), "")
         if not value:
-            raise ValueError("Unsupported structural classification; source remains unclassified.")
+            reason = "missing_page_type" if not isinstance(raw, str) or not raw.strip() else "unsupported_page_type"
+            raise ClassifierResponseError(
+                f"Unsupported structural classification ({reason}); source remains unclassified."
+            )
     elif key == "first_page":
         value = {"yes": "yes", "true": "yes", "no": "no", "false": "no"}.get(value.casefold(), "")
         if not value:

@@ -24,6 +24,15 @@ uncertainty. Mere references to a person do not establish participation.
 Verified witnesses require source-backed examinations within the hearing. Counsel
 as a witness requires explicit conflict treatment. Retain source citations and
 safe text_pages paths. Do not concatenate whole transcripts. Validate incrementally.
+Use the prepared schema and bounded page-read budget. Useful supported entries with
+explicit unknowns are preferable to repeated refinement. Python normalizes optional
+fields and records quality warnings; do not retry just to remove those warnings.
+At most two failed candidate validations are allowed; persistent structural failure
+ends the stage rather than starting an endless repair loop. Read the staged skill
+for the exact evidence object format; do not guess keys or search for schema files.
+A partial check automatically finishes when full validation passes. Otherwise,
+review more hearings before validating again; repeated partial checks without
+review progress stop the stage. Never remove template warnings without review.
 Only the runner publishes the final artifact after independent validation.
 """
 OVERVIEW_CORE = """\nOVERVIEW
@@ -132,7 +141,7 @@ def native_runtime_digest(project_dir: Path) -> str:
                        "system": _resource_sha256(project_dir / "SYSTEM.md"),
                        "auto_exit": _resource_sha256(project_dir / "extensions/recordprep-auto-exit.ts"),
                        "application": {name: _resource_sha256(Path(__file__).parent / name) for name in
-                                       ("native_profiles.py", "pi_bundle.py", "profile_artifacts.py", "profile_contract.py", "boundary_profiles.py")},
+                                       ("native_profiles.py", "participant_candidates.py", "pi_bundle.py", "profile_artifacts.py", "profile_contract.py", "boundary_profiles.py")},
                        "runner": _resource_sha256(project_dir / "scripts/run_recordprep_skill.py")})
 
 

@@ -81,7 +81,7 @@ class ClassificationProfileTests(unittest.TestCase):
             prompt = json.loads(request.data)["messages"][0]["content"]
             prompts.append(prompt)
             if "CURRENT TASK: Classify" in prompt:
-                return json.dumps({"page_type": "CT_report" if kind == "report" else "CT_minute_order"})
+                return json.dumps({"page_type": {"report": "CT_report", "minutes": "CT_minute_order"}.get(kind, kind)})
             if "CURRENT TASK: Is this" in prompt:
                 return json.dumps({"first_page": "yes"})
             if "CURRENT TASK: Extract" in prompt:
@@ -95,7 +95,7 @@ class ClassificationProfileTests(unittest.TestCase):
             for method in ("_run_step_two", "_run_step_advanced", "_run_step_correct_advanced", "_run_step_dates", "_run_step_names",
                            "_run_step_six", "_run_step_correct_toc", "_run_step_seven", "_run_step_correct_boundaries"):
                 self.assertTrue(getattr(ui.RecordPrepWindow, method)(worker), method)
-        self.assertEqual(len(prompts), 2 if kind == "report" else 6)
+        self.assertEqual(len(prompts), {"report": 2, "minutes": 6, "CT_form": 3}.get(kind, 1))
         self.assertTrue(all("legacy" not in prompt for prompt in prompts))
         entries = [json.loads(line) for line in (self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl").read_text().splitlines()]
         if kind == "report":
@@ -106,11 +106,51 @@ class ClassificationProfileTests(unittest.TestCase):
         self.assertEqual(toc_issues(self.root, self.profile, self.settings), [])
         if kind == "report":
             self.assertEqual(len(json.loads((self.root / "artifacts/report_boundaries.json").read_text())), 1)
-        else:
+        elif kind == "minutes":
             orders = json.loads((self.root / "artifacts/minutes_boundaries.json").read_text())
             self.assertEqual(len(orders), 2)
             self.assertTrue(all(not order["date"] for order in orders))
             self.assertEqual((self.root / "artifacts/toc.txt").read_text().count("Date unresolved"), 2)
+
+        else:
+            self.assertEqual(entries[0]["page_type"], "CT_form_first_page" if kind == "CT_form" else kind)
+            if kind == "CT_form":
+                self.assertFalse(entries[0].get("name"))
+                forms = (self.root / "artifacts/toc.txt").read_text().split("REPORTS")[0]
+                self.assertNotIn("0001", forms)
+                self.assertNotIn("Untitled form", forms)
+            for category in ("report", "minutes", "hearing"):
+                self.assertEqual(json.loads((self.root / f"artifacts/{category}_boundaries.json").read_text()), [])
+
+    def test_profile_unmatched_form_is_not_given_a_provisional_toc_entry(self):
+        self._run_gui_pipeline("CT_form")
+
+    def test_certificate_survives_pipeline_without_becoming_report_or_order(self):
+        self._run_gui_pipeline("CT_certificate")
+
+    def test_legacy_structural_types_are_prompted_and_accepted_on_first_attempt(self):
+        from recordprep.classification_profiles import PAGE_TYPES, classifier_prompt
+        ui, worker = self._basic_worker()
+        self.assertEqual(PAGE_TYPES, {
+            "rt": ("RT_cover", "RT_index", "RT_body", "RT_certificate", "RT_other"),
+            "ct": ("CT_cover", "CT_index", "CT_minute_order", "CT_report", "CT_form",
+                   "CT_certificate", "CT_motion", "CT_notice", "CT_proof_of_service", "CT_other"),
+        })
+        for kind, values in PAGE_TYPES.items():
+            settings = self.settings | {"profile_snapshot": self.profile, "profile_kind": kind}
+            prompt, _ = classifier_prompt(self.profile, kind)
+            for value in values:
+                with self.subTest(value=value), patch.object(
+                    ui, "_post_json_with_retries", return_value=json.dumps({"page_type": value})
+                ) as request:
+                    self.assertIn(value, prompt)
+                    result = ui.RecordPrepWindow._classify_image_with_page_type(
+                        worker, settings, "0001.txt", self.root / "image_pages/0001.png")
+                    self.assertEqual(result["page_type"], value)
+                    request.assert_called_once()
+        for kind, value in (("rt", "CT_certificate"), ("ct", "RT_certificate"), ("ct", "CT_invented")):
+            with self.assertRaises(ValueError):
+                normalize_classifier({"page_type": value}, kind)
 
     def test_actual_gui_worker_classification_pipeline_uses_frozen_contracts(self):
         self._run_gui_pipeline()
@@ -120,6 +160,63 @@ class ClassificationProfileTests(unittest.TestCase):
         (self.root / "image_pages/0002.png").write_bytes(b"second synthetic image payload")
         apply_manual_override(self.root, mode="ct_only")
         self._run_gui_pipeline("minutes")
+
+    def _basic_worker(self):
+        from recordprep.ui import main_window as ui
+        worker = SimpleNamespace(
+            _raise_if_stop_requested=Mock(),
+            _extract_response_text=lambda payload: payload,
+            _extract_json_payload=lambda text: text,
+        )
+        worker._classify_image = lambda *args: ui.RecordPrepWindow._classify_image(worker, *args)
+        return ui, worker
+
+    def test_profile_basic_retries_invalid_responses_without_relaxing_taxonomy(self):
+        ui, worker = self._basic_worker()
+        settings = self.settings | {"profile_snapshot": self.profile, "profile_kind": "ct"}
+        for invalid in ('not JSON', '[]', '{}', '{"page_type":"RT_body"}',
+                        '{"page_type":"private model prose"}', '{"page_type":true}'):
+            with self.subTest(invalid=invalid), patch.object(
+                ui, "_post_json_with_retries",
+                side_effect=[invalid, invalid, '{"page_type":"CT_report"}'],
+            ) as request:
+                result = ui.RecordPrepWindow._classify_image_with_page_type(
+                    worker, settings, "0001.txt", self.root / "image_pages/0001.png")
+                self.assertEqual(result, {"file_name": "0001.txt", "page_type": "CT_report"})
+                self.assertEqual(request.call_count, 3)
+
+    def test_profile_basic_exhaustion_is_bounded_actionable_and_content_free(self):
+        ui, worker = self._basic_worker()
+        settings = self.settings | {"profile_snapshot": self.profile, "profile_kind": "ct"}
+        before = {p: p.read_bytes() for p in (self.root / "classification").iterdir()}
+        with patch.object(ui, "_post_json_with_retries",
+                          return_value='{"page_type":"PRIVATE RESPONSE CONTENT"}') as request:
+            with self.assertRaises(RuntimeError) as error:
+                ui.RecordPrepWindow._classify_image_with_page_type(
+                    worker, settings, "0001.txt", self.root / "image_pages/0001.png")
+        self.assertEqual(request.call_count, 3)
+        self.assertIn("0001.txt after 3 attempts", str(error.exception))
+        self.assertIn("unsupported_page_type", str(error.exception))
+        self.assertNotIn("PRIVATE RESPONSE CONTENT", str(error.exception))
+        self.assertEqual(before, {p: p.read_bytes() for p in (self.root / "classification").iterdir()})
+
+    def test_profile_basic_does_not_retry_operational_errors_or_ignore_stop(self):
+        from recordprep.classification_profiles import ClassifierResponseError
+        ui, worker = self._basic_worker()
+        for error in (OSError("source unavailable"), ValueError("invalid configuration"),
+                      RuntimeError("transport failed")):
+            with self.subTest(error=type(error).__name__):
+                worker._classify_image = Mock(side_effect=error)
+                with self.assertRaises(type(error)):
+                    ui.RecordPrepWindow._classify_image_with_page_type(
+                        worker, self.settings, "0001.txt", self.root / "image_pages/0001.png")
+                worker._classify_image.assert_called_once()
+        worker._classify_image = Mock(side_effect=ClassifierResponseError("invalid response"))
+        worker._raise_if_stop_requested = Mock(side_effect=[None, InterruptedError("stopped")])
+        with self.assertRaises(InterruptedError):
+            ui.RecordPrepWindow._classify_image_with_page_type(
+                worker, self.settings, "0001.txt", self.root / "image_pages/0001.png")
+        worker._classify_image.assert_called_once()
 
     def test_structural_response_contract_cannot_be_changed_by_guidance(self):
         self.assertEqual(normalize_classifier({"page_type": "ct_report"}, "ct"), {"page_type": "CT_report"})

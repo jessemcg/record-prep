@@ -16,6 +16,7 @@ from . import practice_profiles as api
 from .profile_contract import ProfileError, ProfileSnapshot, RETIRED_SUMMARY_RESOURCES, RETIRED_PARTICIPANT_RESOURCES, RETIRED_OVERVIEW_RESOURCES
 from .profile_workflows import ProfileEditor
 from .profile_store import BUILTIN_SPECIALTIES
+from .profile_contract import CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PAGE_TYPES, classification_guidance_warning
 
 SUMMARY_TITLE = "Topic-guided agentic summarization"
 SUMMARY_PROGRESSION = "Each hearing / report → Topic digest + quotes → Narrative section → Hearing / report summary"
@@ -41,7 +42,10 @@ CLASSIFICATION_EXPLANATION = (
     "Dates reads minute-order dates. Names uses separate naming instructions to read report names and dates "
     "at the start of each continuous group of report pages, and form names on marked first pages.\n\n"
     "Each stage builds on earlier results: page types guide first-page checks, and first pages guide date and name extraction. "
-    "The resulting labels help build the table of contents; later boundary stages determine each document’s page range."
+    "The resulting labels help build the table of contents; later boundary stages determine each document’s page range.\n\n"
+    "Page types are fixed structural categories shared across legal fields. Customize the recognition clues below—"
+    "headings, terminology, examples and distinctions—not the category labels or response keys. "
+    "Specific report/form titles belong in the separate naming instructions."
 )
 CLASSIFICATION_PAGES = (
     ("rt", "Reporter transcript pages", "RT · Basic"),
@@ -54,6 +58,26 @@ CLASSIFICATION_PAGES = (
     ("report-naming", "Report names and dates", "CT · Names"),
     ("form-naming", "Form naming instructions", "CT · Names"),
 )
+
+
+def classification_task_contract(task):
+    if task in CLASSIFICATION_PAGE_TYPES:
+        return ('Basic output: JSON with the key page_type, using exactly one of: '
+                + ', '.join(CLASSIFICATION_PAGE_TYPES[task])
+                + '. First-page markers are added by Advanced, not Basic. Add practice-specific headings, '
+                  'document examples and distinguishing clues without renaming or adding categories.')
+    if task in CLASSIFICATION_FIRST_PAGE_TYPES:
+        return ('Advanced output: JSON with the key first_page and the value yes or no. '
+                'The application adds ' + CLASSIFICATION_FIRST_PAGE_TYPES[task]
+                + ' when the answer is yes. Do not return that label yourself. Describe how to recognize '
+                  'a genuine document or hearing start, not a continuation.')
+    if task in ('date_hearing', 'date_minute'):
+        return ('Dates output: JSON with the key date: a long-form U.S. date, or an empty string if unresolved. '
+                'Explain where the relevant date appears and which competing dates to exclude.')
+    return ('Common guidance applies to Basic, Advanced and Dates, each with its own output contract. '
+            'It does not apply to naming. Keep response instructions in the relevant task, not here. '
+            'Supported Basic RT labels: ' + ', '.join(CLASSIFICATION_PAGE_TYPES['rt'])
+            + '. Supported Basic CT labels: ' + ', '.join(CLASSIFICATION_PAGE_TYPES['ct']) + '.')
 
 
 def friendly(value):
@@ -536,7 +560,22 @@ class ProfileEditorWindow(Adw.Window):
         if group.get_title() != label:
             group.add(wrapped(label, margin_top=6, margin_bottom=4))
         group.set_vexpand(True)
-        group.add(text_editor(owner[key], lambda text: owner.__setitem__(key, text), label=label, tall=True))
+        warning = None
+        if resource in ("classification", "classification_tasks"):
+            group.add(wrapped(classification_task_contract(key), margin_bottom=8))
+            warning = wrapped("", margin_bottom=8)
+            warning.add_css_class("warning")
+            group.add(warning)
+        def update(text):
+            if warning is not None:
+                message = classification_guidance_warning(text, key)
+                warning.set_text(message)
+                warning.set_visible(bool(message))
+        def change(text):
+            owner[key] = text
+            update(text)
+        update(owner[key])
+        group.add(text_editor(owner[key], change, label=label, tall=True))
 
     def _terms(self, group, owner, key, label):
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)

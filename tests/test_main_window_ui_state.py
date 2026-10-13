@@ -226,7 +226,7 @@ class MainWindowUiStateTests(unittest.TestCase):
         self.assertEqual(
             _phase_progress_text(
                 step_ids,
-                {"one": "Done", "two": "Skipped", "three": "Done"},
+                {"one": "Done", "two": "Skipped", "three": "Already complete"},
             ),
             "3 of 3 complete",
         )
@@ -956,6 +956,7 @@ class CorrectTocCompletionTests(unittest.TestCase):
             )
             harness = mock.Mock()
             harness.selected_pdfs = []
+            harness._bundle_reset_required = False
             harness._step_artifact_complete = (
                 RecordPrepWindow._step_artifact_complete.__get__(
                     harness, RecordPrepWindow

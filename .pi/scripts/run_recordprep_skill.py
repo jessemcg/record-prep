@@ -1892,6 +1892,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 from recordprep.transcript_layout import is_ct_only
                 if not is_ct_only(root):
                     reads.append(root / "artifacts/participant_index.json")
+            # Pi loads the explicit skill through read. Authorize only this
+            # staged application instruction file, not its directory or helpers.
+            reads.append(staged_skill / "SKILL.md")
             access_spec = workspace / "native-access.json"
             access_spec.write_text(json.dumps({"root": str(root), "candidate": str(candidate_path),
                                               "reads": [str(path) for path in reads if path.is_file()],
@@ -2053,6 +2056,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             from recordprep.case_profiles import read_case_profile_ref, case_profile_publication
             from recordprep import summary_agents as sa
             from recordprep.profile_contract import read_file_at, _json
+            if (workspace / "participant-validation-failed").exists():
+                raise ValueError("Participant validation stopped after repeated failures or no review progress; prior output preserved. Review the validator diagnostics before retrying.")
             if read_case_profile_ref(root) != profile.ref:
                 raise ValueError("Preparation selection changed during the stage; prior output preserved.")
             fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -2067,6 +2072,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 expected = participant_metadata(profile, root, project_dir)
                 if expected != native_expected or any(candidate.get(key) != value for key, value in expected.items()):
                     raise ValueError("Participant inputs or frozen metadata changed; prior output preserved.")
+                from recordprep.participant_candidates import normalize_participant_candidate
+                candidate, quality_codes = normalize_participant_candidate(candidate)
+                if quality_codes:
+                    _line("[participants] Candidate retained with quality warnings: " + ", ".join(quality_codes))
                 candidate_issues = participant_index_issues(candidate)
                 candidate_issues.extend(validate_transcript_numbering_outputs(root))
                 if candidate_issues:

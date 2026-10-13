@@ -1,5 +1,27 @@
 # Practice profiles: validation and limits
 
+## Fixed structural taxonomy and General starting guidance — 2026-10-13
+
+Classification keeps application-owned structural labels, shared by runtime prompts,
+normalization and the editor's task-contract display. Basic and Advanced labels remain
+distinct. Live RT_/CT_/CR_ token warnings are advisory only: no load/Save rejection,
+no historical/private rewrite, and no claim to detect every prose contradiction.
+General Court Record 1.5.0 defines every Basic label, start/continuation and date
+clues, and task-specific customization advice without Dependency-specific examples.
+Naming still requires user-added approved names; no specialty examples become defaults.
+
+Work-machine-only validation in disposable environments: RecordPrep **554 tests OK,
+no skips**; Focus **675 passed + 45 subtests**. Existing ResourceWarning, metrics-fixture
+messages and Focus deprecation warnings remain. Both actual GTK guidance acceptances
+pass, including task contracts, warning appearance/clearing, editable draft preservation
+and no private store writes. A native screenshot of an owned synthetic General editor
+confirmed the CT label list and visible advisory warning above the instructions.
+One initial desktop test was affected by stray text in the synthetic common-guidance
+field; the repeat passed. No real settings were involved. Shared copies and whitespace
+checks pass. No live model or case runs, private configuration/profile changes, launcher
+changes or new runtime dependencies. New General text is not a model-quality guarantee
+and does not replace existing accepted revisions or personal profiles.
+
 ## Fixed case orientation — 2026-10-13
 
 Restored the substantive pre-migration overview method (verified identical at

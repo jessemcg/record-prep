@@ -33,7 +33,11 @@ Keep frozen dependency fixtures and legacy readers intact. Participant schema 4
 (2/3 readable), schema-3 maps, digest format 2/row 3/metadata 5 and minute checkpoint 4 (1–3 readable) carry descriptive
 provenance/catalogs, never instruction authority. Unknown names/dates must not
 erase short documents. Custom category IDs may include hyphens and digits; quote
-serialization must preserve their canonical IDs. Missing instructions block new
+serialization must preserve their canonical IDs. Forms TOC lists only named forms:
+empty/missing form names must not generate provisional entries. Keep unnamed report
+labels/ranges and all source pages/classifications. Explicit Build TOC applies this
+policy to existing bundles; do not edit private TOCs or invalidate participant work
+for this presentation-only correction. Missing instructions block new
 work, not browsing. Keep private configuration/cases untouched. Dependency
 initialization is an allowlisted read-only candidate shared by chooser/editor,
 persisted only on Save
@@ -55,7 +59,19 @@ Classification has a pinned, display-only explainer above its editors and RT-fir
 CT-second navigation with stage subtitles. Common guidance combines only with the
 current page-type/first-page/date task; naming uses separate approved-name instructions.
 Hearing labels are dates; report Names extracts name/date at continuous report-run starts.
-Classification resource keys, prompt bytes and pipeline order remain unchanged.
+Classification editor resource keys and pipeline order remain unchanged. The
+application taxonomy must preserve pre-profile structural labels including
+RT_certificate and CT_certificate/CT_motion/CT_notice/CT_proof_of_service; do not
+narrow it beneath the legitimate labels imported into private task guidance.
+Use profile_contract.CLASSIFICATION_PAGE_TYPES (re-exported as classification_profiles.PAGE_TYPES)
+for runtime prompts, validation and the editor's task contracts. Preserve those labels
+through downstream stages, and continue rejecting invented/cross-side labels. Profile
+editors advise on unsupported RT_/CT_/CR_ references without rejecting Save/load or
+rewriting historical guidance; the token lint cannot prove semantic consistency.
+General 1.5.0 provides neutral category definitions and task-specific customization
+clues, with no preapproved specialty report/form names. Never auto-replace personal
+profiles or case pins with updated bundled resources. Contract changes participate in freshness; never migrate private guidance
+or fabricate metadata to reuse incompatible checkpoints.
 Summaries has exactly Hearing digest topics, Report digest topics and Minute orders.
 Content schema 5 additionally removes overview instructions; the overview stage
 compiles no profile resources. Profile settings has only Classification and Summaries.
@@ -123,6 +139,20 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 
 Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and flat buttons.
 
+## Resume and data preservation
+
+Resume never resets/deletes an existing bundle. Selection/layout reset flags block
+continuation with an explanation, not automatic Create files. Missing source pages
+with prepared work (including hidden profile-work checkpoints) block extraction.
+The Create files worker is the shared safety boundary for all entry paths: refuse
+reset requests, and no-op for a complete already-prepared source set without
+rewriting its manifest. A same-layout manual selection is a byte/mtime-preserving
+no-op; differing manual layouts after preparation are refused before publication.
+Keep synthetic reopen/resume, all-entry-point preservation and actual GTK safety
+tests. Never silently clear existing data to get a run going; use a separate folder
+for deliberately changed source/layout. Private case recovery requires separate
+copies, never forging freshness metadata or rewriting the user's configuration.
+
 ## Pipeline
 
 1. Create files.
@@ -156,6 +186,21 @@ or when text changes outside that controlled pass. All downstream routing
 reads the validated artifact; the manifest `rt_ct_split_mode`/`rt_ct_split_page` fields
 are legacy compatibility mirrors only. The retired `rt_ct_split_page` config
 key is removed during config migration.
+
+Profile-bound participant generation uses participant_candidates.py to normalize NEW
+private schema-4 candidates only, never historical/published artifacts or private
+settings. Missing optional statuses become unknown; unsupported entries are omitted
+with explicit quality warnings, not invented. Keep reader validators unchanged and
+retain template-review, unsafe-path and examination-range failures. The native guard
+must return both helper stdout and stderr, stop after two failed validation attempts,
+and terminate model work on full success, including successful full validation during
+a partial request. Helper-owned reviewed/total/complete progress prevents repeated
+partial checks without review progress; those also write the failure marker. Explicitly
+allow read of the staged SKILL.md for both native profile stages, never its directory,
+helper scripts or arbitrary schema files. Test real SDK instruction reads and termination,
+not just fixtures which preconstruct a valid candidate. A private exhaustion marker prevents later
+publication. Stop still prevents publication; do not turn unreviewed templates into
+completed empty hearings. Test normalization, helper CLI, actual extension and runner.
 
 The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Its helper publishes a temporary, nonauthoritative worklist under `temp/` that scopes first/appearance pages, RT-index pages, and oath/examination/attendance markers without copying source-page text. The agent processes one hearing at a time, reads single source pages, persists completed hearings incrementally, and uses partial validation after batches of at most five hearings. It must never concatenate the complete RT or a multi-hundred-page run. Full validation rejects the unreviewed template placeholder. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
 

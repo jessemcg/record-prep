@@ -1,11 +1,11 @@
 {
-  "schema_version": 3,
+  "schema_version": 5,
   "profile_api": 1,
   "specialty_id": "california-juvenile-dependency",
   "application": "recordprep",
   "display_name": "California Juvenile Dependency",
   "description": "California Juvenile Dependency guidance owned by RecordPrep.",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "required_capabilities": [
     "preparation-v1"
   ],
@@ -14,12 +14,9 @@
     "classification_tasks": "classification-tasks.json",
     "case_name": "case-name.md",
     "naming": "naming.json",
-    "roles": "roles.json",
     "hearings": "hearings.json",
     "reports": "reports.json",
     "policies": "policies.json",
-    "minutes": "minutes.md",
-    "participants": "participants.md",
-    "overview": "overview.md"
+    "minutes": "minutes.md"
   }
 }

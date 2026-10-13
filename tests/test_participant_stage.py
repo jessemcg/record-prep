@@ -303,6 +303,20 @@ def _review_hearing(
     return hearing
 
 
+def _review_general_hearing(hearing, index, *, status="verified"):
+    hearing = _review_hearing(hearing, index, status=status)
+    for person in hearing["counsel"]:
+        person.pop("role_id")
+        person.update(represents="Mother", speaking_status="spoke", sworn_status="unsworn")
+    for person in hearing["participants"]:
+        person.pop("role_id")
+    for witness in hearing["witnesses"]:
+        for exam in witness["examinations"]:
+            exam.pop("examiner_role_id")
+            exam["examiner_role_label"] = "Mother's counsel"
+    return hearing
+
+
 class ParticipantStageHelperTests(unittest.TestCase):
     def test_skill_requires_bounded_incremental_work(self) -> None:
         skill = (
@@ -326,7 +340,7 @@ class ParticipantStageHelperTests(unittest.TestCase):
             payload = json.loads(
                 (root / "artifacts/participant_index.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(payload["schema_version"], 2)
+            self.assertEqual(payload["schema_version"], 4)
             self.assertEqual(len(payload["hearings"]), 44)
             self.assertEqual(payload["warnings"], [TEMPLATE_WARNING])
             self.assertTrue(
@@ -352,7 +366,7 @@ class ParticipantStageHelperTests(unittest.TestCase):
             hearings = payload["hearings"]
             # Review 10 hearings, leave 34 with the placeholder.
             hearings[:10] = [
-                _review_hearing(h, index + 1) for index, h in enumerate(hearings[:10])
+                _review_general_hearing(h, index + 1) for index, h in enumerate(hearings[:10])
             ]
             path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -364,7 +378,7 @@ class ParticipantStageHelperTests(unittest.TestCase):
             path.write_text(json.dumps(payload), encoding="utf-8")
             partial = _run_helper("validate", "--partial", str(root))
             self.assertEqual(partial.returncode, 1)
-            self.assertIn("counsel[1].evidence must not be empty", partial.stderr)
+            self.assertIn("counsel must cite evidence", partial.stderr)
 
             # Full validation still rejects the leftover template hearings.
             full = _run_helper("validate", str(root))
@@ -445,7 +459,7 @@ class ParticipantStageHelperTests(unittest.TestCase):
             path = root / "artifacts/participant_index.json"
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["hearings"] = [
-                _review_hearing(h, index + 1, status=("verified" if index % 3 else "none"))
+                _review_general_hearing(h, index + 1, status=("verified" if index % 3 else "none"))
                 for index, h in enumerate(payload["hearings"])
             ]
             payload["warnings"] = []

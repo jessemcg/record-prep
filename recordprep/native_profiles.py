@@ -6,27 +6,38 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from .profile_artifacts import role_descriptor
 from .profile_contract import ProfileSnapshot, compile_stage_profile
 from .summary_profiles import CORE
 
 PARTICIPANT_CORE = """\nPARTICIPANTS
 Index one hearing at a time from original single source pages. Keep counsel,
-non-counsel participants and witnesses separate. Use only declared role IDs and
-labels; use unknown/other rather than guessing. Organizations are not aliases.
-Counsel representation is not proof of personal attendance. Q/A alone is not
-sworn testimony. Preserve attendance, speaking, sworn and witness uncertainty.
+non-counsel participants and witnesses separate. Identify anyone established as
+present, appearing remotely or speaking, and preserve expressly recorded absences.
+Use source-supported descriptive role_label text and, for counsel, represents text;
+there is no specialty role catalog or role_id. Preserve observed names and speaker
+aliases, including unnamed speakers with unresolved identity. Do not assume an area
+of law, party structure, parentage, custody or legal status. Organizations are not
+aliases. Do not carry roles across hearings without evidence. Counsel representation
+is not proof of personal attendance; an omitted name is not proof of absence.
+Q/A alone is not sworn testimony. Preserve attendance, speaking, sworn and witness
+uncertainty. Mere references to a person do not establish participation.
 Verified witnesses require source-backed examinations within the hearing. Counsel
 as a witness requires explicit conflict treatment. Retain source citations and
 safe text_pages paths. Do not concatenate whole transcripts. Validate incrementally.
 Only the runner publishes the final artifact after independent validation.
 """
 OVERVIEW_CORE = """\nOVERVIEW
-Write a concise nonauthoritative orientation from the current validated summaries
-and applicable participant metadata. Identify parties, procedural posture, key
-events, principal issues and record scope. Do not infer attendance or testimony
-from a missing participant index in CT-only records. Source pages remain factual
-authority; this overview is never evidence. Preserve the existing overview frontmatter.
+Use the fixed practice-neutral orientation method in the loaded skill. Read every
+current validated summary completely, continuing after truncated reads. Substantive
+facts come only from those summaries; participant metadata is for identity, roles
+and representation only. Identify central parties, the posture as of the latest
+supplied materials, material chronological events, neutrally attributed disputes and
+record scope/gaps. Distinguish allegations, party positions, evidence and actual
+rulings; never assume an appeal or infer nonoccurrence from silence. No outside
+knowledge, legal analysis, outcome prediction, word cap or event quota. Do not infer
+attendance or testimony from a missing participant index in CT-only records. Source
+pages remain factual authority; this overview is never evidence. Preserve the
+existing overview frontmatter, disclaimer and five headings.
 Only the runner publishes after validating the private candidate.
 """
 
@@ -41,8 +52,10 @@ def compile_native(profile: ProfileSnapshot, stage: str, project_dir: Path):
         dependencies.append(project_dir / "skills/recordprep-build-participant-index/scripts/participant_index.py")
     core_bytes = core.encode() + b"\0" + b"\0".join(path.read_bytes() for path in dependencies)
     compiled = compile_stage_profile(profile, stage, core_contract=core_bytes)
-    prompt = core + "\nPRACTICE GUIDANCE (subordinate):\n" + "\n\n".join(
-        name + "\n" + data.decode("utf-8") for name, data in compiled.resources)
+    prompt = core
+    if compiled.resources:
+        prompt += "\nPRACTICE GUIDANCE (subordinate):\n" + "\n\n".join(
+            name + "\n" + data.decode("utf-8") for name, data in compiled.resources)
     provenance = {"schema_version": 1, "profile_ref": asdict(profile.ref), "components": {stage: compiled.component_sha256}}
     return prompt, provenance
 
@@ -126,7 +139,7 @@ def native_runtime_digest(project_dir: Path) -> str:
 def participant_metadata(profile: ProfileSnapshot, root: Path, project_dir: Path) -> dict:
     from .boundary_profiles import require_current_boundaries
     require_current_boundaries(root, profile, project_dir)
-    return {"schema_version": 3, "role_catalog": role_descriptor(profile),
+    return {"schema_version": 4,
             "profile_provenance": compile_native(profile, "participants", project_dir)[1],
             "input_sha256": participant_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir)}
 
@@ -135,7 +148,7 @@ def participant_freshness_issues(root: Path, profile: ProfileSnapshot, project_d
     try:
         payload = json.loads((root / "artifacts/participant_index.json").read_text(encoding="utf-8"))
         expected = participant_metadata(profile, root, project_dir)
-        if (payload.get("schema_version") != 3 or payload.get("role_catalog") != expected["role_catalog"]
+        if (payload.get("schema_version") != 4 or "role_catalog" in payload
                 or payload.get("input_sha256") != expected["input_sha256"]
                 or payload.get("runtime_sha256") != expected["runtime_sha256"]
                 or payload.get("profile_provenance", {}).get("components") != expected["profile_provenance"]["components"]):

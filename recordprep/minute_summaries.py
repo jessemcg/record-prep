@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from recordprep import pi_runtime, summary_agents as sa
-from recordprep.profile_artifacts import preparation_provenance, validate_role_descriptor, role_descriptor
+from recordprep.profile_artifacts import preparation_provenance, validate_role_descriptor
 from recordprep.profile_contract import ProfileSnapshot, compile_stage_profile
 from recordprep.summary_profiles import CORE
 from dataclasses import asdict
@@ -104,7 +104,7 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
     if profile is not None:
         compiled = compile_stage_profile(profile, "minutes", core_contract=(CORE + PROFILE_MINUTE_CORE).encode())
         guidance = profile_guidance(profile)
-        config.update(contract_version=3, guidance=guidance, additional_guidance="",
+        config.update(contract_version=4, guidance=guidance, additional_guidance="",
                       attendance_policy="explicit_complete_order", profile_component=compiled.component_sha256)
         config["resources"] = {str(path.relative_to(project_dir)): sa._resource_sha256(path) for path in (
             project_dir / "SYSTEM.md", project_dir / "resources/profile-minutes.md",
@@ -121,7 +121,9 @@ appearances, party positions, main findings and orders, and the next hearing sch
 
 Attendance has one fixed rule: use explicit evidence from any page of the order.
 Record present, not_present or unclear for each identified person covered by the
-profile guidance, with person, declared role_id and evidence [{file_page, text}].
+profile guidance, with person, a short source-supported role_label (Unknown if
+unresolved), and evidence [{file_page, text}]. There is no role catalog or participant
+index: identify people and roles from this minute order alone.
 Present includes expressly recorded personal remote attendance. Counsel appearing
 alone establishes neither a client's presence nor absence. A missing name is not
 proof of absence. If attendance is unstated, conflicting or illegible, use unclear.
@@ -173,7 +175,6 @@ def profile_guidance(profile: ProfileSnapshot) -> str:
     """The exact runtime instructions, also used by read-only GUI preview."""
     guidance = CORE + PROFILE_MINUTE_CORE
     guidance += "\nPRACTICE GUIDANCE (subordinate):\n" + minute_profile_text(profile)
-    guidance += "\nDECLARED ROLES (data):\n" + json.dumps(profile.resource("roles"), ensure_ascii=False)
     return guidance
 
 
@@ -284,7 +285,6 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
     if (not isinstance(candidate, dict) or candidate.get("artifact") != "recordprep-minute-candidate"
             or not _text(candidate.get("hearing")) or not _text(candidate.get("orders"))):
         raise ValueError("Minute candidate lacks usable hearing/orders; prior output preserved.")
-    catalog = dict(validate_role_descriptor(role_descriptor(profile))["participants"])
     pages = dict(item.page_text) or {item.start: item.first_page}
     flags = []
     raw = candidate.get("appearances")
@@ -298,9 +298,9 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
         if not isinstance(entry, dict) or not _text(entry.get("person")):
             flags.append("malformed_appearance")
             continue
-        role = entry.get("role_id")
-        if not isinstance(role, str) or role not in catalog:
-            role = "unknown"
+        role = _text(entry.get("role_label"))
+        if not role or len(role) > 512:
+            role = "Unknown"
             flags.append("unresolved_role")
         status = entry.get("status")
         if status not in ("present", "not_present", "unclear"):
@@ -318,7 +318,7 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
         if status != "unclear" and not evidence:
             status = "unclear"
             flags.append("appearance_evidence_unverified")
-        appearances.append({"person": _text(entry["person"]), "role_id": role, "status": status, "evidence": evidence})
+        appearances.append({"person": _text(entry["person"]), "role_label": role, "status": status, "evidence": evidence})
     if not appearances:
         flags.append("appearances_unclear")
     positions = _text(candidate.get("positions"))
@@ -374,7 +374,7 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     payload = _read_json(path)
     rows = payload.get("rows")
     version = payload.get("schema_version")
-    if (type(version) is not int or version not in (1, 2, 3) or payload.get("artifact") != "recordprep-minute-rows"
+    if (type(version) is not int or version not in (1, 2, 3, 4) or payload.get("artifact") != "recordprep-minute-rows"
             or not isinstance(rows, list) or payload.get("rows_sha256") != sa.sha256_json(rows)):
         raise ValueError("Minute-order checkpoint is corrupt; prior output preserved.")
     catalog = None
@@ -389,6 +389,11 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
         if "minutes" not in provenance["components"]:
             raise ValueError("Minute-order checkpoint lacks its policy component.")
         catalog = dict(validate_role_descriptor(payload["role_catalog"])["participants"])
+    elif version == 4:
+        if set(payload) != {"schema_version", "artifact", "rows", "rows_sha256", "profile_provenance"}:
+            raise ValueError("Minute-order checkpoint metadata is invalid.")
+        if "minutes" not in preparation_provenance(payload["profile_provenance"])["components"]:
+            raise ValueError("Minute-order checkpoint lacks its guidance component.")
     elif {"attendance_policy", "role_catalog", "profile_provenance"}.intersection(payload):
         raise ValueError("Legacy minute checkpoints cannot carry profile metadata.")
     ids = set()
@@ -396,7 +401,7 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
         if not isinstance(row, dict) or not isinstance(row.get("item_id"), str) or row["item_id"] in ids:
             raise ValueError("Minute-order checkpoint contains invalid or duplicate rows.")
         ids.add(row["item_id"])
-        if version in (2, 3):
+        if version in (2, 3, 4):
             _validate_appearance_row(row, catalog, version=version)
         elif "appearances" in row:
             raise ValueError("Legacy minute checkpoints cannot carry generic appearances.")
@@ -409,21 +414,23 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _validate_appearance_row(row: dict, catalog: dict, *, version: int = 3) -> None:
+def _validate_appearance_row(row: dict, catalog: dict | None = None, *, version: int = 4) -> None:
     """Keep historical rows readable without reinterpreting their attendance."""
     fields = {"item_id", "fingerprint", "hearing", "appearances", "orders", "quality_flags"}
-    fields |= {"positions", "next_hearing"} if version == 3 else {"reporting"}
+    fields |= {"positions", "next_hearing"} if version >= 3 else {"reporting"}
     if set(row) != fields:
         raise ValueError("Minute-order appearance row fields are invalid.")
-    if version == 3 and (not isinstance(row["positions"], str) or not _text(row["next_hearing"])):
+    if version >= 3 and (not isinstance(row["positions"], str) or not _text(row["next_hearing"])):
         raise ValueError("Minute-order positions/next-hearing fields are invalid.")
     appearances = row["appearances"]
     if not isinstance(appearances, list) or len(appearances) > 128:
         raise ValueError("Minute-order appearances must be a bounded list.")
+    role_key = "role_label" if version == 4 else "role_id"
     for entry in appearances:
-        if (not isinstance(entry, dict) or set(entry) != {"person", "role_id", "status", "evidence"}
-                or not _text(entry["person"]) or not isinstance(entry["role_id"], str)
-                or entry["role_id"] not in catalog
+        if (not isinstance(entry, dict) or set(entry) != {"person", role_key, "status", "evidence"}
+                or not _text(entry["person"]) or not isinstance(entry[role_key], str)
+                or (version < 4 and entry[role_key] not in catalog)
+                or (version == 4 and (not _text(entry[role_key]) or len(entry[role_key]) > 512))
                 or entry["status"] not in ("present", "not_present", "unclear")):
             raise ValueError("Minute-order appearance is invalid.")
         evidence = entry["evidence"]
@@ -447,17 +454,15 @@ def _profile_provenance(profile: ProfileSnapshot) -> dict:
 def publish_rows(root: Path, rows: list[dict[str, Any]], *, profile: ProfileSnapshot | None = None) -> None:
     existing = checkpoint_path(root)
     if profile is None and (any("appearances" in row for row in rows)
-            or (existing.exists() and _read_json(existing).get("schema_version") in (2, 3))):
+            or (existing.exists() and _read_json(existing).get("schema_version") in (2, 3, 4))):
         raise ValueError("Generic appearances require a profile-aware publisher; prior output preserved.")
     metadata = {}
     if profile is not None:
-        catalog = role_descriptor(profile)
         for row in rows:
-            _validate_appearance_row(row, dict(validate_role_descriptor(catalog)["participants"]))
-        metadata = {"role_catalog": catalog, "attendance_policy": "explicit_complete_order",
-                    "profile_provenance": _profile_provenance(profile)}
+            _validate_appearance_row(row)
+        metadata = {"profile_provenance": _profile_provenance(profile)}
     sa._atomic_write(checkpoint_path(root), json.dumps({
-        "artifact": "recordprep-minute-rows", "schema_version": 3 if profile is not None else 1,
+        "artifact": "recordprep-minute-rows", "schema_version": 4 if profile is not None else 1,
         "rows": rows, "rows_sha256": sa.sha256_json(rows), **metadata,
     }, ensure_ascii=True, indent=2) + "\n")
 
@@ -493,7 +498,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
             publish_rows(root, rows, profile=profile) if profile is not None else publish_rows(root, rows)
 
     with sa.SummaryKindLock(root, "minutes"):
-        if profile is None and checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") in (2, 3):
+        if profile is None and checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") in (2, 3, 4):
             raise ValueError("Profile-era minute work requires explicit profile-aware generation; prior output preserved.")
         settings, config = stage_config(project_dir, profile=profile) if profile is not None else stage_config(project_dir)
         items = build_items(root, config)
@@ -528,7 +533,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
         with case_profile_publication(root, expected_ref):
             sa._atomic_write(final, text)
             sa._atomic_write(meta_path(root), json.dumps({
-                "artifact": "recordprep-minute-summary", "schema_version": 3 if profile is not None else 1,
+                "artifact": "recordprep-minute-summary", "schema_version": 4 if profile is not None else 1,
                 **({"profile_provenance": _profile_provenance(profile)} if profile is not None else {}),
                 "final_sha256": sa.sha256_text(text), "rows_sha256": sa.sha256_json(rows),
                 "inputs": {item.item_id: item.fingerprint for item in items},
@@ -553,7 +558,7 @@ def freshness_issues(root: Path, project_dir: Path | None = None) -> list[str]:
         profile = resolve_case_profile(root)
         from .boundary_profiles import require_current_boundaries
         require_current_boundaries(root, profile, project_dir)
-        version = 3 if profile is not None else 1
+        version = 4 if profile is not None else 1
         if meta.get("artifact") != "recordprep-minute-summary" or meta.get("schema_version") != version:
             raise ValueError("Minute-order final metadata is invalid or requires explicit profile selection.")
         if profile is not None:

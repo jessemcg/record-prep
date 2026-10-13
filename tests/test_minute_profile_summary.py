@@ -19,9 +19,9 @@ class MinuteProfileSummaryTests(unittest.TestCase):
         self.candidate = {
             "artifact": "recordprep-minute-candidate", "hearing": "Six-month review hearing",
             "appearances": [
-                {"person": "Mother", "role_id": "mother", "status": "present",
+                {"person": "Mother", "role_label": "Mother", "status": "present",
                  "evidence": [{"file_page": 1, "text": "Mother appeared by video"}]},
-                {"person": "Father", "role_id": "father", "status": "not_present",
+                {"person": "Father", "role_label": "Father", "status": "not_present",
                  "evidence": [{"file_page": 2, "text": "Father did not appear"}]},
             ],
             "positions": "Mother objected to termination of services.",
@@ -94,11 +94,21 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             row = self.row()
             minutes.publish_rows(root, [row], profile=self.profile)
             payload = json.loads(minutes.checkpoint_path(root).read_text())
-            self.assertEqual(payload["schema_version"], 3)
-            self.assertEqual(payload["attendance_policy"], "explicit_complete_order")
+            self.assertEqual(payload["schema_version"], 4)
+            self.assertNotIn("attendance_policy", payload)
+            self.assertNotIn("role_catalog", payload)
             self.assertEqual(minutes.load_rows(root), [row])
             # Freeze a historical schema-2 row, including its former reporting output.
-            old = dict(row)
+            old = copy.deepcopy(row)
+            roles = [{"id": label.lower(), "label": label} for label in ("Mother", "Father", "Unknown", "Other")]
+            for person in old["appearances"]:
+                person["role_id"] = person.pop("role_label").lower()
+            payload["role_catalog"] = {"counsel": roles, "participants": roles}
+            # Schema 3 is still read as written, too.
+            payload.update(schema_version=3, rows=[old], rows_sha256=sa.sha256_json([old]),
+                           attendance_policy="explicit_complete_order")
+            minutes.checkpoint_path(root).write_text(json.dumps(payload))
+            self.assertEqual(minutes.load_rows(root), [old])
             old.pop("positions")
             old.pop("next_hearing")
             old["reporting"] = "reported"
@@ -123,7 +133,7 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             path.write_text(json.dumps(payload))
             with self.assertRaises(ValueError):
                 minutes.load_rows(root)
-            payload["attendance_policy"] = "explicit_complete_order"
+            payload.pop("attendance_policy")
             payload["rows"][0].pop("positions")
             payload["rows_sha256"] = sa.sha256_json(payload["rows"])
             path.write_text(json.dumps(payload))

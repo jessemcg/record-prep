@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from recordprep import summary_categories
-from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance, role_descriptor
+from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance
 from recordprep.profile_contract import ProfileSnapshot
 from recordprep.summary_profiles import compile_summary, extraction_metadata
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
@@ -1310,6 +1310,12 @@ def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
             if str(value).strip()
         ]
         appearance = str(counsel.get("appearance_status") or "").strip().replace("_", " ")
+        represents = str(counsel.get("represents") or "").strip()
+        if represents:
+            metadata.append(f"represents: {represents}")
+        for key in ("speaking_status", "sworn_status"):
+            if counsel.get(key):
+                metadata.append(f"{key.removesuffix('_status')}: {counsel[key]}")
         if organization:
             metadata.append(f"organization: {organization}")
         if aliases:
@@ -1352,9 +1358,12 @@ def _hearing_context_lines(hearing: dict[str, Any]) -> tuple[str, str]:
                 if not isinstance(exam, dict):
                     continue
                 exam_type = str(exam.get("type") or "examination").replace("_", " ")
-                examiner_role = _participant_role_label(
+                examiner_role = str(exam.get("examiner_role_label") or "").strip() or _participant_role_label(
                     str(exam.get("examiner_role_id") or "")
                 )
+                examiner_name = str(exam.get("examiner_name") or "").strip()
+                if examiner_name:
+                    examiner_role = f"{examiner_name} ({examiner_role})" if examiner_role else examiner_name
                 exams.append(
                     f"{exam_type} by {examiner_role}" if examiner_role else exam_type
                 )
@@ -1614,9 +1623,8 @@ def build_work_items(
                 raise ValueError(
                     "Participant index validation failed: run Build participant index first."
                 )
-            if config.profile is not None and (payload.get("schema_version") != 3 or
-                    payload.get("role_catalog") != role_descriptor(config.profile)):
-                raise ValueError("Participant indexing must be regenerated with the selected role contract before hearing work.")
+            if config.profile is not None and payload.get("schema_version") != 4:
+                raise ValueError("Run Build participant index with the general identification contract before hearing work.")
             for hearing in payload.get("hearings", []):
                 if not isinstance(hearing, dict):
                     continue

@@ -9,7 +9,7 @@ from pathlib import Path
 from .case_profiles import read_case_profile_ref, case_profile_publication
 from .classification_profiles import component, _digest, load_model_settings
 from .boundary_profiles import boundary_inputs, boundary_issues, toc_issues, _read_metadata
-from .profile_artifacts import role_descriptor, source_map_profile_metadata
+from .profile_artifacts import source_map_profile_metadata
 from .summary_profiles import compile_summary
 from .native_profiles import compile_native
 from . import summary_agents as sa, minute_summaries as minutes
@@ -82,7 +82,7 @@ def publish_source_map(root, profile, project_dir):
     spec = importlib.util.spec_from_file_location("recordprep_owned_source_map_publisher", helper)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    empty = {"schema_version": 3, "source": "record-participant-index", "hearings": [], "role_catalog": role_descriptor(profile),
+    empty = {"schema_version": 4, "source": "record-participant-index", "hearings": [],
              "profile_provenance": compile_native(profile, "participants", project_dir)[1],
              "applicability": "not_applicable_ct_only", "warnings": []}
     payload, manifest = module.build_source_map(root, preparation=preparation, empty_participants=empty)

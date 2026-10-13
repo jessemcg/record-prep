@@ -237,7 +237,7 @@ def prepare(root: Path, *, profile=None, candidate_path: Path | None = None,
         })
 
     payload = {
-        "schema_version": 2,
+        "schema_version": 4,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "record-participant-index",
         "hearings": hearings,
@@ -440,6 +440,10 @@ def validate_payload(payload: Any, *, partial: bool = False) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["participant_index.json must be an object."]
+    if payload.get("schema_version") == 4:
+        _application_root()
+        from recordprep.profile_artifacts import participant_index_issues
+        return participant_index_issues(payload, partial=partial)
     counsel_role_ids = ROLE_IDS
     participant_role_ids = PARTICIPANT_ROLE_IDS
     catalog = None

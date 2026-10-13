@@ -67,12 +67,12 @@ class SummaryContractTests(unittest.TestCase):
 
     def test_historical_fields_cannot_reach_prompt_or_freshness(self):
         profile = bundled("general")
-        files = dict(profile.files)
-        manifest = profile.manifest
-        manifest["schema_version"] = 2
+        from test_practice_profiles import historical_snapshot
+        old = historical_snapshot(profile, version=2)
+        files = dict(old.files)
+        manifest = old.manifest
         for name in RETIRED_SUMMARY_RESOURCES:
-            manifest["resources"][name] = name + ".md"
-            files[name + ".md"] = b"REMOVED_EXTRA_INSTRUCTION_CANARY"
+            files[manifest["resources"][name]] = b"REMOVED_EXTRA_INSTRUCTION_CANARY"
         files["profile.json"] = json_bytes(manifest)
         historical = validate_contents(tuple(files.items()), "recordprep")
         original = historical.files
@@ -103,7 +103,7 @@ class SummaryContractTests(unittest.TestCase):
                               {"start_page": 3, "end_page": 5, "date": "2025-02-01", "report_name": "Dense"}]
                 (root / "artifacts" / f"{stem}_boundaries.json").write_text(json.dumps(boundaries))
                 config = sa.ExtractionConfig(kind, "", profile=bundled("general"))
-                participant_fixture = {"schema_version": 3, "role_catalog": sa.role_descriptor(config.profile),
+                participant_fixture = {"schema_version": 4,
                                        "hearings": boundaries}
                 with patch.object(sa, "_participant_index", return_value=participant_fixture):
                     items = sa.build_work_items(root, config)
@@ -121,7 +121,7 @@ class SummaryContractTests(unittest.TestCase):
     def test_new_bundles_have_no_extra_instruction_files(self):
         for name in ("general", "california_dependency"):
             profile = bundled(name)
-            self.assertEqual(profile.manifest["schema_version"], 3)
+            self.assertEqual(profile.manifest["schema_version"], 5)
             self.assertFalse(RETIRED_SUMMARY_RESOURCES.intersection(profile.manifest["resources"]))
             for filename, _ in profile.files:
                 self.assertFalse(filename.endswith(("-extraction.md", "-synthesis.md")))

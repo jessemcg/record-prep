@@ -1842,6 +1842,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         env = os.environ.copy()
         for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC"):
             env.pop(key, None)
+        if stage.step_id == "build_participant_index":
+            # The staged schema-4 helper uses the shared reader even for an
+            # unassigned case. Resolve application code, never code in the bundle.
+            env["RECORDPREP_APPLICATION_ROOT"] = str(Path(__file__).resolve().parents[2])
         stage_prompt = _stage_prompt(stage, root, project_dir)
         candidate_path = None
         native_extension_args = []

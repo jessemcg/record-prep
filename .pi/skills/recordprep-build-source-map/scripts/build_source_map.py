@@ -370,7 +370,8 @@ def annotate_pages(
             continue
         start = page_number(hearing.get("start_page"))
         end = page_number(hearing.get("end_page"))
-        roles = sorted({str(item.get("role_id") or "") for item in hearing.get("counsel", []) if isinstance(item, dict) and item.get("role_id")})
+        roles = sorted({str(item.get("role_id") or item.get("role_label") or "") for item in hearing.get("counsel", [])
+                        if isinstance(item, dict) and (item.get("role_id") or item.get("role_label"))})
         hearing_participants = [
             {
                 "id": str(item.get("id") or ""),
@@ -414,6 +415,8 @@ def annotate_pages(
                         "type": str(examination.get("type") or ""),
                         "examiner_name": str(examination.get("examiner_name") or ""),
                         "examiner_role_id": str(examination.get("examiner_role_id") or ""),
+                        **({"examiner_role_label": str(examination.get("examiner_role_label") or "")}
+                           if participants.get("schema_version") == 4 else {}),
                     })
 
 
@@ -449,7 +452,10 @@ def build_lookup(pages: list[dict[str, Any]], documents: list[dict[str, Any]], p
             if not isinstance(counsel, dict):
                 continue
             value = {"hearing_id": hearing_id, "name": str(counsel.get("name") or ""), "role_label": str(counsel.get("role_label") or "")}
-            keys = [str(counsel.get("role_id") or ""), str(counsel.get("name") or ""), *[str(alias) for alias in counsel.get("aliases", [])]]
+            if "represents" in counsel:
+                value["represents"] = str(counsel["represents"])
+            keys = [str(counsel.get("role_id") or ""), value["role_label"], str(counsel.get("represents") or ""),
+                    str(counsel.get("name") or ""), *[str(alias) for alias in counsel.get("aliases", [])]]
             for key in keys:
                 if key:
                     by_counsel.setdefault(key.casefold(), []).append(value)
@@ -499,9 +505,9 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
             raise ValueError("CT-only profile publication requires an explicit empty participant descriptor.")
     else:
         participants = load_object(root / "artifacts" / "participant_index.json", "participant_index.json")
-        expected_version = 3 if preparation is not None else 2
-        if participants.get("schema_version") != expected_version:
-            raise ValueError(f"Participant index schema version {expected_version} is required.")
+        supported_versions = (3, 4) if preparation is not None else (2, 4)
+        if participants.get("schema_version") not in supported_versions:
+            raise ValueError("A supported participant index schema is required.")
         # The Focus-facing copy must not carry model-authored page notation
         # even when the on-disk participant artifact predates the fix.
         participants = canonicalize_citation_fields(participants)

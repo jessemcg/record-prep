@@ -123,10 +123,11 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
                 self.assertNotIn('CANARY', output.getvalue())
                 return SimpleNamespace(returncode=code, stdout=output.getvalue(), stderr='')
             frames = [tool('recordprep_get_minute_source', {}), tool('recordprep_submit_minute_summary', {
-                'hearing': 'CANARY Review', 'reporting': 'reported',
-                **({'appearances': [{'person': 'Plaintiff', 'role_id': 'plaintiff', 'status': 'present',
-                                     'evidence': [{'file_page': 1, 'text': 'Plaintiff present in person.'}]}]} if profile_mode else
-                   {'parents': [{'parent': 'Mother', 'status': 'present', 'first_page_evidence': 'Mother present in person.'}]}),
+                'hearing': 'CANARY Review',
+                **({'appearances': [{'person': 'Plaintiff', 'role_label': 'Plaintiff', 'status': 'present',
+                                     'evidence': [{'file_page': 1, 'text': 'Plaintiff present in person.'}]}],
+                    'positions': '', 'next_hearing': 'Next hearing not stated.'} if profile_mode else
+                   {'reporting': 'reported', 'parents': [{'parent': 'Mother', 'status': 'present', 'first_page_evidence': 'Mother present in person.'}]}),
                 'orders': 'CANARY Continued.',
             })]
             records, capture = h.run(factory, frames, execute=execute)
@@ -135,7 +136,8 @@ class RecordPrepCollectionAcceptance(unittest.TestCase):
             payload = json.loads(candidate.read_text())
             self.assertEqual(payload['artifact'], 'recordprep-minute-candidate')
             if profile_mode:
-                self.assertEqual(payload['appearances'][0]['role_id'], 'plaintiff')
+                self.assertEqual(payload['appearances'][0]['role_label'], 'Plaintiff')
+                self.assertNotIn('role_id', payload['appearances'][0])
                 self.assertNotIn('parents', payload)
             self.assertEqual(sum(t['execution_errors'] for t in records[0]['tools'].values()), 0)
         finally:

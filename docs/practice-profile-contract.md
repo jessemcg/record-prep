@@ -30,12 +30,15 @@ Focus content schema 1 requires capability `research-v1` and `research`,
 | Resource | Format |
 | --- | --- |
 | classification | Markdown |
-| naming, roles, hearings, reports, policies | JSON |
+| naming, hearings, reports, policies | JSON |
+| roles (historical schemas 1–3 only; inert) | JSON |
 | hearing_extraction, report_extraction (historical schemas 1/2 only; inert) | Markdown |
 | hearing_synthesis, report_synthesis (historical schemas 1/2 only; inert) | Markdown |
-| minutes, participants, overview | Markdown |
-| classification_tasks (content schemas 2/3) | JSON |
-| case_name (content schemas 2/3; inert historical caption guidance) | Markdown |
+| minutes | Markdown |
+| overview (historical schemas 1–4 only; inert) | Markdown |
+| participants (historical schemas 1–3 only; inert) | Markdown |
+| classification_tasks (content schemas 2–5) | JSON |
+| case_name (content schemas 2–5; inert historical caption guidance) | Markdown |
 
 RecordPrep schema 1 retains its old required resources for read compatibility. Schema 2 adds
 exact task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
@@ -45,9 +48,12 @@ resource/component; schema-1 caption behavior is unchanged. Editing an old draft
 may upgrade it, but never rewrites the accepted snapshot.
 
 Content schema 3 removes all four extra summary instruction resources and rejects
-them if present. Bundled defaults and ordinary GUI edit/create use schema 3.
-Summary compilation for every supported schema uses only the matching topic catalog
-(and hearing attribution roles for extraction), never the historical four fields.
+them if present. Content schema 4 additionally removes roles and participants;
+schema 5 also removes overview instructions. Bundled defaults and ordinary GUI
+edit/create use schema 5; schemas 1–4 retain read-only compatibility. Participant identification
+is application-owned and independent of specialty. Historical roles and identification
+instructions affect no stage prompt or component hash. Summary compilation for every
+supported schema uses only the matching topic catalog, never the historical four fields.
 Their text and presence do not affect summary component hashes. Old saved schemas
 remain readable byte-for-byte; no private revision migration is performed.
 
@@ -56,7 +62,7 @@ remain readable byte-for-byte; no private revision migration is performed.
 Every object rejects unknown fields, duplicate keys and nonfinite numbers.
 
 - Categories: ordered arrays of `{id, title, guidance}`, 1–128 unique entries.
-- Roles: `{counsel: [...], participants: [...]}` of `{id, label, guidance}`,
+- Historical roles (read compatibility only): `{counsel: [...], participants: [...]}` of `{id, label, guidance}`,
   1–128 entries per group, with required `unknown` and `other` fallbacks.
   Entry guidance is nonempty and at most 8192 characters.
 - Naming v3: `{schema_version: 3, report_guidance, form_guidance}`. The instructions
@@ -113,8 +119,14 @@ resource dependencies. Markdown remains exact; structured content is canonical
 JSON. Component hashes include application, stage and caller-supplied core bytes,
 not unrelated display metadata or the whole-profile digest. Classification task
 groups and caption guidance are isolated. Report extraction selects topics, not
-retired extra instructions or policies; minutes selects roles and minute guidance,
-never the historical policy resource. Report runtime
+retired extra instructions or policies; minutes selects only minute guidance,
+never historical roles or policies. Participants selects no profile resources;
+its component hashes the fixed application contract. Hearing extraction and overview
+also omit historical role catalogs. Overview selects no profile resources, including
+no topic catalogs: actual summaries are source dependencies, not profile instructions.
+The detailed orientation method is application-owned for all specialties. Historical
+overview text never enters prompts or component hashes. The same five headings and
+schema-1 nonauthoritative overview remain readable by Focus. Report runtime
 freshness includes `complete-document-no-cutoff-v1`, so old cutoff-era extraction
 requires explicit rerunning rather than being silently reused or regenerated.
 Runtime freshness additionally binds source,
@@ -176,22 +188,27 @@ provenance describes output; it cannot resolve or authorize current instructions
 - Category descriptors: ordered `{id, title}` lists. Role descriptors:
   `{counsel: [...], participants: [...]}` of `{id, label}`, including fallbacks.
   Bounds/uniqueness apply; instruction guidance is forbidden.
-- Participant schema 3 retains schema 2's attendance, witnesses, conflicts and
-  examination safeguards, adds role catalog/provenance, and checks role/label
-  agreement against recorded descriptors. Legacy schema 2 uses frozen roles.
-- Source-map schema 3 adds preparation provenance and requires schema-3 embedded
-  participants when present. CT-only empty arrays do not claim indexing occurred.
-  Map schemas 1/2 remain readable; unsupported future versions fail explicitly.
+- New participant schema 4 has no role catalog or role IDs. Counsel and participants
+  carry bounded source-described role_label strings; counsel also records represents,
+  speaking/sworn status and explicit absence. Examinations carry examiner_role_label.
+  Names/aliases, citations, attendance, testimony, conflict, range and incremental
+  review safeguards remain. Profile-bound indices record preparation provenance;
+  unassigned cases use the same general identification without profile metadata.
+  Historical schemas 2/3 remain readable with frozen/recorded role catalogs.
+- Source-map schema 3 adds preparation provenance and accepts embedded participant
+  schemas 3/4. Map schemas 1/2 remain readable; schema 2 can embed a new general
+  index for unassigned work. CT-only empty arrays do not claim indexing occurred.
+  Unsupported future versions fail explicitly.
 - Digest Markdown format 2/row 3 records category catalog/provenance in the header;
   metadata 5 must agree. Mixed revisions/catalogs and broken escaping/quote grammar
   fail. Legacy format 1/row 2 uses frozen categories, not current instructions.
-- Minute checkpoint/final metadata 3 records the fixed complete-order evidence
-  rule, role catalog and provenance. Rows contain hearing, appearances,
-  positions, orders (including main findings), next_hearing and quality flags;
-  there is no reporting-status field in new rows. Appearance entries remain
-  `{person, role_id, status, evidence}` with `{file_page, text}` evidence.
-  Presence/absence needs source evidence from any page. Location checks are not
-  semantic proof. Checkpoints 1/2 remain readable with their historical rendering;
+- Minute checkpoint/final metadata 4 records provenance, with no role catalog or
+  attendance policy. Rows contain hearing, appearances, positions, orders (including
+  main findings), next_hearing and quality flags; no reporting-status field.
+  Appearance entries are `{person, role_label, status, evidence}` with
+  `{file_page, text}` evidence. Roles and facts come solely from the order, never
+  the participant index. Presence/absence needs source evidence from any page.
+  Location checks are not semantic proof. Checkpoints 1–3 remain readable with historical rendering;
   old final metadata is pending regeneration, not rewritten on inspection.
 - Saved-answer schema 2 records research separately from consumed preparation.
   Older answers remain readable. Different specialty identities are notices,

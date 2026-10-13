@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango, GObject
 
 from . import practice_profiles as api
-from .profile_contract import ProfileError, ProfileSnapshot, RETIRED_SUMMARY_RESOURCES
+from .profile_contract import ProfileError, ProfileSnapshot, RETIRED_SUMMARY_RESOURCES, RETIRED_PARTICIPANT_RESOURCES, RETIRED_OVERVIEW_RESOURCES
 from .profile_workflows import ProfileEditor
 from .profile_store import BUILTIN_SPECIALTIES
 
@@ -635,11 +635,6 @@ class ProfileEditorWindow(Adw.Window):
         self._page("Summaries", "minutes", "Minute orders")
         group = self._group("Minute orders", "One agent summarizes each complete minute order directly, without a topic-digest stage.")
         self._guidance(group, "minutes", "Writing minute-order summaries")
-        self._prompt_page("Participants / Witnesses", "participants", "Identification instructions", "participants")
-        for key, title in (("counsel", "Counsel roles"), ("participants", "Participant roles")):
-            self._page("Participants / Witnesses", key + "-roles", title)
-            self._catalog(self._group(title), self.editor.resources["roles"][key], roles=True)
-        self._prompt_page("Case Overview", "overview", "Overview instructions", "overview")
 
     def _new(self):
         if not self.can_modify():
@@ -819,8 +814,8 @@ def editable_profile(snapshot):
             for name in ("classification_tasks", "case_name"):
                 editor.manifest["resources"][name] = general.manifest["resources"][name]
                 editor.resources[name] = general.resource(name)
-        editor.manifest["schema_version"] = 3
-        for name in RETIRED_SUMMARY_RESOURCES:
+        editor.manifest["schema_version"] = 5
+        for name in RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES | RETIRED_OVERVIEW_RESOURCES:
             editor.manifest["resources"].pop(name, None)
             editor.resources.pop(name, None)
         from .document_naming import editable_naming

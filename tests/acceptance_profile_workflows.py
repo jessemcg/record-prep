@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
             assert not hasattr(editor, "selector")
             assert editor.default_row is None
             assert "case-name" not in editor.pages
-        expected_categories = ({"Classification", "Summaries", "Participants / Witnesses", "Case Overview"}
+        expected_categories = ({"Classification", "Summaries"}
                                if package == "recordprep" else {"General", "Research", "Answers", "Search priorities"})
         assert set(editor.nav_groups) == expected_categories
         # Every child row selects just its own page; navigation does not edit data.
@@ -308,7 +308,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
             identity = topic["id"]
             topic["title"] = "Specialty findings"
             editor.editor.resources["reports"].append({"id": "item-" + uuid.uuid4().hex, "title": "Specialty findings", "guidance": "Capture material source-supported specialty findings."})
-            editor.editor.resources["roles"]["participants"].append({"id": "item-" + uuid.uuid4().hex, "label": "Independent expert", "guidance": "Identify the expert only from explicit source evidence."})
+            assert not {"roles", "participants"}.intersection(editor.editor.resources)
             assert topic["id"] == identity
             assert set(editor.editor.resources["naming"]) == {"schema_version", "report_guidance", "form_guidance"}
             labels = [w.get_text() for w in descendants(editor) if isinstance(w, Gtk.Label)]

@@ -30,15 +30,15 @@ Read the worklist once. It is a pointer file only: **inspect the original source
 Work strictly **one hearing at a time**, in worklist order. For each hearing:
 
 1. Start with the worklist's first/appearance pages, then its marker pages and scoped `RT_index` pages for that hearing. Read those original pages.
-2. Identify counsel by **party role**, not only name. Use these normalized role IDs where applicable: `mothers_counsel`, `fathers_counsel`, `alleged_fathers_counsel`, `presumed_fathers_counsel`, `parents_counsel`, `minors_counsel`, `county_counsel`, `tribes_counsel`, `guardian_ad_litem`, `other_counsel`, `unresolved_counsel`.
-3. Identify non-counsel participants when the transcript expressly shows that they spoke, were present, appeared remotely, or were absent. Include parties, relatives, caregivers, social workers, agency representatives, judicial officers, and interpreters when supported. Do not infer a party's attendance merely because counsel appeared for that party. Routine clerks and reporters need not be listed unless they materially participate.
+2. Identify counsel by name and source-supported role description (`role_label`), recording whom they represent in `represents` (empty if unknown). There is no role catalog or `role_id`. Use the same general method in every area of law; do not assume party alignment, family relationships or legal status.
+3. Identify all non-counsel participants established as speaking, present, remote, or expressly absent, including parties, judicial officers, interpreters, staff and other people. A person merely mentioned is not thereby a participant. Do not infer attendance from counsel representation or absence from an omitted name. An unnamed participant may have an empty name, an observed speaker label in aliases and a source-supported role description (or `Unknown`).
 4. On the hearing's scoped `RT_index` pages, look for chronological witness indexes, witness names, examination type, examiner, and printed transcript page.
 5. Resolve every printed transcript page through `artifacts/transcript_page_numbers.json`. Record the file page, citation label, citation key, and source text page as evidence.
 6. Cross-check witness-index entries against the hearing text around each examination start. Search the hearing's own pages for sworn/oath language, `DIRECT EXAMINATION`, `CROSS-EXAMINATION`, examiner labels, and Q/A structure.
 7. If the witness index is absent or unclear, investigate only the hearing's own pages for explicit swearing and examination evidence. Q/A formatting alone is never enough.
 8. Use a page image only when OCR creates a material ambiguity. Record the text-page evidence either way.
 
-Counsel aliases are hearing-scoped. An alias is an alternate personal name or transcript speaker label, such as `Matt McDonald` or `Mr. McDonald`; a law firm or agency abbreviation such as `JCA`, `CAG`, or `Clark & Le` belongs in `organization`, not `aliases`. Do not apply an attorney-role assignment from one hearing to another without evidence. Preserve names as printed and add only observed aliases. Never guess a role, identity, attendance, or speaking status.
+Counsel aliases are hearing-scoped. An alias is an alternate personal name or transcript speaker label, such as `Alex Smith` or `Ms. Smith`; a law firm or agency abbreviation belongs in `organization`, not `aliases`. Do not apply an attorney-role assignment from one hearing to another without evidence. Preserve names as printed and add only observed aliases. Never guess a role, identity, attendance, or speaking status.
 
 ### Bounded work rules (mandatory)
 
@@ -64,14 +64,14 @@ python scripts/participant_index.py validate --partial "$RECORDPREP_CASE_BUNDLE"
 
 Top level:
 
-- `schema_version`: `2`
+- `schema_version`: `4` (legacy schemas 2/3 remain readable; never generate their role catalogs)
 - `source`: `record-participant-index`
 - `hearings`: generated hearing list
 - `warnings`: concise unresolved/conflict warnings
 
 Each hearing must retain `id`, `date`, `start_page`, `end_page`, `start_citation_label`, `end_citation_label`, and `citation_range`, and contain:
 
-- `counsel`: list of `{role_id, role_label, name, aliases, organization, appearance_status, evidence}` where `appearance_status` is `present`, `remote`, or `unknown`
+- `counsel`: list of `{role_label, represents, name, aliases, organization, appearance_status, speaking_status, sworn_status, evidence}` where `appearance_status` is `present`, `remote`, `absent`, or `unknown`. Use short source-supported role/representation descriptions, not category IDs.
 - `participants`: non-counsel participants supported by the hearing record
 - `witness_status`: exactly `verified`, `none`, `unknown`, or `conflict`
 - `witness_evidence`: hearing-level evidence supporting `none`, `unknown`, or a conflict
@@ -83,9 +83,8 @@ Each participant is:
 ```json
 {
   "id": "participant:hearing:0001:001",
-  "role_id": "relative",
-  "role_label": "Maternal great-aunt",
-  "name": "Janette McKinley",
+  "role_label": "Interpreter",
+  "name": "Alex Smith",
   "aliases": [],
   "attendance_status": "present",
   "speaking_status": "spoke",
@@ -94,7 +93,7 @@ Each participant is:
 }
 ```
 
-Allowed participant role IDs are `mother`, `father`, `alleged_father`, `presumed_father`, `minor`, `relative`, `caregiver`, `social_worker`, `agency_representative`, `judicial_officer`, `interpreter`, `audience_member`, `other_participant`, and `unresolved_participant`. Attendance is `present`, `remote`, `absent`, or `unknown`; speaking is `spoke`, `did_not_speak`, or `unknown`; sworn status is `sworn`, `unsworn`, `not_applicable`, or `unknown`.
+Role labels are short descriptive source data (maximum 512 characters); there are no role IDs. Attendance is `present`, `remote`, `absent`, or `unknown`; speaking is `spoke`, `did_not_speak`, or `unknown`; sworn status is `sworn`, `unsworn`, `not_applicable`, or `unknown`. The speaking/sworn statuses apply to counsel too. Lack of speech in sampled pages alone does not establish did_not_speak. Preserve mixed sworn/unsworn participation in evidence notes and examination mappings rather than inventing a single certain status.
 
 Use `sworn_status: unsworn` for a person who addresses the court without an oath, and also retain a witness entry if that same participant later gives verified sworn testimony. Evidence must support each participant's identity/role and each non-unknown status. A role label may identify an unnamed person; do not invent a name.
 
@@ -106,7 +105,7 @@ Each examination is:
 {
   "type": "direct|cross|redirect|recross|court|continued|other",
   "examiner_name": "",
-  "examiner_role_id": "",
+  "examiner_role_label": "",
   "start_printed_page": 0,
   "end_printed_page": 0,
   "start_file_page": 0,

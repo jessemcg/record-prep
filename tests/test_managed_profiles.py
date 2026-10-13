@@ -31,7 +31,7 @@ class ManagedProfilesTests(unittest.TestCase):
 
     def edit(self, snapshot=None):
         editor = workflows.ProfileEditor(snapshot or self.base)
-        resource = "research" if PACKAGE == "focus" else "overview"
+        resource = "research" if PACKAGE == "focus" else "minutes"
         editor.resources[resource] += "\nSynthetic substantive guidance.\n"
         return editor.snapshot()
 
@@ -78,7 +78,7 @@ class ManagedProfilesTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.save(changed)
         bad = workflows.ProfileEditor(self.base)
-        bad.resources["research" if PACKAGE == "focus" else "overview"] = ""
+        bad.resources["research" if PACKAGE == "focus" else "minutes"] = ""
         with self.assertRaises(contract.ProfileError):
             bad.managed_save(self.store, expected_head=original.content_sha256, expected_default=None,
                              validate=lambda _draft: None, can_modify=lambda: True)

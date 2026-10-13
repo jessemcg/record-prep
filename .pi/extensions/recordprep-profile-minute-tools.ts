@@ -29,7 +29,7 @@ export default function minuteTools(pi: ExtensionAPI) {
       hearing: Type.String(),
       appearances: Type.Array(Type.Object({
         person: Type.String(),
-        role_id: Type.String({ description: "An exact role ID from the supplied participant catalog." }),
+        role_label: Type.String({ maxLength: 512, description: "Short role or relationship expressly supported by this minute order; Unknown if unresolved. No participant index or predefined role catalog is used." }),
         status: Type.Union([Type.Literal("present"), Type.Literal("not_present"), Type.Literal("unclear")]),
         evidence: Type.Array(Type.Object({ file_page: Type.Integer({ minimum: 1 }), text: Type.String() }), { maxItems: 128 }),
       }), { maxItems: 128 }),

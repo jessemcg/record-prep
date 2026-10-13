@@ -482,12 +482,9 @@ def validate_case_overview_text(text: str, *, profile_mode: bool = False) -> lis
             break
 
     prose = text.split("---", 2)[-1]
-    word_count = len(re.findall(r"\b[\w’'-]+\b", prose, flags=re.UNICODE))
-    if not profile_mode and word_count < 150:
-        issues.append("artifacts/case_overview.md must contain at least 150 prose words.")
-    if not profile_mode and word_count > 900:
-        issues.append("artifacts/case_overview.md must not exceed 900 prose words.")
-    if profile_mode and not any(line.strip() and not line.startswith(("#", ">", "---")) for line in prose.splitlines()):
+    # profile_mode is retained for caller compatibility. Both workflows use the
+    # same substance-driven orientation contract, without numeric length quotas.
+    if not any(line.strip() and not line.startswith(("#", ">", "---")) for line in prose.splitlines()):
         issues.append("artifacts/case_overview.md must contain substantive orientation text.")
     return issues
 

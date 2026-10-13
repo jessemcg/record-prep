@@ -106,7 +106,13 @@ def digest_profile_metadata(value: Any, kind: str) -> dict:
 def participant_roles(payload: Any) -> dict[str, tuple[tuple[str, str], ...]]:
     _require(isinstance(payload, dict), "invalid_fields", "participants")
     version = payload.get("schema_version")
-    _require(type(version) is int and version in (2, 3), "unsupported_version", "participants")
+    _require(type(version) is int and version in (2, 3, 4), "unsupported_version", "participants")
+    if version == 4:
+        _require("role_catalog" not in payload, "unexpected_role_catalog", "participants")
+        if "profile_provenance" in payload:
+            provenance = preparation_provenance(payload["profile_provenance"])
+            _require("participants" in provenance["components"], "missing_component", "participants")
+        return {"counsel": (), "participants": ()}
     if version == 2:
         _require(not {"role_catalog", "profile_provenance"}.intersection(payload),
                  "unexpected_profile_metadata", "participants")
@@ -125,30 +131,34 @@ def source_map_profile_metadata(payload: Any) -> dict | None:
     if version < 3:
         _require("preparation_provenance" not in payload, "unexpected_profile_metadata", "source_map")
         participant = payload.get("participant_index")
-        _require(not isinstance(participant, dict) or participant.get("schema_version", 2) in (1, 2),
+        _require(not isinstance(participant, dict) or participant.get("schema_version", 2) in (1, 2, 4),
                  "unsupported_version", "participants")
+        if isinstance(participant, dict) and participant.get("schema_version") == 4:
+            _require(not participant_index_issues(participant, allow_empty=True),
+                     "invalid_participants", "source_map")
         return None
     provenance = preparation_provenance(payload.get("preparation_provenance"))
     participant = payload.get("participant_index")
     if participant is not None:
-        _require(isinstance(participant, dict) and participant.get("schema_version") == 3,
+        _require(isinstance(participant, dict) and participant.get("schema_version") in (3, 4),
                  "unsupported_version", "participants")
         _require(not participant_index_issues(participant, allow_empty=True),
                  "invalid_participants", "source_map")
     return provenance
 
 
-def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list[str]:
+def participant_index_issues(payload: Any, *, allow_empty: bool = False, partial: bool = False) -> list[str]:
     issues: list[str] = []
     try:
         catalog = participant_roles(payload)
     except ProfileError as exc:
         return [f"participant index metadata is invalid ({exc.issue.code})."]
+    general = payload["schema_version"] == 4
     if payload.get("source") != "record-participant-index":
         issues.append("participant index has an invalid source.")
     hearings = payload.get("hearings")
     top_warnings = payload.get("warnings")
-    if isinstance(top_warnings, list) and any(
+    if not partial and isinstance(top_warnings, list) and any(
         isinstance(item, str) and item == PARTICIPANT_TEMPLATE_WARNING
         for item in top_warnings
     ):
@@ -175,7 +185,8 @@ def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list
             issues.append(f"{label} id must be nonempty and unique.")
         seen.add(hearing_id)
         hearing_warnings = hearing.get("warnings")
-        if isinstance(hearing_warnings, list) and any(
+        unreviewed = isinstance(hearing_warnings, list) and PARTICIPANT_TEMPLATE_WARNING in hearing_warnings
+        if not partial and isinstance(hearing_warnings, list) and any(
             isinstance(item, str) and item == PARTICIPANT_TEMPLATE_WARNING
             for item in hearing_warnings
         ):
@@ -189,6 +200,8 @@ def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list
             start = end = 0
         if not start or end < start:
             issues.append(f"{label} has an invalid page range.")
+        if partial and unreviewed:
+            continue
         status = str(hearing.get("witness_status") or "")
         if status not in valid_statuses:
             issues.append(f"{label} has an invalid witness_status.")
@@ -217,20 +230,23 @@ def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list
             if not isinstance(person, dict):
                 issues.append(f"{label} has a malformed counsel entry.")
                 continue
-            if str(person.get("role_id") or "") not in valid_roles:
+            if general:
+                issues.extend(_general_person_issues(person, counsel=True))
+            elif str(person.get("role_id") or "") not in valid_roles:
                 issues.append(f"{label} has an invalid counsel role_id.")
             name = str(person.get("name") or "").strip()
-            if not name:
+            if not name and not general:
                 issues.append(f"{label} has counsel without a name.")
             if not isinstance(person.get("aliases"), list):
                 issues.append(f"{label} counsel aliases must be a list.")
             if not isinstance(person.get("organization"), str):
                 issues.append(f"{label} counsel organization must be a string.")
-            if str(person.get("appearance_status") or "") not in {"present", "remote", "unknown"}:
+            if str(person.get("appearance_status") or "") not in ({"present", "remote", "absent", "unknown"} if general else {"present", "remote", "unknown"}):
                 issues.append(f"{label} counsel has an invalid appearance_status.")
             if not isinstance(person.get("evidence"), list) or not person.get("evidence"):
                 issues.append(f"{label} counsel must cite evidence.")
-            counsel_names.add(name.casefold())
+            if name:
+                counsel_names.add(name.casefold())
         participants = hearing.get("participants")
         if not isinstance(participants, list):
             issues.append(f"{label} participants must be a list.")
@@ -244,7 +260,9 @@ def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list
             if not participant_id or participant_id in participant_ids:
                 issues.append(f"{label} participant id must be nonempty and unique.")
             participant_ids.add(participant_id)
-            if str(person.get("role_id") or "") not in valid_participant_roles:
+            if general:
+                issues.extend(_general_person_issues(person, counsel=False))
+            elif str(person.get("role_id") or "") not in valid_participant_roles:
                 issues.append(f"{label} participant has an invalid role_id.")
             if payload["schema_version"] == 3 and person.get("role_label") != valid_participant_roles.get(str(person.get("role_id") or "")):
                 issues.append(f"{label} participant role_label disagrees with the recorded catalog.")
@@ -286,13 +304,33 @@ def participant_index_issues(payload: Any, *, allow_empty: bool = False) -> list
                     issues.append(f"{label} has an examination outside its page range.")
                 if exam_end and (not exam_start or exam_end < exam_start or exam_end > end):
                     issues.append(f"{label} has an invalid examination end page.")
-    if payload["schema_version"] == 3:
-        issues.extend(_profile_evidence_issues(payload, valid_roles))
+    if payload["schema_version"] in (3, 4):
+        issues.extend(_profile_evidence_issues(payload, valid_roles, partial=partial))
     return list(dict.fromkeys(issues))
 
 
-def _profile_evidence_issues(payload: dict, counsel_roles: dict) -> list[str]:
-    """Keep the native helper's evidence-path/examination safeguards for v3."""
+def _general_person_issues(person: dict, *, counsel: bool) -> list[str]:
+    """Free source-supported role descriptions, never a specialty catalog."""
+    issues = []
+    for key in (("role_label", "represents") if counsel else ("role_label",)):
+        value = person.get(key)
+        if (not isinstance(value, str) or len(value) > 512 or "\x00" in value
+                or (key == "role_label" and not value.strip())):
+            issues.append("participant role/representation must be bounded descriptive text.")
+    if "role_id" in person:
+        issues.append("general participants must not carry catalog role IDs.")
+    if not isinstance(person.get("name"), str):
+        issues.append("participant name must be text; use empty text for an unnamed person.")
+    if counsel:
+        if person.get("speaking_status") not in ("spoke", "did_not_speak", "unknown"):
+            issues.append("counsel speaking status is invalid.")
+        if person.get("sworn_status") not in ("sworn", "unsworn", "not_applicable", "unknown"):
+            issues.append("counsel sworn status is invalid.")
+    return issues
+
+
+def _profile_evidence_issues(payload: dict, counsel_roles: dict, *, partial: bool = False) -> list[str]:
+    """Keep evidence-path/examination safeguards for catalog and general indices."""
     issues = []
 
     def evidence(value):
@@ -310,6 +348,8 @@ def _profile_evidence_issues(payload: dict, counsel_roles: dict) -> list[str]:
 
     for hearing in payload["hearings"]:
         if not isinstance(hearing, dict):
+            continue
+        if partial and isinstance(hearing.get("warnings"), list) and PARTICIPANT_TEMPLATE_WARNING in hearing["warnings"]:
             continue
         evidence(hearing.get("witness_evidence"))
         for group in ("counsel", "participants", "witnesses"):
@@ -336,9 +376,16 @@ def _profile_evidence_issues(payload: dict, counsel_roles: dict) -> list[str]:
                         continue
                     if exam.get("type") not in ("direct", "cross", "redirect", "recross", "court", "continued", "other"):
                         issues.append("participant examination type is invalid.")
-                    role = str(exam.get("examiner_role_id") or "")
-                    if role and role not in counsel_roles:
-                        issues.append("participant examination role is not in its recorded catalog.")
+                    if payload["schema_version"] == 4:
+                        role = exam.get("examiner_role_label")
+                        if not isinstance(role, str) or len(role) > 512 or "\x00" in role:
+                            issues.append("participant examination role must be descriptive text.")
+                        if "examiner_role_id" in exam:
+                            issues.append("general examinations must not carry catalog role IDs.")
+                    else:
+                        role = str(exam.get("examiner_role_id") or "")
+                        if role and role not in counsel_roles:
+                            issues.append("participant examination role is not in its recorded catalog.")
                     try:
                         start = int(exam.get("start_file_page") or 0)
                     except (TypeError, ValueError):

@@ -1,1 +1,0 @@
-Distinguish parents, minors, counsel, agency personnel, caregivers, relatives, tribal counsel, and other identified participants using the role catalog. Do not infer parentage, custody status, or personal attendance from counsel representation.

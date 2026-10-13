@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_native_profiles import load
-from test_participant_stage import _build_record_fixture, _review_hearing, _transcript_entries
+from test_participant_stage import _build_record_fixture, _review_general_hearing, _transcript_entries
 from recordprep.case_profiles import apply_case_profile
 from recordprep.practice_profiles import bundled_profile_directory, validate_profile_directory
 from recordprep.profile_store import ProfileStore
@@ -40,7 +40,7 @@ for scenario, profile in profiles:
         base = Path(temporary)
         root = _build_record_fixture(temporary, hearings=1)
         dependent = scenario == "dependency"
-        custom_role = profile.resource("roles")["participants"][-1] if scenario == "third" else None
+        custom_role = "Independent expert" if scenario == "third" else None
         report_title = "Detention Report" if dependent else "Independent Expert Report"
         for path in (root / "text_pages").glob("*.txt"):
             if not dependent:
@@ -48,7 +48,7 @@ for scenario, profile in profiles:
         with (root / "text_pages/0001.txt").open("a") as stream:
             stream.write("\nWorker 1, social worker, spoke." if dependent else "\nSynthetic Plaintiff appeared personally. Synthetic Defendant appeared personally.")
             if custom_role:
-                stream.write(f"\nSynthetic Plaintiff is the {custom_role['label']}.")
+                stream.write(f"\nSynthetic Plaintiff is the {custom_role}.")
         with (root / "text_pages/0002.txt").open("a") as stream:
             stream.write("\nWitness 1 identified himself and was sworn.")
         with (root / "text_pages/0006.txt").open("a") as stream:
@@ -115,17 +115,13 @@ for scenario, profile in profiles:
                 if spec["stage"] == "participants":
                     data = json.loads(candidate.read_text())
                     data["warnings"] = []
-                    hearing = _review_hearing(data["hearings"][0], 1)
+                    hearing = _review_general_hearing(data["hearings"][0], 1)
                     if not dependent:
-                        roles = {role["id"]:role["label"] for group in profile.resource("roles").values() for role in group}
-                        hearing["counsel"][0].update(role_id="plaintiffs_counsel", role_label=roles["plaintiffs_counsel"])
-                        hearing["participants"][0].update(role_id="plaintiff", role_label=roles["plaintiff"], name="Synthetic Plaintiff")
-                        hearing["witnesses"][0]["examinations"][0]["examiner_role_id"] = "plaintiffs_counsel"
+                        hearing["counsel"][0].update(role_label="Counsel for plaintiff", represents="Synthetic Plaintiff")
+                        hearing["participants"][0].update(role_label="Plaintiff", name="Synthetic Plaintiff")
+                        hearing["witnesses"][0]["examinations"][0]["examiner_role_label"] = "Counsel for plaintiff"
                     if custom_role:
-                        hearing["participants"][0]["role_id"] = custom_role["id"]
-                    labels = {role["id"]:role["label"] for group in profile.resource("roles").values() for role in group}
-                    for person in hearing["counsel"] + hearing["participants"]:
-                        person["role_label"] = labels[person["role_id"]]
+                        hearing["participants"][0]["role_label"] = custom_role
                     data["hearings"] = [hearing]
                     from recordprep.profile_artifacts import participant_index_issues
                     from recordprep.pi_bundle import validate_transcript_numbering_outputs
@@ -152,7 +148,7 @@ for scenario, profile in profiles:
                     stage = runner.SkillStage(f"create_{singular}_summaries",kind,f"recordprep-extract-{singular}","")
                     assert runner._run_summary_stage(stage,root,project / ".pi") == 0
                     assert sa.load_digest_markdown(root,kind)[0]["schema_version"] == 3
-            candidate = {"artifact":"recordprep-minute-candidate","hearing":"Motion hearing","reporting":"unknown","orders":"Motion denied.","appearances":[{"person":"Mother" if dependent else "Synthetic Plaintiff","role_id":"mother" if dependent else "plaintiff","status":"present","evidence":[{"file_page":10,"text":"Mother appeared personally" if dependent else "Plaintiff appeared personally"}]}]}
+            candidate = {"artifact":"recordprep-minute-candidate","hearing":"Motion hearing","reporting":"unknown","orders":"Motion denied.","appearances":[{"person":"Mother" if dependent else "Synthetic Plaintiff","role_label":"Mother" if dependent else "Plaintiff","status":"present","evidence":[{"file_page":10,"text":"Mother appeared personally" if dependent else "Plaintiff appeared personally"}]}]}
             minutes.run_stage(root,project / ".pi",lambda *args:candidate)
             run_native("create_case_overview")
             with patch.object(runner,"_pi_command",side_effect=AssertionError("Map must be deterministic")):

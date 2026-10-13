@@ -44,7 +44,8 @@ class TaskGuidanceTests(unittest.TestCase):
         self.assertEqual(compile_case_name(editor.snapshot()), compile_case_name(self.base))
 
     def test_old_schema_bytes_and_classification_stay_unchanged(self):
-        editor = ProfileEditor(self.base)
+        from test_practice_profiles import historical_snapshot
+        editor = ProfileEditor(historical_snapshot(self.base, version=2))
         editor.manifest["schema_version"] = 1
         for name in ("hearing_extraction", "report_extraction", "hearing_synthesis", "report_synthesis"):
             editor.manifest["resources"][name] = name + ".md"

@@ -51,8 +51,15 @@ nothing is regenerated. Reusing the name creates a new identity; old open drafts
 cannot resurrect a deleted identity. Stale profile/default/case state or active
 work blocks deletion without repairing private files.
 
-RecordPrep opens at Classification. Its main categories are **Classification**, **Summaries**,
-**Participants / Witnesses**, and **Case Overview**. Every Classification page
+RecordPrep opens at Classification. Its only main categories are **Classification**
+and **Summaries**. Case Overview remains a pipeline step, not a settings category.
+One fixed, practice-neutral method reads all summaries completely and supplies Focus
+with central parties, record-bounded procedural posture, chronological material events,
+neutral principal disputes and record scope/gaps. It preserves allegations versus
+findings, uncertainty and identity-only participant metadata; it has no word/event
+quotas, assumed appeal or outside legal analysis. Historical overview instructions
+are ignored, not rewritten. The five-section format and nonauthoritative disclaimer
+remain unchanged. Every Classification page
 shows a short, display-only **How classification builds the record** explanation
 above its scrolling editor, as plain text on the window background without a box,
 border, shadow or contrasting panel. A wrapping, accent-colored progression reads
@@ -100,8 +107,13 @@ rewriting private snapshots; genuinely custom minute prose remains unchanged. Th
 with the distinction between topic-organized digests and narrative sections.
 Restored contracts mark profile-bound digests and narratives regeneration-pending;
 existing output stays untouched until an explicit summary run.
-Identification instructions, counsel roles and participant roles
-are separate pages under Participants / Witnesses. Report naming and form naming
+There is no Participants / Witnesses settings area. One fixed general identification
+contract applies to every hearing, regardless of specialty. It records source-supported
+names, roles/relationships, attorney representation, personal/remote attendance,
+express absences, speaking, sworn testimony and examinations, with citations and
+uncertainty. Role labels describe the source rather than an editable category catalog.
+The index still supports hearing summaries, case overview and Focus navigation.
+Minute orders use only the current order, not this index or a profile role catalog. Report naming and form naming
 each have just one instructions editor. Their approved names appear once, as `- **Name**` entries in that editor;
 optional matching requirements follow an em dash. The same entries supply both
 the model prompt and Python's exact approved-name check. There is no naming-mode
@@ -118,8 +130,8 @@ initial display formatting only: opening or browsing does not change saved guida
 or mark the profile dirty. Editing a topic makes its displayed text the draft;
 only the normal Save flow persists that draft.
 Topics guide capture from each complete hearing or report, not required headings
-in the narrative. New RecordPrep profiles use content schema 3, without the four
-extra instruction resources. Explicit editing upgrades only a draft; historical
+in the narrative. New RecordPrep profiles use content schema 5, without the four
+extra summary instruction resources, role catalogs, participant or overview instructions. Explicit editing upgrades only a draft; historical
 accepted revisions are never rewritten. Focus uses the same navigation layout with **General**,
 **Research**, **Answers**, and **Search priorities** categories and tall prompt editors. Priorities rank results; they never exclude parts of the record.
 
@@ -263,8 +275,12 @@ suites exercise both apps; do not introduce sibling runtime imports.
 schema 2 adds `classification_tasks` (strict JSON keys `rt`, `ct`, `first_hearing`,
 `first_minute`, `first_form`, `date_hearing`, `date_minute`) and `case_name` text,
 retaining every schema-1 resource. Schema 3 keeps those task fields but removes
-the four extra summary instruction resources; historical schemas 1/2 remain
-readable and their extra-summary fields are inert. Common classification guidance is composed
+the four extra summary instruction resources. Schema 4 additionally removes roles
+and participant instructions; historical schemas 1–3 remain readable, and all these
+retired fields are inert in every stage's prompts and component fingerprints.
+Schema 5 additionally removes overview instructions. Overview compilation selects
+no profile resources; it follows the application method and runtime summary inputs.
+Schemas 1–4 remain readable with historical overview prose inert. Common classification guidance is composed
 with application-owned taxonomy and only the current task's guidance. Component
 fingerprints isolate basic, first-page/correction and date guidance; caption
 inference uses one application-owned, practice-neutral prompt and its own
@@ -295,8 +311,9 @@ no model or heuristic invents a new allowlist from arbitrary prose.
 Manifests reject unknown/missing fields, unsupported capabilities/versions,
 noncanonical/traversing/executable resource paths, duplicate JSON keys, unsafe
 links, oversized files and invalid Unicode. Resources are frozen and verified by
-content hash. Topics/roles use stable bounded IDs; roles retain unknown/other
-fallbacks; naming uses closed source/approved-title modes; profile-bound attendance
+content hash. Topics use stable bounded IDs; historical role catalogs retain their
+reader validation only. New participant metadata uses source-described role labels,
+not specialty IDs. Naming retains historical source/approved-title modes; profile-bound attendance
 uses a fixed complete-order source-evidence rule, not a selectable policy. There is no Formal proposals switch or heading-
 based report cutoff. Complete reports remain available for material recommendations,
 requested relief and later discussion; guidance distinguishes proposals from actual
@@ -308,9 +325,13 @@ report freshness requires explicit rerunning under the new complete-source contr
 Profiles cannot weaken evidence, citations, source scope, tools, output schema or
 publication safeguards.
 
-Existing participant/source-map schema 3, digest format 2/row 3/metadata 5,
-minute checkpoint 3 (with 1/2 compatibility) and saved-answer schema 2 remain descriptive reader contracts,
+New participant schema 4 (with 2/3 compatibility), source-map schema 3,
+digest format 2/row 3/metadata 5, minute checkpoint 4 (with 1–3 compatibility)
+and saved-answer schema 2 remain descriptive reader contracts,
 not instruction authority. Legacy readers and frozen fixtures remain intact.
+Old private snapshots and generated output are never rewritten on inspection.
+The changed participant/minute contracts make affected profile-bound work pending
+until explicitly rerun; historical role edits alone no longer change stage components.
 Prepared provenance and research choices remain separate; different specialties
 are not intrinsically structural incompatibility. Source pages remain authority.
 

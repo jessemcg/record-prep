@@ -32,7 +32,65 @@ def participant():
                                   "speaking_status": "unknown", "sworn_status": "unknown", "evidence": [{"text_path": "text_pages/0001.txt"}]}]}]}
 
 
+def general_participant():
+    data = participant()
+    data["schema_version"] = 4
+    data.pop("role_catalog")
+    hearing = data["hearings"][0]
+    counsel = hearing["counsel"][0]
+    counsel.pop("role_id")
+    counsel.update(role_label="Counsel for claimant", represents="Synthetic Party",
+                   speaking_status="spoke", sworn_status="unsworn")
+    hearing["participants"][0].pop("role_id")
+    hearing["participants"][0]["role_label"] = "Court-appointed technical adviser"
+    return data
+
+
 class ArtifactContractTests(unittest.TestCase):
+    def test_general_index_supports_any_role_with_no_catalog_or_installed_profile(self):
+        data = general_participant()
+        before = copy.deepcopy(data)
+        self.assertEqual(a.participant_index_issues(data), [])
+        self.assertEqual(data, before)
+        data.pop("profile_provenance")  # unassigned case uses identical identification
+        self.assertEqual(a.participant_index_issues(data), [])
+        hearing = data["hearings"][0]
+        hearing["participants"][0].update(name="", role_label="Unknown", aliases=["UNIDENTIFIED SPEAKER"])
+        hearing["counsel"][0].update(name="", appearance_status="absent", speaking_status="unknown")
+        self.assertEqual(a.participant_index_issues(data), [])
+        for version in (2, 3):
+            mapped = {"schema_version": version, "participant_index": data}
+            if version == 3:
+                mapped["preparation_provenance"] = provenance()
+            self.assertEqual(a.source_map_profile_metadata(mapped), provenance() if version == 3 else None)
+
+    def test_general_index_retains_validation_without_catalog_constraints(self):
+        for mutate in (
+            lambda d: d.update(role_catalog=roles()),
+            lambda d: d["hearings"][0]["participants"][0].update(role_id="custom"),
+            lambda d: d["hearings"][0]["participants"][0].update(role_label="x" * 513),
+            lambda d: d["hearings"][0]["counsel"][0].update(represents=[]),
+            lambda d: d["hearings"][0]["counsel"][0].update(speaking_status="assumed"),
+            lambda d: d["hearings"][0]["participants"][0].update(evidence=[]),
+            lambda d: d["hearings"][0]["participants"][0].update(evidence=[{"text_path": "../outside"}]),
+            lambda d: d["hearings"][0].update(witness_status="none"),
+            lambda d: d["hearings"][0].update(witness_status="verified"),
+        ):
+            data = general_participant()
+            mutate(data)
+            self.assertTrue(a.participant_index_issues(data))
+
+    def test_general_partial_review_does_not_hide_completed_hearing_errors(self):
+        data = general_participant()
+        unreviewed = copy.deepcopy(data["hearings"][0])
+        unreviewed.update(id="hearing:0002", warnings=[a.PARTICIPANT_TEMPLATE_WARNING])
+        data["hearings"].append(unreviewed)
+        data["warnings"] = [a.PARTICIPANT_TEMPLATE_WARNING]
+        self.assertEqual(a.participant_index_issues(data, partial=True), [])
+        self.assertTrue(a.participant_index_issues(data))
+        data["hearings"][0]["counsel"][0]["evidence"] = []
+        self.assertTrue(a.participant_index_issues(data, partial=True))
+
     def test_new_roles_need_no_installed_profile(self):
         data = participant()
         before = copy.deepcopy(data)

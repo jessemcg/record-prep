@@ -11,10 +11,17 @@ from tests.test_summary_tools_extension import STUB_TYPEBOX
 
 class MinuteToolsTests(unittest.TestCase):
     def test_source_required_narrow_tools_and_candidate_publication(self):
+        self.exercise_tools(profile=False)
+
+    def test_profile_tools_use_order_role_labels_without_catalog_or_index(self):
+        self.exercise_tools(profile=True)
+
+    def exercise_tools(self, *, profile):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             extension = root / "minute-tools.ts"
-            shutil.copy2(Path(__file__).resolve().parents[1] / ".pi/extensions/recordprep-minute-tools.ts", extension)
+            name = "recordprep-profile-minute-tools.ts" if profile else "recordprep-minute-tools.ts"
+            shutil.copy2(Path(__file__).resolve().parents[1] / ".pi/extensions" / name, extension)
             module = root / "node_modules/typebox"
             module.mkdir(parents=True)
             (module / "package.json").write_text('{"main":"index.js"}')
@@ -30,14 +37,18 @@ const handlers = {};
 tools({ registerTool(tool) { registered[tool.name] = tool; }, on(name, handler) { handlers[name] = handler; } });
 process.env.RECORDPREP_MINUTE_WORK_SPEC = process.argv[2];
 const submit = registered.recordprep_submit_minute_summary;
-const params = { hearing: "Review", reporting: "reported", parents: [{parent: "Mother", status: "present", first_page_evidence: "Mother present."}], orders: "Continued." };
+const profile = process.argv[3] === "profile";
+const params = profile
+  ? { hearing: "Review", appearances: [{person: "Mother", role_label: "Mother", status: "present", evidence: [{file_page: 1, text: "Mother present."}]}], positions: "", orders: "Continued.", next_hearing: "Next hearing not stated." }
+  : { hearing: "Review", reporting: "reported", parents: [{parent: "Mother", status: "present", first_page_evidence: "Mother present."}], orders: "Continued." };
+if (profile && (!submit.parameters.appearances[1].role_label || submit.parameters.appearances[1].role_id)) throw new Error("Unexpected role schema");
 let blocked = false, shutdown = 0;
 try { await submit.execute("1", params, null, null, {shutdown() {shutdown++;}}); } catch { blocked = true; }
 const source = await registered.recordprep_get_minute_source.execute();
 const result = await submit.execute("2", params, null, null, {shutdown() {shutdown++;}});
 console.log(JSON.stringify({ names: Object.keys(registered), blocked, source: source.content[0].text, shutdown, terminate: result.terminate }));
 ''')
-            result = subprocess.run(["node", "--experimental-strip-types", str(driver), str(spec)], capture_output=True, text=True, timeout=20)
+            result = subprocess.run(["node", "--experimental-strip-types", str(driver), str(spec), "profile" if profile else "legacy"], capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
             actual = json.loads(result.stdout)
             self.assertEqual(actual["names"], ["recordprep_get_minute_source", "recordprep_submit_minute_summary"])
@@ -48,6 +59,11 @@ console.log(JSON.stringify({ names: Object.keys(registered), blocked, source: so
             payload = json.loads(candidate.read_text())
             self.assertEqual(payload["artifact"], "recordprep-minute-candidate")
             self.assertEqual(payload["item_id"], "minute:0001")
+            if profile:
+                self.assertEqual(payload["appearances"][0]["role_label"], "Mother")
+                self.assertNotIn("role_id", payload["appearances"][0])
+                self.assertNotIn("reporting", payload)
+                self.assertEqual(payload["next_hearing"], "Next hearing not stated.")
 
 
 if __name__ == "__main__":

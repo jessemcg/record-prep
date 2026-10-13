@@ -234,7 +234,7 @@ class PiBundleTests(unittest.TestCase):
             self.assertEqual(validate_transcript_layout_output(root), [])
             self.assertEqual(source_map_prerequisite_issues(root), [])
 
-    def test_case_overview_requires_versioning_word_count_and_freshness(self) -> None:
+    def test_case_overview_requires_versioning_and_freshness(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._build_valid_bundle(root)
@@ -244,7 +244,7 @@ class PiBundleTests(unittest.TestCase):
             malformed = validate_case_overview_output(root)
 
             self.assertTrue(any("missing required versioning" in issue for issue in malformed))
-            self.assertTrue(any("at least 150 prose words" in issue for issue in malformed))
+            self.assertFalse(any("prose words" in issue for issue in malformed))
 
             overview.write_text(_case_overview_text(), encoding="utf-8")
             participant = root / "artifacts/participant_index.json"

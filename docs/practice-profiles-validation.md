@@ -1,5 +1,78 @@
 # Practice profiles: validation and limits
 
+## Fixed case orientation — 2026-10-13
+
+Restored the substantive pre-migration overview method (verified identical at
+`a851e5a` and `7921736`), with approved refinements: posture bounded by the latest
+supplied materials, no assumed appeal, identity-only participant metadata, explicit
+allegations/positions/evidence/rulings, and no numerical word or event quotas.
+Bound and unassigned skills have byte-identical Orientation method sections, while
+retaining their separate publication mechanisms. Bound work keeps private-candidate
+and unchanged-input/selection guards; the five-section schema/disclaimer is unchanged.
+
+Content schema 5 omits overview instructions. Historical schemas 1–4 remain readable
+without private rewrites, but old overview text and direct topic catalogs affect
+neither overview prompts nor components. Changed actual summaries remain freshness
+inputs. Explicit edit upgrades only a draft until normal Save. The entire Case
+Overview settings category is absent; the pipeline step remains.
+
+Home-only validation, disposable `/tmp/classification-preview-EKHCHA` environments:
+RecordPrep **530 tests OK, no skips**, installed offline Pi SDK enabled; Focus
+**672 passed + 40 subtests**, existing warnings unchanged. Five new overview tests
+cover historical prompt isolation, specialty independence, schema strictness,
+restored-method parity, no numeric validator limits, unchanged reader structure,
+and summary-input freshness/CT-only index exclusion. Managed-save fixtures now edit
+minute guidance rather than the removed overview field. Both targeted GTK suites
+pass; native screenshot of a synthetic Dependency editor confirms only Classification
+and Summaries. Owned preview closed. Three synthetic producer pipelines plus independent
+Focus context/lookup/search acceptance pass. Native resources and both overview skill
+variants validate. Shared parity and diff checks pass. No live model-quality claim,
+private profile/config/case changes, production provisioning, remote actions or push.
+Existing overviews stay untouched until explicitly regenerated; profile-bound overview
+freshness incorporates the changed application method.
+
+## General participant identification — 2026-10-13
+
+Validated on Home only, with disposable source/environments under
+`/tmp/classification-preview-EKHCHA` and synthetic case/profile exports in a fresh
+`/tmp/general-participants-*` directory. No private configuration, accepted profile,
+case or source pages modified; no live model calls, remote actions or push.
+
+- RecordPrep **525 tests OK, no skips**, with the installed offline Pi SDK explicitly
+  enabled. Focus **672 passed + 40 subtests**. Existing RecordPrep unclosed-file and
+  simulated metrics-unavailable warnings, and Focus GTK/forkpty deprecations remain.
+- General and Dependency compile identical fixed participant instructions/components;
+  old role/identification changes enter no participant, hearing, minute or overview
+  prompt/component. Content schema 4 rejects retired fields; schemas 1–3 stay readable.
+  Explicit edit creates only a catalog-free in-memory draft until normal Save.
+- Participant schema 4 tests cover arbitrary source-described roles, representation,
+  unnamed speakers, absence, incremental review, testimony/conflict and examination
+  safeguards. Actual bound and unassigned native runners publish synthetic general
+  indices. The staged unassigned helper receives an application-owned import root;
+  it never imports validation code from a case bundle.
+- Minute metadata/checkpoint 4 has source-described roles and no role catalog; old
+  checkpoint 1–3 reading/rendering remains. Complete-order evidence, positions, orders,
+  next hearing, resume and index independence pass. The real profile minute extension
+  runs under both a synthetic host and installed offline SDK. Updated the SDK fixture
+  to supply the current required role_label/positions/next_hearing fields rather than
+  silently skipping its obsolete candidate.
+- Civil, Dependency and programmatically authored third-profile producer pipelines
+  pass actual validators/publishers with simulated models. Independent Focus consumer
+  subprocesses validate all three maps and context/lookup/search without preparation
+  instructions installed or case writes. Free role/representation/examiner descriptions
+  remain navigation/attribution data, never evidence authority.
+- Both targeted native GTK acceptance suites pass under fatal criticals. Scoped native
+  screenshot and accessibility inspection of an owned synthetic Dependency editor
+  confirm exactly Classification, Summaries and Case Overview, with no participant
+  controls. The preview was closed; no user's application state was modified.
+- Native resource and changed/generated participant/source-map Agent Skill validation
+  pass. Shared modules/tests/docs and whitespace checks pass. Full compositor-width
+  sweep and live-model identification quality are not claimed by these checks.
+
+Old artifacts stay untouched until explicit reruns. Profile-bound participant and
+minute generation becomes pending under the new contracts; old role settings alone
+no longer determine freshness. CT-only skipping and report-index independence remain.
+
 ## Simplified minute-order summaries — 2026-10-13
 
 Home only, same disposable checkouts/environments and synthetic HOME/XDG/records.

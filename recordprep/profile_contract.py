@@ -38,20 +38,21 @@ RESOURCE_TYPES = {
 RETIRED_SUMMARY_RESOURCES = frozenset({
     "hearing_extraction", "report_extraction", "hearing_synthesis", "report_synthesis",
 })
+RETIRED_PARTICIPANT_RESOURCES = frozenset({"roles", "participants"})
+RETIRED_OVERVIEW_RESOURCES = frozenset({"overview"})
 STAGE_RESOURCES = {
     "focus": {"research": ("research", "answer_guidance", "search")},
     "recordprep": {
         "classification": ("classification",),
         "naming": ("naming",),
-        "participants": ("roles", "participants"),
-        # Historical extra-summary instruction files remain schema-readable,
-        # but only topic catalogs (and hearing attribution roles) affect new work.
-        "hearing_extraction": ("hearings", "roles"),
+        "participants": (),  # Identification is application-owned for every specialty.
+        # Historical instructions/catalogs remain readable, never compiled.
+        "hearing_extraction": ("hearings",),
         "report_extraction": ("reports",),
         "hearing_synthesis": ("hearings",),
         "report_synthesis": ("reports",),
-        "minutes": ("roles", "minutes"),
-        "overview": ("roles", "hearings", "reports", "overview"),
+        "minutes": ("minutes",),
+        "overview": (),  # Orientation method is fixed; summaries are runtime inputs.
     },
 }
 CAPABILITIES = {"focus": {"research-v1"}, "recordprep": {"preparation-v1"}}
@@ -320,7 +321,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -336,8 +337,14 @@ def _manifest(data: bytes, application: str) -> dict:
         if value["schema_version"] == 1:
             for name in ("classification_tasks", "case_name"):
                 types.pop(name)
-        if value["schema_version"] == 3:
+        if value["schema_version"] >= 3:
             for name in RETIRED_SUMMARY_RESOURCES:
+                types.pop(name)
+        if value["schema_version"] >= 4:
+            for name in RETIRED_PARTICIPANT_RESOURCES:
+                types.pop(name)
+        if value["schema_version"] >= 5:
+            for name in RETIRED_OVERVIEW_RESOURCES:
                 types.pop(name)
     resources = _object(value["resources"], set(types), "resources")
     paths = set()

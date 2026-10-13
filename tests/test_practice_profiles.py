@@ -52,6 +52,29 @@ def synthetic_files(application="focus"):
     return files
 
 
+def historical_snapshot(profile, version=3):
+    """Synthetic retired resources; never read private historical instructions."""
+    files = dict(profile.files)
+    manifest = profile.manifest
+    manifest["schema_version"] = version
+    synthetic = synthetic_files("recordprep")
+    old_manifest = json.loads(synthetic["profile.json"])
+    retired = set(contract.RETIRED_OVERVIEW_RESOURCES) if version < 5 else set()
+    if version < 4:
+        retired.update(contract.RETIRED_PARTICIPANT_RESOURCES)
+    if version < 3:
+        retired.update(contract.RETIRED_SUMMARY_RESOURCES)
+    for name in retired:
+        path = old_manifest["resources"][name]
+        manifest["resources"][name] = path
+        files[path] = synthetic[path]
+    if version == 1:
+        for name in ("classification_tasks", "case_name"):
+            files.pop(manifest["resources"].pop(name), None)
+    files["profile.json"] = contract.json_bytes(manifest)
+    return contract.validate_contents(tuple(files.items()), "recordprep")
+
+
 class ProfileTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -505,7 +528,10 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result.draft.ref.application, api.APPLICATION)
                     for stage in contract.STAGE_RESOURCES[api.APPLICATION]:
                         compiled = contract.compile_stage_profile(result.draft, stage, core_contract=b"synthetic core")
-                        self.assertTrue(compiled.resources)
+                        if stage in ("participants", "overview"):
+                            self.assertEqual(compiled.resources, ())
+                        else:
+                            self.assertTrue(compiled.resources)
             self.assertFalse((self.root / "c").exists())
             self.assertFalse((self.root / "d").exists())
         with self.assertRaises(contract.ProfileError):

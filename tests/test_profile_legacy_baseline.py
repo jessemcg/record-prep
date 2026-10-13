@@ -50,7 +50,7 @@ class LegacyProfileBaselineTests(unittest.TestCase):
         self.assertEqual(helper["ROLE_IDS"], expected["valid_roles"])
         self.assertEqual(helper["PARTICIPANT_ROLE_IDS"], expected["valid_participant_roles"])
 
-    def test_dependency_bundle_preserves_legacy_categories_and_roles(self):
+    def test_dependency_bundle_preserves_categories_but_retires_role_settings(self):
         result = practice_profiles.validate_profile_directory(
             practice_profiles.bundled_profile_directory("california_dependency"))
         self.assertEqual(result.issues, ())
@@ -64,10 +64,8 @@ class LegacyProfileBaselineTests(unittest.TestCase):
                     self.assertIn("clear distinction from actual court", actual["guidance"])
                 else:
                     self.assertEqual(actual, historical)
-        roles = result.draft.resource("roles")
-        for key, legacy_key in (("counsel", "valid_roles"), ("participants", "valid_participant_roles")):
-            self.assertEqual({entry["id"] for entry in roles[key]},
-                             set(self.fixture["roles"][legacy_key]) | {"unknown", "other"})
+        self.assertNotIn("roles", result.draft.manifest["resources"])
+        self.assertNotIn("participants", result.draft.manifest["resources"])
         self.assertEqual(result.draft.resource("policies"), {})
 
     def test_general_has_neutral_categories_and_no_selectable_policies(self):

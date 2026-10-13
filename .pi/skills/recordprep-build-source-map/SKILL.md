@@ -25,7 +25,7 @@ Require:
 - `artifacts/transcript_layout.json` using schema version 1, resolved with a declared mode
 - `artifacts/transcript_page_numbers.json` using schema version 2 or newer
 - `artifacts/transcript_page_number_series.md`
-- `artifacts/participant_index.json` using schema version 2 — only when
+- `artifacts/participant_index.json` using general schema version 4 (legacy 2 remains readable) — only when
   participant indexing applies to the resolved layout; a clerk's-transcript-only
   record must not require or reference it
 - hearing, report, and minute boundary JSON
@@ -66,7 +66,10 @@ not a finding that there were no participants or witnesses. The source map must 
 ranges directly from boundaries and `text_pages`, embed normalized counsel,
 non-counsel participant,
 witness, and examination metadata when participant indexing applies, and
-contain only case-root-relative paths.
+contain only case-root-relative paths. Preserve source-described role labels,
+whom counsel represents, and examiner role labels; never replace them with
+specialty categories. Profile-bound publication is the runner's deterministic
+schema-3 publisher, not this model workflow.
 
 Verify page counts against `text_pages`, direct document ranges, participant
 page annotations when participant indexing applies, a nonempty

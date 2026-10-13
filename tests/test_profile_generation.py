@@ -228,7 +228,7 @@ class ProfileGenerationTests(unittest.TestCase):
         item = minutes.build_items(self.root, config)[0]
         candidate = {"artifact": "recordprep-minute-candidate", "hearing": "Review", "reporting": "reported",
                      "orders": "Motion denied.", "positions": "Plaintiff requested relief.",
-                     "next_hearing": "Review hearing set for March 4, 2026 at 9:00 a.m.", "appearances": [{"person": "Synthetic Plaintiff", "role_id": "plaintiff",
+                     "next_hearing": "Review hearing set for March 4, 2026 at 9:00 a.m.", "appearances": [{"person": "Synthetic Plaintiff", "role_label": "Plaintiff",
                      "status": "present", "evidence": [{"file_page": 2, "text": "Plaintiff appeared in person"}]}]}
         self.assertEqual(minutes.normalize_candidate(candidate, item, profile=profile)["appearances"][0]["status"], "present")
         first_only = changed(profile, "policies", profile.resource("policies") | {"attendance": "legacy_first_page_parents"})
@@ -247,7 +247,7 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(minutes.freshness_issues(self.root, project / ".pi"), [])
             self.assertNotIn("Parent", sa.summary_final_path(self.root, "minutes").read_text())
-            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 3)
+            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 4)
             output = sa.summary_final_path(self.root, "minutes").read_text()
             self.assertIn("Review. Synthetic Plaintiff appeared. Plaintiff requested relief. Motion denied.", output)
             self.assertIn("March 4, 2026 at 9:00 a.m.", output)

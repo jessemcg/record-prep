@@ -141,17 +141,20 @@ with patch.object(api, "profile_store", return_value=store):
         for resource in ("hearing_extraction", "report_extraction", "hearing_synthesis", "report_synthesis"):
             assert resource not in editor.editor.resources
             assert resource not in editor.editor.manifest["resources"]
-        historical_editor = editor_ui.ProfileEditor(editor.editor.base)
-        historical_editor.manifest["schema_version"] = 2
+        assert set(editor.page_groups.values()) == {"Classification", "Summaries"}
+        assert not {"roles", "participants", "overview"}.intersection(editor.editor.resources)
+        assert "overview" not in editor.pages
+        assert not {"participants", "counsel-roles", "participants-roles"}.intersection(editor.pages)
+        from test_practice_profiles import historical_snapshot
+        historical_editor = editor_ui.ProfileEditor(historical_snapshot(editor.editor.base, version=2))
         historical_editor.resources["policies"]["attendance"] = "legacy_first_page_parents"
         for name in editor_ui.RETIRED_SUMMARY_RESOURCES:
-            historical_editor.manifest["resources"][name] = name + ".md"
             historical_editor.resources[name] = "Synthetic retired instructions."
         historical = historical_editor.snapshot()
         historical_files = historical.files
         upgraded = editor_ui.editable_profile(historical)
-        assert upgraded.manifest["schema_version"] == 3
-        assert not editor_ui.RETIRED_SUMMARY_RESOURCES.intersection(upgraded.resources)
+        assert upgraded.manifest["schema_version"] == 5
+        assert not (editor_ui.RETIRED_SUMMARY_RESOURCES | editor_ui.RETIRED_PARTICIPANT_RESOURCES | editor_ui.RETIRED_OVERVIEW_RESOURCES).intersection(upgraded.resources)
         upgraded_snapshot = upgraded.snapshot()
         assert upgraded_snapshot.manifest == editor.editor.base.manifest
         assert all(upgraded_snapshot.resource(name) == editor.editor.base.resource(name)

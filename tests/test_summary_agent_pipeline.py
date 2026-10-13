@@ -189,7 +189,7 @@ class CategoryContractTests(unittest.TestCase):
     def test_digest_schema_contract(self) -> None:
         self.assertEqual(sa.SUMMARY_FACTS_SCHEMA_VERSION, 2)
         self.assertEqual(sa.SUMMARY_FACTS_ARTIFACT, "recordprep-summary-digest")
-        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-5")
+        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-6")
         row = synthetic_facts_row("hearings")
         self.assertEqual(sa.validate_digest_row(row), [])
         for category in row["categories"]:
@@ -2246,6 +2246,8 @@ raise SystemExit(3)
             ),
             encoding="utf-8",
         )
+        (shutil_pi / "extensions" / "recordprep-summary-synthesis-tools.ts").write_text(
+            (source_pi / "extensions" / "recordprep-summary-synthesis-tools.ts").read_text(encoding="utf-8"), encoding="utf-8")
         return project
 
     def _run_stage(

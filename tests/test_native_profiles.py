@@ -41,7 +41,10 @@ class NativeProfileTests(unittest.TestCase):
     def test_actual_participant_runner_never_publishes_after_no_progress(self):
         self._run_private_candidate(exhausted='partial_validation_no_progress')
 
-    def _run_private_candidate(self, *, quality=False, exhausted=False):
+    def test_reviewed_legacy_participant_runtime_is_read_only_compatible(self):
+        self._run_private_candidate(legacy=True)
+
+    def _run_private_candidate(self, *, quality=False, exhausted=False, legacy=False):
         runner = load("native_profile_runner", PROJECT / ".pi/scripts/run_recordprep_skill.py")
         helper = load("native_profile_helper", PROJECT / ".pi/skills/recordprep-build-participant-index/scripts/participant_index.py")
         with tempfile.TemporaryDirectory() as temporary:
@@ -118,7 +121,19 @@ class NativeProfileTests(unittest.TestCase):
                     published = json.loads((root / 'artifacts/participant_index.json').read_text())
                     self.assertEqual(published['hearings'][0]['counsel'][0]['speaking_status'], 'unknown')
                     self.assertTrue(published['hearings'][0]['warnings'])
+                if legacy:
+                    from recordprep.native_freshness import runtime_identity
+                    from recordprep.summary_agents import sha256_json
+                    compatibility = json.loads((PROJECT / 'recordprep/resources/native_runtime_compat.json').read_text())
+                    artifact = root / 'artifacts/participant_index.json'
+                    payload = json.loads(artifact.read_text())
+                    payload['runtime_sha256'] = sha256_json(runtime_identity(PROJECT / '.pi') |
+                        compatibility['participants']['legacy'][0])
+                    artifact.write_text(json.dumps(payload))
+                    before = (artifact.read_bytes(), artifact.stat().st_mtime_ns)
                 self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
+                if legacy:
+                    self.assertEqual(before, (artifact.read_bytes(), artifact.stat().st_mtime_ns))
                 topics = profile.resource("reports")
                 topics[0]["guidance"] += " Unrelated report topic guidance."
                 revised = changed(profile, "reports", topics)

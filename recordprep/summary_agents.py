@@ -21,7 +21,9 @@ import json
 import os
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_quote, valid_quote_capitalization
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -50,7 +52,7 @@ SUMMARY_FINAL_META_ARTIFACT = "recordprep-summary-final-meta"
 # Renderer 5: a submitted synthesis section that still references unknown
 # quote ids is replaced wholesale by the digest-prose fallback instead of
 # publishing sentences whose quoted wording was silently deleted.
-SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-5"
+SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-6"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -80,7 +82,7 @@ SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary"}
 # subordinate to the immutable contract; synthesis contract version 2 made
 # synthesis incremental and scratchpad-assisted.
 SUMMARY_EXTRACTION_CONTRACT_VERSION = 4
-SUMMARY_SYNTHESIS_CONTRACT_VERSION = 2
+SUMMARY_SYNTHESIS_CONTRACT_VERSION = 3
 # Retained name for compatibility with older references.
 SUMMARY_CONTENT_CONTRACT_VERSION = SUMMARY_EXTRACTION_CONTRACT_VERSION
 
@@ -3257,6 +3259,7 @@ _TYPED_QUOTE_PATTERN = re.compile(r"[\u201c\u201d\"]")
 class SynthesisSectionCandidate:
     item_id: str
     paragraphs: list[str]
+    quote_capitalizations: dict[str, str] = field(default_factory=dict)
 
 
 def fallback_section_paragraphs(row: dict[str, Any]) -> list[str]:
@@ -3470,6 +3473,7 @@ def normalize_synthesis_sections(
     flags: list[str] = []
     rows_by_id = {str(row.get("item_id")): row for row in rows}
     submitted: dict[str, list[str]] = {}
+    proposed_capitalizations: dict[str, Any] = {}
     if not isinstance(sections_payload, list):
         flags.append("candidate_unusable:all_fallback")
         payload: list[Any] = []
@@ -3489,6 +3493,7 @@ def normalize_synthesis_sections(
         # The last submission for an item wins, matching the replace-by-id
         # contract of the submission tool.
         submitted[item_id] = paragraphs
+        proposed_capitalizations[item_id] = entry.get("quote_capitalizations", {})
 
     sections: list[SynthesisSectionCandidate] = []
     for row in rows:
@@ -3538,8 +3543,23 @@ def normalize_synthesis_sections(
         if not non_null and normalized_paragraphs:
             flags.append(f"paragraphs_for_all_null_document:{item_id}")
             normalized_paragraphs = []
+        proposals = proposed_capitalizations.get(item_id, {})
+        capitalizations: dict[str, str] = {}
+        used_ids = {match.group(1).strip() for paragraph in normalized_paragraphs
+                    for match in _PLACEHOLDER_PATTERN.finditer(paragraph)}
+        if not isinstance(proposals, dict):
+            flags.append(f"quote_capitalization_rejected:{item_id}")
+        else:
+            for quote_id, proposed in proposals.items():
+                original = row_quote_text(row, quote_id) if quote_id in used_ids else None
+                if original is not None and valid_quote_capitalization(original, proposed):
+                    if proposed != original:
+                        capitalizations[quote_id] = proposed
+                else:
+                    flags.append(f"quote_capitalization_rejected:{item_id}")
         sections.append(
-            SynthesisSectionCandidate(item_id=item_id, paragraphs=normalized_paragraphs)
+            SynthesisSectionCandidate(item_id=item_id, paragraphs=normalized_paragraphs,
+                                      quote_capitalizations=capitalizations)
         )
         flags.extend(_section_quality_flags(row, normalized_paragraphs))
     flags.extend(_repetition_flags(rows, sections))
@@ -3552,15 +3572,16 @@ def normalize_synthesis_sections(
 # --- Deterministic rendering ---
 
 
-def render_quote_text(row: dict[str, Any], quote_id: str) -> str:
-    """Render a resolved quote as ordinary curly-quoted text (no page link)."""
-    text = row_quote_text(row, quote_id) or ""
+def render_quote_text(row: dict[str, Any], quote_id: str, proposed: object = None) -> str:
+    """Render a source quote with independently checked display-only casing."""
+    text = display_quote(row_quote_text(row, quote_id) or "", proposed)
     return f"\u201c{text}\u201d"
 
 
 def render_section_paragraphs(
     row: dict[str, Any],
     paragraphs: Sequence[str],
+    quote_capitalizations: dict[str, str] | None = None,
 ) -> list[str]:
     rendered: list[str] = []
     for paragraph in paragraphs:
@@ -3576,7 +3597,7 @@ def render_section_paragraphs(
 
         def _replace(match: re.Match[str]) -> str:
             quote_id = match.group(1).strip()
-            return render_quote_text(row, quote_id)
+            return render_quote_text(row, quote_id, (quote_capitalizations or {}).get(quote_id))
 
         rendered.append(_PLACEHOLDER_PATTERN.sub(_replace, paragraph))
     return rendered
@@ -3620,10 +3641,18 @@ def render_final_summary(
         # All-null documents keep their required heading without any sentinel
         # paragraph; unusable extraction is distinguished through private
         # warnings, never technical narrative.
-        for paragraph in render_section_paragraphs(row, section.paragraphs):
+        for paragraph in render_section_paragraphs(row, section.paragraphs, section.quote_capitalizations):
             normalized = " ".join(paragraph.split()).strip()
             if normalized:
                 lines.extend([normalized, ""])
+    if any(
+        display_quote(row_quote_text(row, match.group(1).strip()) or "",
+                      section.quote_capitalizations.get(match.group(1).strip()))
+        != (row_quote_text(row, match.group(1).strip()) or "")
+        for row, section in zip(rows, sections) if str(row.get("item_id")) in heading_pages
+        for paragraph in section.paragraphs for match in _PLACEHOLDER_PATTERN.finditer(paragraph)
+    ):
+        lines[2 if case_name_display else 1:2 if case_name_display else 1] = ["", NORMALIZATION_NOTICE]
     text = "\n".join(lines)
     return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
 
@@ -3913,7 +3942,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
     compiled = compile_summary(profile, kind, "synthesize") if profile is not None else None
     return {
         "kind": kind,
-        "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance,
+        "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + QUOTE_CASE_GUIDANCE,
         "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
         **({"profile_component": compiled.component_sha256} if compiled is not None else {}),
         "provider": identity.provider,
@@ -3928,6 +3957,8 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "extension_sha256": _resource_sha256(
             project_dir / "extensions" / "recordprep-summary-tools.ts"
         ),
+        "quote_display_sha256": _resource_sha256(Path(__file__).with_name("quote_display.py")),
+        "synthesis_extension_sha256": _resource_sha256(project_dir / "extensions/recordprep-summary-synthesis-tools.ts"),
         "renderer_version": SUMMARY_RENDERER_VERSION,
     }
 
@@ -4061,6 +4092,7 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
         root / ".recordprep/practice-profile.json",
         project_dir / "SYSTEM.md",
         project_dir / "extensions/recordprep-summary-tools.ts",
+        project_dir / "extensions/recordprep-summary-synthesis-tools.ts",
         project_dir / f"skills/recordprep-extract-{SUMMARY_KIND_LABELS[kind]}/SKILL.md",
         project_dir / f"skills/recordprep-synthesize-{kind}/SKILL.md",
         project_dir / "resources/profile-summary-extract.md",

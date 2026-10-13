@@ -307,6 +307,8 @@ def stage_static_components(
     extension_chars = _file_chars(
         project_pi_dir / "extensions" / "recordprep-summary-tools.ts"
     )
+    if profile_phase == "synthesize" or skill_name.startswith("recordprep-synthesize-"):
+        extension_chars += _file_chars(project_pi_dir / "extensions/recordprep-summary-synthesis-tools.ts")
     return {
         "system_prompt_chars": system_chars,
         "skill_chars": skill_chars,

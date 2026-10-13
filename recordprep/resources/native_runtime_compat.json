@@ -1,0 +1,24 @@
+{
+  "participants": {
+    "reviewed_release": "bcbda05 and initial stage-scoped runtime; participant behavior unchanged by overview manifest, fingerprinting, and registration of the synthesis-only quote display resource",
+    "stage_code_sha256": "f09d46323a40aed8aef8f16f5453bf5662f1214ff8a7b625c040b715aa56dd1c",
+    "legacy": [
+      {
+        "application": {
+          "native_profiles.py": "25e3af667c77345e2f22502344baa866060f168abb83fede66643d760f4f6b21",
+          "participant_candidates.py": "a0842e0a2f170547f800cc8bcde775d5935670051cb2f495043d84baee51b3f2",
+          "pi_bundle.py": "33007bc7475e81a3e18e8b169f9541cfa9eb68995d979e927cb51e1486d5cf2d",
+          "profile_artifacts.py": "523914f54b50a3bef2fb2b355047db3d2ea6295207777d2c1b51282a9bcbad4a",
+          "profile_contract.py": "733410f2cd21cad4bd474718b8f5e6e55a4db43ff1e64d4218453160e5d589e9",
+          "boundary_profiles.py": "55e394fa4f877cec7b16f2190a94e8bc9fa9886480c242e3f53f06fbd006070f"
+        },
+        "runner": "9c07308f031062a4eb704db806772c94fa5a4124cf3835bf3bf9cd17eb0d9d7b"
+      },
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "76b3aba8f97ca75499011dacc7cf0efab63cfca179ff70013cac143d764d2af5"
+      }
+    ]
+  }
+}

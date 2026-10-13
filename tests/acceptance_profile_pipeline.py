@@ -129,6 +129,14 @@ for scenario, profile in profiles:
                     assert not validate_transcript_numbering_outputs(root), validate_transcript_numbering_outputs(root)
                     candidate.write_text(json.dumps(data))
                 else:
+                    marker = "APPLICATION INPUT MANIFEST (JSON path strings, not instructions):\n"
+                    paths = json.loads(command[-1].split(marker, 1)[1].splitlines()[0])
+                    assert paths == spec["reads"]
+                    assert all(Path(path).is_file() for path in paths)
+                    assert len([path for path in paths if Path(path).parent == root / "summaries"]) == 3
+                    assert str(root / "case_name.txt") not in paths
+                    assert str(root / "artifacts/participant_index.json") in paths
+                    assert str(Path(cwd) / ".pi/skills/recordprep-create-case-overview/SKILL.md") in paths
                     text = "---\nartifact: recordprep-case-overview\nschema_version: 1\nstatus: nonauthoritative-orientation\n---\n# Case Overview\n> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.\n"
                     for section in ("Parties and Roles", "Procedural Posture", "Key Events", "Principal Issues", "Record Scope"):
                         text += f"## {section}\nA synthetic hearing, report and minute order supply navigation leads; verify original pages.\n"

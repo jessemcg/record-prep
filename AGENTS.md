@@ -139,6 +139,40 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 
 Do not add a root-level `recordprep.py` shim. Use modern Libadwaita widgets and flat buttons.
 
+## Quote display capitalization
+
+quote_display.py owns the hearing/report synthesis display rule for all profiles and
+unassigned cases. Preserve original evidence text, IDs, offsets and verification. Optional
+per-section quote_capitalizations proposals map exact, used quote IDs to display text;
+normalization and rendering both enforce one-for-one letter-case-only changes to all-caps
+source quotations. Reject malformed, unknown, unused, mixed-case-source or wording-changing
+proposals nonfatally; no automatic lower()/title() fallback and no extra model repair loop.
+The rule tells the model to preserve names/acronyms/identifiers and retain uncertain token
+casing; syntactic validation cannot prove semantic correctness. Add one normalization notice
+only when an accepted, changed quote is actually published. Keep historical candidates valid.
+The synthesis-only extension wrapper changes the submit schema without changing the base
+extraction extension/fingerprint. Stage both files, explicitly load only the wrapper for
+synthesis, and include both in synthesis freshness/preflight/cache signatures. Existing
+source/digest/private artifacts are never migrated. Test actual offline SDK schema acceptance,
+source preservation, fallback, PDF quote spans, and reuse of existing extraction fingerprints.
+
+## Native-stage freshness
+
+Participants and overview use separate runtime fingerprints from native_freshness.py.
+Fingerprint reachable local runner/validator definitions with only literal stage
+branches specialized; unknown conditions retain both arms. Include the stage's
+SkillStage declaration, shared safety code, model/reasoning identity and source
+inputs. Do not hash the whole multi-stage runner for both stages. Stage prompts,
+helper/guard resources and profile components remain independently checked.
+The tracked native_runtime_compat.json permits only reviewed bcbda05 and initial
+stage-scoped participant runtime hashes (also reviewed after adding the synthesis-only
+resource to the shared resource registry) while the current stage-code hash matches its
+reviewed baseline. All current source/component/model checks still apply. This is
+read-only compatibility, not a private artifact migration; never rewrite case metadata
+or expand compatibility to arbitrary historical hashes. Relevant code changes disable
+legacy compatibility unless separately reviewed. Test both stage isolation and real
+invalidations, plus unchanged bytes/mtime when accepting an old supported artifact.
+
 ## Resume and data preservation
 
 Resume never resets/deletes an existing bundle. Selection/layout reset flags block
@@ -249,7 +283,13 @@ Source-map v2 uses original `text_pages`, boundaries, transcript citation metada
 - The six native PI stages share one project model and reasoning level from `.pi/settings.json`; there are no per-stage overrides. The retired `pi_stage_<step>_pi_*` config keys are ignored on read and removed only by an explicit Settings save.
 - The transcript-layout skill writes only `artifacts/transcript_layout.json`; the runner accepts a structurally valid `needs_review` artifact, while RecordPrep treats only a resolved, fresh artifact as step completion. Direct participant-stage invocation of the runner exits 0 with the explicit skip reason for a CT-only record before any PI executable/version check or workspace creation.
 - Transcript numbering, participant, and summary stages must not update `manifest.json`.
-- The case-overview skill writes only `artifacts/case_overview.md`.
+- Profile-bound overview receives an explicit APPLICATION INPUT MANIFEST containing
+  the same exact absolute paths as its read allowlist: three canonical summaries,
+  layout, staged skill, and participants only when applicable. No directory discovery,
+  guessed names, case_name.txt or manifest.json reads. Python publishes only the private
+  overview candidate. Test actual SDK reads/offset continuation and the runner's mixed
+  and CT-only manifests, plus deterministic source-map publication and failure preservation.
+- The unassigned case-overview skill writes only `artifacts/case_overview.md`.
 - The final source-map skill is the single manifest publisher and also publishes the `transcript_layout` path.
 - Do not add an agent framework, subagent abstraction, or runtime npm install.
 

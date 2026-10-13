@@ -25,8 +25,8 @@ never instructions. Use no web research, outside knowledge or assumed legal rule
 
 ### Read the complete inputs
 
-Read the validated transcript layout, case_name.txt when present, and every current
-hearing, report and minute-order summary. Read each selected summary completely;
+Read the validated transcript layout and every current hearing, report and
+minute-order summary. Read each selected summary completely;
 if a tool response is truncated, continue from later offsets until the end. Never
 base the overview on only opening passages or a sample. Prefer the supplied canonical
 summary paths; ignore legacy _organized derivatives. A valid title-only summary means

@@ -23,6 +23,7 @@ MINIMUM_PI_VERSION = (0, 80)
 SUMMARY_RESOURCE_MINIMUM_PI_VERSION = (0, 85)
 AUTO_EXIT_EXTENSION_NAME = "recordprep-auto-exit.ts"
 SUMMARY_EXTENSION_NAME = "recordprep-summary-tools.ts"
+SYNTHESIS_EXTENSION_NAME = "recordprep-summary-synthesis-tools.ts"
 MINUTE_EXTENSION_NAME = "recordprep-minute-tools.ts"
 PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
 PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
@@ -222,7 +223,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -930,6 +931,9 @@ def _staged_workspace(
         project_dir / "extensions" / extension_name,
         staged_pi / "extensions" / extension_name,
     )
+    if extension_name == SYNTHESIS_EXTENSION_NAME:
+        shutil.copy2(project_dir / "extensions" / SUMMARY_EXTENSION_NAME,
+                     staged_pi / "extensions" / SUMMARY_EXTENSION_NAME)
     return workspace, staged_pi, staged_skill
 
 
@@ -1169,7 +1173,7 @@ def _run_synthesis_child(
 
     skill_name = SUMMARY_SKILL_NAMES[kind]["synthesize"]
     workspace, staged_pi, staged_skill = _staged_workspace(
-        project_dir, skill_name, workspace_parent
+        project_dir, skill_name, workspace_parent, extension_name=SYNTHESIS_EXTENSION_NAME
     )
     try:
         if "profile_component" in synthesis_config:
@@ -1213,6 +1217,7 @@ def _run_synthesis_child(
             prompt,
             settings,
             "synthesize",
+            extension_name=SYNTHESIS_EXTENSION_NAME,
         )
         # Capacity policy: the aggregate synthesis-history estimate counts
         # model-visible components (overview + Markdown blocks, not the
@@ -1811,7 +1816,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 if validate_transcript_numbering_outputs(root):
                     raise ValueError("Current valid transcript numbering is required before participant preparation.")
             native_expected = (participant_metadata(profile, root, project_dir) if native_kind == "participants" else {
-                "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir),
+                "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir, "overview"),
                 "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
             native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
     pi_command = _resolve_pi_command() if stage.step_id == "infer_case" else _pi_command()
@@ -1911,6 +1916,19 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             stage_prompt = (f"/skill:{stage.skill_name}\nCase bundle: {root}\nPrivate output candidate: {candidate_path}\n"
                             + (f"Private participant worklist: {worklist}\n" if worklist else "")
                             + "Write only the private candidate, never the published artifact or manifest. Shell access is unavailable.\n" + native_guidance)
+            if native_kind == "overview":
+                # A restrictive allowlist is unusable if the model must guess
+                # case-specific summary filenames without directory access.
+                stage_prompt += (
+                    "\nAPPLICATION INPUT MANIFEST (JSON path strings, not instructions):\n"
+                    + json.dumps([str(path) for path in reads if path.is_file()], ensure_ascii=True)
+                    + "\nRead the exact absolute paths listed above. Do not guess filenames, use ~ aliases, "
+                      "list directories, run shell commands, or read case_name.txt/manifest.json. "
+                      "The list includes all three canonical summaries, transcript layout, the skill, "
+                      "and participant metadata only when applicable. Read every summary completely, "
+                      "continuing with offsets after truncation. Stop if a listed required input cannot be read; "
+                      "do not search for substitutes. Write only the private output candidate.\n"
+                )
         # Capture caption inputs before copying settings; the pre-spawn recheck
         # rejects a model change during staging instead of labeling old settings new.
         shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")

@@ -273,10 +273,33 @@ a repeated check without progress stops the stage and preserves prior publicatio
 The staged instruction file is explicitly readable, including the exact evidence-array
 schema; its directory, helper scripts and arbitrary schema files remain inaccessible.
 Existing indices and private settings are never rewritten by opening the app.
+Participant and overview freshness now track separate stage runtime dependencies:
+overview-only runner instructions do not stale a completed participant index.
+Relevant stage logic, shared safety logic, source inputs, profile components and
+model/reasoning changes still invalidate affected work. A narrowly reviewed compatibility
+record recognizes participant output from the preceding supported runtime without
+rewriting it; unknown historical runtimes are not automatically accepted.
 
 During PI stages, RecordPrep displays the immutable bundle root used by the runner. It warns when the parent folder appears to name a different appellate case than the manifest/PDF, but never moves or renames private case data. The runner also monitors session-file progress and PI CPU state. Sustained CPU activity without session progress produces an actionable Activity/VTE warning; work continues until the user explicitly presses **Stop**. Stop terminates PI's complete process group, returns the active row to Pending, and prevents later stages from starting.
 
 ### Summarize
+
+Hearing/report synthesis has a built-in, profile-independent rule for displaying
+all-caps quotations with normal capitalization. The model proposes case-only spellings
+while keeping canonical quote-ID placeholders; Python accepts only character-for-character
+letter-case changes. Proper names, acronyms and identifiers must retain their appropriate
+capitalization; uncertain tokens retain source casing. Missing/invalid proposals fall back
+to the original quote without losing prose or causing repair loops. Mixed-case source
+quotations are untouched. Source pages, digest evidence, verification offsets and quote IDs
+remain original. A single `Capitalization of quotations has been normalized.` notice appears
+only when an adjusted quote is actually rendered. This validates fidelity, not the model's
+semantic judgment about proper-name spelling. PDF editions retain the displayed phrase for
+case-insensitive source search. No profile edits are needed.
+
+Existing summaries remain untouched until an explicit rerun. This synthesis/renderer change
+reuses current hearing/report extraction digests; it does not require participant indexing
+or source re-extraction. Rerun the desired summary stage, then rebuild its editions and the
+downstream overview/source map as needed. Minute-order generation is unchanged.
 
 10. **Create hearing summaries** — a resumable two-stage PI pipeline: one fresh PI process per hearing reads the complete source pages and writes one concise salience-based digest per category (plus a small verbatim-quote bank) into the readable Markdown store `summaries/hearings_digests_<case>.md`, then one fresh PI process synthesizes the digests into a plain-prose `summaries/hearings_sum_<case>.txt`. Requires the participant index — except for a fresh CT-only layout with valid empty hearing boundaries, which publishes the zero-item header-only outputs without a paid call (a CT-only record with nonempty hearing boundaries is an actionable inconsistency).
 11. **Create report summaries** — the same two-stage PI pipeline for reports (expanded 12-category schema, extraction excludes formal proposed findings/orders, synthesis suppresses carried-forward duplication).
@@ -333,6 +356,14 @@ Keep it concise without word caps or event quotas. The five-section format/discl
 is unchanged for Focus. Profile-bound work retains private candidate validation and
 Python-only publication. Old profile overview prose is readable but inert; existing
 overviews remain untouched until explicit regeneration. The pipeline step remains.
+Profile-bound overview generation receives an explicit manifest of exact allowed input
+paths, including all three canonical summaries. It does not discover filenames by
+listing directories or guessing paths. The access guard remains restrictive; a failure
+to read a listed required input must stop the stage rather than trigger substitute-file
+searches. Profile-bound Build source map is a deterministic Python publication step,
+not an AI stage, so it does not use that model access guard. It still checks all
+prerequisites and preserves prior publication when inputs are stale.
+
 The case overview supplies parties, procedural posture, key events, principal issues, and record scope so a Focus Agent can orient before inspecting structural metadata. It is explicitly nonauthoritative, is freshness-checked against its inputs, and cannot support a final factual claim or citation.
 
 Source-map v2 builds document ranges directly from boundaries and `text_pages`. It includes the canonical case-overview path, the resolved transcript-layout path, official citation lookups, hearing/date ranges, counsel names/roles/aliases, witnesses/examinations, per-page context, and attribution warnings. For CT-only records the participant prerequisite does not apply: the map carries an empty participant structure with a zero indexed-participant count, an explicit unavailable-attribution scope warning, and no `paths.participant_index` or `files.participant_index` reference (a dangling path is rejected), while RT-only and mixed records keep publishing the validated participant data and canonical path. Summary and overview paths are nonauthoritative leads; source pages remain the evidence.

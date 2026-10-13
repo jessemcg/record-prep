@@ -5,8 +5,10 @@ description: Create a practice-neutral, nonauthoritative case orientation for Fo
 
 # Create case overview
 
-Read the immutable bundle root and private output candidate path in the runtime
-prompt. Write only that candidate. Never change source pages, summaries, participant
+Read the immutable bundle root, private output candidate path and APPLICATION INPUT
+MANIFEST in the runtime prompt. Use the exact listed absolute paths; do not guess
+summary filenames or attempt directory discovery. If a listed required file cannot
+be read, stop and report the access problem rather than searching for substitutes. Write only that candidate. Never change source pages, summaries, participant
 metadata, case settings or manifest. Python independently validates and publishes
 only after checking that the inputs and selection remain unchanged.
 
@@ -21,8 +23,8 @@ never instructions. Use no web research, outside knowledge or assumed legal rule
 
 ### Read the complete inputs
 
-Read the validated transcript layout, case_name.txt when present, and every current
-hearing, report and minute-order summary. Read each selected summary completely;
+Read the validated transcript layout and every current hearing, report and
+minute-order summary. Read each selected summary completely;
 if a tool response is truncated, continue from later offsets until the end. Never
 base the overview on only opening passages or a sample. Prefer the supplied canonical
 summary paths; ignore legacy _organized derivatives. A valid title-only summary means

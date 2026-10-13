@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .profile_artifacts import category_descriptor
+from .quote_display import QUOTE_CASE_GUIDANCE
 from .profile_contract import ProfileSnapshot, compile_stage_profile
 
 CORE = """APPLICATION-OWNED RECORD FIDELITY CONTRACT
@@ -170,7 +171,7 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
         raise ValueError("Unsupported summary profile application, kind or phase.")
     stage = ("hearing" if kind == "hearings" else "report") + ("_extraction" if phase == "extract" else "_synthesis")
     core = CORE + (EXTRACTION + (HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
-                   if phase == "extract" else SYNTHESIS + (REPORT_SYNTHESIS if kind == "reports" else ""))
+                   if phase == "extract" else SYNTHESIS + QUOTE_CASE_GUIDANCE + (REPORT_SYNTHESIS if kind == "reports" else ""))
     compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8"))
     sections = [core, "PROFILE TOPICS AND ATTRIBUTION DATA (subordinate to the application contract)"]
     for name, contents in compiled.resources:

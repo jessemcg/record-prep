@@ -51,7 +51,14 @@ class ProfilePublicationTests(unittest.TestCase):
         overview += "> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.\n"
         for section in ("Parties and Roles", "Procedural Posture", "Key Events", "Principal Issues", "Record Scope"):
             overview += f"## {section}\nThe synthetic record supplies a report; other matters remain unresolved.\n"
-        def child(command, *, cwd, **kwargs):
+        def child(command, *, cwd, env, **kwargs):
+            access = json.loads(Path(env["RECORDPREP_NATIVE_ACCESS_SPEC"]).read_text())
+            marker = "APPLICATION INPUT MANIFEST (JSON path strings, not instructions):\n"
+            listed = json.loads(command[-1].split(marker, 1)[1].splitlines()[0])
+            self.assertEqual(listed, access["reads"])
+            self.assertNotIn(str(root / "artifacts/participant_index.json"), listed)
+            self.assertNotIn(str(root / "case_name.txt"), listed)
+            self.assertEqual(sum(Path(p).parent == root / "summaries" for p in listed), 3)
             self.assertIn("Private output candidate", command[-1])
             self.assertIn("never evidence", command[-1])
             (Path(cwd) / "overview-candidate.md").write_text(overview)
@@ -78,6 +85,11 @@ class ProfilePublicationTests(unittest.TestCase):
         self.assertEqual(payload["preparation_provenance"], json.loads((root / "artifacts/practice_profile_provenance.json").read_text()))
         (root / "artifacts/toc.txt").write_text("Changed outside publication.")
         self.assertTrue(publication_issues(root, profile, project / ".pi"))
+        before = {p: p.read_bytes() for p in (root / "artifacts/source_map.json", root / "manifest.json")}
+        with patch.object(runner, "_pi_command", side_effect=AssertionError("No map model")):
+            with self.assertRaises(ValueError):
+                runner._run_stage(runner.STAGES["build_source_map"], root, project / ".pi")
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
 
 
 if __name__ == "__main__":

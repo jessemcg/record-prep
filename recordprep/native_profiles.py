@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .profile_contract import ProfileSnapshot, compile_stage_profile
 from .summary_profiles import CORE
+from .native_freshness import runtime_matches as _runtime_matches
 
 PARTICIPANT_CORE = """\nPARTICIPANTS
 Index one hearing at a time from original single source pages. Keep counsel,
@@ -131,18 +132,9 @@ def participant_input_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
-def native_runtime_digest(project_dir: Path) -> str:
-    from .pi_runtime import resolve_stage_model_identity
-    from .minute_summaries import _global_settings_path
-    from .summary_agents import _resource_sha256, sha256_json
-    identity = resolve_stage_model_identity({}, "native", project_dir / "settings.json")
-    return sha256_json({"provider": identity.provider, "model": identity.model_id, "thinking": identity.thinking,
-                       "inherited": _resource_sha256(_global_settings_path()) if not all((identity.provider, identity.model_id, identity.thinking)) else None,
-                       "system": _resource_sha256(project_dir / "SYSTEM.md"),
-                       "auto_exit": _resource_sha256(project_dir / "extensions/recordprep-auto-exit.ts"),
-                       "application": {name: _resource_sha256(Path(__file__).parent / name) for name in
-                                       ("native_profiles.py", "participant_candidates.py", "pi_bundle.py", "profile_artifacts.py", "profile_contract.py", "boundary_profiles.py")},
-                       "runner": _resource_sha256(project_dir / "scripts/run_recordprep_skill.py")})
+def native_runtime_digest(project_dir: Path, stage: str = "participants") -> str:
+    from .native_freshness import runtime_digest
+    return runtime_digest(project_dir, stage)
 
 
 def participant_metadata(profile: ProfileSnapshot, root: Path, project_dir: Path) -> dict:
@@ -159,7 +151,7 @@ def participant_freshness_issues(root: Path, profile: ProfileSnapshot, project_d
         expected = participant_metadata(profile, root, project_dir)
         if (payload.get("schema_version") != 4 or "role_catalog" in payload
                 or payload.get("input_sha256") != expected["input_sha256"]
-                or payload.get("runtime_sha256") != expected["runtime_sha256"]
+                or not _runtime_matches(payload.get("runtime_sha256"), expected["runtime_sha256"], project_dir, "participants")
                 or payload.get("profile_provenance", {}).get("components") != expected["profile_provenance"]["components"]):
             return ["Participant index requires regeneration for the selected profile/source inputs."]
     except (OSError, ValueError, AttributeError):
@@ -186,7 +178,7 @@ def overview_input_digest(root: Path) -> str:
 def overview_metadata(profile: ProfileSnapshot, root: Path, project_dir: Path, text: str) -> dict:
     return {"schema_version": 1, "profile_provenance": compile_native(profile, "overview", project_dir)[1],
             "input_sha256": overview_input_digest(root), "overview_sha256": hashlib.sha256(text.encode()).hexdigest(),
-            "runtime_sha256": native_runtime_digest(project_dir)}
+            "runtime_sha256": native_runtime_digest(project_dir, "overview")}
 
 
 def overview_freshness_issues(root: Path, profile: ProfileSnapshot, project_dir: Path) -> list[str]:
@@ -196,7 +188,7 @@ def overview_freshness_issues(root: Path, profile: ProfileSnapshot, project_dir:
         expected = overview_metadata(profile, root, project_dir, text)
         if (metadata.get("schema_version") != 1 or metadata.get("input_sha256") != expected["input_sha256"]
                 or metadata.get("overview_sha256") != expected["overview_sha256"]
-                or metadata.get("runtime_sha256") != expected["runtime_sha256"]
+                or not _runtime_matches(metadata.get("runtime_sha256"), expected["runtime_sha256"], project_dir, "overview")
                 or metadata.get("profile_provenance", {}).get("components") != expected["profile_provenance"]["components"]):
             return ["Case overview requires regeneration for the selected profile or prepared inputs."]
     except (OSError, ValueError, AttributeError):

@@ -121,7 +121,12 @@ Not now** confirmation offers to apply the saved guidance without regenerating
 summaries. Previous Dependency customization is prepared read-only and stored
 only on explicit Save or dropdown selection, never copied into public definitions.
 Maintainers add public specialties using bundled data and a catalog entry, not a
-separate repository or download. Focus owns its corresponding guidance separately.
+separate repository or download. Focus instead uses one application-owned neutral
+research method for every new question, including profile-bound bundles. It needs
+no corresponding research profile and consumes preparation provenance descriptively.
+Only profile_contract.py and profile_artifacts.py remain byte-identically vendored;
+there is no store/workflow/editor/manager or UI/document parity requirement.
+RecordPrep preparation settings and pipeline are unchanged.
 See the [GUI guide and contract](docs/practice-profiles.md)
 and [validation evidence and limitations](docs/practice-profiles-validation.md).
 

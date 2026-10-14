@@ -16,10 +16,13 @@ private config/case bundles remain untouched.
 See `docs/practice-profiles.md` and `docs/practice-profiles-validation.md` for the
 shipped-specialty/personal-settings workflow, v1 API and supported content schemas,
 runtime boundaries and validation limits.
-The six `profile_{contract,store,artifacts,workflows,editor_ui,manager_ui}.py`
-modules, shared conformance/workflow tests and docs are intentionally vendored
-identically in Focus and RecordPrep. Coordinate changes; never import a sibling
-app or its instructions at runtime. Bundled resources are app-owned and read-only.
+Only `profile_contract.py` and `profile_artifacts.py` remain vendored byte-identically
+with Focus for historical metadata/artifact compatibility. Coordinate those two;
+store/workflow/editor/manager modules and UI/docs no longer require Focus parity.
+Focus has one fixed neutral research method, no profiles or counterpart requirement;
+preparation provenance never supplies its instructions. RecordPrep profile management,
+runtime/resources/schemas/fingerprints and pipeline remain unchanged. Never import a
+sibling app or its instructions at runtime. Bundled resources are app-owned and read-only.
 
 Create files binds General/configured guidance only for a previously nonexistent
 bundle; an explicit pending choice takes priority. Existing bundles remain legacy

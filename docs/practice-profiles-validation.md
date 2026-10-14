@@ -1,5 +1,15 @@
 # Practice profiles: validation and limits
 
+## Focus compatibility boundary (current)
+
+RecordPrep profile management and preparation remain unchanged. Focus now has one
+fixed neutral research method for new Q&A, without a corresponding profile or private
+store lookup. Only profile_contract.py and profile_artifacts.py remain byte-identical;
+older six-module/UI parity and Focus profile-selection evidence below is historical,
+not a current requirement. Focus saved schemas 1/2 remain readable; new answers use
+saved schema 3 / context schema 2. No private files or bundles are migrated.
+See Focus's docs/research-method-validation.md for current consumer acceptance.
+
 ## Fixed structural taxonomy and General starting guidance — 2026-10-13
 
 Classification keeps application-owned structural labels, shared by runtime prompts,

@@ -1,10 +1,11 @@
 # Shipped practice profiles and personal settings
 
-RecordPrep and Focus each ship **General Court Record** and **California Juvenile
-Dependency**. General is the new-case default. Dependency is a complete public
-specialty, useful without anyone's private configuration. Each app owns its
-instructions independently; there is no profile repository, download, sibling
-package import or automatic cross-app synchronization.
+RecordPrep ships **General Court Record** and **California Juvenile Dependency**.
+General is the new-case default. Dependency is a complete public specialty, useful
+without anyone's private configuration. Focus now uses one fixed specialty-neutral
+research method, not profiles; no Focus counterpart is needed to consume a bundle.
+There is no profile repository, download, sibling package import or automatic
+cross-app synchronization. RecordPrep preparation behavior is unchanged.
 
 ## Choose, edit, save
 
@@ -13,9 +14,7 @@ not as a separate banner. The hamburger menu shows the profile dropdown and
 **Profile settings** as compact, normal-weight, left-aligned menu items. Names
 wrap in full and a check marks the current choice. Selecting a dropdown item
 immediately applies that profile; there is no separate **Use profile** action or
-chooser dialog. **Profile settings** edits the selected profile. Focus also offers
-**Existing settings** as an explicit compatibility choice before a case's first
-research session. Opening the dropdown alone does not change the case; activating
+chooser dialog. **Profile settings** edits the selected RecordPrep profile. Opening the dropdown alone does not change the case; activating
 an item does. Failed or blocked selection retains the actual current choice.
 
 Profile settings opens in an independent, non-modal window with minimize, maximize
@@ -25,9 +24,9 @@ The window uses a boxed category/subcategory list on the left and shows only the
 selected settings page on the right, like Model settings. The list sits directly on
 the window background, without a contrasting full-height left panel. The header
 also uses Model settings' flat toolbar styling and shares the window background.
-In Focus, **General → Profile and defaults** contains the profile selector,
-**Create profiles** and **Use for new cases**. RecordPrep has no General section or
-second profile picker/default checkbox; it edits the already-selected profile.
+RecordPrep has no General section or second profile picker/default checkbox;
+it edits the already-selected profile. Focus has no profile controls; its ordinary
+model/appearance/speech/launch controls are in Settings.
 **Create profiles** is a hamburger-menu link immediately below **Profile settings**,
 not a button at the bottom of the sidebar. Its Cancel/Create actions use flat
 buttons without an extra selectable hover background. Existing new-case default
@@ -156,8 +155,9 @@ only the normal Save flow persists that draft.
 Topics guide capture from each complete hearing or report, not required headings
 in the narrative. New RecordPrep profiles use content schema 5, without the four
 extra summary instruction resources, role catalogs, participant or overview instructions. Explicit editing upgrades only a draft; historical
-accepted revisions are never rewritten. Focus uses the same navigation layout with **General**,
-**Research**, **Answers**, and **Search priorities** categories and tall prompt editors. Priorities rank results; they never exclude parts of the record.
+accepted revisions are never rewritten. Focus's neutral research method has no
+editable guidance or search priorities; document labels supply navigation, not
+automatic evidence authority.
 
 Changing profiles or closing an unsaved draft offers **Save / Discard / Cancel**.
 Opening, inspecting and cancelling do not write a registry, snapshot, settings
@@ -197,9 +197,9 @@ continues to require owner-only directories/files. A missing pinned revision is
 not silently substituted; explicitly selecting an available profile can replace
 the pin without regenerating any output.
 
-Focus proposes defaults but requires an explicit first-research choice, including
-Existing settings. Active
-preparation/research and changing case identities reject mutation. Selection
+Focus automatically uses its fixed neutral method for every explicit new question,
+including previously profile-bound cases. No confirmation, advanced profile choice,
+private-store lookup or RecordPrep regeneration is required. RecordPrep selection
 alone makes no model request, renames no case and regenerates nothing.
 
 ## Storage and releases
@@ -257,14 +257,14 @@ classification by task, historical case-name text (stored but inert), report/for
 structured naming rules, hearing/report topics and minute guidance. Extra summary
 phase instructions and historical attendance choices are not imported. Ambiguous naming prose is retained with a
 focused review notice: prose does not invent approved-title/catalog rules.
-Focus preserves applicable prior research/answer prose beneath current safeguards,
-not tools or runtime settings. No credentials, endpoints, paths, commands or
+Focus does not load historical profile/legacy prompt guidance into new research;
+old private stores and saved answers remain untouched. No credentials, endpoints, paths, commands or
 unrelated configuration fields are copied. Never promote this private candidate
 into bundled files, fixtures, logs or commits.
 
 Legacy prompt values remain available to compatibility loaders. The general
-settings menu and window are now called **Model settings** in both applications,
-distinct from **Profile settings**. Their existing model, credential, appearance
+settings menu and window are called **Model settings** in RecordPrep, distinct from
+**Profile settings**; Focus calls its ordinary controls **Settings**. Their existing model, credential, appearance
 and machine controls remain; the rename does not change storage or action names.
 Model settings no longer edits practice prompts or the retired direct-API sandbox controls. It
 retains production classification API settings and agentic Pi models. RecordPrep's
@@ -280,7 +280,7 @@ Historical recognition text remains deliberately intact for compatibility.
 3. Validate content, production compilers, component freshness and packaging.
 4. Review and commit it as public application guidance; include it in a release.
 
-Matching counterparts share a specialty identity, but own different instructions.
+Focus needs no matching counterpart; preparation specialty identities are descriptive.
 Never automatically promote a user's Save, private legacy prose or case material.
 No chooser change or specialty-specific pipeline branch is needed within the
 supported capability/policy contract. New capabilities still require code.
@@ -289,13 +289,14 @@ not lawyer-facing management controls.
 
 ## Contract and compatibility
 
-The strict stdlib contract is vendored independently. Keep these six files
-byte-identical: `profile_contract.py`, `profile_store.py`, `profile_artifacts.py`,
-`profile_workflows.py`, `profile_editor_ui.py`, `profile_manager_ui.py`. Application
-adapters/compilers stay independent. Shared conformance/workflow/managed-save
-suites exercise both apps; do not introduce sibling runtime imports.
+The strict stdlib compatibility contract is vendored independently. Keep only
+`profile_contract.py` and `profile_artifacts.py` byte-identical with Focus.
+RecordPrep owns store/workflow/editor/manager modules independently; six-module,
+UI and document parity no longer applies. Artifact/reference compatibility tests
+remain; do not introduce sibling runtime imports.
 
-`profile_api` remains 1. Focus content schema remains 1. RecordPrep content
+`profile_api` remains 1. Historical Focus content schema 1 remains reader-compatible,
+not active guidance. RecordPrep content
 schema 2 adds `classification_tasks` (strict JSON keys `rt`, `ct`, `first_hearing`,
 `first_minute`, `first_form`, `date_hearing`, `date_minute`) and `case_name` text,
 retaining every schema-1 resource. Schema 3 keeps those task fields but removes
@@ -351,7 +352,8 @@ publication safeguards.
 
 New participant schema 4 (with 2/3 compatibility), source-map schema 3,
 digest format 2/row 3/metadata 5, minute checkpoint 4 (with 1–3 compatibility)
-and saved-answer schema 2 remain descriptive reader contracts,
+and historical Focus saved-answer schema 2 remain descriptive reader contracts,
+while new Focus answers use saved schema 3 / context schema 2 for its fixed method,
 not instruction authority. Legacy readers and frozen fixtures remain intact.
 Old private snapshots and generated output are never rewritten on inspection.
 The changed participant/minute contracts make affected profile-bound work pending
@@ -359,8 +361,8 @@ until explicitly rerun; historical role edits alone no longer change stage compo
 Prepared provenance and research choices remain separate; different specialties
 are not intrinsically structural incompatibility. Source pages remain authority.
 
-Read-only diagnostics: `focus profiles validate PATH --json` and
-`python -m recordprep profiles validate PATH --json`. Invalid content returns a
+Read-only diagnostics: `python -m recordprep profiles validate PATH --json`.
+Focus's retired `profiles` command returns a nonzero retirement notice. Invalid content returns a
 sanitized structural issue, not prompt text. Source archives/wheels must include
 all catalog directories and their resources. Full RecordPrep native-Pi deployment
 still uses its own source `.pi/` tree; a Python wheel is not a native-Pi installer.

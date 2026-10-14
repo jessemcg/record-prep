@@ -23,7 +23,8 @@ and `resources`. Booleans are not accepted as version integers. Identifiers matc
 descriptions 4096, version strings 64. Description may be empty. Guidance is
 nonempty UTF-8 and is preserved byte-for-byte.
 
-Focus content schema 1 requires capability `research-v1` and `research`,
+Historical Focus content schema 1 (not active research guidance) requires capability
+`research-v1` and `research`,
 `answer_guidance` (Markdown), and `search` (JSON). RecordPrep requires
 `preparation-v1` and:
 
@@ -89,7 +90,8 @@ Every object rejects unknown fields, duplicate keys and nonfinite numbers.
   Explicit editing omits both keys from the in-memory draft; inspection never
   rewrites accepted snapshots. Attendance always uses source evidence from the
   complete order; no heading-based report source cutoff exists.
-- Focus search: `{query_terms, document_terms, passage_terms, later_history_terms}`,
+- Historical Focus search metadata (inert for new Q&A):
+  `{query_terms, document_terms, passage_terms, later_history_terms}`,
   each 0–256 unique literal terms, at most 160 characters each. Never compile
   these as regexes or use them to filter source eligibility.
 
@@ -210,11 +212,16 @@ provenance describes output; it cannot resolve or authorize current instructions
   the participant index. Presence/absence needs source evidence from any page.
   Location checks are not semantic proof. Checkpoints 1–3 remain readable with historical rendering;
   old final metadata is pending regeneration, not rewritten on inspection.
-- Saved-answer schema 2 records research separately from consumed preparation.
-  Older answers remain readable. Different specialty identities are notices,
-  not automatic structural incompatibility or instructions to refresh output.
+- Historical Focus saved-answer schema 2 records research separately from consumed
+  preparation; it remains readable without snapshot lookup. New Focus saved schema 3
+  / research-context schema 2 records the fixed focus-record-qa method (id, version,
+  component hash), input hash and consumed preparation provenance. Different specialties
+  are not compared or treated as a compatibility problem.
 
-Only separately accepted, validated local snapshots authorize new work. Missing
-instructions block affected new work, not ordinary browsing of existing output.
-Focus reports selection separately from the map provenance actually consumed.
+Only separately accepted, validated local snapshots authorize new RecordPrep
+preparation work. Missing instructions block affected preparation, not ordinary
+browsing of existing output. Focus new research always uses its fixed neutral method,
+never preparation guidance or retired private stores; no counterpart is needed.
+Only profile_contract.py and profile_artifacts.py remain byte-identically vendored
+between apps, not store/workflow/editor/manager/UI/docs. No data migration occurs.
 Source pages remain factual authority; summaries/overviews remain orientation aids.

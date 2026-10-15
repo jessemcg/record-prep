@@ -84,6 +84,213 @@ def _runner_environment(
     return env
 
 
+class TranscriptBreakdownInstructionTests(unittest.TestCase):
+    """Offline instruction contracts, not proof of model identification accuracy."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.skill = (
+            PI_DIR / "skills/recordprep-number-transcript-pages/SKILL.md"
+        ).read_text(encoding="utf-8")
+        cls.prose = " ".join(cls.skill.split())
+
+    def assert_guidance(self, *fragments: str) -> None:
+        for fragment in fragments:
+            with self.subTest(guidance=fragment):
+                self.assertIn(fragment, self.prose)
+
+    def test_fixed_footnote_writing_template(self) -> None:
+        template = self.skill.split("```markdown\n", 1)[1].split("```", 1)[0]
+        self.assertEqual(
+            template,
+            "# Transcript Page Breakdown\n\n"
+            "## Quick reference\n\n"
+            "| Shorthand | Identifies | Transcript pages |\n"
+            "| --- | --- | --- |\n"
+            "| <existing prefix> | <short identifying description> | <present page range(s)> |\n\n"
+            "## Suggested footnotes\n\n"
+            "### <existing prefix>\n\n"
+            "<One standalone, ready-to-copy definition paragraph.>\n\n"
+            "## Review notes\n\n"
+            "- <Prefix>: <Only a material identification or coverage issue.>\n",
+        )
+        self.assert_guidance(
+            "a footnote-writing aid for briefs",
+            "Omit Review notes entirely when there is nothing material to flag",
+            "one chart row and one footnote heading per citation series",
+            "ordered by first appearance in the bundle, not lexicographic prefix order",
+            "necessary hearing-date lists belong in footnotes",
+            "Transcript pages means citation pagination, not PDF/file-page positions",
+            "Show disjoint ranges honestly",
+            "Footnote paragraphs contain no bullets, blockquotes, code fences, Markdown emphasis, "
+            "surrounding quotation marks, or prefixed text",
+            "independently selectable and copyable",
+        )
+
+    def test_identification_hierarchy_and_concision(self) -> None:
+        self.assertLess(
+            self.skill.index("### Reliable volume numbers first"),
+            self.skill.index("For separate sources with repeated"),
+        )
+        self.assert_guidance(
+            "relevant source set using covers, indexes, page sequences, and source boundaries",
+            "use the meaningful printed volume number directly",
+            "Do not add hearing dates, page counts, or lengthy contents descriptions "
+            "when the volume number is sufficient",
+            'A genuine single-volume record labeled "Volume 1 of 1" is not automatically defective',
+            'repeated "Volume 1 of 1" labels, missing labels, or contradictory/inconsistent volume numbers',
+            "prefer confirmed hearing dates or other supported distinguishing information",
+            "shortest description that actually distinguishes the source",
+            "List hearing dates when needed for identification",
+            "only if it remains unambiguous",
+            "Do not infer continuous hearings throughout a date span",
+            'Never substitute vague labels such as "the main transcript" or "most of the hearings"',
+        )
+
+    def test_uncertainty_is_honest_in_the_copied_paragraph(self) -> None:
+        self.assert_guidance(
+            'Use "only contains" only when the evidence establishes the claimed scope',
+            "An excerpt or a cover listing additional absent proceedings does not establish exclusivity",
+            "hearing dates confirmed by proceeding pages from dates appearing only on a cover or index",
+            "Distinguish filing dates from certification, preparation, and hearing dates",
+            "Never equate the highest numbered page with the page count",
+            "Omit unknown optional details; never invent facts or insert bracketed placeholders",
+            "When identity is sufficiently clear, supply a conservative draft",
+            "Include a qualification in the footnote itself",
+            "a review note cannot cure a false claim in the draft",
+            "When identity itself is unresolved, retain the prefix heading",
+            "a reliable definition cannot yet be supplied",
+            "Do not automatically add legal augmentation rules, judicial-notice statements, "
+            "or promises that a motion is being filed with the brief",
+        )
+
+    def test_record_type_and_proceeding_relationships_need_support(self) -> None:
+        self.assert_guidance(
+            "Use the correct record type",
+            "smallest necessary supported qualifier",
+            "a case number may distinguish multiple appeal/writ records",
+            'Use "prior appeal", "current appeal", or "writ proceeding" relationships only when supported',
+            "never inferred from PDF order, a higher case number, or filing chronology alone",
+            "Do not describe CT as a reporter's transcript",
+        )
+
+    def test_schema_citations_analysis_and_publication_are_preserved(self) -> None:
+        self.assert_guidance(
+            'Write schema version `2`, `source: "pi-skill"`, an ISO `generated_at`',
+            "`definition_draft` is the supported plain-text definition used verbatim",
+            "Retain `definition_confidence`, collision status/reason, transcript and file-page ranges, "
+            "sequence metadata, entry confidence, and anomalies in JSON",
+            "Mark uncertain definitions `needs_human_review`",
+            "same honest inability statement in `definition_draft`",
+            "Use the exact citation prefixes produced by the numbering workflow",
+            "`1RT` does not necessarily mean printed volume 1",
+            "Do not change citation-series grouping or assign new prefixes",
+            "Physical volume breaks alone still do not create new citation series",
+            "define the set once, not each volume separately",
+            "Retain meaningful existing augmented, supplemental, and corrected prefixes",
+            "do not introduce alias syntax or citation renaming",
+            "Use `RT` or `CT` for a single series",
+            "only when same-type series collide",
+            "Never put page notation (`p.`, `pp.`), a hyphenated range, or prose in `citation_label`",
+            "`citation_key` is exactly the prefix, a colon, and the page number",
+            "Leave both empty exactly when the page has no citation value",
+            "Read all text pages in natural filename order",
+            "Inspect neighboring text for ambiguity",
+            "Record forward gaps and suspicious drops/resets rather than hiding them",
+            "ensure duplicate citation keys are intentional and flagged",
+            "sample reports, forms, notices, proofs of service, and motions against images",
+            "Do not modify `manifest.json`",
+            "Write each output to a sibling temporary file, validate it, and atomically replace the final path",
+            "chart prefixes and footnote headings match the citation-series prefixes exactly, once each",
+            "definitions agree verbatim with JSON `definition_draft` values",
+        )
+        outputs = self.skill.split("Write, replacing prior derived outputs without prompting:\n", 1)[1]
+        outputs = outputs.split("Do not modify", 1)[0]
+        self.assertEqual(
+            outputs.strip().splitlines(),
+            ["- `artifacts/transcript_page_numbers.json`",
+             "- `artifacts/transcript_page_number_series.md`"],
+        )
+
+    def test_no_exhaustive_date_or_markdown_audit_requirement(self) -> None:
+        self.assertNotIn("For RT definitions, list every confirmed proceeding date", self.prose)
+        self.assertNotIn("bolding dates and volume labels", self.prose)
+        self.assertNotIn("The series Markdown must list each prefix, file/transcript ranges", self.prose)
+        markdown_rules = self.prose.split("- Do not include a generation timestamp", 1)[1]
+        markdown_rules = markdown_rules.split("## Fictional examples", 1)[0]
+        for omitted in (
+            "full case caption", "reporter credentials", "OCR methodology",
+            "rejected-number inventory", "routine confidence scores",
+            "technical audit sections", "collision-analysis sections",
+        ):
+            with self.subTest(omitted=omitted):
+                self.assertIn(omitted, markdown_rules)
+        self.assertIn("JSON retains the technical metadata", markdown_rules)
+        self.assertIn("only if it materially affects identification or wording", markdown_rules)
+
+    def test_fictional_acceptance_examples_cover_identification_edge_cases(self) -> None:
+        # These assert instructional coverage and expected wording, not a generated
+        # artifact or the semantic correctness of an actual model response.
+        examples = self.skill.split("## Fictional examples\n", 1)[1].split("## Final validation", 1)[0]
+        self.assertIn("never facts to copy into a case", examples)
+        cases = (
+            ("Coherent printed volumes", (
+                "2RT refers to volume 2 of the reporter’s transcript.",
+                "3CT refers to volume 3 of the clerk’s transcript.",
+            )),
+            ("Genuine single volume", (
+                "No label warning.", "RT refers to volume 1 of the reporter’s transcript.",
+            )),
+            ("Repeated labels and a single hearing", (
+                "both say Volume 1 of 1", "complete source coverage",
+                "1RT refers to the volume of the reporter’s transcript that only contains "
+                "the oral proceedings from January 3, 2025.",
+                "2RT refers to the volume of the reporter’s transcript that only contains "
+                "the oral proceedings from February 4, 2025.",
+            )),
+            ("Several dates needed", (
+                "Concision does not justify omitting them.",
+                "1RT refers to the reporter’s transcript of the hearings on January 3, "
+                "February 4, and March 6, 2025.",
+            )),
+            ("Shorter supported identifier", (
+                "no other source could fit", "not inferred from its highest page number",
+                "1RT refers to the 640-page reporter’s transcript.",
+            )),
+            ("One series across physical volumes", (
+                "continuous citation pagination", "single existing prefix",
+                "RT refers to volumes 1 through 6 of the reporter’s transcript.",
+            )),
+            ("Augmented, supplemental, and corrected records", (
+                "not certification dates",
+                "ACT refers to the augmented clerk’s transcript filed May 8, 2025.",
+                "SRT refers to the supplemental reporter’s transcript filed May 12, 2025.",
+                "CRT refers to the corrected reporter’s transcript filed June 10, 2025.",
+            )),
+            ("Multiple proceedings", (
+                "Do not invent one.",
+                "1CT refers to the clerk’s transcript filed in case no. B900001.",
+                "2CT refers to the clerk’s transcript filed in case no. B900002.",
+            )),
+            ("Incomplete excerpt", (
+                "12–18, 24–29", 'Never claim "only contains" or complete hearing coverage',
+                "RT refers to the available excerpts of the reporter’s transcript of the "
+                "January 3, 2025 hearing.",
+                "Material review note: RT:",
+            )),
+            ("Conflicting dates and unresolved identity", (
+                "Omit the optional date from the draft", "Material review note: 2RT:",
+                "A reliable definition for 2RT cannot yet be supplied because the source identity is unresolved.",
+            )),
+        )
+        for heading, expected in cases:
+            with self.subTest(case=heading):
+                section = examples.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]
+                section = " ".join(section.split())
+                for fragment in expected:
+                    self.assertIn(fragment, section)
+
+
 class PiResourceTests(unittest.TestCase):
     def test_version_check_accepts_minimum_and_newer_major_versions(self) -> None:
         runner = _load_runner_module()

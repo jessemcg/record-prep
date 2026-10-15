@@ -237,6 +237,41 @@ basic when needed, not Create files. Private guidance and old outputs are not mi
 ### Record context
 
 9. **Number transcript pages** — PI writes official citation mappings and citation-series metadata. Python deterministically normalizes each citation label to `PREFIX N` (for example `RT 3`), never model-authored `p.`/`pp.` page notation, before participant indexing, summaries, or the source map read it.
+
+**Transcript Page Breakdown** is the footnote-writing aid produced by **Number
+transcript pages** at `artifacts/transcript_page_number_series.md`, alongside the
+schema-v2 numbering JSON. Focus's existing breakdown window reads this Markdown:
+a three-column **Quick reference** chart (Shorthand, Identifies, Transcript pages),
+**Suggested footnotes** with one standalone, plain-text definition per exact citation
+prefix, and **Review notes** only for material identification or wording issues.
+Rows and definitions follow first appearance in the bundle. Page ranges are citation
+pagination, not PDF positions; excerpts and disjoint ranges must remain explicit.
+
+Definitions prefer meaningful, reliable printed volume numbers. A genuine single
+"Volume 1 of 1" record is fine; repeated or inconsistent labels across distinct
+sources need confirmed hearing dates or another supported distinguishing identifier.
+Use the shortest unambiguous description, retaining necessary date lists in the
+footnote rather than widening the chart. One citation series spanning several physical
+volumes gets one definition. Prefixes are unchanged: `1RT` need not mean printed
+volume 1. Filing dates, record types and case numbers are used only when supported;
+uncertain scope must not become an unsupported "only contains" or completeness claim.
+If identity cannot be resolved, the prefix remains with an honest inability statement,
+not a fabricated paste-ready definition. Technical confidence, collisions, file-page
+ranges and anomaly analysis stay in JSON, not extra Markdown audit sections. This
+is instruction-and-template standardization, not a deterministic guarantee of factual
+identification accuracy; verify the suggested wording against the source.
+
+New explicit numbering runs load the updated skill for both profile-bound and
+unassigned cases; no profile migration is needed. Existing JSON and Markdown remain
+readable and untouched until an explicit run replaces them. Opening RecordPrep or
+Focus never refreshes old breakdowns or rewrites private settings. To adopt the new
+format, explicitly rerun **Number transcript pages**, then reopen the breakdown in
+Focus. **Rerunning numbering is not a formatting-only refresh:** it can change the
+numbering JSON and make downstream artifacts regeneration-pending under existing
+freshness rules. Follow those prerequisites before explicitly rerunning affected
+steps. Do not run Create files, reset a prepared bundle, or silently regenerate
+existing cases just to adopt this presentation.
+
 10. **Build participant and witness index** — a deterministic helper first writes a temporary, nonauthoritative worklist containing hearing ranges, first/appearance pages, reporter-series-scoped `RT_index` pages, and oath/examination/attendance marker pages with resolved citations. PI then processes one hearing at a time, reads only original single-page sources, persists reviewed hearings incrementally, validates batches of at most five, and writes schema-v4 `artifacts/participant_index.json` (historical v2/v3 remain readable). Full validation rejects the untouched template. When the resolved transcript layout is a **clerk's transcript only** (CT-only), the step is skipped outright — shown as `Skipped — Clerk’s transcript only` — with no PI process, no placeholder file, and no claim that indexing was performed: participant and witness attribution requires reporter's-transcript evidence, and its absence is never a finding that nobody appeared or testified. Any pre-existing participant artifact is left on disk untouched and ignored downstream. RT-only and RT + CT records always require the validated index.
 
 Transcript layout detection runs once per new or changed bundle, never on

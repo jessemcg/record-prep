@@ -123,6 +123,20 @@ into neutral core contracts or remove existing unassigned-case support. Run isol
 resource validation after changes. Keep package-data declarations covering every
 bundled profile resource; source deployments must retain their own `.pi/` tree.
 
+## Transcript Page Breakdown
+
+Keep Number transcript pages' Markdown a footnote-writing aid: fixed Quick reference
+chart, one plain-text Suggested footnote per existing citation series in first-appearance
+order, and only material Review notes. Prefer meaningful, reliable printed volume
+numbers; repeated/unhelpful labels fall back to confirmed hearing dates or another
+supported, unambiguous identifier. Concision must not erase necessary dates or scope
+qualifications. Prefixes need not be volume numbers; physical volume breaks alone
+never split series. Keep schema-v2 confidence/collision/range/anomaly analysis in JSON
+and definitions consistent with `definition_draft`. No private-output/config migration,
+new renderer or extra model pass. Explicit numbering reruns can change JSON and stale
+downstream artifacts; never advertise a formatting-only refresh or reset prepared work.
+Validate instruction contracts offline; live generation evaluation needs separate approval.
+
 ## Passive run metrics
 - The runner's native stages and extraction/synthesis children may explicitly load the sibling `PiRunMetrics/run-collector.ts` via `recordprep/run_metrics.py`. This is the sole passive-observer exception to tracked `.pi/` resource confinement. It adds no tools/prompts and changes no publication authority, Stop/stall behavior or content-free stdout. One settled child is not whole-pipeline success. Skips and zero-model helpers produce no runs.
 - Native tags use step IDs; summary tags use the five code-owned summary skill IDs (including `recordprep-summarize-minutes`), never item IDs/case names. Default archive is this source project's Git-ignored `.run-metrics/runs/` (may Dropbox-sync). Preserve absolute root/collector overrides and `PI_RUN_METRICS_ENABLED=0`. Sibling policy probes metadata with deadlines, collects only on Pi >=0.87.1, and warns/fails open without upgrading Pi or relocating archives. Tests must never load/save real config.

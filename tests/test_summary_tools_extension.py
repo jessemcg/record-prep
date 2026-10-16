@@ -140,6 +140,24 @@ import(pathToFileURL(process.argv[2]).href)
         "s6", { action: "append", notes: "x" }, undefined, undefined, { shutdown() {} }
       );
       results["badActionDetail"] = badAction.details;
+      if (checks.secondItemId) {
+        const second = await byName.recordprep_get_facts.execute(
+          "r2", { ordinal: 2 }, undefined, undefined, { shutdown() {} }
+        );
+        results["secondDocument"] = second.content[0].text;
+        await byName.recordprep_submit_summary_section.execute(
+          "s2", { item_id: checks.secondItemId, paragraphs: ["Second retained."] },
+          undefined, undefined, { shutdown() {} }
+        );
+        const secondDraft = await byName.recordprep_get_facts.execute(
+          "d2", { ordinal: 2, view: "submitted_section" }, undefined, undefined, { shutdown() {} }
+        );
+        results["secondDraft"] = secondDraft.content[0].text;
+        const progress = await byName.recordprep_synthesis_scratchpad.execute(
+          "p2", { action: "read" }, undefined, undefined, { shutdown() {} }
+        );
+        results["retainedProgress"] = JSON.parse(progress.content[0].text).progress;
+      }
       const finish = await byName.recordprep_finish_summary.execute(
         "id6", {}, undefined, undefined, { shutdown() {} }
       );
@@ -215,6 +233,32 @@ class SummaryToolsExtensionTests(unittest.TestCase):
             result.returncode, 0, f"{result.stdout}\n{result.stderr}"
         )
         return json.loads(result.stdout)
+
+    def test_pruned_rows_have_consistent_ordinal_reads_drafts_and_diagnostics(self):
+        from copy import deepcopy
+        from types import SimpleNamespace
+        from recordprep import summary_agents as sa
+        from tests.summary_agent_fixtures import synthetic_facts_row
+        first = synthetic_facts_row('hearings')
+        third = deepcopy(first)
+        third.update(item_id='hearing:0003', ordinal=3, start_page=3, end_page=3)
+        historical = [first, third]
+        items = [SimpleNamespace(item_id=r['item_id'], ordinal=i, generation_sha256=r['generation_sha256'],
+                                 end_page=r['end_page']) for i, r in enumerate(historical, 1)]
+        rows, stale = sa.reconcile_digest_rows(historical, items)
+        self.assertEqual(stale, [])
+        blocks = [sa.document_markdown_block(row) for row in rows]
+        result = self._run_extension({'total_rows': 2, 'rows': rows, 'documents': blocks, 'kind': 'hearings'},
+                                     {'firstItemId': first['item_id'], 'secondItemId': third['item_id']})
+        self.assertEqual([r['ordinal'] for r in result['overview']['items']], [1, 2])
+        self.assertEqual(result['secondDocument'], blocks[1])
+        self.assertIn('Second retained.', result['secondDraft'])
+        self.assertEqual(result['retainedProgress']['total_documents'], 2)
+        self.assertEqual(result['retainedProgress']['read_ordinals'], [1, 2])
+        self.assertEqual(result['retainedProgress']['submitted_ordinals'], [1, 2])
+        self.assertEqual(result['finishDetail'], {'accepted': True, 'unread_documents': 0, 'missing_sections': 0})
+        self.assertEqual([s['item_id'] for s in result['candidate']['sections']], [first['item_id'], third['item_id']])
+        self.assertEqual(third['ordinal'], 3)
 
     def test_get_facts_serves_markdown_and_preserves_contracts(self) -> None:
         rows = [

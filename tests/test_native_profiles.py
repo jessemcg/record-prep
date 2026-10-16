@@ -134,6 +134,18 @@ class NativeProfileTests(unittest.TestCase):
                 self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
                 if legacy:
                     self.assertEqual(before, (artifact.read_bytes(), artifact.stat().st_mtime_ns))
+                # Rebuild report-only selection through the normal publisher;
+                # unchanged RT/hearing inputs must reuse participant generation.
+                from recordprep.boundary_profiles import boundary_inputs, publish_boundaries, FILES
+                from recordprep.classification_profiles import load_model_settings
+                settings = load_model_settings(PROJECT / '.pi')
+                payloads = {name: json.loads((root / 'artifacts' / name).read_text()) for name in FILES}
+                artifact = root / 'artifacts/participant_index.json'
+                unchanged = (artifact.read_bytes(), artifact.stat().st_mtime_ns)
+                payloads['report_boundaries.json'] = []
+                publish_boundaries(root, profile, boundary_inputs(root, profile, settings), settings, payloads)
+                self.assertEqual(participant_freshness_issues(root, profile, PROJECT / '.pi'), [])
+                self.assertEqual(unchanged, (artifact.read_bytes(), artifact.stat().st_mtime_ns))
                 topics = profile.resource("reports")
                 topics[0]["guidance"] += " Unrelated report topic guidance."
                 revised = changed(profile, "reports", topics)

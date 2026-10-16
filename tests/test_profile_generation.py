@@ -249,7 +249,8 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertNotIn("Parent", sa.summary_final_path(self.root, "minutes").read_text())
             self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 4)
             output = sa.summary_final_path(self.root, "minutes").read_text()
-            self.assertIn("Review. Synthetic Plaintiff appeared. Plaintiff requested relief. Motion denied.", output)
+            self.assertIn("Minute Order 1 — Review\nAppearances: Plaintiff present.\n"
+                          "Orders: Motion denied. Plaintiff requested relief.\n", output)
             self.assertIn("March 4, 2026 at 9:00 a.m.", output)
             self.assertNotIn("Reported.", output)
             minutes.run_stage(self.root, project / ".pi", generate)

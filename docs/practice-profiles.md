@@ -110,16 +110,65 @@ report → Topic digest + quotes → Narrative section → Hearing / report summ
 Stage 1 reads each complete hearing or report across all its pages; after the digests
 are ready, Stage 2 synthesizes hearing by hearing or report by report, producing
 separate final hearing and report summaries. Relevant information may be sparse or
-dense; substance determines detail, without word targets or quotas.
+dense; substance determines detail, without word targets or quotas. A long hearing
+section still needs short, focused individual paragraphs, regrouped when issues,
+arguments, attribution or rulings change rather than copied as category-sized blocks.
+Hearing extraction distributes meaningful quote anchors across retained positions,
+conditions, disputed evidence and reasons. Synthesis distributes appropriate anchors
+through substantive paragraphs; brief connective prose or points without suitable
+anchors may remain paraphrase, never fabricated or misapplied quotations. One submitted
+array entry represents one paragraph; explicit blank-line breaks also survive rendering.
+These are model instructions, not blocking quality gates or automatic repair passes.
+The [hearing editorial follow-up](hearing-editorial.md) makes the substantive purpose
+or consequential result the opening, reduces overview/party-argument repetition,
+improves quotation grammar and attribution, and preserves unresolved conflicting
+accounts explicitly. Routine recitals get less weight; consequential conditions,
+findings, burdens, review rights and dates remain. Newly rendered hearing summaries
+omit the capitalization announcement; quotation normalization is unchanged. This is
+synthesis-only: valid hearing digests remain reusable and report/minute methods are
+unchanged by that hearing follow-up. The separate [report editorial follow-up](report-editorial.md)
+now stages the visible `recordprep-synthesize-reports/SKILL.md` unchanged for both
+profile-bound and unassigned reports, rather than replacing it with the generic
+profile template. It leads with the main attributed conclusion/development and
+necessary qualification, reduces category-shaped repetition, improves quotation
+grammar/attribution and preserves counterevidence. Report renderer8 also omits the
+announcement without changing capitalization safeguards. Only report synthesis is
+affected; topics and still-current digests remain unchanged/reusable.
+See [earlier implementation and bounded comparison](hearing-selection-validation.md)
+for historical model-test results; that comparison did not test the later editorial
+instructions and is not a claim of their model-quality acceptance.
 **Digest topics** are the hearing/report customization surface. Fixed application
 instructions preserve the pre-profile materiality, adaptive-detail, quotation and
 cohesive-narrative method. No additional digest or narrative instruction fields
 exist in new profiles or the UI; old snapshot fields are never compiled or imported
 from legacy settings. Minute orders retain their separate single-stage,
 complete-order summary flow, described on their page. There is no attendance-policy
-selector. California Dependency minute guidance asks for the hearing's identity,
-each parent's attendance, attributed party positions, main findings/orders and the
-next scheduled hearing, in that order. All pages may supply attendance evidence;
+selector. All cases load the same visible, specialty-neutral
+`recordprep-summarize-minutes/SKILL.md`; there is no profile-specific replacement
+skill. Its shared method normally selects **one or two headline outcomes**, not all
+material detail or an inventory of findings, services and directions. Keep the
+qualifications needed to state those outcomes accurately; another outcome only when
+omission would mislead about disposition. Python renders **Date — Hearing type**,
+then **Appearances / Orders / Next** labeled lines without dashes/bullets. Focus styles
+the plain-text labels in bold, without quote-link or Markdown markers. Orders states
+the result in simple, plain English, retaining essential legal distinctions/conditions.
+Exclude routine report receipt/preparation, filing/portal deadlines, clerical/calendar
+mechanics and conditional late-filing sanctions warnings. Administrative-only orders
+say **No substantive orders recorded.**, not filler or an invented outcome. Actually
+imposed consequential sanctions and substantive relief deadlines remain eligible.
+There is no separate party-position
+submission; an essential objection belongs with its ruling. Next gives only the next
+substantive hearing type/date, excluding report-only hearings and future report filing/due
+dates even if earlier. Do not move that report calendar into Orders. Submission fields are
+containers, not demands for a narrative in each.
+Profiles provide specialty terminology, relevant participants and emphasis: for
+California Dependency, that includes the parents and dependency orders rather than
+forcing those concepts on General. Specialty guidance remains subordinate to the
+shared selection and safety method. No fixed length cap or mechanical truncation.
+Current contract8 and label-v2 identity are documented in [plain-English minute
+entries](minute-plain.md). See [earlier compact entries and validation](minute-compact.md); the
+[first selection attempt](minute-selection.md) is historical, not quality acceptance.
+All pages may supply attendance evidence;
 counsel alone establishes neither presence nor absence. Unclear attendance and
 missing/unclear future settings remain explicit; no reporting-status sentence is
 added. Exact former bundled minute prompts resolve to the new default without
@@ -140,11 +189,28 @@ the model prompt and Python's exact approved-name check. There is no naming-mode
 selector, separate title list, or form-rule card editor. Editing the prompt's list
 changes the approved names; prose outside those entries does not silently add names.
 Dependency retains its reviewed names and form codes. General has no approved names
-until you add practice-appropriate entries. Unmatched reports retain provisional
-labels and their ranges; report dates can still be extracted independently. Forms
+until you add practice-appropriate entries. **Only successfully named reports enter
+the report TOC and standalone report-summary worklist.** General without approved
+report names therefore produces no eligible report summaries. Report dates can still
+be extracted independently, but cannot substitute for a name. Named single-page,
+missing-date and different same-name/date reports remain eligible. Unnamed runs,
+including continuations exposed by classification interruptions, are omitted from
+report navigation/summarization, not deleted or merged with neighboring reports.
+Every original page and classification remains available for direct-source research.
+This approved policy replaces the former provisional-report-label policy. Forms
 with no accepted name are omitted from the Forms TOC, without deleting their source
 pages or structural classifications. An empty form name is not replaced by an
-“Untitled form” entry. Existing TOCs stay unchanged until Build TOC is explicitly run.
+“Untitled form” entry. Existing output stays unchanged until explicit application
+runs: **Build TOC → Correct TOC → Find boundaries → Correct boundaries**.
+Correct TOC retains the first entry per recognized minute-order date in source order;
+unknown dates remain separate. This applies to profiles too, but does not deduplicate
+their underlying same-day order boundaries, summaries or checkpoints. Old output is
+still displayed as stored. Derived-selection freshness v2 requires the explicit
+organizing refresh, not reclassification or renaming. Unchanged hearing/RT inputs
+reuse participants afterward; organizing-only changes do not stale minute checkpoints.
+The separately changed minute selection method does require explicit paid regeneration;
+old output remains readable and untouched until then. Report worklist pruning reuses unchanged named-report digests with contiguous ordinals,
+but report synthesis reruns without removed fragments' context.
 Summary topics are expandable cards with editable names/instructions and add,
 remove and reorder actions. Renaming a topic does not change its stable ID.
 Topic instruction editors unwrap hard-wrapped prose to use the available width,

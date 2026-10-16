@@ -14,7 +14,11 @@ export default function synthesisTools(pi: ExtensionAPI) {
         return target.registerTool({
           ...tool,
           description: tool.description +
-            " For all-caps quotes, optionally supply quote_capitalizations: an " +
+            " Submit one paragraph per paragraphs array entry. For hearings, " +
+            "keep each paragraph short and focused, regroup dense digest topics, " +
+            "and distribute appropriate quote anchors across substantive " +
+            "paragraphs. Review attribution; never force or repeat a quote " +
+            "merely for formatting. For all-caps quotes, optionally supply quote_capitalizations: an " +
             "object mapping exact quote ids to case-only display spellings. " +
             "Preserve names, acronyms, identifiers, wording and punctuation. " +
             "Keep the original quote placeholders in paragraphs; Python " +

@@ -257,40 +257,46 @@ class NamingPipelineTests(unittest.TestCase):
         self.idle.start()
         self.addCleanup(self.idle.stop)
 
-    def test_real_toc_and_boundary_steps_preserve_unknown_reports(self):
+    def test_real_toc_and_boundary_steps_select_named_reports_only(self):
+        sources = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                   for directory in ("classification", "text_pages") for p in (self.root / directory).iterdir()}
         self.assertTrue(self.ui.RecordPrepWindow._run_step_six(self.worker))
         toc = (self.root / "artifacts/toc.txt").read_text()
-        self.assertIn("Untitled report — file page 1", toc)
-        self.assertIn("Untitled report — file page 4", toc)
-        self.assertNotIn("Untitled report — file page 2", toc)
+        self.assertNotIn("Untitled report", toc)
         self.assertNotIn("Untitled form", toc)
         self.assertNotIn("0005", toc)
         self.assertIn("Detention Report", toc)
-        self.assertTrue(any("Review required" in str(call) for call in self.worker.show_toast.call_args_list))
+        self.assertTrue(any("2 unnamed report runs omitted" in str(call) for call in self.worker.show_toast.call_args_list))
         self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_toc(self.worker))
         self.assertEqual((self.root / "artifacts/toc.txt").read_text(), toc)
         self.assertTrue(self.ui.RecordPrepWindow._run_step_seven(self.worker))
         path = self.root / "artifacts/report_boundaries.json"
         before = json.loads(path.read_text())
         self.assertEqual([(r["start_page"], r["end_page"]) for r in before],
-                         [("0001", "0002"), ("0004", "0004"), ("0006", "0007"), ("0009", "0009")])
-        for row in before[:2]:
-            self.assertEqual(row["report_name"], "")
-            self.assertEqual(row["naming_status"], "unresolved")
-            self.assertEqual(row["boundary_review"], "required")
-            self.assertIn("Untitled report", row["report_label"])
+                         [("0006", "0007"), ("0009", "0009")])
+        self.assertEqual([r["report_date"] for r in before], ["", ""])
         self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_boundaries(self.worker))
         self.assertEqual(json.loads(path.read_text()), before)
-        # Existing source-map document reader retains the provisional label and
-        # review metadata without needing a new artifact format.
+        self.assertEqual(sources, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in sources})
+        # Historical readers still show old provisional labels as stored.
+        historical = {"report_name": "", "report_label": "Untitled report — file page 1",
+                      "start_page": "0001", "end_page": "0002", "boundary_review": "required"}
+        path.write_text(json.dumps([historical, *before]))
+        stored = (path.read_bytes(), path.stat().st_mtime_ns)
         script = Path(__file__).parents[1] / ".pi/skills/recordprep-build-source-map/scripts/build_source_map.py"
         spec = importlib.util.spec_from_file_location("naming_source_map_test", script)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         documents = module.boundary_documents(self.root, {})
-        self.assertEqual(len(documents), 4)
+        self.assertEqual(len(documents), 3)
         self.assertIn("Untitled report", documents[0]["label"])
-        self.assertEqual(documents[1]["metadata"]["boundary_review"], "required")
+        self.assertEqual(documents[0]["metadata"]["boundary_review"], "required")
+        self.assertEqual(stored, (path.read_bytes(), path.stat().st_mtime_ns))
+        unresolved = historical | {'report_name': 'Unresolved candidate', 'naming_status': 'unresolved',
+                                   'start_page': '0004', 'end_page': '0004'}
+        path.write_text(json.dumps([historical, unresolved, *before]))
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_boundaries(self.worker))
+        self.assertEqual(json.loads(path.read_text()), before)
 
     def test_toc_omits_unmatched_forms_but_retains_named_forms_and_sources(self):
         classification = self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl"
@@ -307,14 +313,52 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertIn("Approved Form 0003", forms)
         self.assertNotIn("0005", forms)
         self.assertNotIn("Untitled form", forms)
-        self.assertIn("Untitled report", toc)
+        self.assertNotIn("Untitled report", toc)
         self.assertEqual(sources, {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in sources})
 
-    def test_unnamed_range_on_explicit_append_never_disappears(self):
+    def test_unnamed_range_on_explicit_append_is_not_a_work_item(self):
         rows = []
         self.worker._append_boundary_entry("report", "0012.txt", "0015.txt", {}, {}, [], rows, [])
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["report_label"], "Untitled report — file page 12")
+        self.assertEqual(rows, [])
+
+    def test_zero_eligible_reports_and_named_single_page_duplicates(self):
+        classification = self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl"
+        entries = [json.loads(line) for line in classification.read_text().splitlines()]
+        for entry in entries:
+            entry["name"] = ""
+        classification.write_text("\n".join(json.dumps(row) for row in entries) + "\n")
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_six(self.worker))
+        self.assertNotIn("\t", (self.root / "artifacts/toc.txt").read_text())
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_seven(self.worker))
+        self.assertEqual(json.loads((self.root / "artifacts/report_boundaries.json").read_text()), [])
+        rows = []
+        for start in ("0012", "0014"):
+            self.worker._append_boundary_entry("report", start + ".txt", start + ".txt", {},
+                                               {start + ".txt": "Same Report"}, [], rows, [])
+        path = self.root / "artifacts/report_boundaries.json"
+        path.write_text(json.dumps(rows))
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_boundaries(self.worker))
+        self.assertEqual(json.loads(path.read_text()), rows)
+
+    def test_toc_worker_preserves_retained_line_endings_and_trailing_blanks(self):
+        path = self.root / 'artifacts/toc.txt'
+        original = ('REPORTS\r\n\tNamed report 0001\r\n\r\nMINUTE ORDERS\r\n'
+                    '\tMarch 5, 2026 0002\r\n\t03/05/2026 0003\r\n'
+                    '\tDate unresolved 0004\r\n\r\nHEARINGS\r\n\r\n')
+        path.write_bytes(original.encode())
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_toc(self.worker))
+        self.assertEqual(path.read_bytes(), original.replace('\t03/05/2026 0003\r\n', '').encode())
+        self.assertTrue(any('1 duplicate date entries removed' in str(call)
+                            for call in self.worker.show_toast.call_args_list))
+
+    def test_stopped_toc_correction_preserves_previous_publication(self):
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_six(self.worker))
+        path = self.root / 'artifacts/toc.txt'
+        before = (path.read_bytes(), path.stat().st_mtime_ns)
+        self.worker._raise_if_stop_requested = Mock(side_effect=[None, None, self.ui.StopRequested()])
+        self.assertFalse(self.ui.RecordPrepWindow._run_step_correct_toc(self.worker))
+        self.assertEqual(before, (path.read_bytes(), path.stat().st_mtime_ns))
+        self.worker._finish_step.assert_called_with(self.worker.step_correct_toc_row, None)
 
     def test_classifier_uses_compiled_schema_not_editable_prompt_prose(self):
         current = profiles.validate_profile_directory(profiles.bundled_profile_directory("california_dependency")).draft

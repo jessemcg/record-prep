@@ -75,7 +75,48 @@ instructions live in the runtime contract, not in hidden editable profile fields
    Tool descriptions retain the exact protocol. Unassigned compatibility work
    retains its legacy resolver; schema-3 profiles never acquire old custom prompts.
 
+## Approved hearing readability and report selection follow-up (2026-10-16)
+
+The comparison control for this follow-up is **72c0487**, not the original
+pre-profile reconciliation baseline. The detailed
+[validation report](hearing-selection-validation.md) separates implementation
+acceptance from remaining paid-model quality failures.
+
+- Put hearing readability/quotation coverage near the beginning of the active
+  application contract, with a short fictional regrouping example. Long total
+  coverage is compatible with short focused paragraphs; reorganize category blocks,
+  distribute meaningful quotation anchors across retained points, and preserve
+  attribution/qualifications. Do not force unsuitable anchors or add numerical quotas.
+- Apply the hearing method to unassigned work while retaining old built-in literals
+  for exact recognition and genuinely custom additional guidance byte-for-byte.
+  Topic catalogs and report extraction remain unchanged. Thin skills and the
+  synthesis-only wrapper reinforce the protocol; the shared extraction extension
+  is unchanged, avoiding unrelated report-digest invalidation.
+- Split submitted strings on explicit blank lines after CRLF/CR normalization;
+  collapse soft-wrap whitespace only within paragraphs. Rendering and fallback
+  use the same helper. No schema migration, mechanical sentence splitting,
+  truncation, new model pass, blocking quality gate or automatic repair loop.
+- Replace the former unnamed-report policy: only accepted nonempty report names
+  produce report TOC entries and standalone work items. Correction does not trust
+  synthetic labels. Preserve named short/missing-date/same-name-date documents,
+  all source pages/classifications and separate minute orders. General without
+  approved names produces zero eligible report summaries; never invent fallbacks.
+- TOC correction now applies to profiles too: first occurrence per recognized date
+  in MINUTE ORDERS only, with unresolved entries independent and completion pending
+  until removable duplicates are gone. Profile-bound order boundaries stay separate.
+- Prune and copy retained digest rows into current contiguous ordinals at explicit
+  publication. Preserve stable IDs, evidence/offsets and generation fingerprints;
+  do not mutate historical rows on freshness reads. Detect a changed dataset even
+  when every retained row is individually current, forcing fresh report synthesis.
+
 ## Freshness and preservation
+
+Hearing extraction guidance honestly stales hearing digests; synthesis contract v4
+and renderer v7 stale finals, not unchanged report extraction. Derived selection
+contract v2 stales old profile TOCs/boundaries, not classification/naming. Narrowly
+reviewed native-runtime compatibility covers only that prerequisite-contract change;
+source/component/model checks still apply, so unchanged hearing inputs can reuse
+participants after boundary rebuilding. Minute generation is unchanged.
 
 Core and topic bytes are fingerprinted. Restoring digest instructions makes
 profile-bound extraction regeneration-pending; changed digests and synthesis
@@ -99,6 +140,10 @@ classification schema-3 routing, and the three-entry GTK navigation.
 These checks establish behavioral prompt coverage and pipeline correctness, not
 model-output quality. No real records, private profile files, or credentials are
 changed by the tests, and no paid calls are part of the test suite.
+
+The historical recommendation below describes the original reconciliation, not the
+completed 2026-10-16 follow-up's control. See the linked validation report for its
+11 fictional-only paid child runs, mixed results and remaining failures.
 
 A quality comparison should use the same model/provider/reasoning and identical
 synthetic complete hearings/reports for both contracts. Use the pre-profile

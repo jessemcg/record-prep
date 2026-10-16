@@ -24,18 +24,17 @@ export default function minuteTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "recordprep_submit_minute_summary",
     label: "Submit minute-order summary",
-    description: "Submit source-supported appearances, attributed party positions, main findings and orders, and the next hearing scheduled. Attendance evidence can come from any page; counsel alone proves neither presence nor absence. Cite the page and verbatim evidence for attendance claims. Use complete sentences for positions, orders and next_hearing. Python validates evidence locations and renders one concise paragraph. Submission ends this session.",
+    description: "Submit normally one or two headline outcomes, not a miniature order or field-by-field narrative. Python renders Date — Hearing type, then Appearances / Orders / Next labeled lines without bullets; Focus makes the labels bold. State the result in plain English, not form legalese. Omit administrative/report-filing mechanics and conditional late-filing sanctions warnings; if administrative-only, say 'No substantive orders recorded.' Keep only essential qualifications and the next substantive hearing type/date. Exclude future report dates and report-only hearings. No separate party-position narrative or calendar inventory. Attendance evidence may come from any page; counsel alone proves neither presence nor absence. Python verifies locations; submission ends this session.",
     parameters: Type.Object({
-      hearing: Type.String(),
+      hearing: Type.String({ description: "Short hearing type only; no date, case caption, birth date, courthouse or department. Python puts this beside the date." }),
       appearances: Type.Array(Type.Object({
         person: Type.String(),
-        role_label: Type.String({ maxLength: 512, description: "Short role or relationship expressly supported by this minute order; Unknown if unresolved. No participant index or predefined role catalog is used." }),
+        role_label: Type.String({ maxLength: 512, description: "Short role or relationship of a person relevant under the profile, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog." }),
         status: Type.Union([Type.Literal("present"), Type.Literal("not_present"), Type.Literal("unclear")]),
         evidence: Type.Array(Type.Object({ file_page: Type.Integer({ minimum: 1 }), text: Type.String() }), { maxItems: 128 }),
       }), { maxItems: 128 }),
-      positions: Type.String({ description: "Material requests, objections, agreements or positions actually recorded, attributed to each party; empty if none recorded. Do not infer agreement from silence or from a ruling." }),
-      orders: Type.String({ description: "Main findings and orders actually made by the court, distinguished from requested relief; no duplicate appearances or party positions." }),
-      next_hearing: Type.String({ description: "Next hearing type, date and time as recorded; distinguish other material settings if several were scheduled. Say 'Next hearing not stated.' if none is recorded, or 'Next hearing unclear.' if illegible/ambiguous. Never invent missing details." }),
+      orders: Type.String({ description: "Normally one or two decisive outcomes in simple, plain English: who must do what, what was allowed/denied, or what changed. Translate legal/form language faithfully; retain necessary terms and essential conditions or substantive deadlines. No statutory/standard/unchanged-order recitals, routine report receipt/preparation, filing/e-filing/portal deadlines, calendar/clerical and service-of-paperwork logistics or conditional late-filing sanctions warnings. For administrative-only orders say 'No substantive orders recorded.' An actually imposed consequential sanction is different. Another outcome only if omission would mislead about disposition. Setting a motion for hearing does not grant relief. Include an objection only if essential; no separate positions narrative or repetition of hearing/next date." }),
+      next_hearing: Type.String({ description: "Only the next substantive hearing type/date. Exclude report-only hearings and report filing/due dates, even if earlier. Do not move that report calendar into orders. Omit later settings, times and notice/return directions. Use 'Not stated.' or 'Unclear.' as appropriate; do not invent settings or list a vacated hearing as next." }),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!spec || !read) throw new Error("Read the complete minute order before submitting.");

@@ -60,10 +60,21 @@ Keep frozen dependency fixtures and legacy readers intact. Participant schema 4
 provenance/catalogs, never instruction authority. Unknown names/dates must not
 erase short documents. Custom category IDs may include hyphens and digits; quote
 serialization must preserve their canonical IDs. Forms TOC lists only named forms:
-empty/missing form names must not generate provisional entries. Keep unnamed report
-labels/ranges and all source pages/classifications. Explicit Build TOC applies this
-policy to existing bundles; do not edit private TOCs or invalidate participant work
-for this presentation-only correction. Missing instructions block new
+empty/missing form names must not generate provisional entries. Reports likewise
+require an accepted nonempty name for TOC entries and standalone summary boundaries;
+Correct boundaries omits empty/unresolved names, never inferring a name from an old
+synthetic report_label. Keep named one-page/missing-date and same-name/date reports.
+Preserve all source pages/classifications; never merge unnamed fragments across gaps.
+General without approved report names yields no eligible report summaries. This
+approved policy replaces provisional report labels/ranges from 2303297. Historical
+readers still display output as stored, without writes. Explicit Build TOC → Correct
+TOC → Find boundaries → Correct boundaries applies the policy. TOC correction keeps
+only the first recognized minute-order date, never collapsing unknown dates, for
+profiles and unassigned cases alike; separate profile-bound order boundaries and
+minute checkpoints remain intact. Derived-selection contract v2 honestly stales old
+profile-era TOCs/boundaries, not classification/naming. After explicit boundary
+rebuilding, unchanged RT/hearing inputs reuse participants through narrowly reviewed
+runtime compatibility, not private metadata repair. Missing instructions block new
 work, not browsing. Keep private configuration/cases untouched. Dependency
 initialization is an allowlisted read-only candidate shared by chooser/editor,
 persisted only on Save
@@ -178,7 +189,7 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 - `recordprep/manifest.py`: manifest import surface.
 - `recordprep/summaries.py`: summary path/link import surface.
 - `recordprep/summary_editions.py`: page-matched Letter PDF editions and Focus page maps.
-- `recordprep/minute_summaries.py`: single-stage direct-source PI minute summaries. Profile-bound format4: hearing identity, complete-order appearances, attributed party positions, findings/orders, next hearing; no attendance selector or reporting-status sentence. Old profile attendance fields are inert; checkpoints1/2/3 remain readable; unassigned legacy first-page prompt stays separate.
+- `recordprep/minute_summaries.py`: single-stage direct-source PI minute summaries. Profile contract8 publishes Date — Hearing type and unbulleted Appearances / Orders / Next labels (bold in Focus), normally one or two plain-English headline outcomes; no separate party-position submission. Schema4 retains compatibility positions and complete-order evidence; old readers and unassigned first-page/reporting path stay separate.
 - `recordprep/summary_agents.py`: two-stage PI summary pipeline — work items, fingerprints, canonical Markdown digest/meta publication with per-kind locks, quote span resolution, recurrence analysis, synthesis validation, and deterministic rendering.
 - `recordprep/summary_categories.py`: strict loader for the tracked category-guidance resources; code-owned category ids/titles/order live here, editable guidance prose lives in `recordprep/resources/summary_categories/`.
 - `recordprep/documents.py`: PDF merge, extraction, rendering, and OCR import surface.
@@ -198,10 +209,41 @@ normalization and rendering both enforce one-for-one letter-case-only changes to
 source quotations. Reject malformed, unknown, unused, mixed-case-source or wording-changing
 proposals nonfatally; no automatic lower()/title() fallback and no extra model repair loop.
 The rule tells the model to preserve names/acronyms/identifiers and retain uncertain token
-casing; syntactic validation cannot prove semantic correctness. Add one normalization notice
-only when an accepted, changed quote is actually published. Keep historical candidates valid.
-The synthesis-only extension wrapper changes the submit schema without changing the base
-extraction extension/fingerprint. Stage both files, explicitly load only the wrapper for
+casing; syntactic validation cannot prove semantic correctness. Newly rendered hearing
+and report summaries omit capitalization announcements without changing normalization
+or evidence; both kind-specific renderer identities are version8. Keep historical
+candidate schemas supported and old stored output readable/untouched, not falsely current.
+The synthesis-only extension wrapper reinforces one paragraph per array entry and
+changes the submit schema without changing the base extraction extension/fingerprint.
+Hearing contracts distinguish unlimited overall coverage from short focused paragraphs.
+Open with substantive purpose or consequential result and necessary qualifications,
+not roll calls/logistics. Do not preview and then repeat each party's arguments; group
+shared positions while retaining different grounds/relief/reservations. Retain material
+findings, burdens, evidence limitations, notice issues, conditions, review rights and
+dates; omit routine inventories/recitals unless consequential. Keep conditional standard
+directions conditional. Prefer meaningful anchors to stock appearances; read expanded
+quotes grammatically without duplicated subjects/verbs or paraphrase-plus-quote repeats.
+Never rewrite quotes or shift the speaker/actor/duty bearer. Reread conflicting digest
+accounts, explain only supported changes, otherwise attribute the specific uncertainty;
+counsel's account of a prior ruling is not a verified court finding. All in normal
+synthesis, not a new pass. See docs/hearing-editorial.md. The hearing-only renderer8
+omits the notice; the separate report follow-up now uses report renderer8 and the
+canonical recordprep-synthesize-reports SKILL unchanged for profiles and unassigned
+work. profile_skill_text selects that same file for staging and capacity estimates;
+effective synthesis config hashes it, never the generic template for reports.
+Report editorial method leads with attributed conclusion/development and necessary
+qualification, short focused paragraphs, each fact once, meaningful grammatical
+anchors and balanced counterevidence. No minute-style outcome cap, bullets, extra
+pass, prose filter or private-profile rewrite. See docs/report-editorial.md. All
+extraction/hearing/minute/native identities stay unchanged by the report follow-up.
+Prior exact built-ins stay recognized, custom bytes preserved. No count quota, blocking
+quality validator, repair loop or extra model pass. Apply the same hearing method to
+unassigned compatibility work, retaining exact historical literals and custom bytes.
+Normalize CRLF/CR and explicit blank-line breaks before collapsing soft-wrap whitespace,
+including direct rendering and fallbacks; never mechanically sentence-split/truncate.
+Reconciliation copies retained rows into current contiguous ordinals without changing
+identity/evidence/fingerprints; freshness checks dataset identity/order as well as each
+row, so shrinking a report worklist reuses extraction but must rerun synthesis. Stage both files, explicitly load only the wrapper for
 synthesis, and include both in synthesis freshness/preflight/cache signatures. Existing
 source/digest/private artifacts are never migrated. Test actual offline SDK schema acceptance,
 source preservation, fallback, PDF quote spans, and reuse of existing extraction fingerprints.
@@ -214,10 +256,11 @@ branches specialized; unknown conditions retain both arms. Include the stage's
 SkillStage declaration, shared safety code, model/reasoning identity and source
 inputs. Do not hash the whole multi-stage runner for both stages. Stage prompts,
 helper/guard resources and profile components remain independently checked.
-The tracked native_runtime_compat.json permits only reviewed bcbda05 and initial
-stage-scoped participant runtime hashes (also reviewed after adding the synthesis-only
-resource to the shared resource registry) while the current stage-code hash matches its
-reviewed baseline. All current source/component/model checks still apply. This is
+The tracked native_runtime_compat.json permits only explicitly reviewed runtime
+hashes (bcbda05, initial stage-scoped runtime, public-settings adapters and the
+72c0487 report-selection prerequisite-only change and removal of the obsolete
+minute-resource presence check) while the current stage-code hash matches its
+reviewed baseline. See docs/hearing-selection-validation.md and docs/minute-selection.md. All current source/component/model checks still apply. This is
 read-only compatibility, not a private artifact migration; never rewrite case metadata
 or expand compatibility to arbitrary historical hashes. Relevant code changes disable
 legacy compatibility unless separately reviewed. Test both stage isolation and real
@@ -288,12 +331,41 @@ completed empty hearings. Test normalization, helper CLI, actual extension and r
 
 The participant index is hearing-scoped and separates counsel, non-counsel participants, and witnesses. Its helper publishes a temporary, nonauthoritative worklist under `temp/` that scopes first/appearance pages, RT-index pages, and oath/examination/attendance markers without copying source-page text. The agent processes one hearing at a time, reads single source pages, persists completed hearings incrementally, and uses partial validation after batches of at most five hearings. It must never concatenate the complete RT or a multi-hundred-page run. Full validation rejects the unreviewed template placeholder. Law firms/agencies are organizations, not attorney aliases. Q/A alone is not testimony. Unknown/conflicting identity, attendance, witness, or counsel evidence must remain explicit rather than guessed.
 
-Profile-bound minute orders use PROFILE_MINUTE_CORE plus topic-independent minute
-guidance: hearing identity, source-supported appearances, attributed party positions,
-main findings/orders and next hearing. Attendance is fixed to complete-order evidence;
-no presence/absence inference from counsel alone or missing names. There is no policy
-selector; old policy fields are inert and exact former bundled prose resolves to the
-new default without private writes. Checkpoint/final metadata4 has positions and
+All minute runs stage the same specialty-neutral recordprep-summarize-minutes SKILL
+unchanged; never substitute another hidden skill for profiles. The alternate
+resources/profile-minutes.md is retired. Shared selection normally chooses one or two
+headline outcomes, not every material detail or a miniature order. Preserve the
+qualifications needed for those outcomes; another outcome only when omission would
+mislead about disposition. New profile submissions omit positions; an essential
+objection belongs with its ruling. Python publishes Date — Hearing type followed by
+only Appearances / Orders / Next labeled lines, with no dashes. Focus's minute-only
+label emphasis renders these plain-text prefixes bold, never as quote/search links.
+Keep exactly one blank line between entries and no blank lines inside each entry;
+Focus paginated display/search must preserve that grouping too.
+Orders uses simple, plain English, keeping necessary legal distinctions/conditions.
+Exclude routine report receipt/preparation, filing/portal deadlines, clerical/calendar
+mechanics and conditional late-filing sanctions warnings. An actually imposed
+consequential sanction or substantive relief deadline is different. For administrative-only
+orders use 'No substantive orders recorded.', not filler or an invented ruling.
+Next contains only the next substantive
+hearing type/date; exclude report-only hearings and future report filing/due dates,
+even if earlier. Do not move the report calendar into Orders. No hard item/word quota, truncation,
+blocking quality gate, extra pass or private-output migration.
+Profiles supply specialty terminology, relevant participants and emphasis, subordinate
+to shared selection/safety; never hard-code juvenile/parent rules into the neutral
+method. PROFILE_MINUTE_CORE defines the structured response and complete-order
+attendance evidence; counsel alone and missing names establish neither presence nor
+absence. There is no policy selector; old policy fields are inert and exact former
+bundled prose resolves to the new default without private writes (including the
+preceding broad paragraph and compact-with-report-date defaults; never fuzzy-match
+custom prose). Contract8 and
+recordprep-minute-compact-labels-2 honestly stale former minute generation. Preserve
+explicit compact-list-1 rendering and historical paragraph callers; do not silently
+reformat saved summaries. See docs/minute-plain.md for current language/presentation
+and the narrow Focus consumer dependency.
+Historical checkpoints/readers/rendering stay unchanged; explicit reruns incur paid
+per-order work, then reuse current rows. See docs/minute-compact.md (current) and
+docs/minute-selection.md (first attempt). Checkpoint/final metadata4 retains positions and
 next_hearing instead of reporting status, source-described appearance roles and no
 catalog/policy metadata; historical1/2/3 readers preserve old output.
 The following legacy minute prompt applies only to unassigned compatibility work.

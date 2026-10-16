@@ -101,7 +101,9 @@ for scenario, profile in profiles:
                 for method in ("_run_step_two", "_run_step_advanced", "_run_step_correct_advanced", "_run_step_dates", "_run_step_names", "_run_step_six", "_run_step_correct_toc", "_run_step_seven", "_run_step_correct_boundaries"):
                     assert getattr(ui.RecordPrepWindow, method)(worker), (scenario,method,worker.show_toast.call_args)
             assert len(json.loads((root / "artifacts/hearing_boundaries.json").read_text())) == 1
-            assert len(json.loads((root / "artifacts/report_boundaries.json").read_text())) == 1
+            from recordprep.document_naming import compile_naming_profile
+            expected_reports = int(bool(compile_naming_profile(profile, "report").normalize({"name": report_title, "date": ""}).name))
+            assert len(json.loads((root / "artifacts/report_boundaries.json").read_text())) == expected_reports
             assert len(json.loads((root / "artifacts/minutes_boundaries.json").read_text())) == 1
             entries = _transcript_entries(range(1,11))
             for entry in entries[8:]:
@@ -155,7 +157,9 @@ for scenario, profile in profiles:
                 for kind,singular in (("hearings","hearing"),("reports","report")):
                     stage = runner.SkillStage(f"create_{singular}_summaries",kind,f"recordprep-extract-{singular}","")
                     assert runner._run_summary_stage(stage,root,project / ".pi") == 0
-                    assert sa.load_digest_markdown(root,kind)[0]["schema_version"] == 3
+                    rows = sa.load_digest_markdown(root,kind)
+                    assert len(rows) == (1 if kind == "hearings" else expected_reports)
+                    assert all(row["schema_version"] == 3 for row in rows)
             candidate = {"artifact":"recordprep-minute-candidate","hearing":"Motion hearing","reporting":"unknown","orders":"Motion denied.","appearances":[{"person":"Mother" if dependent else "Synthetic Plaintiff","role_label":"Mother" if dependent else "Plaintiff","status":"present","evidence":[{"file_page":10,"text":"Mother appeared personally" if dependent else "Plaintiff appeared personally"}]}]}
             minutes.run_stage(root,project / ".pi",lambda *args:candidate)
             run_native("create_case_overview")
@@ -164,7 +168,7 @@ for scenario, profile in profiles:
             assert validate_prepare_bundle_outputs(root,project_dir=project / ".pi") == []
             assert publication_issues(root,profile,project / ".pi") == []
             payload = json.loads((root / "artifacts/source_map.json").read_text())
-            assert payload["schema_version"] == 3 and payload["counts"]["reports"] == 1
+            assert payload["schema_version"] == 3 and payload["counts"]["reports"] == expected_reports
             # No model or credential configuration accompanies the exported case.
             shutil.copytree(root,output / scenario)
             assert "DO-NOT-PUBLISH" not in "".join(path.read_text(errors="ignore") for path in (output / scenario).rglob("*") if path.is_file())

@@ -39,14 +39,14 @@ process.env.RECORDPREP_MINUTE_WORK_SPEC = process.argv[2];
 const submit = registered.recordprep_submit_minute_summary;
 const profile = process.argv[3] === "profile";
 const params = profile
-  ? { hearing: "Review", appearances: [{person: "Mother", role_label: "Mother", status: "present", evidence: [{file_page: 1, text: "Mother present."}]}], positions: "", orders: "Continued.", next_hearing: "Next hearing not stated." }
+  ? { hearing: "Review", appearances: [{person: "Mother", role_label: "Mother", status: "present", evidence: [{file_page: 1, text: "Mother present."}]}], orders: "Continued.", next_hearing: "Not stated." }
   : { hearing: "Review", reporting: "reported", parents: [{parent: "Mother", status: "present", first_page_evidence: "Mother present."}], orders: "Continued." };
-if (profile && (!submit.parameters.appearances[1].role_label || submit.parameters.appearances[1].role_id)) throw new Error("Unexpected role schema");
+if (profile && (!submit.parameters.appearances[1].role_label || submit.parameters.appearances[1].role_id || submit.parameters.positions)) throw new Error("Unexpected profile schema");
 let blocked = false, shutdown = 0;
 try { await submit.execute("1", params, null, null, {shutdown() {shutdown++;}}); } catch { blocked = true; }
 const source = await registered.recordprep_get_minute_source.execute();
 const result = await submit.execute("2", params, null, null, {shutdown() {shutdown++;}});
-console.log(JSON.stringify({ names: Object.keys(registered), blocked, source: source.content[0].text, shutdown, terminate: result.terminate }));
+console.log(JSON.stringify({ names: Object.keys(registered), description: submit.description, blocked, source: source.content[0].text, shutdown, terminate: result.terminate }));
 ''')
             result = subprocess.run(["node", "--experimental-strip-types", str(driver), str(spec), "profile" if profile else "legacy"], capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -60,10 +60,14 @@ console.log(JSON.stringify({ names: Object.keys(registered), blocked, source: so
             self.assertEqual(payload["artifact"], "recordprep-minute-candidate")
             self.assertEqual(payload["item_id"], "minute:0001")
             if profile:
+                self.assertIn("one or two headline outcomes", actual["description"])
+                self.assertIn("Appearances / Orders / Next", actual["description"])
+                self.assertIn("No separate party-position narrative", actual["description"])
                 self.assertEqual(payload["appearances"][0]["role_label"], "Mother")
                 self.assertNotIn("role_id", payload["appearances"][0])
                 self.assertNotIn("reporting", payload)
-                self.assertEqual(payload["next_hearing"], "Next hearing not stated.")
+                self.assertEqual(payload["next_hearing"], "Not stated.")
+                self.assertNotIn("positions", payload)
 
 
 if __name__ == "__main__":

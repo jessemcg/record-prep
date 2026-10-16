@@ -60,7 +60,7 @@ class ClassificationProfileTests(unittest.TestCase):
             self.assertNotIn("NEVER-PERSIST", metadata.read_text())
             self.assertNotIn("synthetic.invalid", metadata.read_text())
 
-    def _run_gui_pipeline(self, kind="report"):
+    def _run_gui_pipeline(self, kind="report", date_value=""):
         from recordprep.ui import main_window as ui
         worker = SimpleNamespace(
             _resolve_case_root=lambda: self.root, _raise_if_stop_requested=lambda: None,
@@ -85,7 +85,7 @@ class ClassificationProfileTests(unittest.TestCase):
             if "CURRENT TASK: Is this" in prompt:
                 return json.dumps({"first_page": "yes"})
             if "CURRENT TASK: Extract" in prompt:
-                return json.dumps({"date": ""})
+                return json.dumps({"date": date_value})
             return json.dumps({"name": "Independent Report", "date": "January 2, 2026"})
         with patch.object(ui.GLib, "idle_add"), patch.object(ui, "_post_json_with_retries", side_effect=response), \
                 patch.object(ui, "load_classifier_settings", return_value=self.settings), \
@@ -95,6 +95,8 @@ class ClassificationProfileTests(unittest.TestCase):
             for method in ("_run_step_two", "_run_step_advanced", "_run_step_correct_advanced", "_run_step_dates", "_run_step_names",
                            "_run_step_six", "_run_step_correct_toc", "_run_step_seven", "_run_step_correct_boundaries"):
                 self.assertTrue(getattr(ui.RecordPrepWindow, method)(worker), method)
+                if method == "_run_step_six" and kind == "minutes" and date_value:
+                    self.assertFalse(ui.RecordPrepWindow._step_artifact_complete(worker, "correct_toc", self.root))
         self.assertEqual(len(prompts), {"report": 2, "minutes": 6, "CT_form": 3}.get(kind, 1))
         self.assertTrue(all("legacy" not in prompt for prompt in prompts))
         entries = [json.loads(line) for line in (self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl").read_text().splitlines()]
@@ -109,8 +111,31 @@ class ClassificationProfileTests(unittest.TestCase):
         elif kind == "minutes":
             orders = json.loads((self.root / "artifacts/minutes_boundaries.json").read_text())
             self.assertEqual(len(orders), 2)
-            self.assertTrue(all(not order["date"] for order in orders))
-            self.assertEqual((self.root / "artifacts/toc.txt").read_text().count("Date unresolved"), 2)
+            self.assertTrue(all(order["date"] == date_value for order in orders))
+            toc = (self.root / "artifacts/toc.txt").read_text()
+            self.assertEqual(toc.count(date_value if date_value else "Date unresolved"), 1 if date_value else 2)
+            with patch.object(ui, 'load_classifier_settings', return_value=self.settings):
+                self.assertTrue(ui.RecordPrepWindow._step_artifact_complete(worker, "correct_toc", self.root))
+            if date_value:
+                from recordprep import minute_summaries as minutes
+                project = self.root / "project/.pi"
+                import shutil
+                shutil.copytree(Path(__file__).resolve().parents[1] / ".pi", project)
+                # Classifier settings are explicitly the synthetic generation identity.
+                (project.parent / "config.json").write_text(json.dumps({
+                    'classifier_api_url': self.settings['api_url'], 'classifier_model_id': self.settings['model_id'],
+                    'classifier_disable_reasoning': self.settings['disable_reasoning']}))
+                generate = Mock(return_value={'artifact': 'recordprep-minute-candidate', 'hearing': 'Review',
+                                               'orders': 'A separate ruling.', 'appearances': []})
+                minutes.run_stage(self.root, project, generate)
+                self.assertEqual(generate.call_count, 2)
+                watched = [self.root / 'artifacts/minutes_boundaries.json', minutes.checkpoint_path(self.root)]
+                before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in watched}
+                with patch.object(ui.GLib, 'idle_add'), patch.object(ui, 'load_classifier_settings', return_value=self.settings):
+                    self.assertTrue(ui.RecordPrepWindow._run_step_correct_toc(worker))
+                self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in watched})
+                minutes.run_stage(self.root, project, generate)
+                self.assertEqual(generate.call_count, 2)
 
         else:
             self.assertEqual(entries[0]["page_type"], "CT_form_first_page" if kind == "CT_form" else kind)
@@ -155,11 +180,32 @@ class ClassificationProfileTests(unittest.TestCase):
     def test_actual_gui_worker_classification_pipeline_uses_frozen_contracts(self):
         self._run_gui_pipeline()
 
+    def test_old_derived_selection_is_stale_without_staling_classification_or_writing(self):
+        from recordprep.boundary_profiles import boundary_issues, toc_issues
+        self._run_gui_pipeline()
+        watched = []
+        for name in ('profile-toc.json', 'profile-boundaries.json'):
+            path = self.root / 'artifacts' / name
+            data = json.loads(path.read_text()); data['inputs']['contract_version'] = 1
+            path.write_text(json.dumps(data)); watched.append(path)
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in watched}
+        self.assertTrue(toc_issues(self.root, self.profile, self.settings))
+        self.assertTrue(boundary_issues(self.root, self.profile, self.settings))
+        for stage in STAGES:
+            self.assertEqual(stage_issues(self.root, stage, self.profile, self.settings), [])
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in watched})
+
     def test_profile_orders_with_unknown_dates_are_not_erased_or_deduplicated(self):
         (self.root / "text_pages/0002.txt").write_text("Another distinct minute order.")
         (self.root / "image_pages/0002.png").write_bytes(b"second synthetic image payload")
         apply_manual_override(self.root, mode="ct_only")
         self._run_gui_pipeline("minutes")
+
+    def test_known_same_day_orders_have_one_toc_entry_but_two_boundaries_and_checkpoints(self):
+        (self.root / 'text_pages/0002.txt').write_text('A separate same-day ruling.')
+        (self.root / 'image_pages/0002.png').write_bytes(b'separate order image')
+        apply_manual_override(self.root, mode='ct_only')
+        self._run_gui_pipeline('minutes', 'March 5, 2026')
 
     def _basic_worker(self):
         from recordprep.ui import main_window as ui

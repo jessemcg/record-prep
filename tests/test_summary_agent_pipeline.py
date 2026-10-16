@@ -189,7 +189,7 @@ class CategoryContractTests(unittest.TestCase):
     def test_digest_schema_contract(self) -> None:
         self.assertEqual(sa.SUMMARY_FACTS_SCHEMA_VERSION, 2)
         self.assertEqual(sa.SUMMARY_FACTS_ARTIFACT, "recordprep-summary-digest")
-        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-6")
+        self.assertEqual(sa.SUMMARY_RENDERER_VERSION, "recordprep-summary-renderer-7")
         row = synthetic_facts_row("hearings")
         self.assertEqual(sa.validate_digest_row(row), [])
         for category in row["categories"]:
@@ -1598,7 +1598,7 @@ class RenderingTests(unittest.TestCase):
                 {"hearing:0001": (1, None)},
                 quality_flags=flags,
             )
-            self.assertEqual(meta["renderer_version"], sa.SUMMARY_RENDERER_VERSION)
+            self.assertEqual(meta["renderer_version"], sa.summary_renderer_version("hearings"))
             self.assertEqual(meta["quality_flags"], flags)
             sa._atomic_write(sa.summary_final_path(root, "hearings"), final_text)
             sa._atomic_write(
@@ -2378,6 +2378,28 @@ raise SystemExit(3)
             self.assertNotIn("](page:", final_text)
             self.assertNotIn("{{quote:", final_text)
             self.assertIn("\u201c", final_text)
+
+            # Simulate a readable prior hearing renderer in this synthetic bundle.
+            # Read-only validation reports pending, and a normal rerun reuses both
+            # digests while regenerating only synthesis (no extraction children).
+            meta_path = sa.summary_final_meta_path(root, "hearings")
+            meta = json.loads(meta_path.read_text())
+            self.assertEqual(meta["renderer_version"], sa.summary_renderer_version("hearings"))
+            meta["renderer_version"] = sa.SUMMARY_RENDERER_VERSION
+            meta_path.write_text(json.dumps(meta))
+            before = (meta_path.read_bytes(), meta_path.stat().st_mtime_ns)
+            digest_before = sa.summary_digest_path(root, "hearings").read_bytes()
+            self.assertTrue(sa.validate_final_meta(root, "hearings"))
+            self.assertEqual((meta_path.read_bytes(), meta_path.stat().st_mtime_ns), before)
+            result = self._run_stage("create_hearing_summaries", root, project, fake_pi, log)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            invocations = [json.loads(line) for line in log.read_text().splitlines()
+                           if "--version" not in line and "rpc" not in line]
+            self.assertEqual(len(invocations), 4)
+            self.assertEqual(sum("recordprep_get_source" in _tools(e) for e in invocations), 2)
+            self.assertEqual(sum("recordprep_finish_summary" in _tools(e) for e in invocations), 2)
+            self.assertEqual(sa.summary_digest_path(root, "hearings").read_bytes(), digest_before)
+            self.assertEqual(sa.validate_final_meta(root, "hearings"), [])
 
     def test_malformed_fake_agent_candidate_still_completes(self) -> None:
         """A malformed candidate normalizes to warnings and a readable fallback."""

@@ -32,7 +32,10 @@ from typing import Any, Sequence
 from recordprep import summary_categories
 from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance
 from recordprep.profile_contract import ProfileSnapshot
-from recordprep.summary_profiles import compile_summary, extraction_metadata
+from recordprep.summary_profiles import (
+    HEARING_QUOTE_COVERAGE, HEARING_READABILITY, HEARING_QUOTE_CASE_GUIDANCE, REPORT_QUOTE_CASE_GUIDANCE,
+    PREVIOUS_HEARING_READABILITY, compile_summary, extraction_metadata,
+)
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
 from recordprep.transcript_layout import is_ct_only
 
@@ -54,7 +57,12 @@ SUMMARY_FINAL_META_ARTIFACT = "recordprep-summary-final-meta"
 # Renderer 5: a submitted synthesis section that still references unknown
 # quote ids is replaced wholesale by the digest-prose fallback instead of
 # publishing sentences whose quoted wording was silently deleted.
-SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-6"
+# Renderer 7 preserves explicit paragraph breaks in candidates and fallbacks.
+SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-7"
+# Kind-specific presentation identities; the shared renderer-7 name above is
+# retained for historical callers, not current report freshness.
+HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-8"
+REPORT_RENDERER_VERSION = "recordprep-report-renderer-8"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -84,13 +92,18 @@ SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary"}
 # subordinate to the immutable contract; synthesis contract version 2 made
 # synthesis incremental and scratchpad-assisted.
 SUMMARY_EXTRACTION_CONTRACT_VERSION = 4
-SUMMARY_SYNTHESIS_CONTRACT_VERSION = 3
+SUMMARY_SYNTHESIS_CONTRACT_VERSION = 4
 # Retained name for compatibility with older references.
 SUMMARY_CONTENT_CONTRACT_VERSION = SUMMARY_EXTRACTION_CONTRACT_VERSION
 
 NO_SUMMARIZABLE_REPORT_CONTENT = "NO_SUMMARIZABLE_REPORT_CONTENT"
 
 REPORT_DUPLICATION_SHINGLE_WORDS = 15
+
+
+def summary_renderer_version(kind: str) -> str:
+    """Scope presentation changes independently for hearing/report synthesis."""
+    return HEARING_RENDERER_VERSION if kind == "hearings" else REPORT_RENDERER_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -939,6 +952,12 @@ DEFAULT_REPORT_SYNTHESIS_GUIDANCE = (
 )
 
 
+# Keep exact previous built-ins for recognition, not custom reattachment.
+PREVIOUS_HEARING_QUOTE_COVERAGE_GUIDANCE = DEFAULT_HEARING_EXTRACTION_GUIDANCE
+PREVIOUS_HEARING_READABILITY_GUIDANCE = DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+DEFAULT_HEARING_EXTRACTION_GUIDANCE = HEARING_QUOTE_COVERAGE + "\n" + DEFAULT_HEARING_EXTRACTION_GUIDANCE
+DEFAULT_HEARING_SYNTHESIS_GUIDANCE = HEARING_READABILITY + "\n" + DEFAULT_HEARING_SYNTHESIS_GUIDANCE
+
 # Exact historical built-in texts per (kind, phase). Only these advance to
 # the current default guidance; anything else is genuinely custom and is
 # preserved byte-for-byte as subordinate additional guidance.
@@ -954,6 +973,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         _HISTORIC_HEARING_EXTRACTION_V1_BEST_EFFORT,
         PRIOR_HEARING_EXTRACTION_GUIDANCE,
         PREVIOUS_PROPOSAL_CUTOFF_HEARING_EXTRACTION_GUIDANCE,
+        PREVIOUS_HEARING_QUOTE_COVERAGE_GUIDANCE,
     ),
     ("reports", "extract"): (
         _HISTORIC_REPORT_CONCISE_PROMPT,
@@ -973,6 +993,8 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         _HISTORIC_HEARING_SYNTHESIS_V1_FACTS,
         PRIOR_HEARING_SYNTHESIS_GUIDANCE,
         PRIOR_DIGEST_HEARING_SYNTHESIS_GUIDANCE,
+        PREVIOUS_HEARING_READABILITY_GUIDANCE,
+        PREVIOUS_HEARING_READABILITY + "\n" + PREVIOUS_HEARING_READABILITY_GUIDANCE,
     ),
     ("reports", "synthesize"): (
         _HISTORIC_REPORT_SYNTHESIS_V1_FACTS,
@@ -2847,12 +2869,11 @@ def reconcile_digest_rows(
     rows: Sequence[dict[str, Any]],
     items: Sequence[SummaryWorkItem],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Order rows by current boundaries, prune removed ids, flag stale rows.
+    """Copy rows into current boundary order/ordinals, prune removed ids, flag staleness.
 
     Returns ``(ordered_rows, stale_item_ids)``. Stale means the stored
     generation fingerprint no longer matches the current configuration.
     """
-    items_by_id = {item.item_id: item for item in items}
     rows_by_id: dict[str, dict[str, Any]] = {}
     for row in rows:
         rows_by_id[str(row.get("item_id"))] = row
@@ -2862,15 +2883,14 @@ def reconcile_digest_rows(
         row = rows_by_id.pop(item.item_id, None)
         if row is None:
             continue
+        # Ordinals describe the current dataset, not identity or generation.
+        # Copy even on read-only freshness checks; historical callers own rows.
+        row = dict(row, ordinal=item.ordinal)
         ordered.append(row)
         if str(row.get("generation_sha256")) != item.generation_sha256 or int(
             row.get("end_page") or 0
         ) != item.end_page:
             stale.append(item.item_id)
-    for removed_id in sorted(rows_by_id):
-        removed_ids = set(rows_by_id)
-        ordered = [row for row in ordered if row.get("item_id") not in removed_ids]
-        break
     return ordered, stale
 
 
@@ -3270,11 +3290,7 @@ def fallback_section_paragraphs(row: dict[str, Any]) -> list[str]:
     for category in row.get("categories", []):
         if not isinstance(category, dict) or category.get("digest") is None:
             continue
-        text = re.sub(
-            r"\s+", " ", str(category["digest"].get("text") or "")
-        ).strip()
-        if text:
-            paragraphs.append(text)
+        paragraphs.extend(normalize_paragraphs([str(category["digest"].get("text") or "")]))
     return paragraphs
 
 
@@ -3536,12 +3552,10 @@ def normalize_synthesis_sections(
                 )
                 flags.append(f"unknown_placeholder_fallback:{item_id}")
                 paragraphs = fallback_section_paragraphs(row) if non_null else []
-        normalized_paragraphs: list[str] = []
-        for paragraph in paragraphs:
-            text = _PAGE_LINK_PATTERN.sub(lambda match: match.group(1), paragraph)
-            normalized = " ".join(text.split()).strip()
-            if normalized:
-                normalized_paragraphs.append(normalized)
+        normalized_paragraphs = normalize_paragraphs([
+            _PAGE_LINK_PATTERN.sub(lambda match: match.group(1), paragraph)
+            for paragraph in paragraphs
+        ])
         if not non_null and normalized_paragraphs:
             flags.append(f"paragraphs_for_all_null_document:{item_id}")
             normalized_paragraphs = []
@@ -3580,13 +3594,25 @@ def render_quote_text(row: dict[str, Any], quote_id: str, proposed: object = Non
     return f"\u201c{text}\u201d"
 
 
+def normalize_paragraphs(paragraphs: Sequence[str]) -> list[str]:
+    """Preserve explicit blank-line breaks; single newlines are soft wrapping."""
+    result: list[str] = []
+    for text in paragraphs:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        for part in re.split(r"\n[^\S\n]*\n", text):
+            normalized = " ".join(part.split())
+            if normalized:
+                result.append(normalized)
+    return result
+
+
 def render_section_paragraphs(
     row: dict[str, Any],
     paragraphs: Sequence[str],
     quote_capitalizations: dict[str, str] | None = None,
 ) -> list[str]:
     rendered: list[str] = []
-    for paragraph in paragraphs:
+    for paragraph in normalize_paragraphs(paragraphs):
         # A model sometimes wraps placeholders in its own straight quotation
         # marks; resolving inside them would publish doubled quoting. The
         # typed marks remain a sanitized diagnostic, but the renderer presents
@@ -3647,14 +3673,6 @@ def render_final_summary(
             normalized = " ".join(paragraph.split()).strip()
             if normalized:
                 lines.extend([normalized, ""])
-    if any(
-        display_quote(row_quote_text(row, match.group(1).strip()) or "",
-                      section.quote_capitalizations.get(match.group(1).strip()))
-        != (row_quote_text(row, match.group(1).strip()) or "")
-        for row, section in zip(rows, sections) if str(row.get("item_id")) in heading_pages
-        for paragraph in section.paragraphs for match in _PLACEHOLDER_PATTERN.finditer(paragraph)
-    ):
-        lines[2 if case_name_display else 1:2 if case_name_display else 1] = ["", NORMALIZATION_NOTICE]
     text = "\n".join(lines)
     return re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n"
 
@@ -3690,7 +3708,7 @@ def build_final_meta(
             "thinking": synthesis_config.get("thinking", ""),
         },
         "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
-        "renderer_version": SUMMARY_RENDERER_VERSION,
+        "renderer_version": summary_renderer_version(kind),
         "final_text_sha256": sha256_text(final_text),
         "heading_boundary_hashes": {
             item_id: sha256_json({"label_page": primary, "secondary_page": secondary})
@@ -3738,7 +3756,7 @@ def validate_final_meta(
                 raise ValueError("Missing synthesis component.")
         except ValueError:
             issues.append(f"the {kind} summary profile provenance is invalid.")
-    if str(meta.get("renderer_version") or "") != SUMMARY_RENDERER_VERSION:
+    if str(meta.get("renderer_version") or "") != summary_renderer_version(kind):
         issues.append(
             f"the {kind} summary was rendered by a retired renderer version; "
             "regenerate the summary."
@@ -3944,7 +3962,8 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
     compiled = compile_summary(profile, kind, "synthesize") if profile is not None else None
     return {
         "kind": kind,
-        "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + QUOTE_CASE_GUIDANCE,
+        "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + (
+            HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE),
         "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
         **({"profile_component": compiled.component_sha256} if compiled is not None else {}),
         "provider": identity.provider,
@@ -3952,7 +3971,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "thinking": identity.thinking,
         "content_contract": SUMMARY_SYNTHESIS_CONTRACT_VERSION,
         "skill_sha256": _resource_sha256(
-            (project_dir / "resources/profile-summary-synthesize.md") if profile is not None else
+            (project_dir / "resources/profile-summary-synthesize.md") if profile is not None and kind == "hearings" else
             (project_dir / "skills" / skill_names[kind] / "SKILL.md")
         ),
         **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None else {}),
@@ -3961,7 +3980,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         ),
         "quote_display_sha256": _resource_sha256(Path(__file__).with_name("quote_display.py")),
         "synthesis_extension_sha256": _resource_sha256(project_dir / "extensions/recordprep-summary-synthesis-tools.ts"),
-        "renderer_version": SUMMARY_RENDERER_VERSION,
+        "renderer_version": summary_renderer_version(kind),
     }
 
 
@@ -4025,6 +4044,12 @@ def summary_stage_freshness_issues(
         except ValueError:
             rows = None  # integrity validation already reports the corruption
         if rows is not None:
+            if ([(str(row.get("item_id")), row.get("ordinal")) for row in rows]
+                    != [(item.item_id, item.ordinal) for item in items]):
+                issues.append(
+                    f"the {label} digest rows no longer match the current document "
+                    "boundaries/order; regeneration-pending."
+                )
             rows_by_id = {str(row.get("item_id")): row for row in rows}
             for item in items:
                 row = rows_by_id.get(item.item_id)
@@ -4048,14 +4073,9 @@ def summary_stage_freshness_issues(
                 f"the {label} digest metadata schema is not readable; "
                 "regeneration-pending."
             )
-        if rows and not items:
-            # E.g. the layout changed to CT-only or the boundaries were
-            # cleared: current inputs would build zero documents, so the
-            # published rows cannot be current.
-            issues.append(
-                f"the {label} digest rows no longer match the current document "
-                "boundaries; regeneration-pending."
-            )
+        if meta is not None and (meta.get("expected_item_ids") != [item.item_id for item in items]
+                                 or meta.get("total") != len(items)):
+            issues.append(f"the {label} digest dataset metadata is regeneration-pending.")
 
     # Synthesis freshness: the final metadata must carry v4 dependency
     # fingerprints and match the currently composed synthesis contract.

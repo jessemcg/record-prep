@@ -1,8 +1,18 @@
 {
   "participants": {
-    "reviewed_release": "bcbda05, initial stage-scoped runtime and 99528a6; equivalent legacy/external settings and private staging under public installation adapters (see docs/source-install-validation.md)",
-    "stage_code_sha256": "3e350e90bf649239a68e72e80cd971df7a3fcad5e47993f8cc54404dc756efdf",
+    "reviewed_release": "bcbda05, initial stage-scoped runtime, 99528a6 and 72c0487; report-selection prerequisite and removal of obsolete minute resource-presence check only, unchanged participant generation/inputs (see docs/minute-selection.md)",
+    "stage_code_sha256": "fadf15e91ba9bedb7f66fc064a541fbc144c538af5170176e482755b03fa6379",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "1a18dad89d98e8280a26ee337b660c512a9443c7b0ef400a19cc2f11c3d0e22d"
+      },
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "3e350e90bf649239a68e72e80cd971df7a3fcad5e47993f8cc54404dc756efdf"
+      },
       {
         "application": {
           "native_profiles.py": "25e3af667c77345e2f22502344baa866060f168abb83fede66643d760f4f6b21",
@@ -27,9 +37,19 @@
     ]
   },
   "overview": {
-    "reviewed_release": "99528a6; equivalent settings and private staging under public installation adapters (see docs/source-install-validation.md)",
-    "stage_code_sha256": "fe41278ff3c511bae2a112f379f981e0c47a3648d80a273c08dedd4ca3748b7c",
+    "reviewed_release": "99528a6 and 72c0487; report-selection prerequisite and removal of obsolete minute resource-presence check only, unchanged overview generation; summary input hashes still checked (see docs/minute-selection.md)",
+    "stage_code_sha256": "2ae778b48b76c46fa6db0e7201c0d5d26d974b1d7915d03a674e6cc20fdae851",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "f050cdb2bfac8f6798f9118b460262e1587cc9ed957baec116a0105bd2dab2c1"
+      },
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "fe41278ff3c511bae2a112f379f981e0c47a3648d80a273c08dedd4ca3748b7c"
+      },
       {
         "contract": 2,
         "stage": "overview",

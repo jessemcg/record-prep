@@ -42,16 +42,30 @@ class QuoteDisplayTests(unittest.TestCase):
                                    ('SS', 'ß'), ('A-B', 'a–b'), ('"YES"', '“yes”')]:
             self.assertEqual(display_quote(original, proposed), original)
 
-    def test_source_preserved_and_one_notice_only_for_used_normalization(self):
+    def test_source_preserved_and_hearing_normalization_has_no_announcement(self):
         source = row()
         before = copy.deepcopy(source)
         sections, flags = sa.normalize_synthesis_sections([source], [entry({QUOTE: 'JCO to the mother'})])
         text = sa.render_final_summary('hearings', 'Synthetic', [source], sections, {ITEM: (1, None)})
         self.assertIn('“JCO to the mother”', text)
-        self.assertEqual(text.count(NORMALIZATION_NOTICE), 1)
+        self.assertNotIn(NORMALIZATION_NOTICE, text)
         self.assertEqual(source, before)
         self.assertNotIn('quote_capitalization_rejected:' + ITEM, flags)
         self.assertTrue(sa.find_quote_span_relaxed('JCO to the mother', 'THE COURT ORDERED JCO TO THE MOTHER TODAY.'))
+
+    def test_report_normalization_preserves_source_without_announcement(self):
+        source = copy.deepcopy(row())
+        source.update(item_id='report:0001', kind='reports')
+        quote = 'report:0001/court_orders_and_reasons/1'
+        source['categories'][0]['digest']['evidence'][0]['quote_id'] = quote
+        before = copy.deepcopy(source)
+        sections, _ = sa.normalize_synthesis_sections([source], [{
+            'item_id': source['item_id'], 'paragraphs': ['The court ordered {{quote:' + quote + '}}.'],
+            'quote_capitalizations': {quote: 'JCO to the mother'}}])
+        text = sa.render_final_summary('reports', 'Synthetic', [source], sections, {source['item_id']: (1, None)})
+        self.assertIn('“JCO to the mother”', text)
+        self.assertNotIn(NORMALIZATION_NOTICE, text)
+        self.assertEqual(source, before)
 
     def test_rejected_and_unknown_proposals_fall_back_without_prose_loss(self):
         for proposal in ({QUOTE: 'different words'}, {QUOTE: 42}, {'other/id': 'changed'}, [], None):
@@ -80,12 +94,13 @@ class QuoteDisplayTests(unittest.TestCase):
 
     def test_both_profiles_and_legacy_get_code_owned_rule(self):
         from test_profile_generation import bundled
-        from recordprep.summary_profiles import compile_summary
+        from recordprep.summary_profiles import compile_summary, HEARING_QUOTE_CASE_GUIDANCE, REPORT_QUOTE_CASE_GUIDANCE
         for profile in (bundled('general'), bundled('california_dependency')):
             for kind in ('hearings', 'reports'):
-                self.assertIn(QUOTE_CASE_GUIDANCE, compile_summary(profile, kind, 'synthesize').prompt)
-                self.assertNotIn(QUOTE_CASE_GUIDANCE, compile_summary(profile, kind, 'extract').prompt)
-        self.assertIn(QUOTE_CASE_GUIDANCE, sa.effective_synthesis_config(PROJECT / '.pi', 'hearings')['guidance'])
+                rule = HEARING_QUOTE_CASE_GUIDANCE if kind == 'hearings' else REPORT_QUOTE_CASE_GUIDANCE
+                self.assertIn(rule, compile_summary(profile, kind, 'synthesize').prompt)
+                self.assertNotIn(rule, compile_summary(profile, kind, 'extract').prompt)
+        self.assertIn(HEARING_QUOTE_CASE_GUIDANCE, sa.effective_synthesis_config(PROJECT / '.pi', 'hearings')['guidance'])
 
     def test_synthesis_wrapper_changes_do_not_stale_extraction(self):
         from test_profile_generation import bundled
@@ -100,7 +115,7 @@ class QuoteDisplayTests(unittest.TestCase):
                 self.assertEqual(extraction, sa.effective_extraction_config(project, 'hearings', profile=profile))
                 self.assertNotEqual(synthesis, sa.effective_synthesis_config(project, 'hearings', profile=profile))
 
-    def test_pdf_edition_keeps_display_phrase_for_search_and_notice(self):
+    def test_pdf_edition_keeps_display_phrase_for_search_without_hearing_notice(self):
         sections, _ = sa.normalize_synthesis_sections([row()], [entry({QUOTE: 'JCO to the mother'})])
         text = sa.render_final_summary('hearings', '', [row()], sections, {ITEM: (1, None)})
         with tempfile.TemporaryDirectory() as temporary:
@@ -108,7 +123,7 @@ class QuoteDisplayTests(unittest.TestCase):
             source = root / 'summaries/synthetic.txt'
             source.parent.mkdir(); source.write_text(text)
             edition = build_summary_edition('hearings', source, root)
-            self.assertIn(NORMALIZATION_NOTICE, '\n'.join(p.text for p in edition.pages))
+            self.assertNotIn(NORMALIZATION_NOTICE, '\n'.join(p.text for p in edition.pages))
             self.assertEqual([q.phrase for p in edition.pages for q in p.quotes], ['JCO to the mother'])
 
     def test_real_offline_sdk_accepts_schema_and_preserves_display_map(self):

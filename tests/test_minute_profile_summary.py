@@ -59,7 +59,7 @@ class MinuteProfileSummaryTests(unittest.TestCase):
         prompt = minutes.profile_guidance(self.profile)
         self.assertIn("Counsel appearing\nalone establishes neither a client's presence nor absence", prompt)
         self.assertIn("A missing name is not\nproof of absence", prompt)
-        self.assertIn("Do not invent arguments or assume silence means agreement", prompt)
+        self.assertIn("Do not invent arguments or assume silence means agreement", ' '.join(prompt.split()))
         self.assertNotIn("ATTENDANCE POLICY:", prompt)
 
     def test_no_positions_or_next_setting_are_not_invented(self):
@@ -80,8 +80,8 @@ class MinuteProfileSummaryTests(unittest.TestCase):
         original = historical.files
         guidance = minutes.profile_guidance(historical)
         self.assertNotIn("selected legacy policy", guidance)
-        self.assertIn("Party positions:", guidance)
-        self.assertIn("Begin by identifying the hearing", guidance)
+        self.assertIn("alternatives to guide selection", guidance)
+        self.assertIn("short type only", guidance)
         self.assertEqual(historical.files, original)
         self.assertEqual(historical.resource("minutes"), legacy_text)
         custom = changed(self.profile, "minutes", "Synthetic personal minute guidance.\n")

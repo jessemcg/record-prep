@@ -66,7 +66,10 @@ per-category guidance. Follow that guidance completely.
    punctuation inside the final quotation marks. Choose useful anchors for
    the hearing's important points; there is no fixed count per category,
    paragraph, or document. Quotes must come from the original hearing
-   pages, never from the participant-index context.
+   pages, never from the participant-index context. Distribute meaningful anchors
+   across distinct material positions, conditions, disputed evidence and reasons
+   retained in the digest, not only headline rulings. Generic names/dates are not
+   substitutes; do not collect extra quotes merely to reach a count.
 5. Attribution rules: preserve participant attribution and testimony
    distinctions; counsel-only appearances are not parent appearances; Q/A
    formatting alone does not establish testimony; unsworn colloquy is

@@ -53,7 +53,7 @@ from recordprep import APPLICATION_ID, APPLICATION_NAME
 from recordprep.case_name_prompt import CASE_NAME_PROMPT as DEFAULT_CASE_NAME_PROMPT
 from recordprep.classification import run_classifier_jobs
 from recordprep.classification_profiles import ClassificationRun, ClassifierResponseError, classifier_prompt
-from recordprep.document_naming import NamingContract, provisional_document_title
+from recordprep.document_naming import NamingContract
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
     pi_step_complete,
@@ -907,23 +907,29 @@ def _format_toc_line(label: str, page: str) -> str:
     return "\t"
 
 
+def _toc_date_key(value: str) -> str | None:
+    """Recognize supported dates only; unresolved labels never deduplicate."""
+    cleaned = _normalize_hearing_date(value)
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(cleaned, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return None
+
+
 def _correct_toc_lines(
     toc_lines: list[str],
     raise_if_stop: Callable[[], None] | None = None,
-    *, keep_distinct_orders: bool = False,
 ) -> tuple[list[str], int]:
     """Return TOC lines with duplicate minute-order dates removed and the removal count.
 
     Inspects only tab-indented entries inside the ``MINUTE ORDERS`` section,
-    retaining the first entry for each exact date. Headings, blank lines, other
+    retaining the first entry for each recognized date. Unknown dates are independent.
+    Headings, blank lines, other
     sections, and unrelated formatting are preserved. Idempotent on an already
     corrected TOC because no removable duplicates remain.
     """
-    if keep_distinct_orders:
-        for _line in toc_lines:
-            if raise_if_stop is not None:
-                raise_if_stop()
-        return list(toc_lines), 0
     corrected_lines: list[str] = []
     in_minute_orders = False
     seen_dates: set[str] = set()
@@ -954,10 +960,12 @@ def _correct_toc_lines(
                 if " " in entry_text
                 else entry_text
             )
-            if not date_value or date_value in seen_dates:
-                removals += 1
-                continue
-            seen_dates.add(date_value)
+            date_key = _toc_date_key(date_value)
+            if date_key is not None:
+                if date_key in seen_dates:
+                    removals += 1
+                    continue
+                seen_dates.add(date_key)
             corrected_lines.append(line)
             continue
         corrected_lines.append(line)
@@ -5029,7 +5037,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 ).splitlines()
             except OSError:
                 return False
-            _corrected_lines, removals = _correct_toc_lines(toc_lines, keep_distinct_orders=derived_profile is not None)
+            _corrected_lines, removals = _correct_toc_lines(toc_lines)
             return removals == 0
         if step_id == "find_boundaries":
             return (
@@ -8237,15 +8245,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if page_number is None or page_number <= split_page:
                     continue
                 if not name_value:
-                    # An unmatched form is intentionally absent from the Forms
-                    # TOC. Its source page and structural classification remain.
-                    # Reports differ: keep their ranges discoverable even when
-                    # title evidence is unresolved.
                     if is_report_start:
-                        name_value = provisional_document_title("report", page_number)
-                    else:
-                        continue
-                    unresolved_names += 1
+                        unresolved_names += 1
+                    # Selection only: retain every source page/classification.
+                    continue
                 page = _page_label_from_filename(file_name)
                 if page_type in form_first_types:
                     form_lines.append(_format_toc_line(name_value, page))
@@ -8318,7 +8321,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if unresolved_names:
                 GLib.idle_add(
                     self.show_toast,
-                    f"Review required: {unresolved_names} document names are unresolved; provisional TOC labels retained.",
+                    f"{unresolved_names} unnamed report runs omitted from navigation; source pages retained.",
                     "WARN",
                 )
         finally:
@@ -8342,18 +8345,19 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             toc_path = derived_dir / "toc.txt"
             if not toc_path.exists():
                 raise FileNotFoundError("Run Build TOC to generate artifacts/toc.txt first.")
-            toc_lines = toc_path.read_text(
-                encoding="utf-8", errors="ignore"
-            ).splitlines()
+            # Keep each retained line's formatting, including CRLF and final
+            # blank lines; correction removes entries, not unrelated whitespace.
+            with toc_path.open(encoding="utf-8", errors="ignore", newline="") as stream:
+                toc_lines = stream.read().splitlines(keepends=True)
             from recordprep.case_profiles import resolve_case_profile
             from recordprep.boundary_profiles import boundary_inputs, publish_toc
             toc_profile = resolve_case_profile(root_dir)
             toc_expected = boundary_inputs(root_dir, toc_profile, load_classifier_settings())
             corrected_lines, _removals = _correct_toc_lines(
-                toc_lines, self._raise_if_stop_requested, keep_distinct_orders=toc_profile is not None
+                toc_lines, self._raise_if_stop_requested
             )
             publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(),
-                        "\n".join(corrected_lines).rstrip() + "\n")
+                        "".join(corrected_lines))
         except StopRequested:
             success = None
         except Exception as exc:
@@ -8368,7 +8372,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     "last_failed_at": None,
                 },
             )
-            GLib.idle_add(self.show_toast, "Correct TOC complete.")
+            GLib.idle_add(self.show_toast, f"Correct TOC complete. {_removals} duplicate date entries removed; separate orders retained.")
         finally:
             GLib.idle_add(self.step_correct_toc_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_correct_toc_row, success)
@@ -8445,6 +8449,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 entries.append((file_name, page_type, page_number))
             if not entries:
                 raise FileNotFoundError("No entries found in classified JSONL files.")
+            unnamed_report_runs = 0
+            previous_report_number = None
+            for file_name, page_type, page_number in entries:
+                if page_number > split_page and page_type == "ct_report":
+                    if previous_report_number != page_number - 1 and not report_name_by_file.get(file_name):
+                        unnamed_report_runs += 1
+                    previous_report_number = page_number
+                else:
+                    previous_report_number = None
             current_report_start: str | None = None
             current_report_end: str | None = None
             report_sequence_relevant = False
@@ -8646,15 +8659,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             else:
                 GLib.idle_add(self.show_toast, "Find boundaries complete.")
-                unresolved_reports = sum(
-                    entry.get("naming_status") == "unresolved" for entry in report_boundaries
+            if unnamed_report_runs:
+                GLib.idle_add(
+                    self.show_toast,
+                    f"{unnamed_report_runs} unnamed report runs omitted from standalone summaries; source pages retained.",
+                    "WARN",
                 )
-                if unresolved_reports:
-                    GLib.idle_add(
-                        self.show_toast,
-                        f"Review required: {unresolved_reports} unnamed report ranges retained.",
-                        "WARN",
-                    )
         finally:
             GLib.idle_add(self.step_seven_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_seven_row, success)
@@ -8706,19 +8716,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             filtered_reports: list[dict[str, str]] = []
             for entry in report_entries:
                 self._raise_if_stop_requested()
-                start_label = _extract_entry_value(entry, "start_page")
-                end_label = _extract_entry_value(entry, "end_page")
-                start_number = _page_number_from_label(start_label)
-                end_number = _page_number_from_label(end_label)
-                if start_number is None or end_number is None:
-                    is_single = start_label == end_label and bool(start_label)
-                else:
-                    is_single = start_number == end_number
                 report_name = _extract_entry_value(entry, "report_name", "report", "name")
-                # Missing title evidence must not turn a detected one-page
-                # report into a missing document. Keep its review marker/range.
-                unresolved_name = not report_name or entry.get("naming_status") == "unresolved"
-                if boundary_profile is None and is_single and not unresolved_name and "last minute" not in report_name.lower():
+                # Never infer eligibility from a historical synthetic label.
+                if not report_name or entry.get("naming_status") == "unresolved":
                     report_removed += 1
                     continue
                 filtered_reports.append(entry)
@@ -8749,7 +8749,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.show_toast,
                 "Correct boundaries complete. "
                 f"{hearing_removed} hearing entries without dates and "
-                f"{report_removed} report entries removed ({removed} total).",
+                f"{report_removed} unnamed report entries omitted from standalone summaries "
+                f"({removed} total); source pages retained.",
             )
         finally:
             GLib.idle_add(self.step_correct_boundaries_row.set_sensitive, True)
@@ -8893,18 +8894,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         if page_type in {"report", "report_page"}:
             report_name = report_name_by_file.get(start_file, "").strip()
+            if not report_name:
+                return
             report_date = date_by_file.get(start_file, "").strip()
-            display_name = report_name or provisional_document_title("report", start_page)
             boundary = {
                 "report_name": report_name,
                 "report_date": report_date,
-                "report_label": _format_report_label(display_name, report_date),
+                "report_label": _format_report_label(report_name, report_date),
                 "report_id": _report_id_from_start_page(start_page),
                 "start_page": start_page,
                 "end_page": end_page,
             }
-            if not report_name:
-                boundary.update(naming_status="unresolved", boundary_review="required")
             report_boundaries.append(boundary)
             return
         if page_type in {

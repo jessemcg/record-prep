@@ -20,6 +20,8 @@ PROJECT_PI_DIR = Path(__file__).resolve().parent.parent / ".pi"
 SKILL_NAME = "recordprep-summarize-minutes"
 EXTENSION_NAME = "recordprep-minute-tools.ts"
 TOOLS = "recordprep_get_minute_source,recordprep_submit_minute_summary"
+COMPACT_PRESENTATION = "recordprep-minute-compact-labels-2"
+LEGACY_COMPACT_PRESENTATION = "recordprep-minute-compact-list-1"
 DEFAULT_MINUTES_PROMPT = (
     "I will provide you with the pages of a minute order. Based on this information, "
     "state the name of the hearing, whether the hearing was reported, whether one or "
@@ -49,15 +51,6 @@ CONTRACT = DEFAULT_MINUTES_PROMPT + (
     "Python renders the appearance statement and one paragraph; do not repeat "
     "appearance/reporting claims in the orders field. No digest or quote placeholders."
 )
-
-
-def profile_skill_text(project_dir: Path) -> str:
-    from .profile_contract import read_file_at
-    fd = os.open(project_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        return read_file_at(fd, "resources/profile-minutes.md").decode("utf-8")
-    finally:
-        os.close(fd)
 
 
 def _global_settings_path() -> Path:
@@ -106,51 +99,66 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
     if profile is not None:
         compiled = compile_stage_profile(profile, "minutes", core_contract=(CORE + PROFILE_MINUTE_CORE).encode())
         guidance = profile_guidance(profile)
-        config.update(contract_version=4, guidance=guidance, additional_guidance="",
-                      attendance_policy="explicit_complete_order", profile_component=compiled.component_sha256)
+        config.update(contract_version=8, guidance=guidance, additional_guidance="",
+                      attendance_policy="explicit_complete_order", presentation=COMPACT_PRESENTATION,
+                      profile_component=compiled.component_sha256)
         config["resources"] = {str(path.relative_to(project_dir)): sa._resource_sha256(path) for path in (
-            project_dir / "SYSTEM.md", project_dir / "resources/profile-minutes.md",
+            project_dir / "SYSTEM.md", project_dir / "skills" / SKILL_NAME / "SKILL.md",
             project_dir / "extensions/recordprep-profile-minute-tools.ts")}
     return settings, config
 
 
-PROFILE_MINUTE_CORE = """\nMINUTE CONTRACT
-Read all pages of the complete current minute order. Use only that order; do not
-borrow facts from other hearings. Begin by identifying the current hearing's name
-or type and its purpose when useful, exactly as supported by the order. If its type
-is unclear, say so rather than guessing from the result. Submit the hearing name,
-appearances, party positions, main findings and orders, and the next hearing scheduled.
+PROFILE_MINUTE_CORE = """\nMINUTE CONTRACT — COMPACT ENTRY
+Read the complete current order, not other hearings. Follow the shared minute SKILL:
+select normally one or two headline outcomes, not every material detail. Preserve
+only qualifications needed to state those outcomes accurately. Add another outcome
+only if omission would mislead about the disposition. No mechanical truncation.
+The profile supplies specialty focus subordinate to that shared method and safety.
+
+Submit hearing (short type only, no date/caption), appearances, orders (the selected
+outcomes) and next_hearing. Python puts hearing beside the runner-owned date,
+then renders only Appearances / Orders / Next labeled lines, without bullets.
+Focus displays the labels in bold. Fields are containers,
+not a checklist. Do not supply a separate positions narrative; place an objection
+in orders only if essential to understanding a selected ruling. Do not invent
+arguments or assume silence means agreement. Setting a motion for hearing is not
+granting its requested relief. Do not repeat the next date in orders.
+
+Orders must say what the court actually decided in simple, plain English: who
+must do what, what was allowed/denied, or what changed. Translate legal/form
+phrasing without changing its meaning or inventing a reason. Retain a necessary
+legal term or essential condition when simplification would mislead. Do not copy
+statutory strings, evidentiary standards, repeated status findings or stock
+'all prior orders remain' language. Omit routine report receipt, report preparation,
+filing/e-filing/portal deadlines, clerical/service-of-paperwork logistics, calendar housekeeping
+and conditional warnings about sanctions for missing administrative deadlines.
+Do not reintroduce them just because the form calls them orders. An actually
+imposed consequential sanction is different and may be a headline outcome.
+For an administrative-only order, say 'No substantive orders recorded.' Do not
+invent a substantive result, imply no court action occurred, or pad with logistics.
+These are selection/writing instructions, not a text-deletion filter or word cap.
 
 Attendance has one fixed rule: use explicit evidence from any page of the order.
-Record present, not_present or unclear for each identified person covered by the
-profile guidance, with person, a short source-supported role_label (Unknown if
-unresolved), and evidence [{file_page, text}]. There is no role catalog or participant
-index: identify people and roles from this minute order alone.
+Record present, not_present or unclear for people relevant under the profile, with
+person, a short source-supported role_label (Unknown if unresolved), and evidence
+[{file_page, text}]. No role catalog or participant index. Do not create placeholder
+people or a roster of staff/counsel; an empty array means attendance not established.
 Present includes expressly recorded personal remote attendance. Counsel appearing
 alone establishes neither a client's presence nor absence. A missing name is not
-proof of absence. If attendance is unstated, conflicting or illegible, use unclear.
-Evidence must be continuous verbatim source text on a supplied page identifying the
-person's attendance or absence, not just their attorney. Python checks location,
-not semantic truth. Never infer agreement or attendance from the court's ruling.
+proof of absence. Unstated, conflicting or illegible attendance stays unclear.
+Evidence must be continuous verbatim text on a supplied page identifying personal
+attendance or absence, not just the attorney. Python checks location, not semantics.
+Never infer agreement or attendance from the court's ruling.
 
-In positions, briefly attribute requests, objections, agreements and other material
-positions actually recorded to the party taking them. An attorney's stated position
-may be attributed to their identified client; it does not establish the client's
-personal attendance. Do not invent arguments or assume silence means agreement.
-Use an empty positions string if no party positions are recorded.
-In orders, summarize the main findings and orders actually made. Distinguish party
-requests and agency recommendations from the court's rulings. Omit routine boilerplate
-and procedural detail unless consequential; do not duplicate appearances or positions.
-In next_hearing, state the next hearing's type, date and time when recorded, including
-its stated purpose when useful. Do not invent missing details or confuse the current
-hearing date with the next one. If multiple hearings are set, identify the next and
-briefly distinguish other material settings. Say 'Next hearing not stated.' when no
-setting is recorded, or 'Next hearing unclear.' when the setting cannot be determined.
+In next_hearing, give only the next substantive hearing type/date compactly.
+Exclude report-only hearings, report filing/due dates and other future report dates,
+even if they come first chronologically. Do not move that report calendar into orders.
+Do not list later substantive settings, times or directions to return/give notice,
+or invent a date. Use 'Not stated.' or 'Unclear.' as appropriate. A vacated hearing
+is not a next setting. Do not borrow settings from other orders.
 
-Write concise, plain prose, one paragraph per order. Do not report whether proceedings
-were reported or transcribed. No digest, quotation placeholders or numerical length
-quota. Only the application renders and publishes the summary. Incomplete evidence
-must remain explicit rather than guessed.
+No reporting-status sentence, digest or quote placeholders. Only Python renders
+and publishes. Preserve uncertainty rather than filling fields with guesses.
 """
 
 # Exact shipped predecessors only: old private bytes remain untouched. Custom prose
@@ -158,6 +166,61 @@ must remain explicit rather than guessed.
 _HISTORICAL_MINUTE_GUIDANCE = {
     "Identify the hearing and reporting status, first-page parental appearances under the selected legacy policy, and concise actual juvenile court orders. Counsel-only listings do not establish a parent's personal appearance. Preserve unclear evidence rather than guessing.": "california_dependency",
     "Identify the hearing and reporting status, parties' appearances supported by the complete order, and concise actual orders. Counsel representation alone establishes neither a party's presence nor absence.": "general",
+    """Summarize each complete juvenile dependency minute order in one concise paragraph, based only on what that order records:
+
+Begin by identifying the hearing covered by this order: its name or type, and its purpose when needed to distinguish it. Use the order's description, not a guess based on the outcome; if unclear, say so. Do not confuse this hearing with a future hearing being scheduled.
+
+1. Parent appearances: say which mother, father, or other identified parent personally appeared or did not appear, including remote appearance when stated. Distinguish individual parents when there is more than one mother or father. Use attendance evidence from any page. A parent's attorney appearing does not establish the parent's presence or absence. If the order does not establish attendance, say it is unclear rather than guessing.
+2. Party positions: briefly state any material requests, objections, agreements, or positions recorded for a parent, the child, the agency, or another party, attributing each to the correct party. Include positions stated through counsel, without implying the client personally appeared. Do not infer a position from silence or from the court's ruling.
+3. Findings and orders: state the main findings and orders the juvenile court actually made. Distinguish them from requested or recommended relief. Omit routine boilerplate unless it affects the result.
+4. Next hearing: state the next hearing's type, date, and time as recorded, and its purpose when useful. If multiple hearings were set, identify the next and briefly distinguish any other material settings. If no next hearing is recorded, say so; preserve uncertainty if the setting is unclear.
+
+Use plain language, identify the hearing briefly, and avoid repetition. Do not add a reporting-status sentence or facts from other minute orders.""": "california_dependency",
+    "Summarize each complete minute order in one concise paragraph: identify the hearing, state the parties' source-supported personal appearances or absences, attribute any material recorded requests, objections, agreements or positions, give the court's main findings and actual orders, and state the next hearing's type, date and time as recorded. Use attendance evidence from any page; counsel representation alone establishes neither a party's presence nor absence. Preserve uncertainty rather than guessing. Distinguish requested relief from rulings, omit routine boilerplate, and say when no next hearing is stated. Do not add a reporting-status sentence or borrow facts from other orders.": "general",
+    """For dependency minute orders, prioritize the hearing's decisive change in custody/placement, reunification services, parental rights or permanent plan. A consequential visitation or ICWA/heritage ruling may instead be the headline. These are alternatives to guide selection, not a checklist to cover at every hearing.
+
+Normally select one or two headline outcomes under the shared compact-entry method. Preserve a condition essential to the selected result, such as release conditioned on remaining in treatment. Do not reproduce all service referrals, routine dependency findings, implementation directions or unchanged orders. A hearing granted on a section 388 petition is not a grant of the requested modification.
+
+Appearances focus on the individually identified parents; include a child, caregiver or other participant only when relevant to this order's purpose. Do not expand counsel listings into personal attendance or add a roster of court staff. Keep uncertainty explicit. Next normally identifies the next substantive hearing, with its report date when useful, not the full dependency calendar.
+
+Fictional examples (not case facts):
+
+March 6, 2030 — Review
+- Appearances: Mother present; father's appearance unclear.
+- Main rulings: Reunification services continued for mother.
+- Next: Review September 5; report due August 22.
+
+September 5, 2030 — Disposition
+- Appearances: Mother present; father absent.
+- Main rulings: Child removed from parental custody. Services ordered for mother, conditioned on residential treatment; services denied to father.
+- Next: Review March 6, 2031.
+
+Use the order alone and the fixed shared attendance/safety rules. No separate party-position narrative or reporting-status sentence. Do not add facts to imitate these examples.""": "california_dependency",
+    """Use the parties and short role descriptions supported by this order, without assuming a specialty or a family relationship. Prioritize the decisive disposition of the matter, relief granted or denied, or another ruling that materially changes the parties' position. These are selection priorities, not an exhaustive checklist.
+
+Follow the shared compact-entry method: normally one or two headline outcomes, relevant personal appearances and the next substantive setting, with a useful report date if recorded. Preserve only the qualifications needed to state those selected outcomes accurately. Do not inventory routine findings, implementation directions, all future settings or party submissions. Setting a motion for hearing does not grant the requested relief. Use only this order and the fixed shared attendance/safety rules; preserve uncertainty.""": "general",
+    """For dependency minute orders, prioritize the hearing's decisive change in custody/placement, reunification services, parental rights or permanent plan. A consequential visitation or ICWA/heritage ruling may instead be the headline. These are alternatives to guide selection, not a checklist to cover at every hearing.
+
+Normally select one or two headline outcomes under the shared compact-entry method. Preserve a condition essential to the selected result, such as release conditioned on remaining in treatment. Do not reproduce all service referrals, routine dependency findings, implementation directions or unchanged orders. A hearing granted on a section 388 petition is not a grant of the requested modification.
+
+Appearances focus on the individually identified parents; include a child, caregiver or other participant only when relevant to this order's purpose. Do not expand counsel listings into personal attendance or add a roster of court staff. Keep uncertainty explicit. Next identifies only the next substantive hearing and its date. Exclude report-receipt hearings, report filing/due dates and other future report dates, even when earlier; do not move that calendar into Main rulings.
+
+Fictional examples (not case facts):
+
+March 6, 2030 — Review
+- Appearances: Mother present; father's appearance unclear.
+- Main rulings: Reunification services continued for mother.
+- Next: Review September 5.
+
+September 5, 2030 — Disposition
+- Appearances: Mother present; father absent.
+- Main rulings: Child removed from parental custody. Services ordered for mother, conditioned on residential treatment; services denied to father.
+- Next: Review March 6, 2031.
+
+Use the order alone and the fixed shared attendance/safety rules. No separate party-position narrative or reporting-status sentence. Do not add facts to imitate these examples.""": "california_dependency",
+    """Use the parties and short role descriptions supported by this order, without assuming a specialty or a family relationship. Prioritize the decisive disposition of the matter, relief granted or denied, or another ruling that materially changes the parties' position. These are selection priorities, not an exhaustive checklist.
+
+Follow the shared compact-entry method: normally one or two headline outcomes, relevant personal appearances and only the next substantive hearing type/date. Exclude report-only hearings, report filing/due dates and other future report dates, even when earlier; do not move that calendar into Main rulings. Preserve only the qualifications needed to state those selected outcomes accurately. Do not inventory routine findings, implementation directions, all future settings or party submissions. Setting a motion for hearing does not grant the requested relief. Use only this order and the fixed shared attendance/safety rules; preserve uncertainty.""": "general",
 }
 
 
@@ -328,8 +391,8 @@ def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: Prof
     if not next_hearing:
         next_hearing = "Next hearing unclear."
         flags.append("next_hearing_unusable")
-    if not isinstance(candidate.get("positions"), str):
-        flags.append("positions_unusable")
+    # Kept in schema-4 rows/readers for compatibility, not requested by the new
+    # tool. Preserve a supplied value rather than silently dropping its content.
     return {"item_id": item.item_id, "fingerprint": item.fingerprint, "hearing": _text(candidate["hearing"]),
             "appearances": appearances, "positions": positions, "orders": _text(candidate["orders"]),
             "next_hearing": next_hearing, "quality_flags": sorted(set(flags))}
@@ -349,6 +412,32 @@ def render_paragraph(row: dict[str, Any]) -> str:
         " ".join(appearances) or ("Appearances unclear." if generic else "Parent appearances unclear."),
         row.get("positions", ""), row["orders"], row.get("next_hearing", ""),
     ] if part)
+
+
+def render_compact_entry(item: MinuteItem, row: dict[str, Any], *, legacy: bool = False) -> list[str]:
+    """Format current profile output; selection belongs to the model, not slicing."""
+    people = row["appearances"]
+    roles = [_text(p.get("role_label")) for p in people]
+    role_counts = {role.casefold(): sum(r.casefold() == role.casefold() for r in roles) for role in roles}
+    appearances = []
+    for person, role in zip(people, roles):
+        name = person["person"]
+        generic_role = role.casefold() in ("", "unknown", "other")
+        if (generic_role and name.casefold() in ("unknown", "unknown person", "unclear")
+                and person["status"] == "unclear" and not person["evidence"]):
+            continue  # No identified person or attendance claim to display.
+        label = role if not generic_role and role_counts[role.casefold()] == 1 else name
+        suffix = {"present": " present", "not_present": " absent", "unclear": "'s appearance unclear"}[person["status"]]
+        appearances.append(label + suffix)
+    main = " ".join(filter(None, (row["orders"], row.get("positions", ""))))
+    setting = {"Next hearing not stated.": "Not stated.", "Next hearing unclear.": "Unclear."}.get(
+        row["next_hearing"], row["next_hearing"])
+    prefix = "- " if legacy else ""
+    orders_label = "Main rulings" if legacy else "Orders"
+    return [f"{item.label} — {_text(row['hearing']).rstrip('. ')}",
+            prefix + "Appearances: " + ("; ".join(appearances) + "." if appearances else "Not established."),
+            prefix + orders_label + ": " + main,
+            prefix + "Next: " + setting]
 
 
 def checkpoint_path(root: Path) -> Path:
@@ -469,7 +558,7 @@ def publish_rows(root: Path, rows: list[dict[str, Any]], *, profile: ProfileSnap
     }, ensure_ascii=True, indent=2) + "\n")
 
 
-def render_final(root: Path, items: list[MinuteItem], rows: list[dict[str, Any]]) -> str:
+def render_final(root: Path, items: list[MinuteItem], rows: list[dict[str, Any]], *, presentation: str = "") -> str:
     by_id = {row["item_id"]: row for row in rows}
     name = sa.summary_case_stem(root).replace("_", " ")
     parts = ["Minutes Summary", *([name] if name else [])]
@@ -477,7 +566,10 @@ def render_final(root: Path, items: list[MinuteItem], rows: list[dict[str, Any]]
         row = by_id.get(item.item_id)
         if row is None or row["fingerprint"] != item.fingerprint:
             raise ValueError("Minute-order summary has pending documents.")
-        parts.extend(["", item.label, "", render_paragraph(row)])
+        if presentation in (COMPACT_PRESENTATION, LEGACY_COMPACT_PRESENTATION):
+            parts.extend(["", *render_compact_entry(item, row, legacy=presentation == LEGACY_COMPACT_PRESENTATION)])
+        else:
+            parts.extend(["", item.label, "", render_paragraph(row)])
     return "\n".join(parts).rstrip() + "\n"
 
 
@@ -529,7 +621,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
         if current_config != config or build_items(root, config) != items:
             raise ValueError("Minute-order inputs changed during generation; resume to refresh affected orders.")
         publish_current_rows()
-        text = render_final(root, items, rows)
+        text = render_final(root, items, rows, presentation=config.get("presentation", ""))
         final = sa.summary_final_path(root, "minutes")
         old = final.read_text(encoding="utf-8") if final.exists() else None
         with case_profile_publication(root, expected_ref):
@@ -570,7 +662,7 @@ def freshness_issues(root: Path, project_dir: Path | None = None) -> list[str]:
         _, config = stage_config(project_dir, profile=profile) if profile is not None else stage_config(project_dir)
         items = build_items(root, config)
         rows = load_rows(root)
-        expected = render_final(root, items, rows)
+        expected = render_final(root, items, rows, presentation=config.get("presentation", ""))
         actual = sa.summary_final_path(root, "minutes").read_text(encoding="utf-8")
         if (actual != expected or meta.get("final_sha256") != sa.sha256_text(actual)
                 or meta.get("rows_sha256") != sa.sha256_json(rows)
@@ -593,7 +685,7 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
              application_config_path(project_dir), pi_settings_path(project_dir), project_dir / "SYSTEM.md",
              _global_settings_path(),
              project_dir / "skills" / SKILL_NAME / "SKILL.md", project_dir / "extensions" / EXTENSION_NAME,
-             root / ".recordprep/practice-profile.json", project_dir / "resources/profile-minutes.md",
+             root / ".recordprep/practice-profile.json",
              project_dir / "extensions/recordprep-profile-minute-tools.ts",
              *sorted((root / "text_pages").glob("*.txt"))]
     signature = []
@@ -604,6 +696,13 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
         if profile is not None:
             snapshot_root = profile_store().data_root / "snapshots" / profile.ref.content_sha256
             paths.extend(snapshot_root / name for name, _contents in profile.files)
+            builtin = _HISTORICAL_MINUTE_GUIDANCE.get(profile.resource("minutes").strip())
+            if builtin is not None:
+                # Effective focus resolves read-only from these public defaults;
+                # watch them too without rescanning their contents on cached checks.
+                from .practice_profiles import bundled_profile_directory
+                defaults = bundled_profile_directory(builtin)
+                paths.extend((defaults / "profile.json", defaults / "minutes.md"))
             from .boundary_profiles import preparation_watch_paths
             paths.extend(preparation_watch_paths(root))
     except (ValueError, OSError):

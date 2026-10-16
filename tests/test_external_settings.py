@@ -47,8 +47,17 @@ class ExternalSettingsTests(unittest.TestCase):
             'synthesis': {k: norm(sa.effective_synthesis_config(self.project, k)) for k in ('hearings', 'reports')},
             'minutes': minutes.stage_config(self.project)[1], 'caption_model': caption._model_settings(self.project),
         }
+        # Frozen pre-installer fixture remains historical. Reviewed aggregates
+        # include the hearing/report editorial methods and plain-English, unbulleted
+        # minute labels. This follow-up changes minutes alone; preference/native
+        # identities and both hearing/report extraction/synthesis stay equivalent.
+        changed_contracts = {
+            'extraction': '13b7cc7fb8e042404848aa5be3a23465dda8a5def9a7ef8b59cb82d49f7979c9',
+            'synthesis': '4f8bb1a7cbdb6314058f4f2f8ad87833e8c57bd5178141608148dd3a57bf3a56',
+            'minutes': '11b5a941b0d370a71c9893d413a3d839c5fe51ffb7c1715a9b185da02e2597a0',
+        }
         for key, value in current.items():
-            with self.subTest(identity=key): self.assertEqual(sa.sha256_json(value), BASELINE[key + '_sha256'])
+            with self.subTest(identity=key): self.assertEqual(sa.sha256_json(value), changed_contracts.get(key, BASELINE[key + '_sha256']))
 
     def test_legacy_and_external_identical_effective_identities(self):
         self.assert_baseline()

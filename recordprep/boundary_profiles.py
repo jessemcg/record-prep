@@ -24,7 +24,7 @@ def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
     marker = _read_stage_metadata(root, "names")
     if verify_source_bytes and stable_source_inventory(root)[0] != marker["sources"]:
         raise ValueError("Classifier source bytes changed; rerun classification before publishing boundaries.")
-    return {"contract_version": 1, "classification_sha256": upstream_digest(root, "names"),
+    return {"contract_version": 2, "classification_sha256": upstream_digest(root, "names"),
             "classification_component": component(profile, "basic"), "naming_component": component(profile, "names"),
             "source_sha256": sha256_json(marker["sources"])}
 

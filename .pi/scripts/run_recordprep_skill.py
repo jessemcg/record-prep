@@ -217,7 +217,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
     for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME):
         if not (project_dir / "extensions" / name).is_file():
             issues.append(f"extensions/{name} is missing.")
-    for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-minutes.md", "profile-participants.md", "profile-overview.md"):
+    for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-participants.md", "profile-overview.md"):
         if not (project_dir / "resources" / name).is_file():
             issues.append(f"resources/{name} is missing.")
     extension_dir = project_dir / "extensions"
@@ -1692,8 +1692,8 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             project_dir, MINUTE_SKILL_NAME, workspace_parent, extension_name
         )
         try:
-            if "profile_component" in config:
-                (staged_skill / "SKILL.md").write_text(minutes.profile_skill_text(project_dir), encoding="utf-8")
+            # Both modes use the tracked neutral SKILL unchanged; the runtime
+            # supplies profile focus and the applicable compatibility schema.
             candidate_path = workspace / "candidate.json"
             spec_path = workspace / "work_spec.json"
             spec_path.write_text(json.dumps({
@@ -1711,8 +1711,6 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             static["tool_schema_proxy_chars"] = len(
                 (project_dir / "extensions" / extension_name).read_text(encoding="utf-8")
             )
-            if "profile_component" in config:
-                static["skill_chars"] = len(minutes.profile_skill_text(project_dir))
             decision = preflight.check_individual_request(
                 capacity, preflight.extraction_request_chars(
                     static, source_payload_chars=len(item.source), prompt_chars=len(prompt)

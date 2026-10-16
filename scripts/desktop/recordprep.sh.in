@@ -1,0 +1,8 @@
+#!/bin/sh
+# Standalone RecordPrep: no MCGLAW selection refresh, shell startup, or provisioning.
+export RECORDPREP_CONFIG_DIR=@CONFIG@
+export PI_CODING_AGENT_DIR=@PI_AGENT_DIR@
+export PI_RUN_METRICS_ENABLED=0
+export PATH=/usr/local/bin:/usr/bin:/bin
+unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
+exec /usr/bin/python3 -I @ENGINE@ env --project @SOURCE@ run recordprep "$@"

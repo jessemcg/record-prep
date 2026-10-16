@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import json
+from .paths import pi_settings_path
 from functools import lru_cache
 from pathlib import Path
 
@@ -122,7 +123,7 @@ def stage_code_digest(project_dir: Path, stage: str) -> str:
         "runner": projected_code(runner.read_text(), stage, ("_run_stage",), runner=True),
         "native": projected_code((package / "native_profiles.py").read_text(), stage, roots),
         "shared": {name: _resource_sha256(package / name) for name in
-                   ("profile_artifacts.py", "profile_contract.py")},
+                   ("profile_artifacts.py", "profile_contract.py", "paths.py")},
         "validation": projected_code((package / "pi_bundle.py").read_text(), stage,
             ("validate_participant_index_output", "validate_transcript_numbering_outputs", "validate_transcript_layout_output")
             if stage == "participants" else
@@ -137,7 +138,7 @@ def runtime_identity(project_dir: Path) -> dict:
     from .pi_runtime import resolve_stage_model_identity
     from .minute_summaries import _global_settings_path
     from .summary_agents import _resource_sha256
-    identity = resolve_stage_model_identity({}, "native", project_dir / "settings.json")
+    identity = resolve_stage_model_identity({}, "native", pi_settings_path(project_dir))
     return {"provider": identity.provider, "model": identity.model_id, "thinking": identity.thinking,
             "inherited": _resource_sha256(_global_settings_path()) if not all((identity.provider, identity.model_id, identity.thinking)) else None,
             "system": _resource_sha256(project_dir / "SYSTEM.md"),

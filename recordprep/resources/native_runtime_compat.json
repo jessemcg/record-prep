@@ -1,7 +1,7 @@
 {
   "participants": {
-    "reviewed_release": "bcbda05 and initial stage-scoped runtime; participant behavior unchanged by overview manifest, fingerprinting, and registration of the synthesis-only quote display resource",
-    "stage_code_sha256": "f09d46323a40aed8aef8f16f5453bf5662f1214ff8a7b625c040b715aa56dd1c",
+    "reviewed_release": "bcbda05, initial stage-scoped runtime and 99528a6; equivalent legacy/external settings and private staging under public installation adapters (see docs/source-install-validation.md)",
+    "stage_code_sha256": "3e350e90bf649239a68e72e80cd971df7a3fcad5e47993f8cc54404dc756efdf",
     "legacy": [
       {
         "application": {
@@ -18,6 +18,22 @@
         "contract": 2,
         "stage": "participants",
         "code": "76b3aba8f97ca75499011dacc7cf0efab63cfca179ff70013cac143d764d2af5"
+      },
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "f09d46323a40aed8aef8f16f5453bf5662f1214ff8a7b625c040b715aa56dd1c"
+      }
+    ]
+  },
+  "overview": {
+    "reviewed_release": "99528a6; equivalent settings and private staging under public installation adapters (see docs/source-install-validation.md)",
+    "stage_code_sha256": "fe41278ff3c511bae2a112f379f981e0c47a3648d80a273c08dedd4ca3748b7c",
+    "legacy": [
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "5d48e881ba7bec5d129858e8fdbe041be81bf0269d2b7029c0126b6d1c8cc4eb"
       }
     ]
   }

@@ -15,6 +15,8 @@ it headlessly.
 
 from __future__ import annotations
 
+from .paths import application_config_path, pi_settings_path, resource_root
+
 import fcntl
 import hashlib
 import json
@@ -3850,7 +3852,7 @@ def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
     holds ``config.json``. Shared by the runner, Settings, freshness checks,
     and diagnostics so one composition feeds every consumer.
     """
-    config_path = Path(project_dir).parent / "config.json"
+    config_path = application_config_path(project_dir)
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -3896,7 +3898,7 @@ def effective_extraction_config(project_dir: Path, kind: str, *, profile: Profil
     settings = summary_stage_settings(project_dir, kind)
     resolution = resolve_phase_guidance(kind, "extract", settings["extract_prompt"])
     identity = pi_runtime.resolve_stage_model_identity(
-        settings, "extract", project_dir / "settings.json"
+        settings, "extract", pi_settings_path(project_dir)
     )
     return ExtractionConfig(
         kind=kind,
@@ -3933,7 +3935,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
     settings = summary_stage_settings(project_dir, kind)
     resolution = resolve_phase_guidance(kind, "synthesize", settings["synthesize_prompt"])
     identity = pi_runtime.resolve_stage_model_identity(
-        settings, "synthesize", project_dir / "settings.json"
+        settings, "synthesize", pi_settings_path(project_dir)
     )
     skill_names = {
         "hearings": "recordprep-synthesize-hearings",
@@ -3989,7 +3991,7 @@ def summary_stage_freshness_issues(
     unproven and report as regeneration-pending instead of current.
     """
     root = root.resolve(strict=False)
-    project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
+    project_dir = resource_root(project_dir)
     issues: list[str] = []
     label = SUMMARY_KIND_LABELS[kind]
     if profile is None:
@@ -4087,8 +4089,8 @@ def summary_stage_freshness_issues(
 def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
     """Cheap invalidation signature for the cached stage-input snapshot."""
     watched: list[Path] = [
-        project_dir.parent / "config.json",
-        project_dir / "settings.json",
+        application_config_path(project_dir),
+        pi_settings_path(project_dir),
         root / ".recordprep/practice-profile.json",
         project_dir / "SYSTEM.md",
         project_dir / "extensions/recordprep-summary-tools.ts",
@@ -4161,7 +4163,7 @@ def summary_stage_status(
     repeatedly; the expensive recompute runs only on a signature change.
     """
     root = root.resolve(strict=False)
-    project_dir = Path(project_dir) if project_dir else DEFAULT_PROJECT_PI_DIR
+    project_dir = resource_root(project_dir)
     signature = _freshness_signature(root, kind, project_dir)
     cache_key = (str(root), kind)
     if use_cache:

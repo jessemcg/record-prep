@@ -194,8 +194,13 @@ def _resource_issues(project_dir: Path) -> list[str]:
         system_prompt = ""
     if not system_prompt.strip():
         issues.append("SYSTEM.md is missing or empty.")
-    if not (project_dir / "settings.json").is_file():
-        issues.append("settings.json is missing.")
+    from recordprep.paths import effective_pi_settings, pi_settings_path, config_dir
+    try:
+        effective_pi_settings(project_dir)
+        if config_dir() is None and not pi_settings_path(project_dir).is_file():
+            issues.append("settings.json is missing.")
+    except (OSError, ValueError) as exc:
+        issues.append(f"PI preferences are invalid: {type(exc).__name__}.")
     for stage in STAGES.values():
         skill = project_dir / "skills" / stage.skill_name / "SKILL.md"
         if not skill.is_file():
@@ -924,7 +929,8 @@ def _staged_workspace(
     staged_skill = staged_pi / "skills" / skill_name
     staged_skill.parent.mkdir(parents=True)
     (staged_pi / "extensions").mkdir(parents=True)
-    shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
+    from recordprep.paths import stage_pi_settings
+    stage_pi_settings(project_dir, staged_pi / "settings.json")
     shutil.copy2(project_dir / "SYSTEM.md", staged_pi / "SYSTEM.md")
     shutil.copytree(project_dir / "skills" / skill_name, staged_skill)
     shutil.copy2(
@@ -1002,10 +1008,11 @@ def _stage_capacity(
     """
     from recordprep import summary_preflight as preflight
 
+    from recordprep.paths import pi_settings_path
     return preflight.resolve_stage_capacity(
         settings,
         phase,
-        project_dir / "settings.json",
+        pi_settings_path(project_dir),
         models=models,
     )
 
@@ -1931,7 +1938,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 )
         # Capture caption inputs before copying settings; the pre-spawn recheck
         # rejects a model change during staging instead of labeling old settings new.
-        shutil.copy2(project_dir / "settings.json", staged_pi / "settings.json")
+        from recordprep.paths import stage_pi_settings
+        stage_pi_settings(project_dir, staged_pi / "settings.json")
         env["TMPDIR"] = str(workspace / "tmp")
         env["PI_CODING_AGENT_SESSION_DIR"] = str(workspace / "sessions")
         executable = Path(pi_command[0]).expanduser()

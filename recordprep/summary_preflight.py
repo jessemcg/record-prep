@@ -25,6 +25,8 @@ intentionally has no GTK imports.
 
 from __future__ import annotations
 
+from .paths import pi_settings_path, resource_root
+
 import argparse
 import json
 import subprocess
@@ -642,9 +644,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not (root / "text_pages").is_dir():
         print(f"Case bundle is missing or invalid: {root}", file=sys.stderr)
         return 2
-    project_dir = Path(__file__).resolve().parent.parent / ".pi"
+    project_dir = resource_root()
     kinds = SUMMARY_KINDS if args.kind == "both" else (args.kind,)
-    settings_path = project_dir / "settings.json"
+    settings_path = pi_settings_path(project_dir)
 
     # One discovery result is reused for every kind/phase identity match.
     discovered: list[pi_runtime.PiModel] | None = None

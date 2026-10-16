@@ -9,6 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .case_name_prompt import CASE_NAME_PROMPT
+from .paths import pi_settings_path, effective_pi_settings
 from .case_profiles import case_profile_publication, read_case_profile_ref
 from .profile_contract import read_file_at
 from .profile_store import _check_directory
@@ -42,9 +43,10 @@ def _model_settings(project_dir):
     agent = Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".pi/agent")
     keys = ("defaultProvider", "defaultModel", "defaultThinkingLevel", "modelThinkingLevels", "thinkingBudgets")
     result = []
-    for path in (agent / "settings.json", project_dir / "settings.json"):
+    for path in (agent / "settings.json", pi_settings_path(project_dir)):
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            value = (effective_pi_settings(project_dir) if path == pi_settings_path(project_dir)
+                     else json.loads(path.read_text(encoding="utf-8")))
         except FileNotFoundError:
             value = {}
         if not isinstance(value, dict):

@@ -1,5 +1,28 @@
 # RecordPrep Agent Notes
 
+## README style
+
+Keep `README.md` minimalistic and streamlined. Add only important user-facing
+information, with explanations that are short and to the point. Put detailed
+technical explanations, implementation notes and validation reports in `docs/`,
+not the README.
+
+## Public installation boundary
+
+See `docs/source-install.md`. Finish RecordPrep, persist the completed receipt and
+show success before offering optional Pi. Skip/cancel/failed Pi cannot invalidate
+application installation. No credentials, model selection or paid verification at
+install time. Public installs depend on no sibling project and set absolute
+RECORDPREP_CONFIG_DIR; retain authoritative external settings and legacy checkout
+compatibility without migrating private preferences or prepared artifacts. Tracked
+`.pi/` remains the resource root, never the external settings directory. Preserve
+personal profile registries/accepted revisions even during optional cleanup; never
+recursively purge XDG RecordPrep settings. Tests use disposable source/HOME/XDG/cache/
+runtime state, synthetic data and fake/offline providers, not real credentials or
+paid calls. Public helpers are `scripts/recordprep-env check`, explicit `sync`, and
+`run`; unittest remains the test workflow. The maintained workflow below is separate,
+not a public-installation dependency or public hostname restriction.
+
 ## Machine-local runtime
 
 Read ../UvEnvironments/README.md. Provision `../UvEnvironments/project-env sync RecordPrep`

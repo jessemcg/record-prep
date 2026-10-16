@@ -128,7 +128,10 @@ from recordprep.pi_runtime import (
     PI_THINKING_LEVELS,
 )
 
-STARTUP_LOG_PATH = Path("/tmp/recordprep_startup.log")
+from recordprep.paths import (application_config_path, resource_root, pi_settings_path,
+                              config_dir, startup_log_path, atomic_private_json)
+
+STARTUP_LOG_PATH = startup_log_path()
 PI_MODEL_DROPDOWN_WIDTH_CHARS = 64
 PI_MODEL_DROPDOWN_MAX_WIDTH_CHARS = 80
 
@@ -361,7 +364,8 @@ def _settings_destination_keys() -> tuple[str, ...]:
 def _log_startup(message: str) -> None:
     try:
         timestamp = datetime.datetime.now().isoformat(sep=" ", timespec="seconds")
-        with STARTUP_LOG_PATH.open("a", encoding="utf-8") as handle:
+        fd = os.open(STARTUP_LOG_PATH, os.O_APPEND | os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as handle:
             handle.write(f"{timestamp} {message}\n")
     except OSError:
         pass
@@ -466,8 +470,8 @@ def _terminal_log_line(message: object, level: str = "INFO") -> str:
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-CONFIG_FILE = PROJECT_DIR / "config.json"
-PI_PROJECT_DIR = PROJECT_DIR / ".pi"
+CONFIG_FILE = application_config_path()
+PI_PROJECT_DIR = resource_root()
 PI_SKILL_RUNNER = PI_PROJECT_DIR / "scripts" / "run_recordprep_skill.py"
 CONFIG_KEY_PI_AGENT_COMMAND = "pi_agent_command"
 PI_THINKING_LEVEL_OPTIONS: tuple[tuple[str, str | None], ...] = (
@@ -1785,6 +1789,9 @@ def _write_config(config: dict[str, Any], *, preserve_obsolete: bool = False, ra
     # leave a truncated config.json whose next read would look like an empty
     # settings store.
     try:
+        if config_dir() is not None:
+            atomic_private_json(CONFIG_FILE, serializable)
+            return
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         temp = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.{os.getpid()}.tmp")
         try:
@@ -3471,7 +3478,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                 "PI runs five project-local skills sequentially in the final "
                 "pipeline group (layout detection, page numbering, participant "
                 "index, case overview, and source map). This model and "
-                "reasoning level apply to all five stages."
+                "reasoning level apply to all five stages. "
+                f"Preferences: {pi_settings_path()}"
             ),
         )
         launch_group.add_css_class("list-stack")

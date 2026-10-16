@@ -1,6 +1,8 @@
 """Resumable, direct-source Pi minute-order summaries; no GTK or config writes."""
 from __future__ import annotations
 
+from .paths import application_config_path, pi_settings_path
+
 import json
 import os
 import re
@@ -65,7 +67,7 @@ def _global_settings_path() -> Path:
 def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -> tuple[dict[str, str], dict[str, Any]]:
     """Use only the shared synthesis selection; legacy API settings are inert."""
     try:
-        raw = json.loads((project_dir.parent / "config.json").read_text(encoding="utf-8"))
+        raw = json.loads(application_config_path(project_dir).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raw = {}
     raw = raw if isinstance(raw, dict) else {}
@@ -76,7 +78,7 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
     prompt = str(raw.get("summarize_minutes_prompt") or "")
     custom = "" if prompt.strip() == DEFAULT_MINUTES_PROMPT else prompt
     identity = pi_runtime.resolve_stage_model_identity(
-        settings, "synthesize", project_dir / "settings.json"
+        settings, "synthesize", pi_settings_path(project_dir)
     )
     config = {
         "contract_version": 1,
@@ -588,7 +590,7 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
     # Only stat on repeated UI completion checks; never reread the record.
     paths = [root / "artifacts/minutes_boundaries.json", root / "artifacts/transcript_page_numbers.json",
              root / "case_name.txt", checkpoint_path(root), meta_path(root), sa.summary_final_path(root, "minutes"),
-             project_dir.parent / "config.json", project_dir / "settings.json", project_dir / "SYSTEM.md",
+             application_config_path(project_dir), pi_settings_path(project_dir), project_dir / "SYSTEM.md",
              _global_settings_path(),
              project_dir / "skills" / SKILL_NAME / "SKILL.md", project_dir / "extensions" / EXTENSION_NAME,
              root / ".recordprep/practice-profile.json", project_dir / "resources/profile-minutes.md",

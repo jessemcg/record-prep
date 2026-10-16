@@ -1,0 +1,73 @@
+{
+  "code": {
+    "participants": "f09d46323a40aed8aef8f16f5453bf5662f1214ff8a7b625c040b715aa56dd1c",
+    "overview": "5d48e881ba7bec5d129858e8fdbe041be81bf0269d2b7029c0126b6d1c8cc4eb"
+  },
+  "runtime": {
+    "participants": "ac515dd7644c8354faa8e07a72a3fe13ebe566a15fe47a2cdeae9de309ac3b7c",
+    "overview": "2b88b422fbc62eb10dbcb25310586bca86859b72b026e7a166cde84e425dff79"
+  },
+  "identity": {
+    "provider": "synthetic",
+    "model": "fixture/model",
+    "thinking": "high",
+    "inherited": null,
+    "system": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",
+    "auto_exit": "dd58e3844bb15442a74e2471be0d95f679fd21be34629bd9ea26cdc23f7e8601"
+  },
+  "models": {
+    "native": {
+      "provider": "synthetic",
+      "model_id": "fixture/model",
+      "thinking": "high",
+      "provider_source": "project-settings",
+      "model_source": "project-settings",
+      "thinking_source": "project-settings"
+    },
+    "extract": {
+      "provider": "synthetic",
+      "model_id": "fixture/model",
+      "thinking": "high",
+      "provider_source": "project-settings",
+      "model_source": "project-settings",
+      "thinking_source": "project-settings"
+    },
+    "synthesize": {
+      "provider": "synthetic",
+      "model_id": "fixture/model",
+      "thinking": "high",
+      "provider_source": "project-settings",
+      "model_source": "project-settings",
+      "thinking_source": "project-settings"
+    }
+  },
+  "summary": {
+    "extract_provider": "",
+    "extract_model": "",
+    "extract_thinking": "",
+    "synthesize_provider": "",
+    "synthesize_model": "",
+    "synthesize_thinking": "",
+    "extract_prompt": "",
+    "synthesize_prompt": ""
+  },
+  "config": {
+    "classifier_api_url": "http://127.0.0.1:9/v1/chat/completions",
+    "classifier_model_id": "fixture/classifier",
+    "summary_extract_pi_provider": "synthetic",
+    "summary_extract_pi_model": "fixture/extract",
+    "summarize_hearings_prompt": "Custom synthetic guidance.",
+    "summary_synthesize_pi_thinking": "low"
+  },
+  "pi_settings": {
+    "defaultProvider": "synthetic",
+    "defaultModel": "fixture/model",
+    "defaultThinkingLevel": "high",
+    "enableSkillCommands": true
+  },
+  "extraction_sha256": "168f7fc88d93d2087ea9831aeb68ffb05aac2c0a4605ecd9ea1a8c7318f885bd",
+  "synthesis_sha256": "a05739ddbb1e1af975c7382d3a2e662c49ba6896772744df2693f18efea44281",
+  "minutes_sha256": "00d70469a6dbe6f99bac0457b4492b15bbd3d80c8ccfc904e8ab0d5b85c85355",
+  "caption_model_sha256": "2e1551c06970d56a9069708f4fa1f90ca17cb27d8830b5de158e72af1335b36d",
+  "classifier_sha256": "2c133a184c438ac5f1d9ce1371aeb3496c459fb176a48182266043d8e806cb93"
+}

@@ -7,15 +7,19 @@ import shlex
 import shutil
 import subprocess
 import time
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-PROJECT_PI_DIR = PROJECT_DIR / ".pi"
-PROJECT_PI_SETTINGS_PATH = PROJECT_PI_DIR / "settings.json"
+from .paths import (SOURCE_ROOT, resource_root, pi_settings_path, config_dir,
+                    DEFAULT_PUBLIC_PI_SETTINGS, atomic_private_json, stage_pi_settings)
+
+PROJECT_DIR = SOURCE_ROOT
+PROJECT_PI_DIR = resource_root()
+PROJECT_PI_SETTINGS_PATH = pi_settings_path()
 DEFAULT_PI_AGENT_COMMAND = "pi"
 PI_MODEL_DISCOVERY_TIMEOUT_SECONDS = 10
 PI_THINKING_LEVELS = (
@@ -54,16 +58,21 @@ class PiModel:
         return self.provider, self.model_id
 
 
-def discover_pi_agent_command(
+def find_pi(
     home: Path | None = None,
     *,
     path_env: str | None = None,
-) -> str:
+) -> str | None:
+    """Filesystem-only discovery: None means absent, not the fallback string 'pi'."""
     executable = shutil.which("pi", path=path_env)
     if executable:
         return executable
     home_dir = (home or Path.home()).expanduser()
-    candidates = [home_dir / ".local" / "bin" / "pi"]
+    agent = Path(os.environ.get("PI_CODING_AGENT_DIR") or home_dir / ".pi/agent")
+    data = Path(os.environ.get("XDG_DATA_HOME") or home_dir / ".local/share")
+    candidates = [agent / "bin/pi", home_dir / ".pi/agent/bin/pi", home_dir / ".local/bin/pi"]
+    candidates.extend(sorted((data / "pi-node").glob("node-*/bin/pi"),
+                             key=lambda p: p.stat().st_mtime, reverse=True))
     installer_candidates = list(
         (home_dir / ".local" / "share" / "pi-node").glob("node-*/bin/pi")
     )
@@ -75,7 +84,11 @@ def discover_pi_agent_command(
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
-    return DEFAULT_PI_AGENT_COMMAND
+    return None
+
+
+def discover_pi_agent_command(home: Path | None = None, *, path_env: str | None = None) -> str:
+    return find_pi(home, path_env=path_env) or DEFAULT_PI_AGENT_COMMAND
 
 
 def resolve_pi_agent_argv(command: str, *, path_env: str | None = None) -> list[str]:
@@ -166,16 +179,23 @@ def _pi_discovery_command(pi_command: Sequence[str]) -> list[str]:
     ]
 
 
-def _pi_rpc_response(
-    command: list[str],
-    request: dict[str, Any],
-    *,
-    timeout: float,
+def _pi_rpc_response(command: list[str], request: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    # Pi must not discover the source checkout's unrelated model preferences.
+    if config_dir() is not None:
+        with tempfile.TemporaryDirectory(prefix="recordprep-models-") as temporary:
+            workspace = Path(temporary)
+            stage_pi_settings(PROJECT_PI_DIR, workspace / ".pi/settings.json")
+            return _query_pi_rpc(command, request, timeout=timeout, cwd=workspace)
+    return _query_pi_rpc(command, request, timeout=timeout, cwd=PROJECT_DIR)
+
+
+def _query_pi_rpc(
+    command: list[str], request: dict[str, Any], *, timeout: float, cwd: Path,
 ) -> dict[str, Any]:
     try:
         process = subprocess.Popen(
             command,
-            cwd=PROJECT_DIR,
+            cwd=cwd,
             env=_pi_process_environment(command),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -329,6 +349,8 @@ def _read_pi_settings(path: Path) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
+        if config_dir() is not None and path == pi_settings_path():
+            return dict(DEFAULT_PUBLIC_PI_SETTINGS)
         raise PiSettingsError(f"PI project settings not found: {path}") from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise PiSettingsError(f"Unable to read PI project settings: {exc}") from exc
@@ -338,9 +360,9 @@ def _read_pi_settings(path: Path) -> dict[str, Any]:
 
 
 def current_project_pi_model(
-    path: Path = PROJECT_PI_SETTINGS_PATH,
+    path: Path | None = None,
 ) -> tuple[str, str] | None:
-    settings = _read_pi_settings(path)
+    settings = _read_pi_settings(path if path is not None else pi_settings_path())
     provider = str(settings.get("defaultProvider") or "").strip()
     model_id = str(settings.get("defaultModel") or "").strip()
     if not provider or not model_id:
@@ -349,9 +371,9 @@ def current_project_pi_model(
 
 
 def current_project_pi_thinking_level(
-    path: Path = PROJECT_PI_SETTINGS_PATH,
+    path: Path | None = None,
 ) -> str | None:
-    settings = _read_pi_settings(path)
+    settings = _read_pi_settings(path if path is not None else pi_settings_path())
     raw_level = settings.get("defaultThinkingLevel")
     if raw_level is None:
         return None
@@ -364,23 +386,17 @@ def current_project_pi_thinking_level(
 
 
 def _write_pi_settings(settings: dict[str, Any], path: Path) -> None:
-    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temp_path.write_text(
-            json.dumps(settings, ensure_ascii=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temp_path, path)
-    except OSError as exc:
+        atomic_private_json(path, settings)
+    except (OSError, ValueError) as exc:
         raise PiSettingsError(f"Unable to save PI project settings: {exc}") from exc
-    finally:
-        temp_path.unlink(missing_ok=True)
 
 
 def save_project_pi_model(
     model: PiModel,
-    path: Path = PROJECT_PI_SETTINGS_PATH,
+    path: Path | None = None,
 ) -> None:
+    path = path if path is not None else pi_settings_path()
     settings = _read_pi_settings(path)
     settings["defaultProvider"] = model.provider
     settings["defaultModel"] = model.model_id
@@ -389,8 +405,9 @@ def save_project_pi_model(
 
 def save_project_pi_thinking_level(
     level: str | None,
-    path: Path = PROJECT_PI_SETTINGS_PATH,
+    path: Path | None = None,
 ) -> None:
+    path = path if path is not None else pi_settings_path()
     settings = _read_pi_settings(path)
     if level is None:
         settings.pop("defaultThinkingLevel", None)

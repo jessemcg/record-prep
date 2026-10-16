@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RecordPrep
+Comment=Prepare court-record PDF bundles for Focus
+Exec=@COMMAND_EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=Office;Utility;
+StartupNotify=true
+StartupWMClass=com.mcglaw.RecordPrep

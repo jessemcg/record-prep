@@ -13,7 +13,12 @@ from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT.parent / 'PiRunMetrics/tests'))
-from sdk_acceptance import Acceptance, tool, stop
+try:
+    from sdk_acceptance import Acceptance, tool, stop
+except ModuleNotFoundError as exc:
+    if exc.name != 'sdk_acceptance':
+        raise
+    raise unittest.SkipTest('Optional sibling PiRunMetrics offline SDK harness unavailable') from exc
 
 spec = importlib.util.spec_from_file_location('recordprep_sdk_runner', PROJECT / '.pi/scripts/run_recordprep_skill.py')
 runner = importlib.util.module_from_spec(spec); sys.modules[spec.name] = runner; spec.loader.exec_module(runner)

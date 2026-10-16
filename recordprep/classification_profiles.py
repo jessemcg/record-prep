@@ -5,6 +5,8 @@ stage directories and publish only after selection and input revalidation.
 """
 from __future__ import annotations
 
+from .paths import application_config_path, resource_root
+
 import hashlib
 import json
 import os
@@ -101,9 +103,9 @@ def classifier_model_settings(config: dict) -> dict:
 
 
 def load_model_settings(project_dir: Path | None = None) -> dict:
-    project_dir = project_dir or Path(__file__).resolve().parents[1] / ".pi"
+    project_dir = resource_root(project_dir)
     try:
-        config = json.loads((project_dir.parent / "config.json").read_text())
+        config = json.loads(application_config_path(project_dir).read_text())
     except (OSError, ValueError):
         config = {}
     return classifier_model_settings(config if isinstance(config, dict) else {})

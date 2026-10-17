@@ -16,6 +16,7 @@ for AI preparation stages.
 
 RecordPrep is intentionally distributed as source rather than a Flatpak or Debian
 package so that it can be easily modified by a coding agent.
+The install has been tested with Ubuntu and Fedora.
 
 With `curl` installed, run as your normal user—not with sudo:
 

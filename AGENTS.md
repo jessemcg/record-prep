@@ -341,7 +341,16 @@ objection belongs with its ruling. Python publishes Date — Hearing type follow
 only Appearances / Orders / Next labeled lines, with no dashes. Focus's minute-only
 label emphasis renders these plain-text prefixes bold, never as quote/search links.
 Keep exactly one blank line between entries and no blank lines inside each entry;
-Focus paginated display/search must preserve that grouping too.
+Focus paginated display/search must preserve that grouping too. Minute PDF editions
+use zero paragraph margin within adjacent source lines and one body-line-height gap
+at source blank lines. Their v3 layout metadata additionally requires
+`minute_spacing: source-blank-lines-v1`; older minute editions require only a
+deterministic edition rebuild, not model regeneration. Restore page-map source
+breaks via monotonic coverage alignment before rebasing link/quote offsets;
+MuPDF merges tightly spaced lines into blocks. Minute PDF field prefixes
+Appearances: / Orders: / Next: are bold (colon included), not quote/link spans;
+`minute_label_emphasis: bold-field-prefixes-v1` separately stales older editions.
+Hearing/report spacing and emphasis are unchanged.
 Orders uses simple, plain English, keeping necessary legal distinctions/conditions.
 Exclude routine report receipt/preparation, filing/portal deadlines, clerical/calendar
 mechanics and conditional late-filing sanctions warnings. An actually imposed

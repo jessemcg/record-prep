@@ -384,11 +384,16 @@ def printable_source_lines(source_text: str) -> list[tuple[int, str]]:
     return printable
 
 
-def _build_html(source_text: str) -> tuple[str, dict[str, dict[str, Any]]]:
+MINUTE_SPACING_POLICY = "source-blank-lines-v1"
+MINUTE_LABEL_POLICY = "bold-field-prefixes-v1"
+
+
+def _build_html(source_text: str, *, kind: str = "hearings") -> tuple[str, dict[str, dict[str, Any]]]:
     paragraphs: list[str] = []
     registry: dict[str, dict[str, Any]] = {}
     counter = 0
-    for lineno, line in enumerate(source_text.splitlines(), start=1):
+    source_lines = source_text.splitlines()
+    for lineno, line in enumerate(source_lines, start=1):
         analysis = _analyze_line(line)
         if not analysis.printable.strip():
             continue
@@ -402,6 +407,15 @@ def _build_html(source_text: str) -> tuple[str, dict[str, dict[str, Any]]]:
         skip: set[int] = set()
         bold_open: dict[int, bool] = {}
         bold_close: dict[int, bool] = {}
+        if kind == "minutes":
+            for prefix in ("Appearances:", "Orders:", "Next:"):
+                if line.startswith(prefix) and (
+                    len(line) == len(prefix) or line[len(prefix)].isspace()
+                ):
+                    # Presentation only: field labels are not quotations or links.
+                    bold_open[0] = True
+                    bold_close[len(prefix)] = True
+                    break
         for quote in analysis.quotes:
             skip.add(quote.start - 1)
             skip.add(quote.end)
@@ -438,7 +452,15 @@ def _build_html(source_text: str) -> tuple[str, dict[str, dict[str, Any]]]:
                 pieces.append(f'<a href="page:{target}" id="{link_id}">')
             if position < len(text) and position not in skip:
                 pieces.append(html.escape(text[position]))
-        paragraphs.append(f'<p id="src-{lineno}">{"".join(pieces)}</p>')
+        style = ""
+        if kind == "minutes":
+            # Consecutive source lines belong to the same entry. Only a
+            # source blank line earns a full blank line in the printed edition.
+            gap = BODY_LINE_HEIGHT if (
+                lineno < len(source_lines) and not source_lines[lineno].strip()
+            ) else 0
+            style = f' style="margin:0 0 {gap}em 0"'
+        paragraphs.append(f'<p id="src-{lineno}"{style}>{"".join(pieces)}</p>')
     body = "<html><body>" + "".join(paragraphs) + "</body></html>"
     return body, registry
 
@@ -520,6 +542,57 @@ def _page_body_text_and_chars(page: fitz.Page) -> tuple[str, list[tuple[str, tup
                     chars.append((glyph, tuple(char["bbox"]), offset))
                     offset += len(glyph)
     return "".join(pieces), chars
+
+
+def _restore_minute_line_breaks(
+    source_text: str,
+    page_texts: dict[int, str],
+    page_chars: dict[int, list[Any]],
+) -> None:
+    """Restore source breaks after MuPDF merges tightly spaced PDF blocks.
+
+    Use monotonic normalized character alignment, never phrase searching or
+    bounding-box guesses. Rebase glyph offsets before mapping links/quotes.
+    """
+    source = [
+        (char, lineno)
+        for lineno, text in printable_source_lines(source_text)
+        for char, _offset, _length in _coverage_chars(text)
+    ]
+    cursor = 0
+    for number, text in sorted(page_texts.items()):
+        coverage = _coverage_chars(text)
+        rows = source[cursor:cursor + len(coverage)]
+        if [row[0] for row in rows] != [row[0] for row in coverage]:
+            raise SummaryEditionError("Minute source-line coverage mismatch.")
+        replacements: list[tuple[int, int, str]] = []
+        for index in range(1, len(coverage)):
+            previous_line, current_line = rows[index - 1][1], rows[index][1]
+            if current_line != previous_line:
+                start = coverage[index - 1][1] + coverage[index - 1][2]
+                end = coverage[index][1]
+                replacements.append((start, end, "\n" if current_line == previous_line + 1 else "\n\n"))
+        offset_map = list(range(len(text) + 1))
+        pieces: list[str] = []
+        consumed = 0
+        delta = 0
+        for start, end, separator in replacements:
+            pieces.extend((text[consumed:start], separator))
+            for offset in range(consumed, start):
+                offset_map[offset] = offset + delta
+            for offset in range(start, end):
+                offset_map[offset] = start + delta
+            delta += len(separator) - (end - start)
+            consumed = end
+        pieces.append(text[consumed:])
+        for offset in range(consumed, len(text) + 1):
+            offset_map[offset] = offset + delta
+        page_texts[number] = "".join(pieces)
+        page_chars[number] = [(char, bbox, offset_map[offset])
+                              for char, bbox, offset in page_chars[number]]
+        cursor += len(coverage)
+    if cursor != len(source):
+        raise SummaryEditionError("Minute source-line coverage is incomplete.")
 
 
 def _map_links(
@@ -848,7 +921,7 @@ def build_summary_edition(
     if source_text is None:
         source_text = source_path.read_text(encoding="utf-8")
 
-    html_body, registry = _build_html(source_text)
+    html_body, registry = _build_html(source_text, kind=kind)
     base_pdf_bytes, positions = _render_story_html(html_body)
     document = fitz.open("pdf", base_pdf_bytes)
     try:
@@ -859,6 +932,8 @@ def build_summary_edition(
             page_texts[page.number + 1] = text
             page_chars[page.number + 1] = chars
 
+        if kind == "minutes":
+            _restore_minute_line_breaks(source_text, page_texts, page_chars)
         link_spans = _map_links(positions, registry, page_chars, page_texts)
         printable_lines: list[
             tuple[int, str, tuple[tuple[int, int, int], ...], tuple[str, ...]]
@@ -907,6 +982,10 @@ def build_summary_edition(
             "body_line_height": BODY_LINE_HEIGHT,
             "paragraph_spacing_em": PARAGRAPH_SPACING_EM,
             "quote_presentation": QUOTE_PRESENTATION_POLICY,
+            **({
+                "minute_spacing": MINUTE_SPACING_POLICY,
+                "minute_label_emphasis": MINUTE_LABEL_POLICY,
+            } if kind == "minutes" else {}),
             "footer": {
                 "template": FOOTER_TEMPLATE,
                 "font_family": FOOTER_FONT_FAMILY,
@@ -1017,6 +1096,10 @@ def validate_edition_payload(
             errors.append(
                 "Page map layout quote presentation policy does not match the fixed layout."
             )
+        if kind == "minutes" and layout.get("minute_spacing") != MINUTE_SPACING_POLICY:
+            errors.append("Page map minute spacing policy requires an edition rebuild.")
+        if kind == "minutes" and layout.get("minute_label_emphasis") != MINUTE_LABEL_POLICY:
+            errors.append("Page map minute label emphasis requires an edition rebuild.")
         footer_layout = layout.get("footer")
         if not isinstance(footer_layout, dict):
             errors.append("Page map layout footer metadata is missing.")

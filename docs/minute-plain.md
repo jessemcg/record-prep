@@ -63,7 +63,41 @@ page-edge handling and other summary kinds retain their prior rules. No runtime
 cross-import or new deployment/dependency/entry-point contract. PDF typography itself
 is unchanged; this companion concerns Focus display. See Focus `docs/minute-labels.md`.
 
-## Validation and applying later
+## Paginated PDF spacing follow-up
+
+The PDF renderer now also preserves the source grouping: consecutive minute lines
+have no extra paragraph margin; a source blank line adds one body line of space
+(12.98 pt). Hearing/report rendering remains unchanged. Wrapped lines retain normal
+leading, and long entries can span pages without dropping content.
+
+MuPDF merges adjacent lines into text blocks, so minute page-map text restores source
+line boundaries through monotonic normalized character alignment. Glyph offsets are
+rebased before computing record-page links and quote fragments. Existing Focus v3
+readers accept these sidecars without changes. The minute-only layout field
+`minute_spacing: source-blank-lines-v1` makes older minute editions pending without
+staling hearing/report editions or any AI generation stage.
+
+Minute PDF editions also render the exact line prefixes **Appearances:**,
+**Orders:** and **Next:** in bold, including the colon, leaving ordinary field
+text plain. These labels create no quotation/search/link spans. The additional
+minute-only `minute_label_emphasis: bold-field-prefixes-v1` layout policy requires
+rebuilding editions created before this emphasis change. Canonical TXT is unchanged.
+
+To apply **this PDF-only follow-up**, restart RecordPrep when convenient and run
+**Build paginated summary editions**. Do not rerun minute generation for spacing alone;
+there is no model call or need to change the canonical TXT. Existing private case
+artifacts are untouched until the normal explicit build step runs.
+
+Validation on Home (including bold labels): isolated unittest suite **656 run,
+651 passed, 5 skipped**; 54 edition tests pass, including four new tests covering actual PDF baseline gaps,
+source/sidecar grouping, wrapped and cross-page quotes/links, minute-only freshness,
+and actual PDF font flags (only exact minute field prefixes become bold, without
+creating quote/link spans).
+A rendered fictional PDF was visually checked. No private case content is used in
+fixtures or documentation. The supplied existing PDF was inspected read-only and
+confirmed the former extra 5.5-point margin after individual source lines.
+
+## Validation and applying later (original summary-generation change)
 
 Disposable local RecordPrep/Focus sources, separate managed test environments, temporary
 HOME/XDG/agent state and offline/fake providers; never production configuration/cases.

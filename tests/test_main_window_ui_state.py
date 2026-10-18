@@ -324,12 +324,11 @@ class MainWindowUiStateTests(unittest.TestCase):
             [
                 ("ocr", "OCR"),
                 ("classify", "Classify"),
-                ("summarize", "Summarize"),
                 ("agent", "Agent"),
             ],
         )
         destination_keys = _settings_destination_keys()
-        self.assertEqual(len(destination_keys), 4)
+        self.assertEqual(len(destination_keys), 3)
         self.assertNotIn("case-name", destination_keys)
         self.assertNotIn("text-source", destination_keys)
         self.assertNotIn("local-ocr", destination_keys)
@@ -1079,45 +1078,15 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
         except Exception:  # noqa: BLE001
             return False
 
-    def test_summarize_page_has_production_models_without_sandbox_or_prompt_fields(self) -> None:
-        if not self._display_available():
-            self.skipTest("no GTK display available")
-        from recordprep import summary_agents as sa
-        from recordprep.ui.main_window import SettingsWindow, load_summarize_settings
+    def test_redundant_summary_model_page_is_absent(self) -> None:
+        from recordprep.ui import main_window as ui
+        for name in ('SummarizeSettingsWidgets', 'load_summary_model_settings'):
+            self.assertFalse(hasattr(ui, name))
+        for name in ('_build_summarize_prompt_page', '_build_summary_model_row',
+                     '_build_summary_thinking_row', '_refresh_summary_model_rows', '_override_row_values'):
+            self.assertFalse(hasattr(ui.SettingsWindow, name))
 
-        with tempfile.TemporaryDirectory() as temporary:
-            config_path = Path(temporary) / "config.json"
-            config_path.write_text("{}", encoding="utf-8")
-            with mock.patch(
-                "recordprep.ui.main_window.CONFIG_FILE", config_path
-            ):
-                settings = load_summarize_settings()
-
-            window = SettingsWindow.__new__(SettingsWindow)
-            window._summary_model_rows = []
-            window._pi_model_options = []
-            window._prompt_editors = {}
-            page = SettingsWindow._build_summarize_prompt_page(window, settings)
-
-            self.assertIsNotNone(page)
-            self.assertEqual(self._action_row_titles(page), {
-                "Extraction model", "Extraction reasoning level",
-                "Synthesis model", "Synthesis reasoning level",
-            })
-            widgets = window._summarize_widgets
-            self.assertIsNotNone(widgets.extract_model_row)
-            self.assertIsNotNone(widgets.synthesize_model_row)
-            for field in ("minutes_target_chars_row", "minutes_max_pages_row", "api_key_row", "api_url_row", "model_row",
-                          "hearings_prompt_buffer", "reports_prompt_buffer", "minutes_prompt_buffer"):
-                self.assertFalse(hasattr(widgets, field))
-            # Retired word-target rows no longer exist as fields.
-            self.assertFalse(hasattr(widgets, "hearings_target_words_row"))
-            self.assertFalse(hasattr(widgets, "reports_target_words_row"))
-            # Retired hearing/report window rows no longer exist as fields.
-            self.assertFalse(hasattr(widgets, "hearings_target_chars_row"))
-            self.assertFalse(hasattr(widgets, "reports_max_pages_row"))
-
-    def test_pi_page_sets_one_model_and_reasoning_for_all_five_stages(self) -> None:
+    def test_pi_page_sets_one_model_and_reasoning_for_every_pi_operation(self) -> None:
         if not self._display_available():
             self.skipTest("no GTK display available")
         from gi.repository import Adw
@@ -1147,8 +1116,7 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
 
         collect(page)
         self.assertEqual(self._action_row_titles(page), {
-            "PI command", "PI model for all five stages",
-            "PI reasoning level for all five stages",
+            "PI command", "PI model", "PI reasoning effort",
         })
         group_titles = {
             widget.get_title()
@@ -1160,10 +1128,9 @@ class SummarizeSettingsPageBuildTests(unittest.TestCase):
             for widget in widgets
             if isinstance(widget, Adw.ComboRow)
         }
-        self.assertIn("All five PI stages", group_titles)
+        self.assertIn("Shared PI settings", group_titles)
         self.assertNotIn("Per-stage models", group_titles)
-        self.assertIn("PI model for all five stages", row_titles)
-        self.assertIn("PI reasoning level for all five stages", row_titles)
+        self.assertEqual(row_titles, {"PI model", "PI reasoning effort"})
         self.assertFalse(any(title.endswith("— model") for title in row_titles))
         self.assertFalse(
             any(title.endswith("— reasoning level") for title in row_titles)

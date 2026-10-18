@@ -1900,7 +1900,7 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(settings["hearings_prompt"], custom)
                 self.assertEqual(settings["reports_prompt"], "")
 
-    def test_stage_settings_persist_without_touching_pi_settings(self) -> None:
+    def test_retired_stage_settings_are_not_created_or_used(self) -> None:
         from recordprep.ui.main_window import (
             _read_config,
             load_summarize_settings,
@@ -1937,7 +1937,7 @@ class SettingsTests(unittest.TestCase):
                     synthesize_thinking="",
                 )
                 config = _read_config()
-                self.assertEqual(config["summary_extract_pi_model"], "synthetic-model")
+                self.assertNotIn("summary_extract_pi_model", config)
                 self.assertNotIn("summarize_hearings_window_target_chars", config)
                 self.assertNotIn("summarize_reports_window_max_pages", config)
                 # Retired word-target keys are never created by a save.
@@ -1950,10 +1950,10 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn(
                     "summarize_reports_target_words", config
                 )
-                self.assertEqual(config["summary_extract_pi_thinking"], "low")
-                self.assertEqual(config["summary_synthesize_pi_model"], "")
+                self.assertNotIn("summary_extract_pi_thinking", config)
+                self.assertNotIn("summary_synthesize_pi_model", config)
                 settings = load_summarize_settings()
-                self.assertEqual(settings["extract_model"], "synthetic-model")
+                self.assertEqual(settings["extract_model"], "")
                 self.assertEqual(settings["synthesize_model"], "")
                 self.assertNotIn("hearings_target_words", settings)
                 self.assertNotIn("reports_target_words", settings)
@@ -2137,7 +2137,9 @@ from pathlib import Path
 argv = sys.argv[1:]
 log = os.environ["FAKE_PI_LOG"]
 with open(log, "a", encoding="utf-8") as handle:
-    handle.write(json.dumps({"cwd": os.getcwd(), "argv": argv}) + "\n")
+    prefs = Path('.pi/settings.json')
+    handle.write(json.dumps({"cwd": os.getcwd(), "argv": argv,
+        "preferences": json.loads(prefs.read_text()) if prefs.is_file() else None}) + "\n")
 
 if "--version" in argv:
     print("0.85.0")
@@ -2232,6 +2234,10 @@ raise SystemExit(3)
             (shutil_pi / name).write_text(
                 (source_pi / name).read_text(encoding="utf-8"), encoding="utf-8"
             )
+        (shutil_pi / "settings.json").write_text(json.dumps({
+            "defaultProvider": "synthetic", "defaultModel": "synthetic-model",
+            "defaultThinkingLevel": "low", "enableSkillCommands": True,
+        }))
         for skill in (
             "recordprep-extract-hearing",
             "recordprep-extract-report",
@@ -2279,6 +2285,47 @@ raise SystemExit(3)
             import shutil as _shutil
 
             _shutil.rmtree(cache, ignore_errors=True)
+
+    def test_shared_preferences_reach_both_summary_children_and_reuse_checkpoints(self):
+        for kind, stage in [('hearings', 'create_hearing_summaries'), ('reports', 'create_report_summaries')]:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                temp = Path(temporary)
+                root = temp / 'bundle'
+                builder = BundleBuilder(root)
+                builder.add_pages(1, 1, 'aa bb')
+                builder.finish([(1, 1, 'March 3, 2025')], [(1, 1, 'March 3, 2025', 'Synthetic Report')])
+                fake_pi = self._write_fake_pi(temp)
+                project = self._staged_project(temp)
+                config = project / 'config.json'
+                raw = {f'summary_{phase}_{scope}pi_{field}': 'RETIRED'
+                       for phase in ('extract', 'synthesize') for scope in ('', 'hearings_', 'reports_')
+                       for field in ('provider', 'model', 'thinking')}
+                config.write_text(json.dumps(raw))
+                log = temp / 'invocations.log'
+                result = self._run_stage(stage, root, project, fake_pi, log)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = [json.loads(line) for line in log.read_text().splitlines()
+                         if '--version' not in line and 'rpc' not in line]
+                self.assertEqual(len(calls), 2)
+                for call in calls:
+                    self.assertEqual(call['preferences']['defaultModel'], 'synthetic-model')
+                    self.assertEqual(call['preferences']['defaultProvider'], 'synthetic')
+                    self.assertEqual(call['preferences']['defaultThinkingLevel'], 'low')
+                    for flag in ('--provider', '--model', '--thinking'):
+                        self.assertNotIn(flag, call['argv'])
+                # Reuse extraction checkpoints. Existing explicit legacy runs
+                # always synthesize and re-derive metadata; preserve that contract.
+                artifacts = [sa.summary_digest_path(root, kind), sa.summary_final_path(root, kind)]
+                before = [p.read_bytes() for p in artifacts]
+                config.write_text(json.dumps({k: 'OTHER RETIRED' for k in raw}))
+                log.write_text('')
+                result = self._run_stage(stage, root, project, fake_pi, log)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = [json.loads(line) for line in log.read_text().splitlines()
+                         if '--version' not in line and 'rpc' not in line]
+                self.assertEqual(len(calls), 1)
+                self.assertIn('recordprep_finish_summary', calls[0]['argv'][calls[0]['argv'].index('--tools') + 1])
+                self.assertEqual(before, [p.read_bytes() for p in artifacts])
 
     def test_hearings_stage_end_to_end_with_fake_pi(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

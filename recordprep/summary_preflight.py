@@ -232,7 +232,7 @@ def check_individual_request(
             f"{label} does not fit conservatively within {CAPACITY_FRACTION:.0%} of "
             f"{capacity.identity.provider}/{capacity.identity.model_id}'s context "
             f"window (estimated {low}-{high} tokens vs headroom {headroom}). "
-            "Choose a larger-context model for this stage in Settings."
+            "Choose a larger-context shared PI model in Model settings > Agent."
         )
     if _headroom_exceeded(high, headroom):
         return CapacityDecision(

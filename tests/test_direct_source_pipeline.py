@@ -74,10 +74,11 @@ class DirectSourcePipelineTests(unittest.TestCase):
                   "summarize_model_id": "INERT_CANARY", "summarize_minutes_window_max_pages": "INERT_CANARY",
                   "summary_extract_pi_model": "synthetic-model", "summary_synthesize_pi_thinking": "low"}
         with patch.object(ui, "_read_config", return_value=config):
-            settings = ui.load_summary_model_settings()
-        self.assertEqual(settings["extract_model"], "synthetic-model")
-        self.assertEqual(settings["synthesize_thinking"], "low")
-        self.assertNotIn("INERT_CANARY", str(settings))
+            settings = ui.load_summarize_settings()
+        self.assertEqual(settings["extract_model"], "")
+        self.assertEqual(settings["synthesize_thinking"], "")
+        self.assertFalse(hasattr(ui, "load_summary_model_settings"))
+        self.assertFalse(hasattr(ui.SettingsWindow, "_build_summarize_prompt_page"))
 
     def test_complete_document_payload_covers_every_page_once_without_windows(self):
         with tempfile.TemporaryDirectory() as temporary:

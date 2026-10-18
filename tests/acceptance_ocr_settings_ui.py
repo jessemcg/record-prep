@@ -45,10 +45,10 @@ with patch.object(ui, "CONFIG_FILE", ROOT / "config.json"), \
     window = ui.SettingsWindow(app)
     window.present()
     drain()
-    assert set(window._settings_destination_labels) == {"ocr", "classify-basic", "summarize", "pi"}
+    assert set(window._settings_destination_labels) == {"ocr", "classify-basic", "pi"}
     assert window._settings_group_rows["ocr"].get_title() == "OCR"
     assert window._prompt_stack.get_visible_child_name() == "ocr"
-    assert len(window._settings_group_rows) == 4
+    assert len(window._settings_group_rows) == 3
     for group_id, title, destinations in ui.SETTINGS_NAV_GROUPS:
         nav_row = window._settings_group_rows[group_id]
         assert isinstance(nav_row, Adw.ActionRow) and not isinstance(nav_row, Adw.ExpanderRow)

@@ -58,14 +58,14 @@ def _global_settings_path() -> Path:
 
 
 def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -> tuple[dict[str, str], dict[str, Any]]:
-    """Use only the shared synthesis selection; legacy API settings are inert."""
+    """Inherit shared PI preferences; retired summary/API selections are inert."""
     try:
         raw = json.loads(application_config_path(project_dir).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raw = {}
     raw = raw if isinstance(raw, dict) else {}
     settings = {
-        f"synthesize_{key}": str(raw.get(f"summary_synthesize_pi_{key}") or "").strip()
+        f"synthesize_{key}": ""
         for key in ("provider", "model", "thinking")
     }
     prompt = str(raw.get("summarize_minutes_prompt") or "")
@@ -80,7 +80,7 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
         "provider": identity.provider,
         "model": identity.model_id,
         "thinking": identity.thinking,
-        # Pi may inherit user defaults when the project/override leaves a field
+        # Pi may inherit user defaults when the shared preferences leave a field
         # unset. Do not reuse such rows after those defaults change, or pretend
         # an unresolved model identity is known metadata.
         "inherited_defaults_sha256": (

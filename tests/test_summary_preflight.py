@@ -205,7 +205,7 @@ class CapacityDecisionTests(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("hearing:0004", message)
         self.assertIn("80%", message)
-        self.assertIn("Settings", message)
+        self.assertIn("Model settings > Agent", message)
 
     def test_individual_request_within_capacity_passes(self) -> None:
         capacity = _capacity(context_window=1_000_000)

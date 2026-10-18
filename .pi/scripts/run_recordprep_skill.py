@@ -670,7 +670,7 @@ def _validate_stage(stage: SkillStage, root: Path, project_dir: Path) -> list[st
 
 
 def _summary_stage_settings(project_dir: Path, kind: str) -> dict[str, Any]:
-    """Stage-specific summary overrides (shared composition in summary_agents)."""
+    """Custom summary guidance with empty overrides (shared PI preferences)."""
     from recordprep import summary_agents as sa
 
     return sa.summary_stage_settings(project_dir, kind)
@@ -1668,7 +1668,7 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
     issues = _resource_issues(project_dir)
     if issues:
         raise ValueError(" ".join(issues))
-    _line("Create minute-order summaries (PI synthesis model).")
+    _line("Create minute-order summaries (shared PI model).")
     _line(f"Case bundle: {root}")
     pi_command = None
     capacity = None
@@ -1736,7 +1736,7 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             if code != 0 or not candidate_path.is_file():
                 raise ValueError(
                     f"Minute-order document {item.ordinal} failed (exit {code}) or produced no candidate; "
-                    "completed orders are saved. Check Settings > Summarize > PI synthesis and resume."
+                    "completed orders are saved. Check Model settings > Agent > PI model and resume."
                 )
             try:
                 return json.loads(candidate_path.read_text(encoding="utf-8"))

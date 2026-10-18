@@ -3864,11 +3864,10 @@ DEFAULT_PROJECT_PI_DIR = Path(__file__).resolve().parent.parent / ".pi"
 
 
 def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
-    """Read stage-specific summary overrides from RecordPrep config.json.
+    """Read custom guidance while inheriting the shared PI selection.
 
-    ``project_dir`` is the (possibly staged) ``.pi`` directory whose parent
-    holds ``config.json``. Shared by the runner, Settings, freshness checks,
-    and diagnostics so one composition feeds every consumer.
+    Retired shared and per-kind model/reasoning keys are inert, without any
+    migration or write. Keep the phase interface for runners and diagnostics.
     """
     config_path = application_config_path(project_dir)
     try:
@@ -3877,27 +3876,17 @@ def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
         config = {}
     config = config if isinstance(config, dict) else {}
 
-    def value(key: str) -> str:
-        return str(config.get(key, "") or "").strip()
-
     def raw_value(key: str) -> str:
-        # Custom guidance is preserved byte-for-byte; only override enums
-        # and ids are whitespace-normalized.
+        # Custom guidance is preserved byte-for-byte.
         return str(config.get(key, "") or "")
 
     return {
-        "extract_provider": value(f"summary_extract_{kind}_pi_provider")
-        or value("summary_extract_pi_provider"),
-        "extract_model": value(f"summary_extract_{kind}_pi_model")
-        or value("summary_extract_pi_model"),
-        "extract_thinking": value(f"summary_extract_{kind}_pi_thinking")
-        or value("summary_extract_pi_thinking"),
-        "synthesize_provider": value(f"summary_synthesize_{kind}_pi_provider")
-        or value("summary_synthesize_pi_provider"),
-        "synthesize_model": value(f"summary_synthesize_{kind}_pi_model")
-        or value("summary_synthesize_pi_model"),
-        "synthesize_thinking": value(f"summary_synthesize_{kind}_pi_thinking")
-        or value("summary_synthesize_pi_thinking"),
+        "extract_provider": "",
+        "extract_model": "",
+        "extract_thinking": "",
+        "synthesize_provider": "",
+        "synthesize_model": "",
+        "synthesize_thinking": "",
         "extract_prompt": raw_value(f"summarize_{kind}_prompt"),
         "synthesize_prompt": raw_value(f"summarize_{kind}_synthesis_prompt"),
     }
@@ -3907,7 +3896,7 @@ def effective_extraction_config(project_dir: Path, kind: str, *, profile: Profil
     """Compose one phase's effective extraction configuration.
 
     The immutable contract plus byte-for-byte custom guidance, with the
-    *effective* provider/model/thinking (override or inherited project PI
+    *effective* provider/model/thinking (inherited shared PI
     settings) so freshness fingerprints reflect the model actually used.
     """
     from recordprep import pi_runtime

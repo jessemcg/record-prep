@@ -47,10 +47,19 @@ class ExternalSettingsTests(unittest.TestCase):
             'synthesis': {k: norm(sa.effective_synthesis_config(self.project, k)) for k in ('hearings', 'reports')},
             'minutes': minutes.stage_config(self.project)[1], 'caption_model': caption._model_settings(self.project),
         }
+        # The frozen fixture intentionally selected fixture/extract and low
+        # summary reasoning. Those retired keys now inherit fixture/model/high.
+        # Assert the real identity, then normalize ONLY those known identity
+        # differences for the historical content/resource contract hashes below.
+        for kind in ('hearings', 'reports'):
+            self.assertEqual(current['extraction'][kind]['model'], 'fixture/model')
+            self.assertEqual(current['synthesis'][kind]['thinking'], 'high')
+            current['extraction'][kind]['model'] = 'fixture/extract'
+            current['synthesis'][kind]['thinking'] = 'low'
+        self.assertEqual(current['minutes']['thinking'], 'high')
+        current['minutes']['thinking'] = 'low'
         # Frozen pre-installer fixture remains historical. Reviewed aggregates
-        # include the hearing/report editorial methods and plain-English, unbulleted
-        # minute labels. This follow-up changes minutes alone; preference/native
-        # identities and both hearing/report extraction/synthesis stay equivalent.
+        # retain the hearing/report editorial and plain-English minute contracts.
         changed_contracts = {
             'extraction': '13b7cc7fb8e042404848aa5be3a23465dda8a5def9a7ef8b59cb82d49f7979c9',
             'synthesis': '4f8bb1a7cbdb6314058f4f2f8ad87833e8c57bd5178141608148dd3a57bf3a56',
@@ -132,8 +141,10 @@ class ExternalSettingsTests(unittest.TestCase):
             self.write(self.external / 'pi/settings.json', BASELINE['pi_settings'] | {'defaultModel': 'changed'})
             self.assertNotEqual(before, nf.runtime_digest(self.project, 'participants'))
             self.assertNotEqual(minute, minutes.stage_config(self.project)[1])
+            changed = sa.effective_extraction_config(self.project, 'hearings')
+            self.assertNotEqual(extraction, changed)
             self.write(self.external / 'config.json', BASELINE['config'] | {'summary_extract_pi_model': 'changed-extract'})
-            self.assertNotEqual(extraction, sa.effective_extraction_config(self.project, 'hearings'))
+            self.assertEqual(changed, sa.effective_extraction_config(self.project, 'hearings'))
 
     def test_pre_install_native_fingerprints_are_narrowly_compatible(self):
         self.assert_baseline()

@@ -125,7 +125,6 @@ from recordprep.pi_runtime import (
     resolve_pi_agent_argv,
     save_project_pi_model,
     save_project_pi_thinking_level,
-    PI_THINKING_LEVELS,
 )
 
 from recordprep.paths import (application_config_path, resource_root, pi_settings_path,
@@ -250,11 +249,6 @@ SETTINGS_NAV_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = 
         (
             ("classify-basic", "Vision API"),
         ),
-    ),
-    (
-        "summarize",
-        "Summarize",
-        (("summarize", "Summarize"),),
     ),
     (
         "agent",
@@ -557,12 +551,6 @@ CONFIG_KEY_SUMMARIZE_MINUTES_WINDOW_MAX_PAGES = "summarize_minutes_window_max_pa
 # summarize_reports_window_target_words) remain stored but are inert: no
 # code reads them, the Settings-save flow preserves any existing values
 # untouched, and new configurations never create them.
-CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER = "summary_extract_pi_provider"
-CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL = "summary_extract_pi_model"
-CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING = "summary_extract_pi_thinking"
-CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER = "summary_synthesize_pi_provider"
-CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL = "summary_synthesize_pi_model"
-CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING = "summary_synthesize_pi_thinking"
 CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT = "summarize_hearings_synthesis_prompt"
 CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT = "summarize_reports_synthesis_prompt"
 LEGACY_CONFIG_KEY_SUMMARIZE_WINDOW_TARGET_CHARS = "summarize_window_target_chars"
@@ -1752,7 +1740,7 @@ OBSOLETE_PIPELINE_CONFIG_KEYS = {
 }
 
 # Per-stage native PI model/reasoning overrides were retired: the single
-# project default now applies to all five stages. Drop the old keys when local
+# shared default now applies to every PI stage. Drop the old keys when local
 # config is loaded or saved so they cannot linger.
 OBSOLETE_PIPELINE_CONFIG_KEYS |= {
     f"pi_stage_{step_id}_pi_{field}"
@@ -2722,23 +2710,9 @@ class LocalOcrSettingsWidgets:
 
 
 @dataclass
-class SummarizeSettingsWidgets:
-    extract_model_row: Adw.ComboRow
-    extract_thinking_row: Adw.ComboRow
-    synthesize_model_row: Adw.ComboRow
-    synthesize_thinking_row: Adw.ComboRow
-
-
-@dataclass
 class AgentSettingsWidgets:
     pi_agent_command_row: Adw.EntryRow
     pi_thinking_level_row: Adw.ComboRow
-
-
-def load_summary_model_settings() -> dict[str, Any]:
-    config = _read_config()
-    return {f"{phase}_{field}": str(config.get(f"summary_{phase}_pi_{field}", "") or "").strip()
-            for phase in ("extract", "synthesize") for field in ("provider", "model", "thinking")}
 
 
 def load_summarize_settings() -> dict[str, Any]:
@@ -2828,12 +2802,12 @@ def load_summarize_settings() -> dict[str, Any]:
         "minutes_prompt": minutes_prompt,
         "hearings_synthesis_prompt": hearings_synthesis_guidance.custom_guidance,
         "reports_synthesis_prompt": reports_synthesis_guidance.custom_guidance,
-        "extract_provider": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER, "") or "").strip(),
-        "extract_model": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL, "") or "").strip(),
-        "extract_thinking": str(config.get(CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING, "") or "").strip(),
-        "synthesize_provider": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER, "") or "").strip(),
-        "synthesize_model": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL, "") or "").strip(),
-        "synthesize_thinking": str(config.get(CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING, "") or "").strip(),
+        # Compatibility shape only; model/reasoning now always inherit PI.
+        **{
+            f"{phase}_{field}": ""
+            for phase in ("extract", "synthesize")
+            for field in ("provider", "model", "thinking")
+        },
     }
 
 
@@ -2906,14 +2880,8 @@ def save_summarize_settings(
     )
     config[CONFIG_KEY_SUMMARIZE_HEARINGS_SYNTHESIS_PROMPT] = hearings_synthesis_prompt
     config[CONFIG_KEY_SUMMARIZE_REPORTS_SYNTHESIS_PROMPT] = reports_synthesis_prompt
-    # Stage overrides never mutate the project PI settings; an empty value
-    # means "use the project PI model/reasoning".
-    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_PROVIDER] = extract_provider
-    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_MODEL] = extract_model
-    config[CONFIG_KEY_SUMMARY_EXTRACT_PI_THINKING] = extract_thinking
-    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_PROVIDER] = synthesize_provider
-    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_MODEL] = synthesize_model
-    config[CONFIG_KEY_SUMMARY_SYNTHESIZE_PI_THINKING] = synthesize_thinking
+    # Retired override arguments remain accepted for compatibility, but never
+    # persist them. Existing stored values are preserved, inert and unchanged.
     _write_config(config)
 
 
@@ -2956,7 +2924,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._text_source_values: list[str] = []
         self._agent_widgets: AgentSettingsWidgets | None = None
         self._pi_model_options: list[PiModel | None] = []
-        self._summary_model_rows: list[tuple[Adw.ComboRow, str]] = []
         self._pi_model_generation = 0
         self._pi_model_closed = False
         self._pi_model_applying = False
@@ -3056,10 +3023,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             DEFAULT_CLASSIFIER_PROMPT,
         )
         prompt_stack.add_named(classify_page, "classify-basic")
-
-        self._add_settings_destination("summarize", "summarize")
-        summarize_page = self._build_summarize_prompt_page(load_summary_model_settings())
-        prompt_stack.add_named(summarize_page, "summarize")
 
         self._add_settings_destination("agent", "pi")
         pi_page = self._build_pi_settings_page()
@@ -3332,165 +3295,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         )
         return page
 
-    def _build_summarize_prompt_page(self, settings: dict[str, Any]) -> Gtk.Widget:
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        page_box.set_margin_top(12)
-        page_box.set_margin_bottom(12)
-        page_box.set_margin_start(12)
-        page_box.set_margin_end(12)
-        page_box.set_vexpand(True)
-
-        title_label = Gtk.Label(label="Summarize", xalign=0)
-        title_label.add_css_class("title-3")
-        page_box.append(title_label)
-
-        # --- PI extraction ---
-        extract_group = Adw.PreferencesGroup(
-            title="PI extraction + digest",
-            description=(
-                "Model and reasoning for stage one: one fresh PI process per "
-                "hearing or report reads the complete source pages and writes "
-                "concise per-category digests. Empty means use the project PI "
-                "model."
-            ),
-        )
-        extract_group.add_css_class("list-stack")
-        extract_group.set_hexpand(True)
-        page_box.append(extract_group)
-
-        extract_model_row = self._build_summary_model_row(
-            "Extraction model", settings.get("extract_model", "")
-        )
-        extract_group.add(extract_model_row)
-        extract_thinking_row = self._build_summary_thinking_row(
-            "Extraction reasoning level", settings.get("extract_thinking", "")
-        )
-        extract_group.add(extract_thinking_row)
-
-        # --- PI synthesis ---
-        synthesize_group = Adw.PreferencesGroup(
-            title="PI synthesis",
-            description=(
-                "Independent model and reasoning for stage two: one fresh PI "
-                "process per completed digest file synthesizes the final "
-                "narrative from the category digests. Also used for minute-order "
-                "summaries directly from source pages, one fresh process per order."
-            ),
-        )
-        synthesize_group.add_css_class("list-stack")
-        synthesize_group.set_hexpand(True)
-        page_box.append(synthesize_group)
-
-        synthesize_model_row = self._build_summary_model_row(
-            "Synthesis model", settings.get("synthesize_model", "")
-        )
-        synthesize_group.add(synthesize_model_row)
-        synthesize_thinking_row = self._build_summary_thinking_row(
-            "Synthesis reasoning level", settings.get("synthesize_thinking", "")
-        )
-        synthesize_group.add(synthesize_thinking_row)
-
-        page = Gtk.ScrolledWindow()
-        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page.set_hexpand(True)
-        page.set_vexpand(True)
-        page.set_child(page_box)
-
-        self._summarize_widgets = SummarizeSettingsWidgets(
-            extract_model_row=extract_model_row,
-            extract_thinking_row=extract_thinking_row,
-            synthesize_model_row=synthesize_model_row,
-            synthesize_thinking_row=synthesize_thinking_row,
-        )
-        self._refresh_summary_model_rows()
-        return page
-
-    def _build_summary_model_row(self, title: str, configured: str) -> Adw.ComboRow:
-        row = Adw.ComboRow(title=title)
-        # Match the shared PI picker: long provider/model names must remain
-        # distinguishable instead of using Adwaita's narrow, ellipsized list.
-        model_list_factory = Gtk.SignalListItemFactory()
-        model_list_factory.connect("setup", _setup_pi_model_list_item)
-        model_list_factory.connect("bind", _bind_pi_model_list_item)
-        row.set_list_factory(model_list_factory)
-        row.set_model(Gtk.StringList.new(["Use project PI model"]))
-        row.set_selected(0)
-        self._summary_model_rows.append((row, configured))
-        row.connect("notify::selected", self._update_summary_model_subtitle)
-        self._update_summary_model_subtitle(row)
-        return row
-
-    def _update_summary_model_subtitle(
-        self, row: Adw.ComboRow, _parameter: object = None
-    ) -> None:
-        models = [
-            model for model in getattr(self, "_pi_model_options", [])
-            if model is not None
-        ]
-        selected = int(row.get_selected())
-        if 0 < selected <= len(models):
-            model = models[selected - 1]
-            row.set_subtitle(f"{model.provider} / {model.model_id}")
-        else:
-            row.set_subtitle("Use project PI model")
-
-    def _build_summary_thinking_row(self, title: str, configured: str) -> Adw.ComboRow:
-        labels = ["Use project PI reasoning"] + [
-            level for level in PI_THINKING_LEVELS
-        ]
-        row = Adw.ComboRow(title=title)
-        row.set_model(Gtk.StringList.new(labels))
-        selected = 0
-        if configured:
-            candidate = configured.strip().lower()
-            if candidate in PI_THINKING_LEVELS:
-                selected = 1 + PI_THINKING_LEVELS.index(candidate)
-        row.set_selected(selected)
-        return row
-
-    def _refresh_summary_model_rows(self) -> None:
-        """Populate the summary model dropdowns from authenticated PI models."""
-        options = getattr(self, "_pi_model_options", None)
-        for row, configured in self._summary_model_rows:
-            labels = ["Use project PI model"]
-            selected = 0
-            if options:
-                models = [model for model in options if model is not None]
-                labels.extend(model.label for model in models)
-                if configured:
-                    for index, model in enumerate(models, start=1):
-                        if model.model_id == configured or (
-                            f"{model.provider}/{model.model_id}" == configured
-                        ):
-                            selected = index
-                            break
-            row.set_model(Gtk.StringList.new(labels))
-            row.set_selected(selected)
-            self._update_summary_model_subtitle(row)
-
-    def _override_row_values(
-        self, model_row: Adw.ComboRow, thinking_row: Adw.ComboRow
-    ) -> tuple[str, str, str]:
-        options = [
-            model
-            for model in getattr(self, "_pi_model_options", [])
-            if model is not None
-        ]
-        selected_index = int(model_row.get_selected())
-        provider = model = ""
-        if selected_index > 0 and selected_index <= len(options):
-            chosen = options[selected_index - 1]
-            provider, model = chosen.provider, chosen.model_id
-        thinking_index = int(thinking_row.get_selected())
-        thinking = (
-            PI_THINKING_LEVELS[thinking_index - 1]
-            if thinking_index > 0 and thinking_index <= len(PI_THINKING_LEVELS)
-            else ""
-        )
-        return provider, model, thinking
-
-
-
     def _build_pi_settings_page(self) -> Gtk.Widget:
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         page_box.set_margin_top(12)
@@ -3504,12 +3308,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_box.append(title_label)
 
         launch_group = Adw.PreferencesGroup(
-            title="All five PI stages",
+            title="Shared PI settings",
             description=(
-                "PI runs five project-local skills sequentially in the final "
-                "pipeline group (layout detection, page numbering, participant "
-                "index, case overview, and source map). This model and "
-                "reasoning level apply to all five stages. "
+                "This selection applies to all PI preparation stages, including "
+                "case-name inference, digest extraction, synthesis, and minute "
+                "summaries. Classification and OCR retain their separate settings. "
                 f"Preferences: {pi_settings_path()}"
             ),
         )
@@ -3523,7 +3326,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         launch_group.add(command_row)
 
         model_row = Adw.ComboRow(
-            title="PI model for all five stages",
+            title="PI model",
             subtitle=self._pi_model_settings_error or "Loading models authorized in PI…",
         )
         model_row.set_model(Gtk.StringList.new(["Loading PI models…"]))
@@ -3541,9 +3344,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         launch_group.add(model_row)
 
         thinking_level_row = Adw.ComboRow(
-            title="PI reasoning level for all five stages",
+            title="PI reasoning effort",
             subtitle=(
-                "Applied to each of the five PI skill sessions; PI adjusts "
+                "Applied to every PI preparation session; PI adjusts "
                 "levels unsupported by the selected model."
             ),
         )
@@ -3756,7 +3559,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._pi_model_row.set_model(Gtk.StringList.new(labels))
         self._pi_model_row.set_selected(selected_index)
         self._pi_model_applying = False
-        self._refresh_summary_model_rows()
         selected_model = self._selected_pi_model()
         self._pi_model_selection_changed = bool(
             selected_model is not None
@@ -3820,7 +3622,6 @@ class SettingsWindow(Adw.ApplicationWindow):
     def _save_settings(self) -> None:
         classify_basic_widgets = self._prompt_editors.get("classify-basic")
         local_ocr_widgets = self._local_ocr_widgets
-        summarize_widgets = getattr(self, "_summarize_widgets", None)
         agent_widgets = self._agent_widgets
         if self._text_source_row:
             selected = self._text_source_row.get_selected()
@@ -3857,25 +3658,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 local_ocr_widgets.workers_row.get_text().strip(),
                 local_ocr_widgets.slots_row.get_text().strip(),
             )
-        if summarize_widgets:
-            extract_provider, extract_model, extract_thinking = (
-                self._override_row_values(
-                    summarize_widgets.extract_model_row,
-                    summarize_widgets.extract_thinking_row,
-                )
-            )
-            synthesize_provider, synthesize_model, synthesize_thinking = (
-                self._override_row_values(
-                    summarize_widgets.synthesize_model_row,
-                    summarize_widgets.synthesize_thinking_row,
-                )
-            )
-            runtime_config = _read_config()
-            for phase, values in (("extract", (extract_provider, extract_model, extract_thinking)),
-                                  ("synthesize", (synthesize_provider, synthesize_model, synthesize_thinking))):
-                for field, value in zip(("provider", "model", "thinking"), values):
-                    runtime_config[f"summary_{phase}_pi_{field}"] = value
-            _write_config(runtime_config)
         if agent_widgets:
             pi_command = agent_widgets.pi_agent_command_row.get_text().strip()
             try:

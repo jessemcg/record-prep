@@ -73,7 +73,7 @@ RecordPrep’s AI preparation. Pi credentials and saved sessions are retained.
 ## Get started
 
 Launch **RecordPrep** from your applications menu or run `recordprep`. Open
-**Model settings** to configure Pi models and the classification endpoint.
+**Model settings** to select the shared Pi model and configure the separate classification endpoint.
 
 Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared

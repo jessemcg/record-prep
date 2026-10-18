@@ -28,6 +28,9 @@ def fixture(base: Path, count: int = 2):
         "summary_synthesize_pi_thinking": "low", "summarize_api_key": "unused-legacy-key",
         "summarize_model_id": "unavailable-legacy-model",
     }))
+    (project / "settings.json").write_text(json.dumps({
+        "defaultProvider": "synthetic", "defaultModel": "shared-model", "defaultThinkingLevel": "low",
+    }))
     root = base / "bundle"
     (root / "text_pages").mkdir(parents=True)
     (root / "artifacts").mkdir()
@@ -125,6 +128,11 @@ class MinuteSummaryTests(unittest.TestCase):
             config = json.loads(config_file.read_text())
             config["summary_synthesize_pi_model"] = "different-model"
             config_file.write_text(json.dumps(config))
+            self.assertTrue(minutes.stage_complete(root, project))
+            # The shared selection, not the retired key, invalidates checkpoints.
+            (project / "settings.json").write_text(json.dumps({
+                "defaultProvider": "synthetic", "defaultModel": "different-model", "defaultThinkingLevel": "low",
+            }))
             self.assertFalse(minutes.stage_complete(root, project))
             generate.reset_mock()
             minutes.run_stage(root, project, generate)
@@ -178,7 +186,8 @@ class MinuteSummaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root, project = fixture(Path(temp), 1)
             settings, config = minutes.stage_config(project)
-            self.assertEqual(config["model"], "synthesis-model")
+            self.assertEqual(config["model"], "shared-model")
+            self.assertEqual(settings, {f"synthesize_{key}": "" for key in ("provider", "model", "thinking")})
             self.assertNotIn("unused-legacy-key", json.dumps(config))
             raw = {"summarize_minutes_prompt": "  Custom guidance\n", "summary_extract_pi_model": "not-this"}
             (project.parent / "config.json").write_text(json.dumps(raw))
@@ -238,6 +247,7 @@ class MinuteSummaryTests(unittest.TestCase):
                 observed["command"] = child.command
                 spec = json.loads(Path(child.env_overrides["RECORDPREP_MINUTE_WORK_SPEC"]).read_text())
                 observed["workspace"] = child.workspace
+                observed["preferences"] = json.loads((child.workspace / ".pi/settings.json").read_text())
                 observed["extensions"] = [p.name for p in (child.workspace / ".pi/extensions").iterdir()]
                 self.assertIn("FIRST PAGE", spec["source"])
                 Path(spec["candidate_path"]).write_text(json.dumps(candidate()))
@@ -246,8 +256,10 @@ class MinuteSummaryTests(unittest.TestCase):
                 self.assertEqual(runner._run_minute_stage(root, project), 0)
             command = observed["command"]
             self.assertEqual(command[command.index("--tools") + 1], minutes.TOOLS)
-            self.assertEqual(command[command.index("--model") + 1], "synthesis-model")
-            self.assertEqual(command[command.index("--thinking") + 1], "low")
+            for flag in ("--provider", "--model", "--thinking"):
+                self.assertNotIn(flag, command)
+            self.assertEqual(observed["preferences"]["defaultModel"], "shared-model")
+            self.assertEqual(observed["preferences"]["defaultThinkingLevel"], "low")
             self.assertIn("--no-session", command)
             self.assertIn("--no-context-files", command)
             self.assertEqual(observed["extensions"], [minutes.EXTENSION_NAME])

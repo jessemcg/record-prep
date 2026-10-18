@@ -3407,10 +3407,32 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     def _build_summary_model_row(self, title: str, configured: str) -> Adw.ComboRow:
         row = Adw.ComboRow(title=title)
+        # Match the shared PI picker: long provider/model names must remain
+        # distinguishable instead of using Adwaita's narrow, ellipsized list.
+        model_list_factory = Gtk.SignalListItemFactory()
+        model_list_factory.connect("setup", _setup_pi_model_list_item)
+        model_list_factory.connect("bind", _bind_pi_model_list_item)
+        row.set_list_factory(model_list_factory)
         row.set_model(Gtk.StringList.new(["Use project PI model"]))
         row.set_selected(0)
         self._summary_model_rows.append((row, configured))
+        row.connect("notify::selected", self._update_summary_model_subtitle)
+        self._update_summary_model_subtitle(row)
         return row
+
+    def _update_summary_model_subtitle(
+        self, row: Adw.ComboRow, _parameter: object = None
+    ) -> None:
+        models = [
+            model for model in getattr(self, "_pi_model_options", [])
+            if model is not None
+        ]
+        selected = int(row.get_selected())
+        if 0 < selected <= len(models):
+            model = models[selected - 1]
+            row.set_subtitle(f"{model.provider} / {model.model_id}")
+        else:
+            row.set_subtitle("Use project PI model")
 
     def _build_summary_thinking_row(self, title: str, configured: str) -> Adw.ComboRow:
         labels = ["Use project PI reasoning"] + [
@@ -3444,6 +3466,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                             break
             row.set_model(Gtk.StringList.new(labels))
             row.set_selected(selected)
+            self._update_summary_model_subtitle(row)
 
     def _override_row_values(
         self, model_row: Adw.ComboRow, thinking_row: Adw.ComboRow

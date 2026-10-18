@@ -95,6 +95,58 @@ class MainWindowUiStateTests(unittest.TestCase):
         )
         thread.return_value.start.assert_called_once_with()
 
+    def test_run_from_here_respects_inclusive_run_through_endpoint(self) -> None:
+        ids = ["create_hearing_summaries", "create_report_summaries",
+               "create_minute_order_summaries", "build_summary_editions"]
+        for endpoint, expected in ((ids[2], ids[1:3]), (ids[1], ids[1:2]), (None, ids[1:])):
+            with self.subTest(endpoint=endpoint), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                calls = []
+                harness = mock.Mock()
+                harness._pipeline_running = False
+                harness.selected_pdfs = []
+                harness._resolve_case_root.return_value = root
+                harness._selected_run_until_step.return_value = endpoint
+                harness._require_resolved_layout.return_value = True
+                harness._run_until_label.return_value = "Chosen endpoint"
+                handlers = [mock.Mock(side_effect=lambda step=step: calls.append(step) or True) for step in ids]
+                harness._pipeline_steps.return_value = list(zip(ids, [mock.Mock() for _ in ids], handlers))
+                with mock.patch("recordprep.ui.main_window.threading.Thread") as thread:
+                    RecordPrepWindow.on_run_from_step_clicked(harness, ids[1])
+                thread.assert_called_once_with(target=harness._run_steps_from_index,
+                                               args=(1, root, endpoint), daemon=True)
+                thread.return_value.start.assert_called_once_with()
+                harness._run_until_dropdown.set_sensitive.assert_called_once_with(False)
+                self.assertTrue(harness._pipeline_running)
+                # Execute the exact worker arguments captured from the UI, with
+                # synthetic handlers and no settings reads or model launches.
+                with mock.patch("recordprep.ui.main_window.load_classifier_settings", return_value={}), \
+                     mock.patch("recordprep.ui.main_window.GLib.idle_add", side_effect=lambda callback, *args: callback(*args)):
+                    RecordPrepWindow._run_steps_from_index(harness, *thread.call_args.kwargs["args"])
+                self.assertEqual(calls, expected)
+                harness._step_artifact_complete.assert_not_called()  # Explicit rerun, not Resume.
+                harness._finish_run_all.assert_called_once_with(True)
+                self.assertEqual(harness._run_completion_message,
+                                 "Pipeline complete through Chosen endpoint." if endpoint else None)
+
+    def test_run_from_here_rejects_earlier_or_unknown_endpoint_before_starting(self) -> None:
+        for endpoint in ("create_hearing_summaries", "removed_step"):
+            with self.subTest(endpoint=endpoint):
+                harness = mock.Mock()
+                harness._pipeline_running = False
+                harness._pipeline_steps.return_value = [
+                    (step, mock.Mock(), mock.Mock()) for step in
+                    ("create_hearing_summaries", "create_report_summaries")]
+                harness._selected_run_until_step.return_value = endpoint
+                with mock.patch("recordprep.ui.main_window.threading.Thread") as thread:
+                    RecordPrepWindow.on_run_from_step_clicked(harness, "create_report_summaries")
+                thread.assert_not_called()
+                self.assertFalse(harness._pipeline_running)
+                harness._stop_event.clear.assert_not_called()
+                harness._run_until_dropdown.set_sensitive.assert_not_called()
+                harness._require_resolved_layout.assert_not_called()
+                self.assertIn("Run through", harness.show_toast.call_args.args[0])
+
     def test_case_identity_guard_warns_without_renaming(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary) / "B355972_Desmond_P" / "0_record"
@@ -819,6 +871,10 @@ class FreshPdfStartupTests(unittest.TestCase):
             )
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class CorrectTocCompletionTests(unittest.TestCase):
     def _write_toc(self, root: Path, lines: list[str]) -> Path:
         toc_path = root / "artifacts" / "toc.txt"
@@ -942,7 +998,7 @@ class CorrectTocCompletionTests(unittest.TestCase):
         self.assertEqual(second_removals, 0)
         self.assertEqual(second_pass, first_pass)
 
-    def test_resume_starts_at_correct_toc_when_duplicates_exist(self) -> None:
+    def test_resume_uses_existing_toc_without_requiring_correction(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"
             root.mkdir()
@@ -957,11 +1013,7 @@ class CorrectTocCompletionTests(unittest.TestCase):
             harness = mock.Mock()
             harness.selected_pdfs = []
             harness._bundle_reset_required = False
-            harness._step_artifact_complete = (
-                RecordPrepWindow._step_artifact_complete.__get__(
-                    harness, RecordPrepWindow
-                )
-            )
+            harness._resume_step_complete = RecordPrepWindow._resume_step_complete.__get__(harness, RecordPrepWindow)
             harness._pipeline_steps.return_value = [
                 ("build_toc", mock.Mock(), mock.Mock()),
                 ("correct_toc", mock.Mock(), mock.Mock()),
@@ -969,7 +1021,8 @@ class CorrectTocCompletionTests(unittest.TestCase):
 
             start = RecordPrepWindow._resume_start_index(harness, root, None)
 
-            self.assertEqual(start, 1)
+            self.assertIsNone(start)
+            harness._step_artifact_complete.assert_not_called()
 
             self._write_toc(root, ["MINUTE ORDERS", "\tMarch 3, 2025 0012"])
 

@@ -36,6 +36,9 @@ class CaseBindingPermissionsTests(unittest.TestCase):
         self.selection.write_text(json.dumps({"schema_version": 1, "profile_ref": asdict(self.dependency.ref)}))
         self.lock = self.directory / ".practice-profile.lock"
         self.lock.touch()
+        context = patch("recordprep.case_profiles.profile_store", return_value=self.store)
+        context.start()
+        self.addCleanup(context.stop)
 
     def test_synced_modes_support_selection_and_publication_without_chmod(self):
         for directory_mode, file_mode in ((0o755, 0o644), (0o775, 0o664)):
@@ -43,8 +46,11 @@ class CaseBindingPermissionsTests(unittest.TestCase):
                 self.directory.chmod(directory_mode)
                 self.selection.chmod(file_mode)
                 self.lock.chmod(file_mode)
-                previous = bindings.read_case_profile_ref(self.root)
+                previous = self.store.read_registry()["default"]
+                previous = api.ProfileRef.from_dict(previous) if previous else None
+                before = self.selection.read_bytes()
                 bindings.apply_case_profile(self.root, self.general.ref, expected_previous=previous, store=self.store)
+                self.assertEqual(self.selection.read_bytes(), before)
                 self.assertEqual(bindings.read_case_profile_ref(self.root), self.general.ref)
                 with bindings.case_profile_publication(self.root, self.general.ref):
                     pass
@@ -58,36 +64,39 @@ class CaseBindingPermissionsTests(unittest.TestCase):
         self.assertEqual(error.exception.issue.code, "store_permissions")
 
     def test_unsafe_case_paths_and_files_are_rejected(self):
+        # Historical-reader checks remain strict, but never authorize generation.
+        read = bindings.read_historical_case_profile_ref
         self.directory.chmod(0o777)
         with self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            read(self.root)
         self.directory.chmod(0o755)
         for mode in (0o666, 0o744):
             self.selection.chmod(mode)
             with self.assertRaises(ProfileError):
-                bindings.read_case_profile_ref(self.root)
+                read(self.root)
         self.selection.chmod(0o644)
         alias = self.base / "alias"
         os.link(self.selection, alias)
         with self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            read(self.root)
         alias.unlink()
         moved = self.base / "moved"
         self.selection.rename(moved)
         self.selection.symlink_to(moved)
         with self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            read(self.root)
         self.selection.unlink()
         moved.rename(self.selection)
         self.lock.unlink()
         self.lock.symlink_to(self.selection)
         with self.assertRaises((OSError, ProfileError)):
-            bindings.apply_case_profile(self.root, self.general.ref, expected_previous=self.dependency.ref, store=self.store)
-        self.assertEqual(bindings.read_case_profile_ref(self.root), self.dependency.ref)
+            with bindings.case_profile_publication(self.root, self.general.ref):
+                self.fail("Unsafe publication lock")
+        self.assertEqual(read(self.root), self.dependency.ref)
 
     def test_foreign_ownership_and_redirected_metadata_are_rejected(self):
         with patch.object(bindings.os, "getuid", return_value=os.getuid() + 1), self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            bindings.read_historical_case_profile_ref(self.root)
         actual_lstat = Path.lstat
         def foreign_file(path, *args, **kwargs):
             info = actual_lstat(path, *args, **kwargs)
@@ -95,29 +104,33 @@ class CaseBindingPermissionsTests(unittest.TestCase):
                 return SimpleNamespace(st_mode=info.st_mode, st_nlink=info.st_nlink, st_uid=os.getuid() + 1)
             return info
         with patch.object(Path, "lstat", foreign_file), self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            bindings.read_historical_case_profile_ref(self.root)
         relocated = self.base / "relocated"
         self.directory.rename(relocated)
         self.directory.symlink_to(relocated, target_is_directory=True)
         with self.assertRaises(ProfileError):
-            bindings.read_case_profile_ref(self.root)
+            bindings.read_historical_case_profile_ref(self.root)
 
     def test_nonregular_and_hardlinked_locks_are_rejected(self):
         alias = self.base / "lock-alias"
         os.link(self.lock, alias)
         with self.assertRaises(ProfileError):
-            bindings.apply_case_profile(self.root, self.general.ref, expected_previous=self.dependency.ref, store=self.store)
+            with bindings.case_profile_publication(self.root, self.general.ref):
+                self.fail("Hardlinked publication lock")
         alias.unlink()
         self.lock.unlink()
         os.mkfifo(self.lock)
         with self.assertRaises(ProfileError):
-            bindings.apply_case_profile(self.root, self.general.ref, expected_previous=self.dependency.ref, store=self.store)
-        self.assertEqual(bindings.read_case_profile_ref(self.root), self.dependency.ref)
+            with bindings.case_profile_publication(self.root, self.general.ref):
+                self.fail("Nonregular publication lock")
+        self.assertEqual(bindings.read_historical_case_profile_ref(self.root), self.dependency.ref)
 
     def test_selection_keeps_compare_and_swap_protection(self):
+        bindings.apply_case_profile(self.root, self.general.ref, expected_previous=None, store=self.store)
         with self.assertRaises(ProfileError):
             bindings.apply_case_profile(self.root, self.general.ref, expected_previous=None, store=self.store)
-        self.assertEqual(bindings.read_case_profile_ref(self.root), self.dependency.ref)
+        self.assertEqual(bindings.read_case_profile_ref(self.root), self.general.ref)
+        self.assertEqual(bindings.read_historical_case_profile_ref(self.root), self.dependency.ref)
 
 
 class ClearCaseTests(unittest.TestCase):
@@ -226,7 +239,7 @@ class ClearCaseTests(unittest.TestCase):
                     expected = (base / "case_bundle", ref) if selection_kind == "new" else None
                     self.assertEqual(owner._pending_preparation_profile, expected)
 
-    def test_no_case_profile_choice_is_pending_and_drafts_expire_on_clear(self):
+    def test_selection_callback_never_binds_case_and_drafts_expire_on_clear(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             store = ProfileStore("recordprep", config_root=root / "config", data_root=root / "data")
@@ -243,18 +256,18 @@ class ClearCaseTests(unittest.TestCase):
                 integration.open_manager(owner, Path.cwd() / ".pi")
                 self.assertFalse(captured["has_case"])
                 captured["on_select"](general.ref)
-                self.assertEqual(integration.pending_profile(owner, None), general.ref)
-                self.assertEqual(integration.pending_profile(owner, root / "new/case_bundle"), general.ref)
+                self.assertIsNone(integration.pending_profile(owner, None))
+                self.assertIsNone(integration.pending_profile(owner, root / "new/case_bundle"))
                 self.assertFalse(list(root.iterdir()))
                 captured["on_deleted"](SimpleNamespace(specialty_id="unrelated-profile"))
-                self.assertEqual(integration.pending_profile(owner, None), general.ref)
+                self.assertIsNone(integration.pending_profile(owner, None))
                 captured["on_deleted"](general.ref)
                 self.assertIsNone(integration.pending_profile(owner, None))
                 captured["on_select"](general.ref)
                 owner._case_generation += 1
                 self.assertFalse(captured["can_modify"]())
                 captured["on_deleted"](general.ref)
-                self.assertEqual(integration.pending_profile(owner, None), general.ref)
+                self.assertIsNone(integration.pending_profile(owner, None))
                 with self.assertRaises(ProfileError):
                     captured["on_select"](general.ref)
 

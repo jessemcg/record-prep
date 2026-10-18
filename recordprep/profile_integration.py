@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from .case_profiles import read_case_profile_ref, apply_case_profile
 from .profile_contract import ProfileError
 
 
@@ -12,12 +11,8 @@ def pending_profile(owner, root):
 
 
 def new_case_profile(owner, root):
-    from .practice_profiles import profile_store, accept_new_context_default
-    ref = pending_profile(owner, root)
-    if ref is not None:
-        profile_store().load_profile_snapshot(ref)
-        return ref
-    return accept_new_context_default()
+    from .practice_profiles import default_profile_candidate
+    return default_profile_candidate().ref
 
 
 def reference_label(ref):
@@ -55,58 +50,43 @@ def preview(snapshot, project_dir: Path):
 
 
 def context_description(root):
-    if root is None or not root.exists():
-        return "Choose a profile for the new case. Create files will use that choice."
-    from .practice_profiles import profile_store
-    selected = read_case_profile_ref(root)
-    if selected:
-        try:
-            profile_store().load_profile_snapshot(selected)
-        except (ValueError, OSError):
-            return "Selected instructions unavailable. Browsing existing output remains available."
-    return "Saving settings does not change this case or regenerate existing summaries."
+    return ("New preparation uses the selected application profile. Changing settings "
+            "does not rewrite the bundle or regenerate existing output.")
 
 
 def update_indicator(window):
     widget = getattr(window, "_title_widget", None)
     if widget is None:
         return
-    from .practice_profiles import default_profile_candidate, profile_store, profile_catalog
+    from .practice_profiles import default_profile_candidate
     try:
-        root = window._resolve_case_root()
-        new_context = root is None or not root.exists()
-        if new_context:
-            ref = pending_profile(window, root)
-            snapshot = profile_store().load_profile_snapshot(ref) if ref else default_profile_candidate()
-        else:
-            ref = read_case_profile_ref(root)
-            snapshot = profile_store().load_profile_snapshot(ref) if ref else None
-        name = snapshot.manifest["display_name"] if snapshot else "Existing settings"
-        text = name
-        notice = ""
-        if not new_context and snapshot:
-            current = next((item.snapshot for item in profile_catalog() if item.snapshot.ref.specialty_id == snapshot.ref.specialty_id), None)
-            if current and current.ref != snapshot.ref:
-                notice = "This case uses earlier settings."
-        widget.set_subtitle(text)
-        widget.set_tooltip_text(name + ("\n" + notice if notice else ""))
+        snapshot = default_profile_candidate()
+        name = snapshot.manifest["display_name"]
+        widget.set_subtitle(name)
+        widget.set_tooltip_text(name + "\nUsed for new preparation; existing output is unchanged.")
     except (ValueError, OSError):
         widget.set_subtitle("Unavailable profile")
 
 
 def open_manager(owner, project_dir: Path, parent=None):
     from .profile_manager_ui import ProfileManagerWindow
-    from .practice_profiles import default_profile_candidate
+    from .practice_profiles import default_profile_candidate, profile_store
     root = owner._resolve_case_root()
     from .profile_editor_ui import unavailable
     try:
-        previous = read_case_profile_ref(root) if root and root.exists() else None
+        previous = default_profile_candidate().ref
+        original_store = profile_store().config_root
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None
     identity = (root.stat().st_dev, root.stat().st_ino) if root and root.exists() else None
     generation = getattr(owner, "_case_generation", 0)
     def allowed():
+        try:
+            if profile_store().config_root != original_store:
+                return False
+        except (ValueError, OSError):
+            return False
         current_identity = (root.stat().st_dev, root.stat().st_ino) if root and root.exists() else None
         return (not owner._pipeline_running and owner._resolve_case_root() == root and current_identity == identity
                 and getattr(owner, "_case_generation", 0) == generation)
@@ -114,29 +94,35 @@ def open_manager(owner, project_dir: Path, parent=None):
         nonlocal previous
         if not allowed() or ref is None:
             raise ProfileError("case_changed_or_active", "selection")
-        if root is None or not root.exists():
-            owner._pending_preparation_profile = (root, ref)
-        else:
-            apply_case_profile(root, ref, expected_previous=previous)
-            previous = ref
+        # The manager's atomic settings Save has already selected this profile.
+        previous = ref
+        owner._pending_preparation_profile = None
+        if root is not None and root.exists():
             try:
                 owner._refresh_step_statuses_from_artifacts()
             except (ValueError, OSError):
                 owner.show_toast("Profile selected. Preparation statuses could not be refreshed; reopen the case.")
         update_indicator(owner)
     def deleted(ref):
-        # A next-case proposal must not keep a removed profile alive in the chooser.
-        # Existing case pins deliberately remain usable through accepted snapshots.
+        # Deletion changes application settings, never historical bundle metadata.
         if not allowed():
             return
         pending = pending_profile(owner, root)
-        if (root is None or not root.exists()) and pending is not None and pending.specialty_id == ref.specialty_id:
+        if pending is not None and pending.specialty_id == ref.specialty_id:
             owner._pending_preparation_profile = None
+        if root is not None and root.exists():
+            owner._refresh_step_statuses_from_artifacts()
         update_indicator(owner)
+    def storage_changed():
+        # Invalidate outstanding drafts without changing the case or model settings.
+        owner._case_generation = getattr(owner, "_case_generation", 0) + 1
+        update_indicator(owner)
+        if root is not None and root.exists():
+            owner._refresh_step_statuses_from_artifacts()
     proposed = previous
     if root is None or not root.exists():
         try:
-            proposed = pending_profile(owner, root) or default_profile_candidate().ref
+            proposed = default_profile_candidate().ref
         except (ValueError, OSError):
             pass  # Never silently choose an alternative to an unavailable default.
     try:
@@ -145,7 +131,7 @@ def open_manager(owner, project_dir: Path, parent=None):
                                       allow_legacy=False, selected_ref=proposed,
                                       case_ref=proposed if root is None or not root.exists() else previous,
                                       has_case=root is not None and root.exists(), settings=parent is not None,
-                                      on_deleted=deleted)
+                                      on_deleted=deleted, on_storage_changed=storage_changed)
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None

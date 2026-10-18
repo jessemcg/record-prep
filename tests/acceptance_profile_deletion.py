@@ -91,7 +91,8 @@ with patch.object(api, "profile_store", return_value=store):
     assert store.load_profile_snapshot(first.ref).files == first.files
     assert store.load_profile_snapshot(revised.ref).files == revised.files
     assert case_pin.read_bytes() == pin_bytes
-    # A real case keeps its exact pin; deletion never invokes case selection.
+    # Historical pins stay byte-preserved; deleting the application selection
+    # returns to General even while a case is open.
     manager.has_case = True
     manager.selected_ref = second.ref
     manager._refresh(second.ref)
@@ -107,7 +108,7 @@ with patch.object(api, "profile_store", return_value=store):
     other.delete_button.emit("clicked")
     other.delete_dialog.response("delete")
     drain()
-    assert manager.selected_ref == second.ref and not selected
+    assert manager.selected_ref.specialty_id == "general-court-record" and not selected
     assert deleted == [revised.ref, second.ref]
     assert store.load_profile_snapshot(second.ref).files == second.files
     assert case_pin.read_bytes() == pin_bytes

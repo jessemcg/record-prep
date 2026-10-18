@@ -23,6 +23,10 @@ def row():
     return result
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class ProfileArtifactReaderTests(unittest.TestCase):
     def test_digest_new_roundtrip_without_profile_or_guidance_files(self):
         value = row()

@@ -1,11 +1,14 @@
 # Shipped practice profiles and personal settings
 
 RecordPrep ships **General Court Record** and **California Juvenile Dependency**.
-General is the new-case default. Dependency is a complete public specialty, useful
+General is the initial application selection. Profiles are independent of bundles;
+see [application profiles and portable storage](application-profiles.md) for the
+current selection, Save, resume and synchronization contract. Dependency is a complete public specialty, useful
 without anyone's private configuration. Focus now uses one fixed specialty-neutral
 research method, not profiles; no Focus counterpart is needed to consume a bundle.
 There is no profile repository, download, sibling package import or automatic
-cross-app synchronization. RecordPrep preparation behavior is unchanged.
+cross-app synchronization. Portable profile settings may be explicitly selected
+outside bundles; historical case pins no longer authorize instructions.
 
 ## Choose, edit, save
 
@@ -14,8 +17,9 @@ not as a separate banner. The hamburger menu shows the profile dropdown and
 **Profile settings** as compact, normal-weight, left-aligned menu items. Names
 wrap in full and a check marks the current choice. Selecting a dropdown item
 immediately applies that profile; there is no separate **Use profile** action or
-chooser dialog. **Profile settings** edits the selected RecordPrep profile. Opening the dropdown alone does not change the case; activating
-an item does. Failed or blocked selection retains the actual current choice.
+chooser dialog. **Profile settings** edits the selected RecordPrep profile. Opening
+the dropdown alone changes nothing; activating an item changes the application-wide
+selection, never the bundle. A failed storage transaction retains the current choice.
 
 Profile settings opens in an independent, non-modal window with minimize, maximize
 and close controls. It can be moved/resized independently while the main app stays
@@ -29,8 +33,8 @@ it edits the already-selected profile. Focus has no profile controls; its ordina
 model/appearance/speech/launch controls are in Settings.
 **Create profiles** is a hamburger-menu link immediately below **Profile settings**,
 not a button at the bottom of the sidebar. Its Cancel/Create actions use flat
-buttons without an extra selectable hover background. Existing new-case default
-preferences are preserved by Save (saving that profile advances its revision).
+buttons without an extra selectable hover background. Saving the selected profile
+advances its application-wide revision for future preparation.
 The profile name remains beneath the window title; **Save** and **Cancel** stay in
 the header. Switching pages preserves unsaved edits and each page's scroll position.
 At narrow widths, the **Show categories** button opens the sidebar as an overlay;
@@ -42,11 +46,10 @@ an unsaved draft; only Save keeps it. Cancelling a draft saves nothing.
 
 Its **Delete a personal profile** section lists only user-created specialties,
 not built-ins (including personal edits of built-ins). Choose one and press
-**Delete profile…**, then confirm. Delete removes the chooser entry, never its
-accepted revision files or existing case pins. Existing cases can continue using
-their saved instructions. A deleted new-case default returns to General, and a
-matching pending next-case choice is cleared. No case is silently rebound and
-nothing is regenerated. Reusing the name creates a new identity; old open drafts
+**Delete profile…**, then confirm. Delete removes the chooser entry, never its accepted revision files or existing
+case metadata. Existing case output remains readable. Deleting the selected profile
+returns the application selection to General. No case is rebound and nothing is
+regenerated. Reusing the name creates a new identity; old open drafts
 cannot resurrect a deleted identity. Stale profile/default/case state or active
 work blocks deletion without repairing private files.
 
@@ -230,20 +233,12 @@ Opening, inspecting and cancelling do not write a registry, snapshot, settings
 file or case. Save needs no file picker, export, registration, technical version
 entry, separate acceptance step or Git operation.
 
-Saving does not rebind an existing case. When applicable, a separate confirmation
-asks **Use these settings for this case?** with **Use settings / Not now** and
-explains that existing summaries and answers will not be regenerated. An older
-pin is identified inside Profile settings, not in the hamburger menu. The menu
-contains no passive profile-status notices. If case application
-fails after a successful save, the app reports **Profile saved; case settings
-were not changed.** The saved profile is not rolled back unsafely.
-
-With no existing case selected, RecordPrep remembers an explicit dropdown choice
-in the private profile registry as the new-case default. The next launch restores
-that choice, and Create files uses it for a new bundle. Save advances the remembered
-revision for that specialty without a case-application confirmation or an old-case
-write. Selecting a profile for an existing case does not replace this default;
-existing bundles stay legacy or pinned.
+Saving the selected profile advances application guidance immediately, without a
+separate case-use confirmation. Every dropdown choice is remembered for subsequent
+runs and launches, whether a case is open or not. Existing summaries and other
+outputs are never regenerated by selection or Save. Create files writes no profile
+pin; old pins are preserved as inert historical data. Instruction fingerprints in
+prepared artifacts continue protecting resume from incompatible guidance changes.
 
 RecordPrep's header has dim **Choose case bundle**, **Choose PDF(s)** and
 **Clear current case** buttons, in that order. The trash button clears only the
@@ -258,10 +253,9 @@ Synchronized RecordPrep case metadata accepts ordinary owner-owned `0755`/`0775`
 directories and `0644`/`0664` files, without chmod/repair. Symlinks, hardlinked or
 nonregular files, foreign ownership, executable metadata files and world-writable
 metadata remain rejected. Compare-and-swap and publication locking still protect
-selection changes. These rules are case-specific: the accepted-profile store
-continues to require owner-only directories/files. A missing pinned revision is
-not silently substituted; explicitly selecting an available profile can replace
-the pin without regenerating any output.
+application-selection changes. Private XDG profile stores remain owner-only;
+explicit portable stores use separate sync-compatible mode checks. Missing
+historical pinned revisions have no effect on current generation or selection.
 
 Focus automatically uses its fixed neutral method for every explicit new question,
 including previously profile-bound cases. No confirmation, advanced profile choice,
@@ -277,7 +271,9 @@ alone makes no model request, renames no case and regenerates nothing.
 | Credentials, models, endpoints, workers, commands, recent cases | Existing private application settings | No |
 | Personal profiles and edited built-ins | Private immutable snapshots | No |
 | Current personal references, initialization and defaults | Private registry | No |
-| Exact case instructions | Immutable private snapshot and existing case pin | No |
+| Generation provenance | Descriptive fingerprints in prepared artifacts; no instruction dependency | No |
+| Portable profile settings (optional) | Explicit external folder, registry + snapshots | No |
+| Portable folder choice and locks | Machine-local XDG state | No |
 
 Each catalog is explicit: `practice_profiles.BUNDLED_PROFILES`. The current
 catalog has one visible entry per identity, not a list of stored revisions.
@@ -291,8 +287,10 @@ and `$XDG_DATA_HOME/<application>/practice-profiles/snapshots/<digest>/` (normal
 HOME defaults when unset). Files are private, content-verified and immutable to
 the application. Unsafe paths, corrupt registries, unavailable snapshots and
 explicitly configured missing defaults are errors, never reasons to reset or
-silently substitute another profile. Browsing old output does not need its
-instruction snapshot; new affected work does.
+silently substitute another profile. Neither browsing old output nor new work
+needs the old output's instruction snapshot. New work needs the current selected
+guidance. **Profile storage…** can explicitly save/select a portable folder;
+see [storage safeguards](application-profiles.md#portable-profile-settings).
 
 Save validates the complete draft with production compilers, checks the active
 work guard, compares expected head/default state, publishes the snapshot, and
@@ -304,8 +302,8 @@ clearing its preference returns to personal General, or bundled General.
 
 A release can add a specialty without registration. Updated bundled guidance
 does not overwrite personal edits, rebind case pins, rename cases or regenerate
-outputs. Repository/Git changes are not instructions to refresh active cases.
-Execution continues with validated frozen snapshots.
+outputs. Repository/Git changes do not regenerate prepared work.
+Execution uses validated frozen current application guidance.
 
 ## Previous Dependency settings
 

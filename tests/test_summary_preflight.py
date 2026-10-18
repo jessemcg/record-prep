@@ -313,8 +313,10 @@ class DiagnosticCliTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    "-m",
-                    "recordprep.summary_preflight",
+                    "-c",
+                    "import runpy; from unittest.mock import patch; "
+                    "p=patch('recordprep.case_profiles.resolve_case_profile',return_value=None); "
+                    "p.start(); runpy.run_module('recordprep.summary_preflight',run_name='__main__')",
                     "--case-bundle",
                     str(root),
                     "--kind",

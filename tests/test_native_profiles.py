@@ -185,7 +185,8 @@ class NativeProfileTests(unittest.TestCase):
                                         env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 return SimpleNamespace(pid=os.getpid(), wait=lambda **kwargs: 0)
-            with patch.object(runner, "_pi_command", return_value=["/usr/bin/true"]), \
+            with patch("recordprep.case_profiles.resolve_case_profile", return_value=None), \
+                    patch.object(runner, "_pi_command", return_value=["/usr/bin/true"]), \
                     patch.object(runner, "_check_pi_version"), patch.object(runner, "StageMonitor"), \
                     patch("recordprep.run_metrics.instrument", side_effect=lambda command, env, *args: (command, env)), \
                     patch.object(runner.subprocess, "Popen", side_effect=child):

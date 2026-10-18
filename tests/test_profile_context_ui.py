@@ -10,23 +10,26 @@ from recordprep.profile_contract import ProfileError
 
 
 class ProfileContextTests(unittest.TestCase):
-    def test_missing_instructions_are_visible_without_reinterpreting_publication(self):
+    def test_indicator_uses_application_guidance_not_historical_case_pin(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            profile = validate_profile_directory(bundled_profile_directory("general")).draft
-            button = Mock()
-            window = SimpleNamespace(_title_widget=button, _resolve_case_root=lambda:root)
-            with patch.object(ui,"read_case_profile_ref",return_value=profile.ref), patch("recordprep.practice_profiles.profile_store") as store:
-                store.return_value.load_profile_snapshot.side_effect = ProfileError("snapshot_unavailable","selection")
+            (root / '.recordprep').mkdir()
+            historical = root / '.recordprep/practice-profile.json'
+            historical.write_bytes(b'Unavailable or malformed old reference')
+            before = historical.read_bytes(), historical.stat().st_mtime_ns
+            profile = validate_profile_directory(bundled_profile_directory('general')).draft
+            title = Mock()
+            window = SimpleNamespace(_title_widget=title, _resolve_case_root=lambda: root)
+            with patch('recordprep.practice_profiles.default_profile_candidate', return_value=profile):
                 ui.update_indicator(window)
-                button.set_subtitle.assert_called_with("Unavailable profile")
-                description = ui.context_description(root)
-                self.assertIn("Selected instructions unavailable", description)
-                self.assertNotIn("SHA", description)
-                self.assertIn("Browsing", description)
-                store.return_value.load_profile_snapshot.side_effect = None
-                store.return_value.load_profile_snapshot.return_value = profile
-                store.return_value.read_registry.return_value = {"heads": {}, "accepted": [], "default": None}
-                ui.update_indicator(window)
-                button.set_subtitle.assert_called_with("General Court Record")
-                self.assertEqual(list(root.iterdir()), [])
+            title.set_subtitle.assert_called_with('General Court Record')
+            self.assertIn('selected application profile', ui.context_description(root))
+            self.assertEqual((historical.read_bytes(), historical.stat().st_mtime_ns), before)
+
+    def test_missing_current_application_guidance_is_not_silently_substituted(self):
+        title = Mock()
+        window = SimpleNamespace(_title_widget=title)
+        with patch('recordprep.practice_profiles.default_profile_candidate',
+                   side_effect=ProfileError('snapshot_unavailable', 'selection')):
+            ui.update_indicator(window)
+        title.set_subtitle.assert_called_with('Unavailable profile')

@@ -182,14 +182,16 @@ def _application_root() -> Path:
 
 
 def _selected_profile(root: Path):
-    if not (root / ".recordprep/practice-profile.json").exists():
+    # Only the application runner can request profile-aware helper behavior.
+    # Historical bundle pins are never instruction authority.
+    expected = os.environ.get("RECORDPREP_PROFILE_REF")
+    if not expected:
         return None
     _application_root()
     from recordprep.case_profiles import resolve_case_profile
     from dataclasses import asdict
     profile = resolve_case_profile(root)
-    expected = os.environ.get("RECORDPREP_PROFILE_REF")
-    if expected and (profile is None or asdict(profile.ref) != json.loads(expected)):
+    if profile is None or asdict(profile.ref) != json.loads(expected):
         raise ValueError("Preparation profile selection changed during the stage.")
     return profile
 

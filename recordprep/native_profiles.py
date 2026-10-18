@@ -165,7 +165,6 @@ def overview_input_digest(root: Path) -> str:
     paths = [root / "artifacts/transcript_layout.json"]
     for kind in ("hearings", "reports", "minutes"):
         paths.append(sa.summary_final_path(root, kind))
-        paths.append(minutes.meta_path(root) if kind == "minutes" else sa.summary_final_meta_path(root, kind))
     if not is_ct_only(root):
         paths.append(root / "artifacts/participant_index.json")
     digest = hashlib.sha256(b"recordprep-overview-inputs-v1\0")

@@ -594,10 +594,9 @@ def remove_legacy_organized_summaries(root: Path) -> list[Path]:
 
 def write_source_map(root: Path) -> tuple[Path, dict[str, Any]]:
     root = root.resolve(strict=False)
-    selection = root / ".recordprep/practice-profile.json"
     previous = root / "artifacts/source_map.json"
-    if selection.exists() or selection.is_symlink() or (previous.exists() and read_json(previous).get("schema_version", 1) not in (1, 2)):
-        raise ValueError("Use the profile-aware application publisher; legacy publication cannot replace pinned output.")
+    if previous.exists() and read_json(previous).get("schema_version", 1) not in (1, 2):
+        raise ValueError("Use the application publisher; legacy publication cannot replace newer-schema output.")
     payload, manifest = build_source_map(root)
     output = root / "artifacts" / "source_map.json"
     atomic_write_json(output, payload)

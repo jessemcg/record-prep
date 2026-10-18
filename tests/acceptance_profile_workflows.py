@@ -216,28 +216,17 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         assert "Synthetic personal instructions" in editor.editor.resources[resource]
         editor.editor.resources[resource] += "\nSynthetic revised settings.\n"
         click(editor, "Save")
-        assert selected == [ref]  # Saving alone never binds the case.
+        assert selected == [ref, editor.editor.base.ref]
+        assert store.read_registry()["default"] == asdict(editor.editor.base.ref)
         assert editor.case_notice.get_visible()
-        assert "This case uses earlier settings" in editor.case_notice.get_text()
-        # A pending choice is not a case pin, even when revisions differ.
-        manager.has_case = False
-        editor.refresh_case_notice()
-        assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
-        manager.has_case = True
-        editor.refresh_case_notice()
-        assert editor.case_notice.get_visible()
+        assert "selected application profile" in editor.case_notice.get_text()
         assert manager._selected().snapshot.ref != ref
-        assert not manager.message.get_visible()
-        assert not any(isinstance(widget, Gtk.Label) and "This case uses earlier settings" in widget.get_text()
-                       for widget in descendants(manager))
-        manager.apply_dialog.response("later")
-        assert selected == [ref]
-        # Explicit application is guarded again after successful persistence.
-        click(editor, "Save")
+        assert not hasattr(manager, "apply_dialog")
+        # Active work prevents a settings save before publication.
+        before_blocked = store.registry_path.read_bytes()
         allowed[0] = False
-        manager.apply_dialog.response("use")
-        assert selected == [ref]
-        assert editor.message.get_text() == "Profile saved; case settings were not changed."
+        assert not editor._save()
+        assert store.registry_path.read_bytes() == before_blocked
         allowed[0] = True
         editor._refresh_guard()
         before_cancel = store.registry_path.read_bytes()
@@ -273,7 +262,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
             editor.editor.resources[resource] += "\nSynthetic default revision.\n"
             assert editor._save()
             assert store.read_registry()["default"] == asdict(editor.editor.base.ref)
-            manager.apply_dialog.response("later")
+            assert editor.saved_dialog is None
         editor.editor.resources[resource] += "\nSynthetic draft preserved after a concurrent save.\n"
         competing = workflows.ProfileEditor(editor.editor.base)
         competing.resources[resource] += "\nSynthetic competing save.\n"

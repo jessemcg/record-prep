@@ -198,6 +198,10 @@ def _runner_env(root: Path, *, pi_path: str = "/nonexistent/recordprep-pi") -> d
     return env
 
 
+from legacy_profile_fixtures import legacy_profile_tests, legacy_runner_argv
+
+
+@legacy_profile_tests
 class _MinuteSettingsTestCase(unittest.TestCase):
     def setUp(self):
         isolate_minute_settings(self)
@@ -349,7 +353,7 @@ class CtOnlyExemptionTests(_MinuteSettingsTestCase):
             # Byte-for-byte preserved.
             self.assertEqual(participant.read_bytes(), original_bytes)
 
-    def test_layout_change_invalidates_the_overview(self) -> None:
+    def test_layout_timestamp_only_change_does_not_invalidate_the_overview(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             _ct_only_bundle(root)
@@ -358,7 +362,7 @@ class CtOnlyExemptionTests(_MinuteSettingsTestCase):
             os.utime(layout, (future, future))
 
             issues = pi_bundle.validate_case_overview_output(root)
-            self.assertIn("artifacts/case_overview.md is stale.", issues)
+            self.assertEqual(issues, [])
 
     def test_rt_records_keep_the_participant_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -527,7 +531,7 @@ class CtOnlyRunnerTests(_MinuteSettingsTestCase):
             sa.summary_final_path(root, "hearings").unlink()
             sa.summary_final_meta_path(root, "hearings").unlink()
             result = subprocess.run(
-                [sys.executable, str(RUNNER), "create_hearing_summaries"],
+                legacy_runner_argv(RUNNER, "create_hearing_summaries"),
                 env=_runner_env(root),
                 text=True,
                 capture_output=True,

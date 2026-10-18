@@ -49,7 +49,7 @@ with patch.object(api, "profile_store", return_value=store):
     assert store.read_registry()["default"] == (asdict(pending) if package == "recordprep" else None)
     editor = manager._edit()
     drain()
-    assert not editor.case_notice.get_visible()
+    assert editor.case_notice.get_visible()
     resource = "research" if package == "focus" else "classification"
     editor.editor.resources[resource] += "\nSynthetic new-case settings.\n"
     editor._save()
@@ -60,21 +60,17 @@ with patch.object(api, "profile_store", return_value=store):
     # RecordPrep advances the default remembered by its explicit selection.
     assert store.read_registry()["default"] == asdict(editor.editor.base.ref)
     assert not hasattr(manager, "apply_dialog")
-    assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
+    assert 'selected application profile' in editor.case_notice.get_text()
     editor.close()
     editor = manager._edit()
     drain()
-    assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
-    # Only a real case retaining an earlier revision should get the warning.
+    assert editor.case_notice.get_visible()
+    # Historical case revisions never produce an old-pin warning.
     manager.selected_ref = pending
     manager.has_case = True
     editor.refresh_case_notice()
-    assert editor.case_notice.get_visible()
-    assert "This case uses earlier settings" in editor.case_notice.get_text()
-    manager.has_case = False
-    editor.refresh_case_notice()
-    assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
-    # Selecting another specialty for an existing case leaves the default alone.
+    assert 'earlier settings' not in editor.case_notice.get_text()
+    # Selecting another specialty with a case open changes the app selection.
     remembered_default = store.read_registry()["default"]
     case_choices = []
     bound = manager_ui.ProfileManagerWindow(parent, can_modify=lambda: True,
@@ -82,7 +78,7 @@ with patch.object(api, "profile_store", return_value=store):
     bound.selector.set_selected(1, notify=False)
     assert bound._select() and case_choices[-1] == bound.selected_ref
     assert bound.selected_ref.specialty_id != remembered_default["specialty_id"]
-    assert store.read_registry()["default"] == remembered_default
+    assert store.read_registry()["default"] == asdict(bound.selected_ref)
     # Failed or work-blocked choices cannot replace the remembered default.
     before_failure = store.registry_path.read_bytes()
     allowed = [True]

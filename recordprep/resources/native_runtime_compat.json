@@ -1,8 +1,13 @@
 {
   "participants": {
-    "reviewed_release": "bcbda05, initial stage-scoped runtime, 99528a6 and 72c0487; report-selection prerequisite and removal of obsolete minute resource-presence check only, unchanged participant generation/inputs (see docs/minute-selection.md)",
-    "stage_code_sha256": "fadf15e91ba9bedb7f66fc064a541fbc144c538af5170176e482755b03fa6379",
+    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes historical boundary prerequisites and adds downstream validation mode; participant prompts, evidence validation and consumed-input hashing unchanged (see docs/application-profiles.md)",
+    "stage_code_sha256": "e007007e81c9f9da8d792a0ec580b1fd85a18d284acb91e3777d208f281dc069",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "fadf15e91ba9bedb7f66fc064a541fbc144c538af5170176e482755b03fa6379"
+      },
       {
         "contract": 2,
         "stage": "participants",
@@ -37,9 +42,14 @@
     ]
   },
   "overview": {
-    "reviewed_release": "99528a6 and 72c0487; report-selection prerequisite and removal of obsolete minute resource-presence check only, unchanged overview generation; summary input hashes still checked (see docs/minute-selection.md)",
-    "stage_code_sha256": "2ae778b48b76c46fa6db0e7201c0d5d26d974b1d7915d03a674e6cc20fdae851",
+    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes upstream historical freshness prerequisites; overview prompts unchanged, actual source-text input hashes still required, historical summary metadata no longer consumed (see docs/application-profiles.md)",
+    "stage_code_sha256": "5af1165aee47f2c29bfccc8bf2c3cc38c22e5dd01988f706fee76547055ecc92",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "2ae778b48b76c46fa6db0e7201c0d5d26d974b1d7915d03a674e6cc20fdae851"
+      },
       {
         "contract": 2,
         "stage": "overview",

@@ -7,8 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .case_profiles import read_case_profile_ref, case_profile_publication
-from .classification_profiles import _digest, _read_stage_metadata, component, stable_source_inventory, stage_issues, upstream_digest
-from .summary_agents import _atomic_write, sha256_json
+from .classification_profiles import _digest, component
+from .summary_agents import _atomic_write
 from .profile_contract import read_file_at, _json
 
 FILES = ("hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json")
@@ -16,17 +16,14 @@ FILES = ("hearing_boundaries.json", "report_boundaries.json", "minutes_boundarie
 
 def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
     if profile is None:
-        if (root / "artifacts/profile-boundaries.json").exists():
-            raise ValueError("Recorded profile boundaries require an accepted case binding; prior output preserved.")
         return None
-    if stage_issues(root, "names", profile, settings):
-        raise ValueError("Run the current profile's classification and naming stages before finding boundaries.")
-    marker = _read_stage_metadata(root, "names")
-    if verify_source_bytes and stable_source_inventory(root)[0] != marker["sources"]:
-        raise ValueError("Classifier source bytes changed; rerun classification before publishing boundaries.")
-    return {"contract_version": 2, "classification_sha256": upstream_digest(root, "names"),
-            "classification_component": component(profile, "basic"), "naming_component": component(profile, "names"),
-            "source_sha256": sha256_json(marker["sources"])}
+    # Freeze actual inputs for this run, not the settings that created them.
+    # Old markers and filesystem timestamps never authorize or block a new run.
+    from .classification_profiles import prepared_classification_digest
+    return {"contract_version": 3,
+            "classification_sha256": prepared_classification_digest(root, "names"),
+            "classification_component": component(profile, "basic"),
+            "naming_component": component(profile, "names")}
 
 
 def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, payloads: dict):
@@ -80,14 +77,14 @@ def preparation_watch_paths(root):
 
 
 def require_current_boundaries(root, profile, project_dir, *, verify_source_bytes=False):
-    if profile is None:
-        return
-    from .classification_profiles import load_model_settings
-    settings = load_model_settings(project_dir)
-    if boundary_issues(root, profile, settings):
-        raise ValueError("Run classification/naming and Find boundaries for the selected preparation profile first.")
-    if verify_source_bytes:
-        boundary_inputs(root, profile, settings, verify_source_bytes=True)
+    """Compatibility hook: historical freshness is not a downstream prerequisite.
+
+    Each consumer loads and validates its own actual boundary/source inputs. Do not
+    require classification, profile-boundaries metadata, old models or timestamps
+    here, nor unrelated boundary kinds (hearing work does not need report inputs).
+    The runner's frozen input fingerprints still protect publication and row reuse.
+    """
+    return
 
 
 def publish_toc(root, profile, expected_inputs, settings, text):

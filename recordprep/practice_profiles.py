@@ -55,7 +55,15 @@ def validate_profile_directory(path: Path) -> ValidationResult:
 
 
 def profile_store() -> ProfileStore:
-    """Machine-local XDG storage, never the source checkout's private config."""
+    """Explicit portable settings root, or unchanged private XDG storage.
+
+    Nothing is copied, migrated or created by resolving a store. A portable root
+    contains only registry/snapshots; locks remain in machine-local state.
+    """
+    from .profile_portability import selected_directory, portable_store
+    selected = selected_directory()
+    if selected is not None:
+        return portable_store(selected)
     config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     return ProfileStore(APPLICATION, config_root=config / APPLICATION / "practice-profiles",
@@ -63,7 +71,7 @@ def profile_store() -> ProfileStore:
 
 
 def default_profile_candidate(*, store: ProfileStore | None = None) -> ProfileSnapshot:
-    """Read-only proposal for a new context; never rebind an existing case."""
+    """Read-only application selection used for every new preparation run."""
     store = store or profile_store()
     if store.application != APPLICATION:
         raise ProfileError("wrong_application", "default")

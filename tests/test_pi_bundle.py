@@ -71,6 +71,10 @@ The available material includes summarized hearings, reports, and minute orders 
 """
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class PiBundleTests(unittest.TestCase):
     def setUp(self):
         isolate_minute_settings(self)
@@ -234,7 +238,7 @@ class PiBundleTests(unittest.TestCase):
             self.assertEqual(validate_transcript_layout_output(root), [])
             self.assertEqual(source_map_prerequisite_issues(root), [])
 
-    def test_case_overview_requires_versioning_and_freshness(self) -> None:
+    def test_case_overview_requires_structure_not_timestamp_freshness(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._build_valid_bundle(root)
@@ -251,12 +255,10 @@ class PiBundleTests(unittest.TestCase):
             future = overview.stat().st_mtime + 2
             os.utime(participant, (future, future))
 
-            self.assertIn(
-                "artifacts/case_overview.md is stale.",
-                validate_case_overview_output(root),
-            )
+            self.assertEqual(validate_case_overview_output(root), [])
+            self.assertEqual(source_map_prerequisite_issues(root), [])
 
-    def test_stale_source_map_and_missing_manifest_key_are_incomplete(self) -> None:
+    def test_missing_manifest_key_is_invalid_but_old_map_timestamp_is_not(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._build_valid_bundle(root)
@@ -273,7 +275,7 @@ class PiBundleTests(unittest.TestCase):
                 "manifest.json files.case_overview must be artifacts/case_overview.md.",
                 issues,
             )
-            self.assertIn("source_map.json is stale.", issues)
+            self.assertNotIn("source_map.json is stale.", issues)
             self.assertFalse(prepare_bundle_complete(root))
 
     def test_source_summaries_are_required_without_organized_derivatives(self) -> None:

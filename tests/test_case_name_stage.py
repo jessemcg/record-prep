@@ -82,10 +82,10 @@ class CaseNameStageTests(unittest.TestCase):
     def test_profile_switch_rejects_publication(self):
         guard, ref, candidate, _, _ = self.prepared()
         store = api.ProfileStore("recordprep", config_root=self.base / "config", data_root=self.base / "data")
-        profile = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
+        profile = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
         store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
-        with self.assertRaises(ValueError):
+        with patch("recordprep.case_profiles.profile_store", return_value=store), self.assertRaises(ValueError):
             stage.publish(self.root, self.project, guard, ref, candidate)
         self.assertEqual((self.root / "case_name.txt").read_text(), "Prior_Name")
 

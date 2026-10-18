@@ -222,6 +222,10 @@ class PromptNamingTests(unittest.TestCase):
                 with_naming(self.public(), {"schema_version": 3, "report_guidance": text, "form_guidance": "No approved forms."})
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class NamingPipelineTests(unittest.TestCase):
     def setUp(self):
         from recordprep.ui import main_window as ui

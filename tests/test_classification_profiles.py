@@ -60,6 +60,40 @@ class ClassificationProfileTests(unittest.TestCase):
             self.assertNotIn("NEVER-PERSIST", metadata.read_text())
             self.assertNotIn("synthetic.invalid", metadata.read_text())
 
+    def test_saved_upstream_reuse_ignores_old_settings_and_timestamps(self):
+        import os
+        self._run_gui_pipeline()
+        # A mixed record still needs both saved classification sides.
+        rt_basic = self.root / "classification/RT_basic.jsonl"
+        rt_basic.write_text("synthetic RT input")
+        with self.assertRaisesRegex(ValueError, "input RT_.* is missing"):
+            ClassificationRun.begin(self.root, "names", self.settings)
+        rt_basic.unlink()
+        for directory in ("text_pages", "image_pages"):
+            for path in (self.root / directory).iterdir():
+                os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1000000000))
+        for stage in STAGES:
+            self.assertEqual(stage_issues(self.root, stage, self.profile, self.settings), [])
+        for path in (self.root / "classification").glob("profile-*.json"):
+            path.unlink()
+        settings = self.settings | {"model_id": "different-current-model"}
+        run = ClassificationRun.begin(self.root, "names", settings)
+        name = output_names("names")[1]
+        (run.directory / name).write_bytes((self.root / "classification" / name).read_bytes())
+        run.publish(settings)
+        self.assertEqual(stage_issues(self.root, "names", self.profile, settings), [])
+        # Once this run has started, actual input changes still prevent publication.
+        run = ClassificationRun.begin(self.root, "names", settings)
+        previous = (self.root / "classification" / name).read_bytes()
+        upstream = self.root / "classification" / output_names("dates")[1]
+        upstream.write_text(upstream.read_text() + "\n")
+        with self.assertRaisesRegex(ValueError, "upstream changed"):
+            run.publish(settings)
+        self.assertEqual((self.root / "classification" / name).read_bytes(), previous)
+        upstream.unlink()
+        with self.assertRaisesRegex(ValueError, "missing"):
+            ClassificationRun.begin(self.root, "names", settings)
+
     def _run_gui_pipeline(self, kind="report", date_value=""):
         from recordprep.ui import main_window as ui
         worker = SimpleNamespace(

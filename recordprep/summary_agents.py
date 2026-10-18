@@ -1649,8 +1649,8 @@ def build_work_items(
                 raise ValueError(
                     "Participant index validation failed: run Build participant index first."
                 )
-            if config.profile is not None and payload.get("schema_version") != 4:
-                raise ValueError("Run Build participant index with the general identification contract before hearing work.")
+            if payload.get("schema_version") not in (2, 3, 4):
+                raise ValueError("Participant index uses an unsupported format.")
             for hearing in payload.get("hearings", []):
                 if not isinstance(hearing, dict):
                     continue
@@ -4111,7 +4111,6 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
     watched: list[Path] = [
         application_config_path(project_dir),
         pi_settings_path(project_dir),
-        root / ".recordprep/practice-profile.json",
         project_dir / "SYSTEM.md",
         project_dir / "extensions/recordprep-summary-tools.ts",
         project_dir / "extensions/recordprep-summary-synthesis-tools.ts",
@@ -4138,6 +4137,7 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
     from recordprep.practice_profiles import profile_store
     try:
         profile = resolve_case_profile(root)
+        signature.append(profile.ref if profile is not None else None)
         if profile is not None:
             snapshot_root = profile_store().data_root / "snapshots" / profile.ref.content_sha256
             watched.extend(snapshot_root / name for name, _contents in profile.files)

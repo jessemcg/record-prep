@@ -200,7 +200,7 @@ def normalize_transcript_numbering_labels(root: Path) -> list[str]:
     return changed
 
 
-def validate_participant_index_output(root: Path, *, project_dir: Path | None = None) -> list[str]:
+def validate_participant_index_output(root: Path, *, project_dir: Path | None = None, check_freshness: bool = True) -> list[str]:
     root = root.resolve(strict=False)
     path = root / "artifacts" / "participant_index.json"
     payload = _read_json(path)
@@ -209,6 +209,8 @@ def validate_participant_index_output(root: Path, *, project_dir: Path | None = 
     # Artifact-recorded roles, never whichever profile is currently selected.
     from .profile_artifacts import participant_index_issues
     issues = participant_index_issues(payload)
+    if not check_freshness:
+        return issues
     from .case_profiles import resolve_case_profile
     try:
         profile = resolve_case_profile(root)
@@ -379,25 +381,17 @@ def _legacy_participant_index_issues(payload: dict[str, Any]) -> list[str]:
 
 
 def validate_summary_source_outputs(root: Path, *, project_dir: Path | None = None) -> list[str]:
-    """Validate all PI summary stages' artifacts, finals, and freshness.
-
-    Downstream prerequisites (case overview, source map) require the summary
-    stages to be current-generation fresh, not merely structurally intact:
-    stale rows or a final summary synthesized under an old contract report
-    as regeneration-pending here.
-    """
+    """Downstream work consumes saved summary text, not historical run settings."""
     issues: list[str] = []
-    for kind in summary_agents.SUMMARY_KINDS:
-        label = summary_agents.SUMMARY_KIND_LABELS[kind]
+    for kind in ("hearings", "reports", "minutes"):
         final_path = summary_agents.summary_final_path(root, kind)
-        if not final_path.exists():
+        label = summary_agents.SUMMARY_KIND_LABELS.get(kind, kind)
+        try:
+            final_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             issues.append(f"the source {label} summary is missing.")
-            continue
-        issues.extend(
-            summary_agents.validate_summary_agent_outputs(root, kind)
-        )
-        issues.extend(summary_agents.summary_stage_freshness_issues(root, kind, project_dir=project_dir))
-    issues.extend(minute_summaries.freshness_issues(root, project_dir))
+        except (OSError, UnicodeError):
+            issues.append(f"the source {label} summary is unreadable.")
     return list(dict.fromkeys(issues))
 
 
@@ -446,16 +440,8 @@ def case_overview_prerequisite_issues(root: Path, *, project_dir: Path | None = 
     """
     issues: list[str] = []
     if not is_ct_only(root):
-        issues.extend(validate_participant_index_output(root, project_dir=project_dir))
+        issues.extend(validate_participant_index_output(root, project_dir=project_dir, check_freshness=False))
     issues.extend(validate_summary_source_outputs(root, project_dir=project_dir))
-    from .case_profiles import resolve_case_profile
-    try:
-        profile = resolve_case_profile(root)
-        if profile is not None:
-            from .publication_profiles import prepared_input_issues
-            issues.extend(prepared_input_issues(root, profile, project_dir or Path(__file__).resolve().parents[1] / ".pi"))
-    except (OSError, ValueError):
-        issues.append("Selected preparation profile is unavailable or invalid.")
     return list(dict.fromkeys(issues))
 
 
@@ -489,7 +475,7 @@ def validate_case_overview_text(text: str, *, profile_mode: bool = False) -> lis
     return issues
 
 
-def validate_case_overview_output(root: Path, *, project_dir: Path | None = None) -> list[str]:
+def validate_case_overview_output(root: Path, *, project_dir: Path | None = None, check_freshness: bool = True) -> list[str]:
     root = root.resolve(strict=False)
     issues = case_overview_prerequisite_issues(root, project_dir=project_dir)
     path = case_overview_path(root)
@@ -497,6 +483,8 @@ def validate_case_overview_output(root: Path, *, project_dir: Path | None = None
         text = path.read_text(encoding="utf-8")
     except OSError:
         return [*issues, "artifacts/case_overview.md is missing or unreadable."]
+    if not check_freshness:
+        return list(dict.fromkeys(issues + validate_case_overview_text(text, profile_mode=False)))
     from .case_profiles import resolve_case_profile
     try:
         profile = resolve_case_profile(root)
@@ -506,40 +494,13 @@ def validate_case_overview_output(root: Path, *, project_dir: Path | None = None
     if profile is not None:
         from .native_profiles import overview_freshness_issues
         issues.extend(overview_freshness_issues(root, profile, project_dir or Path(__file__).resolve().parent.parent / ".pi"))
-    manifest = _read_json(root / "manifest.json") or {}
-    prerequisites: list[Path] = [
-        # A later layout decision must invalidate the overview in every mode.
-        root / "artifacts" / "transcript_layout.json",
-    ]
-    if not is_ct_only(root):
-        # A pre-existing participant artifact must not make a CT-only
-        # overview appear stale; it is ignored downstream.
-        prerequisites.append(root / "artifacts" / "participant_index.json")
-    for kind in ("hearings", "reports"):
-        source = _summary_source(root, manifest, kind)
-        if source is not None:
-            prerequisites.append(source)
-    minutes = _summary_source(root, manifest, "minutes")
-    if minutes is not None:
-        prerequisites.append(minutes)
-    case_name = root / "case_name.txt"
-    if case_name.is_file():
-        prerequisites.append(case_name)
-    try:
-        if path.is_file() and any(
-            source.is_file() and path.stat().st_mtime < source.stat().st_mtime
-            for source in prerequisites
-        ):
-            issues.append("artifacts/case_overview.md is stale.")
-    except OSError:
-        issues.append("unable to compare case overview freshness.")
     return list(dict.fromkeys(issues))
 
 
 def source_map_prerequisite_issues(root: Path, *, project_dir: Path | None = None) -> list[str]:
     issues = validate_transcript_layout_output(root)
     issues.extend(validate_transcript_numbering_outputs(root))
-    issues.extend(validate_case_overview_output(root, project_dir=project_dir))
+    issues.extend(validate_case_overview_output(root, project_dir=project_dir, check_freshness=False))
     return list(dict.fromkeys(issues))
 
 
@@ -575,9 +536,9 @@ def validate_prepare_bundle_outputs(root: Path, *, project_dir: Path | None = No
         issues.append("artifacts/transcript_page_number_series.md is missing.")
     ct_only = is_ct_only(root)
     if not ct_only:
-        issues.extend(validate_participant_index_output(root, project_dir=project_dir))
+        issues.extend(validate_participant_index_output(root, project_dir=project_dir, check_freshness=False))
     issues.extend(validate_summary_source_outputs(root, project_dir=project_dir))
-    issues.extend(validate_case_overview_output(root, project_dir=project_dir))
+    issues.extend(validate_case_overview_output(root, project_dir=project_dir, check_freshness=False))
 
     source_map = _read_json(source_map_path)
     if source_map is None:
@@ -643,30 +604,6 @@ def validate_prepare_bundle_outputs(root: Path, *, project_dir: Path | None = No
             continue
         if files.get(key) != expected:
             issues.append(f"manifest.json files.{key} must be {expected}.")
-
-    freshness_pairs: list[tuple[Path, Path, str]] = []
-    summary_sources = [
-        source
-        for kind in ("hearings", "reports", "minutes")
-        if (source := _summary_source(root, manifest, kind)) is not None
-    ]
-    for prerequisite in (
-        root / "artifacts" / "transcript_layout.json",
-        transcript_path,
-        series_path,
-        *([] if ct_only else [participant_index_path]),
-        overview_path,
-        *summary_sources,
-    ):
-        freshness_pairs.append(
-            (source_map_path, prerequisite, "source_map.json is stale.")
-        )
-    for output, source, message in freshness_pairs:
-        try:
-            if output.is_file() and source.is_file() and output.stat().st_mtime < source.stat().st_mtime:
-                issues.append(message)
-        except OSError:
-            issues.append(f"unable to compare output freshness for {output.name}.")
 
     return list(dict.fromkeys(issues))
 

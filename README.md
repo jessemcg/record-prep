@@ -80,7 +80,10 @@ existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
 RecordPrep includes **General Court Record** and **California Juvenile Dependency**.
-See [preparation guidance](docs/workflow.md) and [practice profiles](docs/practice-profiles.md)
+The selected profile governs new preparation, not the bundle itself. Existing
+preparation remains reusable when settings change. **Profile storage…**
+can save or select portable settings separately from your cases.
+See [application profiles](docs/application-profiles.md), [preparation guidance](docs/workflow.md) and [practice profiles](docs/practice-profiles.md)
 for workflow, customization, and safe continuation.
 
 AI preparation may send record text and page images to configured providers.

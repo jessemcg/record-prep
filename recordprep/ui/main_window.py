@@ -4163,8 +4163,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_until_dropdown = Gtk.DropDown.new_from_strings(["End of pipeline"])
         self._run_until_dropdown.set_hexpand(True)
         self._run_until_dropdown.set_tooltip_text(
-            "Stop automatically after the selected step when running or resuming "
-            "the pipeline."
+            "Stop after the selected step with Run, Resume, or Run from here."
         )
         self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
         run_target_box.append(self._run_until_dropdown)
@@ -4847,6 +4846,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         def _set_done(row: Adw.ActionRow, done: bool) -> None:
             self._set_step_status(row, "Done" if done else "Pending")
 
+        from recordprep.output_presence import step_outputs_present
         for step_id, row, _handler in self._pipeline_steps():
             if (
                 step_id == "build_participant_index"
@@ -4858,7 +4858,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 # skip as a generated participant artifact.
                 self._set_step_status(row, "Skipped")
                 continue
-            _set_done(row, self._step_artifact_complete(step_id, root_dir, self.selected_pdfs))
+            # Badges describe existing output, not freshness under current settings.
+            # Keep _step_artifact_complete for execution/resume safety only.
+            _set_done(row, step_outputs_present(step_id, root_dir))
         self._open_first_incomplete_phase()
         self._sync_pipeline_controls()
 
@@ -6152,6 +6154,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         _case_name, base_dir = load_case_context()
         return base_dir
 
+    def _resume_step_complete(self, step_id: str, root_dir: Path) -> bool:
+        if step_id == "create_files":
+            # Never refill a damaged source set beneath prepared work.
+            return self._step_artifact_complete(step_id, root_dir, self.selected_pdfs)
+        if step_id == "build_participant_index" and is_ct_only(root_dir):
+            return True
+        from recordprep.output_presence import step_outputs_present
+        return step_outputs_present(step_id, root_dir)
+
     def _resume_start_index(self, root_dir: Path, end_step_id: str | None) -> int | None:
         if (getattr(self, "_bundle_reset_required", False)
                 or (self.selected_pdfs and _bundle_inputs_changed(root_dir, self.selected_pdfs))):
@@ -6165,32 +6176,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Unknown end step.")
             end_index = step_ids.index(end_step_id)
         for index, (step_id, _row, _handler) in enumerate(steps[: end_index + 1]):
-            if not self._step_artifact_complete(step_id, root_dir, self.selected_pdfs):
+            if not self._resume_step_complete(step_id, root_dir):
                 if step_id == "create_files" and self._has_layout_dependent_work(root_dir):
                     raise ValueError("Resume blocked: source pages are incomplete but prepared work exists. "
                                      "Existing files were preserved; restore missing source pages before continuing.")
-                # A freshness failure is not permission to silently regenerate
-                # already-published work. Missing output is resumable; stale
-                # existing output needs an explicit per-step rerun.
-                published_paths = {
-                    "detect_transcript_layout": ["artifacts/transcript_layout.json"],
-                    "infer_case": ["case_name.txt"],
-                    "number_transcript_pages": ["artifacts/transcript_page_numbers.json"],
-                    "build_participant_index": ["artifacts/participant_index.json"],
-                    "create_case_overview": ["artifacts/case_overview.md"],
-                    "build_source_map": ["artifacts/source_map.json"],
-                }
-                stages = {"classify_basic": "basic", "classify_advanced": "advanced",
-                          "correct_classify_advanced": "corrected", "classify_dates": "dates",
-                          "classify_names": "names"}
-                if step_id in stages:
-                    # In-progress JSONL outputs can resume missing pages. A
-                    # profile marker denotes an already-published stage.
-                    published_paths[step_id] = [f"classification/profile-{stages[step_id]}.json"]
-                if any((root_dir / path).exists() for path in published_paths.get(step_id, [])):
-                    title = _row.get_title() or step_id
-                    raise ValueError(f"Resume paused at {title}: existing output needs review or regeneration. "
-                                     "Files were preserved. Use this step's Run or Run from here to rerun it explicitly.")
+                # Resume fills missing outputs; historical settings never force
+                # regeneration. Explicit Run/Run from here still runs the step.
                 return index
         return None
 
@@ -6278,6 +6269,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id not in step_ids:
             self.show_toast("Unknown step.")
             return
+        start_index = step_ids.index(step_id)
+        end_step_id = self._selected_run_until_step()
+        if end_step_id is not None:
+            if end_step_id not in step_ids:
+                self.show_toast("Unknown Run through endpoint. Choose an endpoint and try again.")
+                return
+            if step_ids.index(end_step_id) < start_index:
+                self.show_toast("Run through must be at or after the starting step. Choose a later endpoint or End of pipeline.")
+                return
         if step_id == "create_files":
             if not self.selected_pdfs:
                 self.show_toast("Choose PDF files first.")
@@ -6294,7 +6294,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             allow_unresolved=not _step_requires_resolved_layout(step_id)
         ):
             return
-        start_index = step_ids.index(step_id)
         root_dir = self._resolve_case_root()
         self._stop_event.clear()
         self._run_completion_message = None
@@ -6309,7 +6308,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._sync_pipeline_controls()
         threading.Thread(
             target=self._run_steps_from_index,
-            args=(start_index, root_dir),
+            args=(start_index, root_dir, end_step_id),
             daemon=True,
         ).start()
 
@@ -6447,10 +6446,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Selected PDFs must be in the same folder.")
             base_dir = parents.pop()
             root_dir = base_dir / "case_bundle"
-            new_case_profile = None
-            if not root_dir.exists() and not root_dir.is_symlink():
-                from recordprep.profile_integration import new_case_profile as choose_new_case_profile
-                new_case_profile = choose_new_case_profile(self, root_dir)
             pending_split = self._rt_ct_split_pending
             pending_mode = self._rt_ct_split_mode_pending
             reset_required = (
@@ -6471,10 +6466,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 success = True
                 return True
             root_dir, text_dir, image_pages_dir = _ensure_case_bundle_dirs(base_dir)
-            if new_case_profile is not None:
-                from recordprep.case_profiles import apply_case_profile
-                apply_case_profile(root_dir, new_case_profile, expected_previous=None)
-                self._pending_preparation_profile = None
+            # Profiles are application settings; never pin instructions in a bundle.
+            self._pending_preparation_profile = None
             if len(self.selected_pdfs) > 1:
                 temp_dir = root_dir / "temp"
                 temp_dir.mkdir(parents=True, exist_ok=True)
@@ -6877,11 +6870,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             and not (
                 skip_completed_steps
                 and root_dir is not None
-                and self._step_artifact_complete(
-                    step_id,
-                    root_dir,
-                    self.selected_pdfs,
-                )
+                and self._resume_step_complete(step_id, root_dir)
             )
         ]
         manage_local_vision = (
@@ -6898,11 +6887,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 if (
                     skip_completed_steps
                     and root_dir is not None
-                    and self._step_artifact_complete(
-                        step_id,
-                        root_dir,
-                        self.selected_pdfs,
-                    )
+                    and self._resume_step_complete(step_id, root_dir)
                 ):
                     GLib.idle_add(self._finish_step, row, "Already complete")
                     continue

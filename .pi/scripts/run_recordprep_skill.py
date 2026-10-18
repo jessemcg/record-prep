@@ -1405,7 +1405,9 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     def check_selection():
         if read_case_profile_ref(root) != expected_ref:
             raise ValueError("Preparation profile selection changed during the stage; prior final preserved.")
-        require_current_boundaries(root, profile, project_dir)
+        current_items = sa.build_work_items(root, extraction_config)
+        if [(i.item_id, i.generation_sha256) for i in current_items] != [(i.item_id, i.generation_sha256) for i in items]:
+            raise ValueError("Summary inputs changed during generation; prior final preserved.")
 
     def publish_digests(rows):
         with case_profile_publication(root, expected_ref):
@@ -1427,7 +1429,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         items = sa.build_work_items(root, extraction_config)
     except ValueError as exc:
         raise ValueError(
-            f"Create {SUMMARY_KIND_LABELS[kind]} summaries prerequisites failed: {exc}"
+            f"Create {sa.SUMMARY_KIND_LABELS[kind]} summaries prerequisites failed: {exc}"
         ) from exc
 
     extract_capacity = None

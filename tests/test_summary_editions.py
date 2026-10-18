@@ -1003,6 +1003,10 @@ def _seed_boundaries(root: Path) -> None:
     )
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class InvalidationTests(unittest.TestCase):
     """Hearing/report reruns now go through the PI runner; verify delegation.
 

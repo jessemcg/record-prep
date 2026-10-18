@@ -317,6 +317,10 @@ def _review_general_hearing(hearing, index, *, status="verified"):
     return hearing
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class ParticipantStageHelperTests(unittest.TestCase):
     def test_skill_requires_bounded_incremental_work(self) -> None:
         skill = (

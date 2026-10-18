@@ -83,7 +83,7 @@ class PlainMinuteTests(unittest.TestCase):
                     self.assertEqual(final.read_text().count('- Main rulings:'), 2)
                     unrelated = root / 'summaries/reports_sum_Fictional.txt'
                     unrelated.write_text('Unrelated report artifact stays unchanged.\n')
-                    stable = [*sources, unrelated, root / '.recordprep/practice-profile.json', project.parent / 'config.json',
+                    stable = [*sources, unrelated, store.registry_path, project.parent / 'config.json',
                               store.data_root / 'snapshots' / profile.ref.content_sha256 / 'minutes.md']
                     protected = [final, minutes.checkpoint_path(root), minutes.meta_path(root), *stable]
                     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}

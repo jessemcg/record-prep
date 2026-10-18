@@ -110,7 +110,7 @@ def run():
         current_index = controls.selector.get_selected()
         other_index = next(i for i, item in enumerate(controls.options)
                            if item and item.snapshot.ref.specialty_id == "california-juvenile-dependency")
-        with patch.object(controls, "on_select", side_effect=ValueError("synthetic case change")):
+        with patch.object(controls.store, "managed_save", side_effect=ValueError("synthetic settings change")):
             controls.selector._choose(other_index)
         assert controls.selector.get_selected() == current_index
         assert title.get_subtitle() == "General Court Record"

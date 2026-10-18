@@ -118,7 +118,9 @@ class ReportEditorialTests(unittest.TestCase):
                     workspaces.append(child.workspace)
                     return 0
                 stage = runner.SkillStage('create_report_summaries', 'Create report summaries', 'recordprep-extract-report', '')
-                with patch('recordprep.case_profiles.profile_store', return_value=store), \
+                from contextlib import nullcontext
+                legacy = patch('recordprep.case_profiles.resolve_case_profile', return_value=None) if profile is None else nullcontext()
+                with legacy, patch('recordprep.case_profiles.profile_store', return_value=store), \
                      patch.object(runner, '_resolve_pi_command', return_value=['synthetic-pi']), \
                      patch.object(runner, '_check_pi_version'), \
                      patch.object(runner, '_stage_capacity', return_value=None), \
@@ -150,7 +152,7 @@ class ReportEditorialTests(unittest.TestCase):
                     meta_path.write_text(json.dumps(metadata))
                     stable = (project.parent / 'config.json', root / 'text_pages/0001.txt')
                     if profile:
-                        stable += (root / '.recordprep/practice-profile.json',)
+                        stable += (store.registry_path,)
                     protected = (final, meta_path, digests, *stable)
                     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                     self.assertTrue(sa.summary_stage_freshness_issues(root, 'reports', project_dir=project))

@@ -1,4 +1,5 @@
 import json
+import os
 import importlib.util
 import shutil
 import sys
@@ -157,7 +158,7 @@ class ProfileGenerationTests(unittest.TestCase):
         self.assertEqual(compile_summary(profile, "hearings", "extract").component_sha256,
                          compile_summary(revised, "hearings", "extract").component_sha256)
 
-    def test_actual_runner_uses_pinned_profile_and_resumes_without_calls(self):
+    def test_actual_runner_uses_application_profile_despite_missing_old_pin_and_resumes(self):
         source = Path(__file__).resolve().parents[1]
         project = self.root / "project"
         shutil.copytree(source / ".pi", project / ".pi")
@@ -170,6 +171,10 @@ class ProfileGenerationTests(unittest.TestCase):
         profile = bundled("general")
         store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
+        historical = self.root / ".recordprep/practice-profile.json"
+        historical.parent.mkdir(mode=0o700)
+        historical.write_text('{"historical": "missing revision must not authorize new work"}')
+        old_pin = historical.read_bytes(), historical.stat().st_mtime_ns
         stage = runner.SkillStage("create_report_summaries", "Create report summaries", "recordprep-extract-report", "")
         with patch("recordprep.case_profiles.profile_store", return_value=store), \
              patch.object(runner, "_resolve_pi_command", return_value=["synthetic-pi"]), \
@@ -188,6 +193,7 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(extract.call_count, 1)
             self.assertEqual(synthesize.call_count, 1)
             self.assertEqual(sa.validate_summary_agent_outputs(self.root, "reports"), [])
+            self.assertEqual((historical.read_bytes(), historical.stat().st_mtime_ns), old_pin)
             document = sa.load_digest_markdown(self.root, "reports")
             evidence = document[0]["categories"][0]["digest"]["evidence"][0]
             self.assertEqual(evidence["file_page"], 2)
@@ -199,22 +205,75 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(runner._run_summary_stage(stage, self.root, project / ".pi"), 0)
             self.assertEqual(extract.call_count, 1)
             self.assertEqual(synthesize.call_count, 1)
-            # Unchanged boundary bytes are not proof that upstream classification
-            # is current under a newly selected practice guide.
+            # Saved preparation is reusable despite changes to unrelated
+            # classification guidance, mtimes, or missing historical metadata.
             revised = changed(profile, "classification", "Revised source-grounded classification guidance.\n")
             store.accept_profile(revised, expected_previous_digest=profile.ref.content_sha256)
             apply_case_profile(self.root, revised.ref, expected_previous=profile.ref, store=store)
             old_final = sa.summary_final_path(self.root, "reports").read_bytes()
-            with self.assertRaisesRegex(ValueError, "classification/naming"):
-                runner._run_summary_stage(stage, self.root, project / ".pi")
+            for path in (self.root / "text_pages").glob("*.txt"):
+                os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1000000000))
+            shutil.rmtree(self.root / "classification")
+            (self.root / "artifacts/profile-boundaries.json").unlink()
+            self.assertEqual(runner._run_summary_stage(stage, self.root, project / ".pi"), 0)
             self.assertEqual(extract.call_count, 1)
             self.assertEqual(synthesize.call_count, 1)
             self.assertEqual(sa.summary_final_path(self.root, "reports").read_bytes(), old_final)
             from recordprep.summary_preflight import collect_kind_report
             diagnostic = collect_kind_report(root=self.root, kind="reports", project_dir=project / ".pi",
                                              extract_capacity=None, synthesize_capacity=None)
-            self.assertIn("classification/naming", diagnostic["error"])
-            self.assertTrue(sa.summary_stage_freshness_issues(self.root, "reports", project_dir=project / ".pi"))
+            self.assertNotIn("error", diagnostic)
+            self.assertEqual(sa.summary_stage_freshness_issues(self.root, "reports", project_dir=project / ".pi"), [])
+            # A genuinely changed summary instruction regenerates the requested
+            # summaries directly; no reclassification or boundary run is needed.
+            topics = revised.resource("reports")
+            topics[0]["guidance"] += " Explain the requested relief."
+            latest = changed(revised, "reports", topics)
+            store.accept_profile(latest, expected_previous_digest=revised.ref.content_sha256)
+            apply_case_profile(self.root, latest.ref, expected_previous=revised.ref, store=store)
+            self.assertEqual(runner._run_summary_stage(stage, self.root, project / ".pi"), 0)
+            self.assertEqual(extract.call_count, 2)
+            self.assertEqual(synthesize.call_count, 2)
+            self.assertEqual((historical.read_bytes(), historical.stat().st_mtime_ns), old_pin)
+            # A source change DURING work still preserves the prior final.
+            old_final = sa.summary_final_path(self.root, "reports").read_bytes()
+            topics[0]["guidance"] += " Include the motion's outcome."
+            newest = changed(latest, "reports", topics)
+            store.accept_profile(newest, expected_previous_digest=latest.ref.content_sha256)
+            apply_case_profile(self.root, newest.ref, expected_previous=latest.ref, store=store)
+            def change_source(*args, **kwargs):
+                source_page = self.root / "text_pages/0002.txt"
+                source_page.write_text(source_page.read_text() + " Changed during generation.")
+                return [], []
+            synthesize.side_effect = change_source
+            with self.assertRaisesRegex(ValueError, "inputs changed during generation"):
+                runner._run_summary_stage(stage, self.root, project / ".pi")
+            self.assertEqual(sa.summary_final_path(self.root, "reports").read_bytes(), old_final)
+            self.assertEqual(extract.call_count, 3)
+            # Missing actual inputs still fail before a model call.
+            (self.root / "text_pages/0002.txt").unlink()
+            with self.assertRaises(ValueError):
+                runner._run_summary_stage(stage, self.root, project / ".pi")
+            self.assertEqual(extract.call_count, 3)
+
+    def test_saved_inputs_keep_range_validation_and_support_older_participant_formats(self):
+        profile = bundled("general")
+        config = sa.ExtractionConfig("reports", "", profile=profile)
+        path = self.root / "artifacts/report_boundaries.json"
+        self.assertEqual(len(sa.build_work_items(self.root, config)), 1)
+        for invalid in ("not JSON", "{}", '[{"start_page": 2, "end_page": 1}]',
+                        '[{"start_page": 1, "end_page": 99}]'):
+            with self.subTest(invalid=invalid):
+                path.write_text(invalid)
+                with self.assertRaises(ValueError):
+                    sa.build_work_items(self.root, config)
+        (self.root / "artifacts/hearing_boundaries.json").write_text('[{"start_page":1,"end_page":2}]')
+        for version in (2, 3, 4):
+            with self.subTest(participant_version=version):
+                (self.root / "artifacts/participant_index.json").write_text(json.dumps({
+                    "schema_version": version,
+                    "hearings": [{"start_page": 1, "end_page": 2, "participants": [], "counsel": [], "witnesses": []}]}))
+                self.assertEqual(len(sa.build_work_items(self.root, sa.ExtractionConfig("hearings", "", profile=profile))), 1)
 
     def test_profile_minute_fixed_attendance_and_actual_resume(self):
         from recordprep import minute_summaries as minutes
@@ -263,7 +322,7 @@ class ProfileGenerationTests(unittest.TestCase):
             minutes.run_stage(self.root, project / ".pi", generate)
             self.assertEqual(len(calls), 1)
 
-    def test_publication_serializes_against_case_binding_changes(self):
+    def test_publication_serializes_against_application_profile_changes(self):
         import threading
         from recordprep.case_profiles import case_profile_publication
         general, dependency = bundled("general"), bundled("california_dependency")
@@ -271,6 +330,9 @@ class ProfileGenerationTests(unittest.TestCase):
         for profile in (general, dependency):
             store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, general.ref, expected_previous=None, store=store)
+        context = patch("recordprep.case_profiles.profile_store", return_value=store)
+        context.start()
+        self.addCleanup(context.stop)
         started, finished = threading.Event(), threading.Event()
         errors = []
         def change():
@@ -295,10 +357,10 @@ class ProfileGenerationTests(unittest.TestCase):
             with case_profile_publication(self.root, general.ref):
                 self.fail("Stale publisher must never enter the publication section.")
 
-    def test_case_binding_is_explicit_private_and_compare_and_swap(self):
+    def test_application_selection_is_explicit_private_and_compare_and_swap(self):
         store = ProfileStore("recordprep", config_root=self.root / "config", data_root=self.root / "data")
         profile = bundled("general")
-        self.assertIsNone(read_case_profile_ref(self.root))
+        self.assertEqual(resolve_case_profile(self.root, store=store), profile)
         self.assertFalse((self.root / ".recordprep").exists())
         with self.assertRaises(ProfileError):
             apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
@@ -311,12 +373,13 @@ class ProfileGenerationTests(unittest.TestCase):
         revised = changed(profile, "reports", topics)
         store.accept_profile(revised, expected_previous_digest=profile.ref.content_sha256)
         store.set_default(revised.ref)
-        self.assertEqual(resolve_case_profile(self.root, store=store), profile)
+        self.assertEqual(resolve_case_profile(self.root, store=store), revised)
         with self.assertRaises(ProfileError):
             apply_case_profile(self.root, revised.ref, expected_previous=None, store=store)
-        apply_case_profile(self.root, revised.ref, expected_previous=profile.ref, store=store)
+        apply_case_profile(self.root, revised.ref, expected_previous=revised.ref, store=store)
         self.assertEqual(resolve_case_profile(self.root, store=store), revised)
-        self.assertEqual((self.root / ".recordprep/practice-profile.json").stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root / ".recordprep").exists())
+        self.assertEqual(store.registry_path.stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.root / "artifacts/practice_profile_provenance.json").exists())
 
 

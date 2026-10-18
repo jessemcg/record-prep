@@ -16,6 +16,7 @@ from unittest import mock
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 PI_DIR = PROJECT_DIR / ".pi"
 RUNNER = PI_DIR / "scripts/run_recordprep_skill.py"
+from legacy_profile_fixtures import legacy_runner_argv
 
 
 def _case_overview_text() -> str:
@@ -927,7 +928,7 @@ printf '\\033[32mDetect complete: needs review\\033[0m\\n'
             log_path = temp / "runner.log"
             with log_path.open("w", encoding="utf-8") as log_handle:
                 process = subprocess.Popen(
-                    ["python3", str(RUNNER), "build_participant_index"],
+                    legacy_runner_argv(RUNNER, "build_participant_index"),
                     cwd=PROJECT_DIR,
                     env=env,
                     stdout=log_handle,
@@ -1038,7 +1039,7 @@ printf '\033[32mParticipant template prepared\033[0m\n'
             )
             fake_pi.chmod(0o755)
             result = subprocess.run(
-                ["python3", str(RUNNER), "build_participant_index"],
+                legacy_runner_argv(RUNNER, "build_participant_index"),
                 cwd=PROJECT_DIR,
                 env=_runner_environment(case_bundle, fake_pi, temp / "cache"),
                 text=True,

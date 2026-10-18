@@ -17,6 +17,10 @@ from tests.test_summary_agent_pipeline import BundleBuilder
 PROJECT_PI_DIR = sa.DEFAULT_PROJECT_PI_DIR
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class FreshnessTests(unittest.TestCase):
     def _build_bundle(self, root: Path) -> None:
         builder = BundleBuilder(root)

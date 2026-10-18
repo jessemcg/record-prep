@@ -685,7 +685,6 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
              application_config_path(project_dir), pi_settings_path(project_dir), project_dir / "SYSTEM.md",
              _global_settings_path(),
              project_dir / "skills" / SKILL_NAME / "SKILL.md", project_dir / "extensions" / EXTENSION_NAME,
-             root / ".recordprep/practice-profile.json",
              project_dir / "extensions/recordprep-profile-minute-tools.ts",
              *sorted((root / "text_pages").glob("*.txt"))]
     signature = []
@@ -693,6 +692,7 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
     from recordprep.practice_profiles import profile_store
     try:
         profile = resolve_case_profile(root)
+        signature.append(profile.ref if profile is not None else None)
         if profile is not None:
             snapshot_root = profile_store().data_root / "snapshots" / profile.ref.content_sha256
             paths.extend(snapshot_root / name for name, _contents in profile.files)

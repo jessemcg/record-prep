@@ -41,6 +41,10 @@ def fixture(base: Path, count: int = 2):
     return root, project
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class MinuteSummaryTests(unittest.TestCase):
     def test_resumes_completed_orders_and_preserves_final_until_complete(self):
         with tempfile.TemporaryDirectory() as temp:

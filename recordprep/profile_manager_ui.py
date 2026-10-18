@@ -63,7 +63,7 @@ class ProfileManagerWindow(Gtk.Box):
     """Embedded controls: historical adapter name, no separate chooser window."""
     def __init__(self, parent, *, can_modify, preview, on_select, context_text="", allow_legacy=True,
                  selected_ref=None, customization=None, can_select=None, settings=False, case_ref=None, case_confirmed=True,
-                 has_case=True, on_deleted=lambda _ref: None):
+                 has_case=True, on_deleted=lambda _ref: None, on_storage_changed=lambda: None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.parent_window = parent
         self.store = api.profile_store()
@@ -73,6 +73,7 @@ class ProfileManagerWindow(Gtk.Box):
         self.case_confirmed = case_confirmed
         self.has_case = has_case
         self.on_deleted = on_deleted
+        self.on_storage_changed = on_storage_changed
         self.children_windows = []
         self._guard_id = 0
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -93,6 +94,10 @@ class ProfileManagerWindow(Gtk.Box):
             self.new_profile_button.add_css_class("profile-menu-item")
             self.new_profile_button.set_child(menu_label("Create profiles"))
             self.body.append(self.new_profile_button)
+        self.storage_button = button("", self._storage)
+        self.storage_button.add_css_class("profile-menu-item")
+        self.storage_button.set_child(menu_label("Profile storage…"))
+        self.body.append(self.storage_button)
         self._refresh(selected_ref)
         self.connect("map", self._mapped)
         self.connect("unmap", self._closed)
@@ -116,6 +121,7 @@ class ProfileManagerWindow(Gtk.Box):
         self.selector.set_sensitive(allowed and self.can_select())
         if self.new_profile_button is not None:
             self.new_profile_button.set_sensitive(allowed)
+        self.storage_button.set_sensitive(allowed)
         blocked = "Profile changes are unavailable while work is active or the case has changed."
         if not allowed:
             self.message.set_text(blocked)
@@ -172,11 +178,9 @@ class ProfileManagerWindow(Gtk.Box):
                 self.preview(snapshot)
                 ref = self.store.managed_save(snapshot, expected_head=self.revision_heads.get(snapshot.ref.specialty_id),
                                               expected_default=self.expected_default, personal=candidate.personal,
-                                              # An explicit next-case choice is also the next-launch
-                                              # default. Existing cases and Focus keep their own semantics.
-                                              use_for_new_cases=True if self.store.application == "recordprep" and not self.has_case else None,
+                                              # One application-wide selection, independent of bundles.
+                                              use_for_new_cases=True,
                                               can_modify=self.can_modify)
-            self.on_select(ref)
             self.selected_ref = ref
             self.case_confirmed = True
             self.message.set_text("")
@@ -195,10 +199,17 @@ class ProfileManagerWindow(Gtk.Box):
                 reason = "Profile storage or case metadata could not be read or written."
             self.message.set_text("The profile could not be selected. " + reason)
             return False
+        failed = False
+        try:
+            self.on_select(ref)  # Notification only: selection is already durable.
+        except (ValueError, OSError):
+            failed = True
         try:
             self._refresh(ref)
         except (ValueError, OSError):
-            self.message.set_text("Profile selected, but the menu could not be refreshed. Close and reopen it.")
+            failed = True
+        if failed:
+            self.message.set_text("Profile selected, but the display could not be refreshed. Close and reopen the menu.")
         return True
 
     def _edit(self):
@@ -211,7 +222,7 @@ class ProfileManagerWindow(Gtk.Box):
                                          can_modify=self.can_modify, preview=self.preview, on_saved=self._saved,
                                          candidates=self.candidates, notice=candidate.notice, personal=candidate.personal,
                                          expected_heads=self.revision_heads,
-                                         case_ref=lambda: self.selected_ref if self.has_case else None,
+                                         case_ref=lambda: None,
                                          on_deleted=self._deleted)
             self.children_windows.append(editor)
             def closed(window):
@@ -225,6 +236,44 @@ class ProfileManagerWindow(Gtk.Box):
             return editor
         except (ValueError, OSError):
             self.message.set_text("Profile settings are unavailable. Existing output remains readable.")
+
+    def _storage(self):
+        if not self.can_modify():
+            return
+        import os
+        if os.environ.get("RECORDPREP_PROFILE_DIR"):
+            self.message.set_text("Profile storage is set by RECORDPREP_PROFILE_DIR. Remove that launch override to choose a folder here.")
+            return
+        def choose(action):
+            if action not in {"save", "use"}:
+                return
+            dialog = Gtk.FileDialog(title=("Choose parent folder for portable profiles" if action == "save"
+                                           else "Choose existing portable profile folder"))
+            def selected(dialog, result):
+                try:
+                    folder = dialog.select_folder_finish(result)
+                    if folder is None or folder.get_path() is None:
+                        return
+                    from pathlib import Path
+                    from .profile_portability import save_portable_profiles, use_directory
+                    root = Path(folder.get_path())
+                    if action == "save":
+                        root /= "RecordPrep profiles"
+                        save_portable_profiles(self.store, root, can_modify=self.can_modify)
+                    use_directory(root, can_modify=self.can_modify)
+                    self.on_storage_changed()
+                    self.message.set_text("Profile storage selected. Reopen the menu; existing bundles are unchanged.")
+                except GLib.Error:
+                    return  # File chooser cancellation.
+                except (ValueError, OSError) as exc:
+                    code = exc.issue.code if isinstance(exc, ProfileError) else "storage_error"
+                    self.message.set_text("Profile storage was not selected (" + code + "). Existing settings are retained.")
+            dialog.select_folder(self.parent_window, None, selected)
+        return confirmation(self.parent_window, "Profile storage",
+                            "Profiles are separate from case bundles. Save current profiles to a new ‘RecordPrep profiles’ folder, "
+                            "or use an existing portable folder. Originals are kept. For a synchronized folder, close RecordPrep "
+                            "and let synchronization finish before using it on another computer. Never edit on two computers at once.",
+                            (("save", "Save to new folder…"), ("use", "Use existing folder…"), ("cancel", "Cancel")), choose)
 
     def _new(self):
         if not self.can_modify():
@@ -244,7 +293,7 @@ class ProfileManagerWindow(Gtk.Box):
         return editor
 
     def _deleted(self, ref):
-        pending_deleted = not self.has_case and self.selected_ref is not None and self.selected_ref.specialty_id == ref.specialty_id
+        pending_deleted = self.selected_ref is not None and self.selected_ref.specialty_id == ref.specialty_id
         if pending_deleted:
             self.selected_ref = None
         self.on_deleted(ref)
@@ -260,8 +309,9 @@ class ProfileManagerWindow(Gtk.Box):
             self.case_confirmed and self.selected_ref is None and ref.specialty_id == "california-juvenile-dependency")
         if not eligible or not self.can_select():
             return
-        if not self.has_case:
-            # Save may advance an in-memory new-case choice, never an existing pin.
+        if eligible:
+            # Saving selected guidance advances the application selection.
+            # No case-use confirmation or bundle write is necessary.
             try:
                 if not self.can_modify():
                     raise ProfileError("case_changed_or_active", "selection")
@@ -269,28 +319,5 @@ class ProfileManagerWindow(Gtk.Box):
                 self.selected_ref = ref
                 self._refresh(ref)
             except (ValueError, OSError):
-                self.message.set_text("Profile saved; the pending profile choice could not be updated.")
+                self.message.set_text("Profile saved; refresh the menu to see the current selection.")
             return
-        def respond(response):
-            if response != "use":
-                return
-            try:
-                if not self.can_modify() or not self.can_select():
-                    raise ProfileError("case_changed_or_active", "selection")
-                self.on_select(ref)
-                self.selected_ref = ref
-                self.case_confirmed = True
-                self._refresh(ref)
-                for editor in self.children_windows:
-                    editor.refresh_case_notice()
-            except (ValueError, OSError):
-                text = "Profile saved; case settings were not changed."
-                self.message.set_text(text)
-                for editor in self.children_windows:
-                    editor.saved_apply_failed = True
-                    editor.message.set_text(text)
-        parent = self.children_windows[-1] if self.children_windows else self.parent_window
-        self.apply_dialog = confirmation(parent, "Use these settings for this case?",
-                                         "Existing summaries and answers will not be regenerated.",
-                                         (("use", "Use settings"), ("later", "Not now")), respond)
-        return self.apply_dialog

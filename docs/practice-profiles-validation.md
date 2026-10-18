@@ -1,5 +1,95 @@
 # Practice profiles: validation and limits
 
+## Saved preparation without historical-settings gates — 2026-10-18
+
+On subsequent explicit user direction, downstream execution and Resume no longer
+require upstream output to match current profiles/models/timestamps. This
+supersedes the retained-execution-gates statement in the badge-only entry below.
+Summaries consume saved boundaries/source pages and supported participant formats;
+classification consumes the preceding saved files; boundary/TOC work consumes saved
+naming output. Overview/source-map work consumes saved preparation and summary text,
+not historical run markers. Resume skips existing outputs. Source-reset protection,
+actual missing-input/range checks, own-stage checkpoint matching, and in-flight
+input/selection/publication protection remain. No old markers are rewritten.
+
+Home-only isolated suite: **674 run, 669 passed, 5 optional skips**. New/updated
+regressions exercise missing historical markers, changed classification guidance
+and classifier models, timestamp-only drift, explicit summary-guidance regeneration,
+supported older participant formats, missing pages/invalid ranges, source changes
+during synthesis preserving the prior final, classifier input changes during work,
+metadata-free downstream overview/source-map publication, and Resume preservation.
+The native runtime compatibility review changes prerequisite validation only, not
+participant/overview prompts; model and actual input hashes remain enforced for
+own-stage reuse. Shared profile contract/artifact readers are unchanged.
+
+Real GTK output-presence/Resume acceptance passes: all 21 synthetic outputs are
+complete, removing the report summary makes it the first pending stage, and the
+actual worker dispatches only that handler through the selected endpoint without
+historical freshness checks. Native screenshot/AT-SPI confirms the owned synthetic
+window and completion log. Run-from-here/Run-through GTK regression also passes.
+A read-only, no-discovery preflight of the existing real bundle now succeeds for
+**13 hearings and 20 reports**. This was preparation validation, not a live model
+run. No real case/configuration/output files were changed; no paid calls, other
+computer access, launcher changes, commits or pushes. `git diff --check` passes.
+
+## Output-presence completion badges — 2026-10-18
+
+On explicit user direction, visual checkmarks now mean output files exist, not
+that their profile/model/source fingerprints match current generation settings.
+`output_presence.py` reads no content, profile store or settings and performs no
+writes. Main-window refresh uses it; execution/Resume/prerequisite checks retain
+their existing validators. CT-only participant skipping is preserved. Shared-file
+steps (Build/Correct TOC, for example) share a presence result.
+
+Home-only isolated full suite: **672 run, 667 passed, 5 optional skips** (same
+missing SDK/metrics fixtures documented below). New tests cover all 21 step IDs,
+missing outputs, timestamp changes, historical summary names, mixed RT/CT files,
+matching edition pairs and isolation from execution freshness. Real GTK acceptance
+shows all 21 steps completed with synthetic historical output, only the removed
+summary Pending, then all complete when restored; native desktop observation
+confirmed every phase complete. Read-only presence inspection of the currently
+selected real bundle also found outputs for **21 of 21** steps. No real case,
+private settings or generated output was modified. No model calls. Whitespace
+validation passed.
+
+
+## Application selection and portable settings — 2026-10-18
+
+The [application-profile contract](application-profiles.md) supersedes historical
+case-pin/default/confirmation behavior in the earlier records below. Only current
+application guidance governs generation; old pins remain untouched and inert.
+
+Validated on Home only, using disposable source/environment and synthetic data
+under `/tmp/recordprep-portable-6q3Txp`. **665 tests run, OK (660 passed, 5 skipped)**.
+Skips are three tests needing the absent sibling offline SDK fixture and two
+optional PiRunMetrics integration tests; the installed native guard SDK contract
+itself passed. Existing ResourceWarning/deprecation notices remain visible.
+Sequential native resources and `git diff --check` pass. Private files were not
+migrated, and there were no paid model calls or other-computer actions.
+
+Actual GTK application-profile acceptance, main-window profile acceptance,
+profile-notice/Save, new-profile menu and deletion acceptance all pass under
+`G_DEBUG=fatal-criticals`. Native desktop screenshot/accessibility observation of
+the owned synthetic Dependency editor confirms the application-profile notice.
+The broader workflow resize harness remains locally blocked at requested width
+640 versus compositor allocation 479; this is not reported as a pass.
+
+Coverage includes missing/malformed historical pins, current selection for new
+and existing bundles, no pin on Create files, byte/mtime preservation, component
+freshness and checkpoint reuse, selection/publication serialization, portable
+export/selection with local locks, no-overwrite, missing stores, partial snapshots,
+sync conflicts, and separate portable/private permission validation. Legacy
+unassigned-generation fixtures explicitly inject their historical resolver only
+in tests; current-generation tests exercise the actual application resolver.
+Source helper audits also remove pin-based routing from participant preparation
+and legacy source-map publication (newer-schema downgrade protection remains).
+
+No existing private profile store, locator, case selection or prepared output was
+changed. Portable synchronization becomes active only through the app's explicit
+**Profile storage…** save/select flow (or an existing-store launch override).
+Launcher/XREMAP inspection found no command-contract change requiring edits.
+
+
 ## Focus compatibility boundary (current)
 
 RecordPrep profile management and preparation remain unchanged. Focus now has one

@@ -249,7 +249,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(section.count('"$HOME/.local/bin/recordprep-uninstall"'), 1)
         self.assertNotIn('--dry-run', section)
         self.assertEqual((ROOT / 'scripts/install-bootstrap.sh').read_bytes(), (ROOT / 'scripts/download-bootstrap.sh.in').read_bytes())
-        self.assertNotIn('tested with Ubuntu and Fedora', text)
+        self.assertIn('The install has been tested with Ubuntu and Fedora.', text)
 
 
 if __name__ == '__main__': unittest.main()

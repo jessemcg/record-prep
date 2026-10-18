@@ -92,7 +92,7 @@ class CompactMinuteTests(unittest.TestCase):
                     minutes.run_stage(root, project, Mock(return_value=old_candidate))
                 final = sa.summary_final_path(root, "minutes")
                 protected = (final, minutes.meta_path(root), minutes.checkpoint_path(root),
-                             root / ".recordprep/practice-profile.json", project.parent / "config.json")
+                             store.registry_path, project.parent / "config.json")
                 before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                 self.assertTrue(minutes.freshness_issues(root, project))
                 self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected})
@@ -183,7 +183,7 @@ class CompactMinuteTests(unittest.TestCase):
                 minutes.run_stage(root, project, Mock(return_value=candidate()))
                 self.assertTrue(minutes.stage_complete(root, project))  # Warm the cache.
                 protected = (sa.summary_final_path(root, "minutes"), minutes.meta_path(root),
-                             minutes.checkpoint_path(root), root / ".recordprep/practice-profile.json",
+                             minutes.checkpoint_path(root), store.registry_path,
                              store.data_root / "snapshots" / historical.ref.content_sha256 / "minutes.md")
                 before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                 focus = defaults / "minutes.md"
@@ -237,7 +237,7 @@ class CompactMinuteTests(unittest.TestCase):
                     final = sa.summary_final_path(root, "minutes")
                     self.assertNotIn("- Main rulings:", final.read_text())
                     protected = (final, minutes.checkpoint_path(root), minutes.meta_path(root),
-                                 root / ".recordprep/practice-profile.json", project.parent / "config.json")
+                                 store.registry_path, project.parent / "config.json")
                     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                     self.assertTrue(minutes.freshness_issues(root, project))
                     self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected})

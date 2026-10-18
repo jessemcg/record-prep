@@ -170,6 +170,19 @@ def upstream_digest(root, stage):
     return sha256_json({key: metadata[key] for key in ("component", "model", "sources", "outputs", "upstream")})
 
 
+def prepared_classification_digest(root: Path, stage: str) -> str:
+    """Fingerprint the saved input files without requiring historical settings."""
+    directory = root / "classification"
+    for name, basic in zip(output_names(stage), output_names("basic")):
+        if (directory / basic).is_file() and not (directory / name).is_file():
+            raise ValueError(f"Classification {stage} input {name} is missing.")
+    files = {name: _digest(directory / name)
+             for name in output_names(stage) if (directory / name).is_file()}
+    if not files:
+        raise ValueError(f"Classification {stage} output files are missing.")
+    return sha256_json(files)
+
+
 def stage_issues(root: Path, stage: str, profile: ProfileSnapshot, settings: dict) -> list[str]:
     """Cheap UI/preflight check; execution also rehashes actual source bytes."""
     try:
@@ -178,8 +191,9 @@ def stage_issues(root: Path, stage: str, profile: ProfileSnapshot, settings: dic
             raise ValueError("unsupported classification metadata")
         if metadata["component"] != component(profile, stage) or metadata["model"] != model_identity(settings):
             raise ValueError("component or model changed")
-        if metadata["source_stats"] != json.loads(json.dumps(source_inventory(root, contents=False))):
-            raise ValueError("source inventory changed")
+        if (metadata["source_stats"] != json.loads(json.dumps(source_inventory(root, contents=False)))
+                and metadata["sources"] != stable_source_inventory(root)[0]):
+            raise ValueError("source content changed")
         for name, digest in metadata["outputs"].items():
             if name not in output_names(stage) or _digest(root / "classification" / name) != digest:
                 raise ValueError("output changed")
@@ -188,9 +202,9 @@ def stage_issues(root: Path, stage: str, profile: ProfileSnapshot, settings: dic
         index = STAGES.index(stage)
         if index:
             previous = STAGES[index - 1]
-            if stage_issues(root, previous, profile, settings):
-                raise ValueError("upstream stale")
-            if metadata["upstream"] != upstream_digest(root, previous):
+            expected = (prepared_classification_digest(root, previous) if metadata.get("input_contract") == 2
+                        else upstream_digest(root, previous))
+            if metadata["upstream"] != expected:
                 raise ValueError("upstream changed")
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return [f"Classification {stage} requires regeneration for the selected profile and current inputs."]
@@ -200,6 +214,9 @@ def stage_issues(root: Path, stage: str, profile: ProfileSnapshot, settings: dic
 def _work_directory(root: Path, stage: str, fingerprint: str) -> Path:
     from .profile_store import _check_directory
     path = root / ".recordprep"
+    path.mkdir(mode=0o700, exist_ok=True)
+    from .case_profiles import _case_directory
+    _case_directory(path)
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for name in ("profile-work", stage, fingerprint):
@@ -235,13 +252,9 @@ class ClassificationRun:
                 raise ValueError("Recorded profile classification requires an accepted case binding; prior output preserved.")
             return cls(root, stage, settings, None, canonical)
         index = STAGES.index(stage)
-        if index and stage_issues(root, STAGES[index - 1], profile, settings):
-            raise ValueError(f"Run profile-aware classification {STAGES[index - 1]} first.")
         sources, _stats = stable_source_inventory(root)
-        if index and sources != _read_stage_metadata(root, STAGES[index - 1])["sources"]:
-            raise ValueError("Upstream classifier source bytes changed; rerun the preceding stage.")
-        upstream = upstream_digest(root, STAGES[index - 1]) if index else None
-        inputs = {"component": component(profile, stage), "model": model_identity(settings),
+        upstream = prepared_classification_digest(root, STAGES[index - 1]) if index else None
+        inputs = {"input_contract": 2, "component": component(profile, stage), "model": model_identity(settings),
                   "sources": sources, "upstream": upstream}
         directory = _work_directory(root, stage, sha256_json(inputs))
         if any(path.is_symlink() or not path.is_file() for path in directory.iterdir()):
@@ -269,8 +282,7 @@ class ClassificationRun:
                 or sources != self.inputs["sources"]):
             raise ValueError("Classifier selection/model/source changed; prior outputs preserved.")
         index = STAGES.index(self.stage)
-        if index and (stage_issues(self.root, STAGES[index - 1], self.profile, current_settings)
-                      or upstream_digest(self.root, STAGES[index - 1]) != self.inputs["upstream"]):
+        if index and prepared_classification_digest(self.root, STAGES[index - 1]) != self.inputs["upstream"]:
             raise ValueError("Classifier upstream changed; prior outputs preserved.")
         outputs = {name: _digest(self.directory / name) for name in output_names(self.stage) if (self.directory / name).is_file()}
         if not outputs:

@@ -84,13 +84,26 @@ def _atomic_json(path: Path, value: dict) -> None:
 
 
 class ProfileStore:
-    def __init__(self, application: str, *, config_root: Path, data_root: Path):
+    def __init__(self, application: str, *, config_root: Path, data_root: Path, lock_root: Path | None = None):
         _require(application in RESOURCE_TYPES, "wrong_application", "application")
         _require(config_root.is_absolute() and data_root.is_absolute(), "absolute_store_required", "storage")
         self.application = application
         self.config_root = config_root
         self.data_root = data_root
         self.registry_path = config_root / "registry.json"
+        self.lock_root = lock_root or config_root
+
+    def _directory(self, path):
+        _check_directory(path, private=True)
+
+    def _file(self, path):
+        _private_file(path)
+
+    def _ensure(self, path):
+        _ensure_root(path)
+
+    def _make_directory(self, path):
+        _private_directory(path)
 
     def _empty_registry(self) -> dict:
         return {"schema_version": 1, "application": self.application, "accepted": [], "heads": {}, "default": None}
@@ -105,11 +118,11 @@ class ProfileStore:
                 current = current.parent
             _check_directory(current)
             return self._empty_registry()
-        _check_directory(self.config_root, private=True)
+        self._directory(self.config_root)
         if not self.registry_path.exists():
             _require(not self.registry_path.is_symlink(), "store_permissions", "storage")
             return self._empty_registry()
-        _private_file(self.registry_path)
+        self._file(self.registry_path)
         fd = os.open(self.config_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             value = _json(read_file_at(fd, "registry.json"), "registry")
@@ -229,8 +242,9 @@ class ProfileStore:
 
     @contextmanager
     def _locked(self):
-        _ensure_root(self.config_root)
-        path = self.config_root / ".registry.lock"
+        self._ensure(self.config_root)
+        _ensure_root(self.lock_root)
+        path = self.lock_root / ".registry.lock"
         fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
             info = os.fstat(fd)
@@ -245,14 +259,14 @@ class ProfileStore:
     def _read_snapshot(self, ref: ProfileRef) -> ProfileSnapshot:
         _require(ref.application == self.application, "wrong_application", "reference")
         path = self.data_root / "snapshots" / ref.content_sha256
-        _check_directory(path, private=True)
+        self._directory(path)
         result = validate_profile_directory(path, self.application)
         if result.draft is None:
             raise ProfileError("invalid_snapshot", "snapshot")
         _require(result.draft.ref == ref, "snapshot_hash_mismatch", "snapshot")
         for relative, _ in result.draft.files:
-            _check_directory((path / relative).parent, private=True)
-            _private_file(path / relative)
+            self._directory((path / relative).parent)
+            self._file(path / relative)
         return result.draft
 
     def load_profile_snapshot(self, ref: ProfileRef) -> ProfileSnapshot:
@@ -268,9 +282,9 @@ class ProfileStore:
             raise ProfileError("snapshot_unavailable", "snapshot") from exc
 
     def _publish_snapshot(self, draft: ProfileSnapshot) -> None:
-        _ensure_root(self.data_root)
+        self._ensure(self.data_root)
         snapshots = self.data_root / "snapshots"
-        _private_directory(snapshots)
+        self._make_directory(snapshots)
         destination = snapshots / draft.ref.content_sha256
         if destination.exists() or destination.is_symlink():
             self._read_snapshot(draft.ref)
@@ -337,3 +351,47 @@ class ProfileStore:
             _require(ref.specialty_id not in registry.get("deleted", []), "deleted_profile", "default")
             registry["default"] = asdict(ref)
             _atomic_json(self.registry_path, registry)
+
+
+class PortableProfileStore(ProfileStore):
+    """Explicit synchronized settings, not a relaxation of private XDG stores.
+
+    Sync tools may normalize modes. Accept ordinary non-executable settings files,
+    but retain ownership, no-link, no-world-write and full content verification.
+    Writers on different computers must be serialized by the user; flock is local.
+    """
+
+    def _directory(self, path):
+        _check_directory(path)
+        info = path.stat()
+        _require(info.st_uid == os.getuid() and not info.st_mode & 0o002,
+                 "store_permissions", "storage")
+
+    def _file(self, path):
+        info = path.lstat()
+        _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
+                 info.st_uid == os.getuid() and not info.st_mode & 0o113,
+                 "store_permissions", "storage")
+
+    def _ensure(self, path):
+        missing = []
+        current = path
+        while not current.exists() and not current.is_symlink():
+            missing.append(current)
+            current = current.parent
+        _check_directory(current)
+        for directory in reversed(missing):
+            directory.mkdir(mode=0o700)
+        self._directory(path)
+
+    def _make_directory(self, path):
+        self._ensure(path)
+
+    def read_registry(self):
+        # Never merge a sync conflict or pick a winner silently.
+        if self.config_root.exists():
+            self._directory(self.config_root)
+            for path in self.config_root.iterdir():
+                if path.name not in {"registry.json", "snapshots"} and not path.name.startswith(".pending-"):
+                    raise ProfileError("profile_sync_conflict", "storage")
+        return super().read_registry()

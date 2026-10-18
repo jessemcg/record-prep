@@ -35,6 +35,7 @@ class ResumePreservationTests(unittest.TestCase):
             _step_artifact_complete=lambda *args: True,
         )
         self.owner._has_layout_dependent_work = lambda root: ui.RecordPrepWindow._has_layout_dependent_work(self.owner, root)
+        self.owner._resume_step_complete = ui.RecordPrepWindow._resume_step_complete.__get__(self.owner, ui.RecordPrepWindow)
 
     def snapshot(self):
         return {str(p.relative_to(self.root)): (p.read_bytes(), p.stat().st_mtime_ns)
@@ -91,8 +92,7 @@ class ResumePreservationTests(unittest.TestCase):
         self.owner._step_artifact_complete = lambda *a: False
         before = self.snapshot()
         with patch.object(ui, '_bundle_inputs_changed', return_value=False):
-            with self.assertRaisesRegex(ValueError, 'existing output needs review'):
-                ui.RecordPrepWindow._resume_start_index(self.owner, self.root, None)
+            self.assertIsNone(ui.RecordPrepWindow._resume_start_index(self.owner, self.root, None))
         self.assertEqual(self.snapshot(), before)
 
     def test_reopened_resume_skips_completed_stages_and_runs_only_pending(self):

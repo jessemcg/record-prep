@@ -7,8 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .case_profiles import read_case_profile_ref, case_profile_publication
-from .classification_profiles import component, _digest, load_model_settings
-from .boundary_profiles import boundary_inputs, boundary_issues, toc_issues, _read_metadata
+from .classification_profiles import component, _digest
+from .boundary_profiles import _read_metadata
 from .profile_artifacts import source_map_profile_metadata
 from .summary_profiles import compile_summary
 from .native_profiles import compile_native
@@ -29,24 +29,33 @@ def provenance(profile, root, project_dir):
 
 
 def prepared_input_issues(root, profile, project_dir):
-    settings = load_model_settings(project_dir)
-    return boundary_issues(root, profile, settings) + toc_issues(root, profile, settings)
+    issues = []
+    for name in ("hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json"):
+        try:
+            if not isinstance(json.loads((root / "artifacts" / name).read_text()), list):
+                raise ValueError("Expected a boundary list")
+        except (OSError, ValueError):
+            issues.append(f"{name} is missing or unreadable.")
+    try:
+        (root / "artifacts/toc.txt").read_text()
+    except (OSError, ValueError):
+        issues.append("toc.txt is missing or unreadable.")
+    return issues
 
 
 def input_digest(root, profile, project_dir, *, verify_source_bytes):
-    boundary = boundary_inputs(root, profile, load_model_settings(project_dir), verify_source_bytes=verify_source_bytes)
     paths = [root / "artifacts" / name for name in (
         "transcript_layout.json", "transcript_page_numbers.json", "transcript_page_number_series.md",
-        "hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json", "profile-boundaries.json",
-        "toc.txt", "profile-toc.json", "case_overview.md", "case_overview.profile.json")]
+        "hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json",
+        "toc.txt", "case_overview.md")]
+    paths.extend(sorted((root / "text_pages").glob("*.txt")))
     for kind in ("hearings", "reports", "minutes"):
         paths.append(sa.summary_final_path(root, kind))
-        paths.append(minutes.meta_path(root) if kind == "minutes" else sa.summary_final_meta_path(root, kind))
     if not is_ct_only(root):
         paths.append(root / "artifacts/participant_index.json")
     if (root / "case_name.txt").exists():
         paths.append(root / "case_name.txt")
-    return sa.sha256_json({"contract_version": 1, "boundary": boundary,
+    return sa.sha256_json({"contract_version": 2,
                            "files": {str(path.relative_to(root)): _digest(path) for path in paths},
                            "publisher": _digest(project_dir / "skills/recordprep-build-source-map/scripts/build_source_map.py")})
 

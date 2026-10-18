@@ -2123,6 +2123,10 @@ class CompletionAndRestartTests(unittest.TestCase):
             )
 
 
+from legacy_profile_fixtures import legacy_profile_tests, legacy_runner_argv
+
+
+@legacy_profile_tests
 class FakePiEndToEndTests(unittest.TestCase):
     """Runner acceptance against a fake PI executable (no paid calls)."""
 
@@ -2264,7 +2268,7 @@ raise SystemExit(3)
         env.pop("RECORDPREP_PI_STALL_TIMEOUT_SECONDS", None)
         try:
             return subprocess.run(
-                [sys.executable, str(RUNNER), stage],
+                legacy_runner_argv(RUNNER, stage),
                 cwd=PROJECT_DIR,
                 env=env,
                 text=True,
@@ -2706,6 +2710,7 @@ time.sleep(300)
 """
 
 
+@legacy_profile_tests
 class SilentStallWarningTests(unittest.TestCase):
     """A silent child triggers a stall warning without a newline; the run
     fails without publishing, and Stop stays responsive."""
@@ -2742,7 +2747,7 @@ class SilentStallWarningTests(unittest.TestCase):
             env["SILENT_PI_SLEEP"] = "5"
 
             result = subprocess.run(
-                [sys.executable, str(RUNNER), "create_hearing_summaries"],
+                legacy_runner_argv(RUNNER, "create_hearing_summaries"),
                 cwd=PROJECT_DIR,
                 env=env,
                 text=True,
@@ -2759,6 +2764,7 @@ class SilentStallWarningTests(unittest.TestCase):
             self.assertFalse(sa.summary_final_path(root, "hearings").exists())
 
 
+@legacy_profile_tests
 class StopPropagationTests(unittest.TestCase):
     """Stop terminates the active child process group and stays Pending."""
 
@@ -2792,7 +2798,7 @@ class StopPropagationTests(unittest.TestCase):
             env["XDG_CACHE_HOME"] = str(cache)
 
             runner_process = subprocess.Popen(
-                [sys.executable, str(RUNNER), "create_hearing_summaries"],
+                legacy_runner_argv(RUNNER, "create_hearing_summaries"),
                 cwd=PROJECT_DIR,
                 env=env,
                 text=True,

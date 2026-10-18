@@ -47,6 +47,13 @@ class ProfilePublicationTests(unittest.TestCase):
                 stage = runner.SkillStage(f"create_{singular}_summaries", f"Create {kind} summaries", f"recordprep-extract-{singular}", "")
                 self.assertEqual(runner._run_summary_stage(stage, root, project / ".pi"), 0)
         minutes.run_stage(root, project / ".pi", lambda *args: self.fail("No minute documents should call a model."))
+        # Downstream generation needs saved text, not old summary/boundary run markers.
+        from recordprep import summary_agents as sa
+        for kind in ("hearings", "reports"):
+            sa.summary_final_meta_path(root, kind).unlink()
+        minutes.meta_path(root).unlink()
+        (root / "artifacts/profile-boundaries.json").unlink()
+        (root / "artifacts/profile-toc.json").unlink()
         overview = "---\nartifact: recordprep-case-overview\nschema_version: 1\nstatus: nonauthoritative-orientation\n---\n# Case Overview\n"
         overview += "> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.\n"
         for section in ("Parties and Roles", "Procedural Posture", "Key Events", "Principal Issues", "Record Scope"):
@@ -85,11 +92,12 @@ class ProfilePublicationTests(unittest.TestCase):
         self.assertEqual(payload["preparation_provenance"], json.loads((root / "artifacts/practice_profile_provenance.json").read_text()))
         (root / "artifacts/toc.txt").write_text("Changed outside publication.")
         self.assertTrue(publication_issues(root, profile, project / ".pi"))
-        before = {p: p.read_bytes() for p in (root / "artifacts/source_map.json", root / "manifest.json")}
+        # An explicit rebuild consumes the saved TOC; old preparation markers
+        # must not demand rebuilding classification/TOC first.
         with patch.object(runner, "_pi_command", side_effect=AssertionError("No map model")):
-            with self.assertRaises(ValueError):
-                runner._run_stage(runner.STAGES["build_source_map"], root, project / ".pi")
-        self.assertEqual(before, {p: p.read_bytes() for p in before})
+            self.assertEqual(runner._run_stage(runner.STAGES["build_source_map"], root, project / ".pi"), 0)
+        self.assertEqual(publication_issues(root, profile, project / ".pi"), [])
+        self.assertEqual((root / "artifacts/toc.txt").read_text(), "Changed outside publication.")
 
 
 if __name__ == "__main__":

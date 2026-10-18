@@ -29,6 +29,10 @@ class RunUntilMigrationTests(unittest.TestCase):
                     self.assertEqual(load_run_until_step_setting(), step)
 
 
+from legacy_profile_fixtures import legacy_profile_tests
+
+
+@legacy_profile_tests
 class SummaryStepDelegationTests(unittest.TestCase):
     def test_each_handler_delegates_without_direct_api_or_manifest_mutation(self):
         for step, row in (("create_hearing_summaries", "step_hearing_summaries_row"),

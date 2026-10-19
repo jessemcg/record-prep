@@ -61,6 +61,13 @@ CLASSIFICATION_PAGES = (
 )
 
 
+# Home-outline membership only: follow-up tasks, not pipeline dependencies.
+CLASSIFICATION_OUTLINE_GROUPS = {
+    "rt": ("first_hearing", "date_hearing"),
+    "ct": ("first_minute", "first_form", "date_minute", "report-naming", "form-naming"),
+}
+
+
 def classification_task_contract(task):
     if task in CLASSIFICATION_PAGE_TYPES:
         return ('Basic output: JSON with the key page_type, using exactly one of: '
@@ -391,6 +398,7 @@ class ProfileEditorWindow(Adw.Window):
         self._navigation.headers["home"].set_title_widget(self.title_widget)
         self.save_button = self._navigation.save_buttons["home"]
         self._topic_editors = {}
+        self._topic_expanders = {}
         self.navigation = self._navigation.home_list
         self.body.append(self._navigation.view)
         self.title_widget.set_subtitle(self.editor.manifest["display_name"])
@@ -495,10 +503,11 @@ class ProfileEditorWindow(Adw.Window):
         self._page_body.remove(group)
         page_key = self._building_page
         scroll = self.pages[page_key]
-        scroll.set_child(None)
-        self._navigation.pages[page_key].get_child().set_content(self._page_body)
-        self.pages[page_key] = self._page_body
         category = self.page_groups[page_key]
+        if category != "Summaries":
+            scroll.set_child(None)
+            self._navigation.pages[page_key].get_child().set_content(self._page_body)
+            self.pages[page_key] = self._page_body
         self._explanation(self._page_body, category,
             classification_task_contract(key) if resource in ("classification", "classification_tasks") else group.get_description())
         warning = None
@@ -515,7 +524,11 @@ class ProfileEditorWindow(Adw.Window):
             owner[key] = text
             update(text)
         update(owner[key])
-        self._page_body.append(text_editor(owner[key], change, label=label, tall=True))
+        editor = text_editor(owner[key], change, label=label, tall=True)
+        if category == "Summaries":
+            # The complete disclosure pushes this editor down in the page scroll.
+            editor.set_min_content_height(240)
+        self._page_body.append(editor)
 
     def _explanation(self, box, category, task=None):
         classification = category == "Classification"
@@ -526,10 +539,14 @@ class ProfileEditorWindow(Adw.Window):
                        SUMMARY_TITLE + "\n" + SUMMARY_PROGRESSION + "\n\n" + SUMMARY_EXPLANATION)
         if task:
             explanation += "\n\n" + task
-        scroller = Gtk.ScrolledWindow(max_content_height=140, propagate_natural_height=True)
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_child(wrapped(explanation, margin_top=6, margin_bottom=6))
-        expander.set_child(scroller)
+        label = wrapped(explanation, margin_top=6, margin_bottom=6)
+        if classification:
+            scroller = Gtk.ScrolledWindow(max_content_height=140, propagate_natural_height=True)
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_child(label)
+            expander.set_child(scroller)
+        else:
+            expander.set_child(label)
         box.append(expander)
 
     def _terms(self, group, owner, key, label):
@@ -614,67 +631,69 @@ class ProfileEditorWindow(Adw.Window):
 
     def _topic_catalog(self, group, values):
         kind = "hearings" if values is self.editor.resources["hearings"] else "reports"
-        catalog_key = kind + "-topics"
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
+        # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
+        cards = {}
         def render():
             clear(holder)
             for value in values:
                 identity = value["id"]
                 detail = f"topic:{kind}:{identity}"
-                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                               margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
-                holder.append(card)
-                entry = Gtk.Entry(text=value["title"], hexpand=True)
-                entry.update_property([Gtk.AccessibleProperty.LABEL], ["Topic name"])
-                def rename(widget, value=value, detail=detail):
-                    value["title"] = widget.get_text()
-                    if detail in self._navigation.pages:
-                        self._navigation.pages[detail].set_title(value["title"] or "Topic instructions")
-                        self._navigation.finish()
-                entry.connect("changed", rename)
-                card.append(entry)
-                if detail not in self._topic_editors:
-                    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True,
-                                  margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
-                    self._explanation(box, "Summaries")
-                    editor = text_editor(value["guidance"],
-                        lambda text, value=value: value.__setitem__("guidance", text), label="Topic instructions", tall=True)
-                    box.append(editor)
+                if identity not in cards:
+                    card = Gtk.Expander()
+                    name = wrapped(value["title"], margin_top=10, margin_bottom=10,
+                                   margin_start=10, margin_end=10)
+                    card.set_label_widget(name)
+                    card.add_css_class("card")
+                    inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                                    margin_top=8, margin_bottom=12, margin_start=12, margin_end=12)
+                    card.set_child(inner)
+                    inner.append(wrapped("Topic name"))
+                    entry = Gtk.Entry(text=value["title"], hexpand=True)
+                    entry.update_property([Gtk.AccessibleProperty.LABEL], ["Topic name"])
+                    def rename(widget, value=value, name=name):
+                        value["title"] = widget.get_text()
+                        name.set_text(value["title"] or "Topic instructions")
+                    entry.connect("changed", rename)
+                    inner.append(entry)
+                    editor = text_editor(topic_editor_text(value["guidance"]),
+                        lambda text, value=value: value.__setitem__("guidance", text), label="Topic instructions")
+                    editor.set_min_content_height(120)
+                    editor.set_max_content_height(300)
+                    editor.set_propagate_natural_height(True)
+                    inner.append(editor)
                     self._topic_editors[detail] = editor
-                    self._navigation.add_page(detail, value["title"], box, prompt=True)
-                    self._navigation.parents[detail] = catalog_key
-                    self.pages[detail] = box
-                edit = button("Edit instructions", lambda detail=detail: self._select_page(detail))
-                card.append(edit)
-                tools = Gtk.Box(spacing=6)
-                card.append(tools)
-                def move(delta, value=value):
-                    index = next(i for i, item in enumerate(values) if item is value)
-                    other = index + delta
-                    if 0 <= other < len(values):
-                        values[index], values[other] = values[other], values[index]
+                    self._topic_expanders[detail] = card
+                    tools = Gtk.Box(spacing=6)
+                    inner.append(tools)
+                    def move(delta, value=value):
+                        index = next(i for i, item in enumerate(values) if item is value)
+                        other = index + delta
+                        if 0 <= other < len(values):
+                            values[index], values[other] = values[other], values[index]
+                            render()
+                    up = button("Move up", lambda move=move: move(-1))
+                    down = button("Move down", lambda move=move: move(1))
+                    tools.append(up)
+                    tools.append(down)
+                    def remove(value=value, identity=identity, detail=detail):
+                        values.remove(value)
+                        cards.pop(identity)
+                        self._topic_editors.pop(detail)
+                        self._topic_expanders.pop(detail)
                         render()
-                up = button("Move up", lambda move=move: move(-1))
+                    tools.append(button("Remove", remove))
+                    cards[identity] = (card, up, down)
+                card, up, down = cards[identity]
                 up.set_sensitive(value is not values[0])
-                tools.append(up)
-                down = button("Move down", lambda move=move: move(1))
                 down.set_sensitive(value is not values[-1])
-                tools.append(down)
-                def remove(value=value, detail=detail):
-                    values.remove(value)
-                    self._navigation.open(catalog_key)
-                    self._navigation.remove_page(detail)
-                    self._topic_editors.pop(detail)
-                    self.pages.pop(detail)
-                    render()
-                tools.append(button("Remove", remove))
+                holder.append(card)
             def add():
                 values.append({"id": f"item-{uuid.uuid4().hex}", "title": "New topic",
                                "guidance": "Capture material source-supported information."})
                 render()
             holder.append(button("Add topic", add))
-            self._navigation.finish()
         render()
 
     def _recordprep_form(self):
@@ -689,8 +708,12 @@ class ProfileEditorWindow(Adw.Window):
                 self._prompt_page("Classification", key, title, "classification_tasks",
                                   owner=self.editor.resources["classification_tasks"], field=key)
             self.nav_rows[key].set_subtitle(stage)
+            if any(key in children for children in CLASSIFICATION_OUTLINE_GROUPS.values()):
+                # Logical start only; preserve suffix/end alignment and the editor.
+                self.nav_rows[key].set_margin_start(24)
         for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
             self._page("Summaries", kind + "-topics", title + " digest topics")
+            self._explanation(self._page_body, "Summaries")
             self._catalog(self._group(title + " digest topics"), self.editor.resources[kind])
             self.nav_rows[kind + "-topics"].set_subtitle("1 · Build digest")
         self._page("Summaries", "minutes", "Minute orders")

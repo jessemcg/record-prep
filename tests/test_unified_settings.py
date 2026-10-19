@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from gi.repository import GLib
 from recordprep.ui import main_window as ui
 from recordprep import practice_profiles as api
-from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, SUMMARY_EXPLANATION
+from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, SUMMARY_EXPLANATION, topic_editor_text
 from recordprep.settings_navigation import descendants
 
 Adw, Gtk = ui.Adw, ui.Gtk
@@ -71,6 +71,9 @@ class UnifiedSettingsTests(unittest.TestCase):
         w = self.model_window()
         self.assertEqual([w._navigation.home_list.get_row_at_index(i).get_title() for i in range(3)], ["OCR", "Classify", "Agent"])
         self.assertEqual(set(w._navigation.pages), {"home", "ocr-command", "vision-command"})
+        self.assertTrue(all(row.get_margin_start() == 0 and row.get_margin_end() == 0
+                            for row in descendants(w._navigation.home_list)
+                            if isinstance(row, Adw.ActionRow)))
         w._navigation.open("ocr-command")
         buffer = w._local_ocr_widgets.start_command_buffer
         buffer.set_text("literal {slots} α\n  synthetic command")
@@ -127,6 +130,75 @@ class UnifiedSettingsTests(unittest.TestCase):
         drain()
         return window, store
 
+    def test_classification_outline_structure_navigation_and_bindings(self):
+        from recordprep.profile_editor_ui import CLASSIFICATION_PAGES, CLASSIFICATION_OUTLINE_GROUPS
+        w, store = self.profile_window()
+        expected_groups = {
+            "rt": ("first_hearing", "date_hearing"),
+            "ct": ("first_minute", "first_form", "date_minute", "report-naming", "form-naming"),
+        }
+        self.assertEqual(CLASSIFICATION_OUTLINE_GROUPS, expected_groups)
+        children = {key for keys in expected_groups.values() for key in keys}
+        keys = ["classification"] + [key for key, _, _ in CLASSIFICATION_PAGES]
+        self.assertEqual(list(w.nav_rows)[:10], keys)
+        chooser_before = list(w._navigation._prompt_keys)
+        for key, row in w.nav_rows.items():
+            self.assertEqual(row.get_margin_start(), 24 if key in children else 0, key)
+            self.assertEqual(row.get_margin_end(), 0, key)
+        w.nav_groups["Classification"].set_expanded(True)
+        drain()
+        for key in keys:
+            with self.subTest(key=key):
+                row = w.nav_rows[key]
+                self.assertTrue(row.get_activatable())
+                row.emit("activated")  # Callback contract, not native-input proof.
+                drain()
+                self.assertEqual(w._navigation.view.get_visible_page().get_tag(), key)
+                view = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView))
+                buffer = view.get_buffer()
+                literal = "Synthetic outline guidance: " + key
+                buffer.set_text(literal)
+                if key == "classification":
+                    self.assertEqual(w.editor.resources[key], literal)
+                elif key.endswith("-naming"):
+                    self.assertEqual(w.editor.resources["naming"][key.removesuffix("-naming") + "_guidance"], literal)
+                else:
+                    self.assertEqual(w.editor.resources["classification_tasks"][key], literal)
+                self.assertTrue(w._navigation.view.pop())
+                drain()
+                self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "home")
+                self.assertTrue(w.nav_groups["Classification"].get_expanded())
+        self.assertEqual(w._navigation._prompt_keys, chooser_before)
+        self.assertFalse(store.registry_path.exists())
+
+    def test_outline_rt_ct_buffers_and_undo_survive_navigation_and_save(self):
+        w, _ = self.profile_window()
+        buffers = {}
+        for key in ("rt", "ct"):
+            w.nav_rows[key].emit("activated")
+            drain()
+            buffer = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView)).get_buffer()
+            buffer.set_text("Synthetic " + key)
+            buffer.insert_at_cursor(" edited")
+            self.assertTrue(buffer.get_can_undo())
+            buffers[key] = buffer
+        for key, buffer in buffers.items():
+            w.nav_rows[key].emit("activated")
+            drain()
+            self.assertIs(next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView)).get_buffer(), buffer)
+            self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), "Synthetic " + key + " edited")
+            self.assertTrue(buffer.get_can_undo())
+        w._navigation.save_buttons["ct"].emit("clicked")
+        self.assertFalse(w._dirty())
+        for buffer in buffers.values():
+            self.assertTrue(buffer.get_can_undo())
+            buffer.undo()
+        self.assertTrue(w._dirty())
+        self.assertTrue(w._close_request())
+        w.unsaved_dialog.response("keep")
+        drain()
+        self.assertTrue(w.get_visible())
+
     def test_profile_explanations_literal_state_topics_and_revision_rebinding(self):
         w, store = self.profile_window()
         self.assertEqual(list(w.nav_groups), ["Classification", "Summaries"])
@@ -180,10 +252,11 @@ class UnifiedSettingsTests(unittest.TestCase):
         topic = w.editor.resources["hearings"][0]
         key = "topic:hearings:" + topic["id"]
         original = topic["guidance"]
-        w._select_page(key)
+        w._select_page("hearings-topics")
         drain()
         topic_buffer = w._topic_editors[key].get_child().get_buffer()
-        self.assertEqual(topic_buffer.get_text(*topic_buffer.get_bounds(), True), original)
+        self.assertEqual(topic_buffer.get_text(*topic_buffer.get_bounds(), True), topic_editor_text(original))
+        self.assertEqual(topic["guidance"], original)
         topic_buffer.insert_at_cursor(" topic revision ")
         values = w.editor.resources["hearings"]
         values[0], values[1] = values[1], values[0]
@@ -193,10 +266,12 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertTrue(w._save())
         self.assertFalse(w._dirty())
         self.assertIn("after save", next(v for v in store.load_profile_snapshot(w.editor.base.ref).resource("hearings") if v["id"] == topic["id"])["guidance"])
-        self.assertEqual(w._navigation.view.get_navigation_stack().get_n_items(), 3)
-        summary = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.Expander))
-        self.assertTrue(any(SUMMARY_EXPLANATION in label.get_text() for label in descendants(summary.get_child())
-                            if isinstance(label, Gtk.Label)))
+        self.assertEqual(w._navigation.view.get_navigation_stack().get_n_items(), 2)
+        self.assertFalse(any(key.startswith("topic:") for key in w._navigation.pages))
+        summary = next(x for x in descendants(w.pages["hearings-topics"])
+                       if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
+        self.assertIsInstance(summary.get_child(), Gtk.Label)
+        self.assertIn(SUMMARY_EXPLANATION, summary.get_child().get_text())
 
     def test_topic_catalog_native_rename_reorder_remove_and_add(self):
         w, store = self.profile_window()
@@ -205,14 +280,22 @@ class UnifiedSettingsTests(unittest.TestCase):
         values = w.editor.resources["hearings"]
         original = values[0]
         key = "topic:hearings:" + original["id"]
+        w._topic_expanders[key].set_expanded(True)
         entry = next(x for x in descendants(w.pages["hearings-topics"])
                      if isinstance(x, Gtk.Entry) and x.get_text() == original["title"])
-        card = entry.get_parent()
+        card = entry.get_ancestor(Gtk.Expander)
+        card.set_expanded(True)
+        topic_editor = w._topic_editors[key]
+        buffer = topic_editor.get_child().get_buffer()
+        buffer.insert_at_cursor(" retained edit ")
         entry.set_text("Renamed topic α")
-        self.assertEqual(w._navigation.pages[key].get_title(), "Renamed topic α")
+        self.assertEqual(card.get_label_widget().get_text(), "Renamed topic α")
         next(x for x in descendants(card) if isinstance(x, Gtk.Button) and x.get_label() == "Move down").emit("clicked")
         self.assertIs(values[1], original)
-        self.assertIn(key, w._topic_editors)
+        self.assertIs(w._topic_editors[key], topic_editor)
+        self.assertTrue(card.get_expanded())
+        self.assertTrue(buffer.get_can_undo())
+        self.assertIn("retained edit", buffer.get_text(*buffer.get_bounds(), True))
         entry = next(x for x in descendants(w.pages["hearings-topics"])
                      if isinstance(x, Gtk.Entry) and x.get_text() == "Renamed topic α")
         next(x for x in descendants(entry.get_parent()) if isinstance(x, Gtk.Button) and x.get_label() == "Remove").emit("clicked")
@@ -221,9 +304,52 @@ class UnifiedSettingsTests(unittest.TestCase):
         count = len(values)
         next(x for x in descendants(w.pages["hearings-topics"]) if isinstance(x, Gtk.Button) and x.get_label() == "Add topic").emit("clicked")
         self.assertEqual(len(values), count + 1)
-        self.assertIn("topic:hearings:" + values[-1]["id"], w._navigation.pages)
+        self.assertIn("topic:hearings:" + values[-1]["id"], w._topic_editors)
+        self.assertFalse(any(key.startswith("topic:") for key in w._navigation.pages))
         self.assertTrue(w._save())
         self.assertEqual(len(store.load_profile_snapshot(w.editor.base.ref).resource("hearings")), len(values))
+
+    def test_summaries_inline_explanations_and_display_only_unwrapping(self):
+        w, store = self.profile_window()
+        literal = "Read the complete\nsource carefully.\n\nKeep attribution\nand uncertainty."
+        w.editor.resources["hearings"][0]["guidance"] = literal
+        w._render()
+        originals = copy.deepcopy(w.editor.resources)
+        for kind in ("hearings", "reports"):
+            page = kind + "-topics"
+            w.nav_rows[page].emit("activated")
+            drain()
+            self.assertEqual(w._navigation.view.get_navigation_stack().get_n_items(), 2)
+            disclosure = next(x for x in descendants(w.pages[page])
+                              if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
+            self.assertIsInstance(disclosure.get_child(), Gtk.Label)
+            self.assertFalse(any(isinstance(x, Gtk.ScrolledWindow) for x in descendants(disclosure)))
+            disclosure.set_expanded(True)
+            for topic in w.editor.resources[kind]:
+                key = "topic:" + kind + ":" + topic["id"]
+                editor = w._topic_editors[key]
+                card = w._topic_expanders[key]
+                card.set_expanded(True)
+                buffer = editor.get_child().get_buffer()
+                self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), topic_editor_text(topic["guidance"]))
+                self.assertGreaterEqual(editor.get_min_content_height(), 120)
+            self.assertFalse(any(isinstance(x, Gtk.Button) and x.get_label() == "Edit instructions"
+                                 for x in descendants(w.pages[page])))
+        self.assertEqual(w.editor.resources, originals)
+        self.assertFalse(w._dirty())
+        self.assertFalse(store.registry_path.exists())
+        self.assertTrue(w._save())
+        saved = store.load_profile_snapshot(w.editor.base.ref)
+        self.assertEqual(saved.resource("hearings")[0]["guidance"], literal)
+        w._select_page("minutes")
+        self.assertIsInstance(w.pages["minutes"], Gtk.ScrolledWindow)
+        disclosure = next(x for x in descendants(w.pages["minutes"]) if isinstance(x, Gtk.Expander))
+        self.assertIsInstance(disclosure.get_child(), Gtk.Label)
+        disclosure.set_expanded(True)
+        self.assertIn(SUMMARY_EXPLANATION, disclosure.get_child().get_text())
+        self.assertEqual(topic_editor_text(literal), "Read the complete source carefully.\n\nKeep attribution and uncertainty.")
+        for structured in ("- First\n- Second", "# Heading\nText", "Line  \nBreak", "Line\\\nBreak"):
+            self.assertEqual(topic_editor_text(structured), structured)
 
     def test_profile_failed_publication_and_post_save_refresh_feedback(self):
         w, store = self.profile_window()

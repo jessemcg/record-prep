@@ -56,7 +56,8 @@ with tempfile.TemporaryDirectory(prefix="topic-wrapping-") as temp:
                 while child is not None:
                     yield from descendants(child)
                     child = child.get_next_sibling()
-            expander = next(w for w in descendants(editor.pages["hearings-topics"]) if isinstance(w, Gtk.Expander))
+            topic_id = editor.editor.resources["hearings"][0]["id"]
+            expander = editor._topic_expanders["topic:hearings:" + topic_id]
             expander.set_expanded(True)
             actions = [w for w in descendants(expander) if isinstance(w, Gtk.Button)
                        and w.get_label() in ("Move up", "Move down", "Remove")]

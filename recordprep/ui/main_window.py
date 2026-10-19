@@ -2907,6 +2907,9 @@ def save_pi_agent_command_setting(command: str) -> None:
     _write_config(config)
 
 
+from recordprep.settings_navigation import SettingsNavigation, SettingsSession, close_settings_before_parent, descendants, install_editor_style, round_editor
+
+
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None, on_profiles=None) -> None:
         super().__init__(application=app, title="Model settings")
@@ -2937,6 +2940,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             self._original_pi_thinking_level = None
             self._pi_model_settings_error = str(exc)
         self._build_ui()
+        self._session = SettingsSession(self, self._draft_snapshot)
         self.connect("close-request", self._on_pi_settings_close_request)
         self._load_pi_models()
 
@@ -2963,79 +2967,54 @@ class SettingsWindow(Adw.ApplicationWindow):
         return row
 
     def _build_ui(self) -> None:
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.add_css_class("flat")
-        header.set_title_widget(Adw.WindowTitle(title="Model settings"))
+        self._navigation = SettingsNavigation(self.trigger_save, lambda: self._pi_model_closed)
+        self._navigation.pages["home"].set_title("Model settings")
+        install_editor_style(self)
+        self._command_rows = {}
+        for group_id, key, title, builder in (
+            ("ocr", "ocr", "OCR", lambda: self._build_ocr_page(load_local_ocr_settings())),
+            ("classify", "classify-basic", "Classify", lambda: self._build_prompt_page("classify-basic", "Classification basic", load_classifier_settings(), DEFAULT_CLASSIFIER_PROMPT)),
+            ("agent", "pi", "Agent", self._build_pi_settings_page),
+        ):
+            category = self._navigation.add_category(title)
+            self._settings_group_rows[group_id] = category
+            self._settings_destination_labels[key] = title
+            page = builder()
+            body = page.get_child()
+            for widget in list(descendants(body)):
+                if isinstance(widget, Adw.PreferencesGroup):
+                    # Move the existing native rows, not their buffers or values.
+                    rows = [w for w in descendants(widget) if isinstance(w, Adw.PreferencesRow)]
+                    for row in rows:
+                        widget.remove(row)
+                        category.add_row(row)
+            if group_id in self._command_rows:
+                category.add_row(self._command_rows[group_id])
         if self._on_profiles is not None:
-            profiles_button = Gtk.Button(label="Profile settings…")
-            profiles_button.add_css_class("flat")
-            profiles_button.set_tooltip_text("Edit practice guidance in Profile settings.")
-            profiles_button.connect("clicked", lambda _button: self._on_profiles(self))
-            header.pack_start(profiles_button)
-        save_btn = Gtk.Button(label="Save")
-        save_btn.add_css_class("suggested-action")
-        save_btn.add_css_class("flat")
-        save_btn.set_action_name("app.save-settings")
-        header.pack_end(save_btn)
-        view.add_top_bar(header)
+            row = Adw.ActionRow(title="Profile settings", subtitle="Processing instructions; saved separately", activatable=True)
+            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            row.connect("activated", lambda *_: self._on_profiles(self))
+            self._navigation.home_list.append(row)
+        self._navigation.finish()
+        self._toasts = Adw.ToastOverlay()
+        self._toasts.set_child(self._navigation.view)
+        self.set_content(self._toasts)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(18)
-        box.set_margin_bottom(12)
-        box.set_margin_start(18)
-        box.set_margin_end(18)
-        box.append(Gtk.Label(label="Edit processing instructions in Profile settings. Configure models and connections here.",
-                             wrap=True, xalign=0))
-
-        split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        split.set_hexpand(True)
-        split.set_vexpand(True)
-
-        prompt_list = Gtk.ListBox()
-        prompt_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        prompt_list.add_css_class("boxed-list")
-        prompt_list.set_valign(Gtk.Align.START)
-        prompt_list.set_vexpand(False)
-        self._prompt_list = prompt_list
-
-        prompt_list_scroller = Gtk.ScrolledWindow()
-        prompt_list_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        prompt_list_scroller.set_min_content_width(240)
-        prompt_list_scroller.set_size_request(240, -1)
-        prompt_list_scroller.set_child(prompt_list)
-
-        prompt_stack = Gtk.Stack()
-        prompt_stack.set_hexpand(True)
-        prompt_stack.set_vexpand(True)
-        prompt_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        self._prompt_stack = prompt_stack
-
-        self._add_settings_destination("ocr", "ocr")
-        ocr_page = self._build_ocr_page(load_local_ocr_settings())
-        prompt_stack.add_named(ocr_page, "ocr")
-
-        self._add_settings_destination("classify", "classify-basic")
-        classify_page = self._build_prompt_page(
-            "classify-basic",
-            "Classification basic",
-            load_classifier_settings(),
-            DEFAULT_CLASSIFIER_PROMPT,
-        )
-        prompt_stack.add_named(classify_page, "classify-basic")
-
-        self._add_settings_destination("agent", "pi")
-        pi_page = self._build_pi_settings_page()
-        prompt_stack.add_named(pi_page, "pi")
-
-        self._select_settings_page("ocr")
-
-        split.append(prompt_list_scroller)
-        split.append(prompt_stack)
-        box.append(split)
-
-        view.set_content(box)
-        self.set_content(view)
+    def _command_destination(self, group, key, title, scroller, guidance):
+        scroller.set_min_content_height(-1)
+        scroller.set_size_request(-1, -1)
+        scroller.set_vexpand(True)
+        scroller.get_child().set_vexpand(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
+        for edge in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + edge)(12)
+        box.append(Gtk.Label(label=guidance, wrap=True, xalign=0))
+        box.append(scroller)
+        self._navigation.add_page(key, title, box, prompt=True)
+        row = Adw.ActionRow(title=title, activatable=True)
+        row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        row.connect("activated", lambda *_: self._navigation.open(key, row))
+        self._command_rows[group] = row
 
     def _build_text_source_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(
@@ -3066,12 +3045,14 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     def _build_prompt_editor(self, text: str) -> tuple[Gtk.ScrolledWindow, Gtk.TextBuffer]:
         scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        round_editor(scroller)
         scroller.set_hexpand(True)
-        scroller.set_vexpand(False)
+        scroller.set_vexpand(True)
         scroller.set_has_frame(False)
 
         buffer = Gtk.TextBuffer()
+        buffer.set_enable_undo(True)
         buffer.set_text(text)
         prompt_view = Gtk.TextView.new_with_buffer(buffer)
         prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -3149,15 +3130,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         command_scroller, command_buffer = self._build_prompt_editor(
             settings.get("start_command", START_SERVER_COMMAND)
         )
-        self._set_prompt_editor_height(command_scroller, 180)
-        command_section.append(command_scroller)
-        page_box.append(
-            self._build_disclosure(
-                "Advanced",
-                command_section,
-                subtitle="Local server start command",
-            )
-        )
+        self._command_destination("ocr", "ocr-command", "Local OCR start command", command_scroller,
+            "Used when local OCR is selected. Use {slots} for the llama.cpp slot count. Editing or Save does not start the server.")
 
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -3266,15 +3240,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             command_scroller, local_start_command_buffer = self._build_prompt_editor(
                 settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
             )
-            self._set_prompt_editor_height(command_scroller, 160)
-            command_section.append(command_scroller)
-            page_box.append(
-                self._build_disclosure(
-                    "Advanced",
-                    command_section,
-                    subtitle="Local vision server start command",
-                )
-            )
+            self._command_destination("classify", "vision-command", "Local vision start command", command_scroller,
+                "Used by local vision classification. Editing or Save does not start the server.")
 
 
         page = Gtk.ScrolledWindow()
@@ -3380,6 +3347,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         return page
 
     def _on_pi_settings_close_request(self, *_args: object) -> bool:
+        if self._session.close_request():
+            return True
         self._pi_model_closed = True
         self._pi_model_generation += 1
         return False
@@ -3509,7 +3478,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             return False
         self._pi_model_refresh_button.set_sensitive(True)
         if error:
-            current = self._original_pi_model_key
+            current = desired_key
             if current is None:
                 self._pi_model_options = [None]
                 labels = ["PI models unavailable"]
@@ -3525,7 +3494,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             self._pi_model_row.set_model(Gtk.StringList.new(labels))
             self._pi_model_row.set_selected(0)
             self._pi_model_applying = False
-            self._pi_model_selection_changed = False
+            self._pi_model_selection_changed = current != self._original_pi_model_key
             self._pi_model_row.set_sensitive(False)
             self._pi_model_row.set_subtitle(error)
             return False
@@ -3533,7 +3502,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         available_keys = {model.settings_key for model in models}
         options: list[PiModel | None] = []
         labels: list[str] = []
-        current = self._original_pi_model_key
+        current = desired_key
         if current is not None and current not in available_keys:
             unavailable = PiModel(
                 provider=current[0],
@@ -3601,9 +3570,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         if key not in self._settings_destination_labels:
             return
         self._active_settings_key = key
-        self._prompt_stack.set_visible_child_name(key)
-        for destination, marker in self._settings_destination_markers.items():
-            marker.set_visible(destination == key)
+        group = {"ocr": "ocr", "classify-basic": "classify", "pi": "agent"}[key]
+        self._navigation.view.pop_to_tag("home")
+        self._settings_group_rows[group].set_expanded(True)
 
     def _build_disclosure(
         self,
@@ -3619,7 +3588,55 @@ class SettingsWindow(Adw.ApplicationWindow):
             row.add_row(child)
         return row
 
+    def _draft_snapshot(self):
+        values = []
+        for widgets in (self._local_ocr_widgets, self._prompt_editors["classify-basic"], self._agent_widgets):
+            for name in widgets.__dataclass_fields__:
+                widget = getattr(widgets, name)
+                if widget is None:
+                    continue
+                if isinstance(widget, Gtk.TextBuffer):
+                    value = self._prompt_text(widget)
+                elif hasattr(widget, "get_text"):
+                    value = widget.get_text()
+                elif hasattr(widget, "get_selected"):
+                    value = int(widget.get_selected())
+                elif hasattr(widget, "get_active"):
+                    value = widget.get_active()
+                else:
+                    continue
+                values.append(value)
+        model = self._selected_pi_model()
+        values.extend((int(self._text_source_row.get_selected()),
+                       model.settings_key if self._pi_model_selection_changed and model else self._original_pi_model_key))
+        return tuple(values)
+
     def _save_settings(self) -> None:
+        try:
+            # Validate hidden pages before the first persistent write.
+            for row in (self._prompt_editors["classify-basic"].workers_row,
+                        self._local_ocr_widgets.workers_row, self._local_ocr_widgets.slots_row):
+                if int(row.get_text().strip()) < 1:
+                    raise ValueError("Worker and slot counts must be positive integers.")
+            command = self._agent_widgets.pi_agent_command_row.get_text().strip() or DEFAULT_PI_AGENT_COMMAND
+            argv = resolve_pi_agent_argv(command, path_env=os.environ.get("PATH"))
+            if not argv or incompatible_pi_agent_flag(argv):
+                raise ValueError("Invalid or incompatible PI command.")
+        except ValueError:
+            self._toasts.add_toast(Adw.Toast(title="Check worker/slot counts and the PI command. Nothing was saved."))
+            return
+        try:
+            saved = self._persist_settings()
+        except Exception:
+            self._toasts.add_toast(Adw.Toast(title="Save failed. Some settings may already have been written; drafts are retained."))
+            return
+        if saved:
+            self._session.accept()
+            self._toasts.add_toast(Adw.Toast(title="Model settings saved"))
+        else:
+            self._toasts.add_toast(Adw.Toast(title="Save incomplete. Some settings may already have been written; drafts are retained."))
+
+    def _persist_settings(self):
         classify_basic_widgets = self._prompt_editors.get("classify-basic")
         local_ocr_widgets = self._local_ocr_widgets
         agent_widgets = self._agent_widgets
@@ -3705,7 +3722,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             save_pi_agent_command_setting(pi_command)
         if self._on_saved:
             self._on_saved()
-        self.close()
+        return True
 
 
 class TocEditorWindow(Adw.ApplicationWindow):
@@ -4278,7 +4295,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._settings_window.present()
             return
         settings = SettingsWindow(self.get_application(), on_saved=self._on_settings_saved, on_profiles=self._open_practice_profiles)
-        settings.connect("close-request", self._on_settings_close_request)
+        settings.connect_after("close-request", self._on_settings_close_request)
         self._settings_window = settings
         settings.present()
 
@@ -5530,6 +5547,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._terminate_pi_terminal()
 
     def _on_main_close_request(self, *_args: object) -> bool:
+        if close_settings_before_parent(self.get_application()):
+            return True
         self._stop_event.set()
         self._stop_local_ocr_server()
         self._stop_local_vision_server()

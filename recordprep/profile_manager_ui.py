@@ -213,6 +213,16 @@ class ProfileManagerWindow(Gtk.Box):
         return True
 
     def _edit(self):
+        # Menu widgets may be recreated between activations. Ownership belongs
+        # to the application, not to one ephemeral popover's child list.
+        existing = next((window for window in self.parent_window.get_application().get_windows()
+                         if isinstance(window, ProfileEditorWindow) and window.get_visible()), None)
+        if existing is not None:
+            popover = self.get_ancestor(Gtk.Popover)
+            if popover:
+                popover.popdown()
+            existing.present()
+            return existing
         try:
             candidate = self._selected()
             if candidate is None:

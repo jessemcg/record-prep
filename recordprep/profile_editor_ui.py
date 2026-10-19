@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango, GObject
 
 from . import practice_profiles as api
+from .settings_navigation import SettingsNavigation, install_editor_style, round_editor
 from .profile_contract import ProfileError, ProfileSnapshot, RETIRED_SUMMARY_RESOURCES, RETIRED_PARTICIPANT_RESOURCES, RETIRED_OVERVIEW_RESOURCES
 from .profile_workflows import ProfileEditor
 from .profile_store import BUILTIN_SPECIALTIES
@@ -132,13 +133,12 @@ def text_editor(text, changed=None, *, label="Instructions", tall=False):
     view.set_top_margin(8)
     view.set_bottom_margin(8)
     buffer = view.get_buffer()
+    buffer.set_enable_undo(True)
     buffer.set_text(text)
     if changed is not None:
         buffer.connect("changed", lambda source: changed(source.get_text(source.get_start_iter(), source.get_end_iter(), True)))
-    scroll = Gtk.ScrolledWindow(min_content_height=360 if tall else 120,
-                                max_content_height=900 if tall else 280,
-                                propagate_natural_height=not tall, vexpand=tall)
-    scroll.add_css_class("card")
+    scroll = Gtk.ScrolledWindow(vexpand=tall)
+    round_editor(scroll)
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     scroll.set_child(view)
     return scroll
@@ -232,8 +232,7 @@ class ProfileEditorWindow(Adw.Window):
                  can_modify, preview, on_saved, candidates=None, notice="", personal=False, expected_heads=None, case_ref=lambda: None, on_deleted=lambda _ref: None):
         # No transient relationship: GNOME attaches transient dialogs to their parent.
         super().__init__(application=parent.get_application(), modal=False, resizable=True,
-                         title="Profile settings", default_width=1040, default_height=800,
-                         width_request=360, height_request=480)
+                         title="Profile settings", default_width=900, default_height=720)
         if ProfileEditorWindow._navigation_style is None:
             provider = Gtk.CssProvider()
             provider.load_from_data(b"""
@@ -281,17 +280,12 @@ class ProfileEditorWindow(Adw.Window):
         self._nav_updating = False
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_decoration_layout(":minimize,maximize,close")
         self.title_widget = Adw.WindowTitle(title="Profile settings")
-        header.set_title_widget(self.title_widget)
-        self.sidebar_button = Gtk.ToggleButton(icon_name="sidebar-show-symbolic", tooltip_text="Show categories")
-        self.sidebar_button.add_css_class("flat")
-        header.pack_start(self.sidebar_button)
-        header.pack_start(button("Cancel", self.close))
-        self.save_button = button("Save", self._save)
-        header.pack_end(self.save_button)
-        toolbar.add_top_bar(header)
+        install_editor_style(self)
+        # Each retained destination supplies its own Back/Save header. Keep
+        # global notices below it, never above the window's native controls.
+        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
+        outer.append(self.body)
         self.message = wrapped("", margin_start=18, margin_end=18, selectable=True)
         self.message.set_visible(False)
         self.message.connect("notify::label", lambda label, _spec: label.set_visible(bool(label.get_text())))
@@ -300,19 +294,8 @@ class ProfileEditorWindow(Adw.Window):
         outer.append(self.profile_notice)
         self.case_notice = wrapped("", margin_start=18, margin_end=18)
         outer.append(self.case_notice)
-        self.body = Adw.OverlaySplitView(vexpand=True, min_sidebar_width=220, max_sidebar_width=260,
-                                         sidebar_width_fraction=.26)
-        self.body.add_css_class("profile-settings-layout")
-        self.body.bind_property("show-sidebar", self.sidebar_button, "active",
-                                GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
-        self.body.bind_property("collapsed", self.sidebar_button, "visible", GObject.BindingFlags.SYNC_CREATE)
-        outer.append(self.body)
         toolbar.set_content(outer)
         self.set_content(toolbar)
-        breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 700sp"))
-        breakpoint.add_setter(self.body, "collapsed", True)
-        breakpoint.add_setter(self.body, "show-sidebar", False)
-        self.add_breakpoint(breakpoint)
         self._render()
         self._guard_id = GLib.timeout_add(250, self._refresh_guard)
         self.connect("close-request", self._close_request)
@@ -327,6 +310,7 @@ class ProfileEditorWindow(Adw.Window):
         return self._state() != self._saved_state
 
     def _destroyed(self, *_args):
+        self._closing = True
         if self._guard_id:
             GLib.source_remove(self._guard_id)
             self._guard_id = 0
@@ -346,25 +330,26 @@ class ProfileEditorWindow(Adw.Window):
         self.close()
 
     def _unsaved(self, continuation):
+        if getattr(self, "unsaved_dialog", None) is not None and self.unsaved_dialog.get_visible():
+            self.unsaved_dialog.present()
+            return self.unsaved_dialog
         def respond(response):
             if response == "discard":
                 continuation()
-            elif response == "save" and self._save():
-                def finished(*_args):
-                    if not self.saved_apply_failed:
-                        continuation()
-                if self.saved_dialog is not None and self.saved_dialog.get_visible():
-                    self.saved_dialog.connect("response", finished)
-                else:
-                    finished()
-        self.unsaved_dialog = confirmation(self, "Save changes?", "You have unsaved profile settings.",
-                                           (("save", "Save"), ("discard", "Discard"), ("cancel", "Cancel")), respond)
+        self.unsaved_dialog = confirmation(self, "Discard unsaved changes?",
+            "Only changes since the last successful Save will be discarded.",
+            (("keep", "Keep Editing"), ("discard", "Discard Unsaved Changes")), respond)
+        self.unsaved_dialog.set_close_response("keep")
+        self.unsaved_dialog.set_default_response("keep")
         return self.unsaved_dialog
 
     def _refresh_guard(self):
         allowed = self.can_modify()
         self.body.set_sensitive(allowed)
         self.save_button.set_sensitive(allowed)
+        if hasattr(self, "_navigation"):
+            for save in self._navigation.save_buttons.values():
+                save.set_sensitive(allowed)
         blocked = "Settings cannot be changed while work is active or the case has changed. Your draft is kept; cancel and reopen when ready."
         if not allowed:
             self.message.set_text(blocked)
@@ -399,49 +384,15 @@ class ProfileEditorWindow(Adw.Window):
         self.nav_rows = {}
         self.nav_markers = {}
         self.page_groups = {}
-        self.stack = Gtk.Stack(hexpand=True, vexpand=True, hhomogeneous=False, vhomogeneous=False)
-        self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.add_css_class("profile-settings-content")
-        self.classification_explainer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-            margin_start=18, margin_end=18, margin_top=12, visible=False)
-        self.classification_explainer.add_css_class("profile-classification-explainer")
-        explanation_title = wrapped("How classification builds the record")
-        explanation_title.add_css_class("heading")
-        self.classification_explainer.append(explanation_title)
-        progression = wrapped(CLASSIFICATION_PROGRESSION)
-        progression.add_css_class("accent")
-        progression.add_css_class("heading")
-        self.classification_explainer.append(progression)
-        # A selectable label can receive focus/selection, painting persistent
-        # inactive-selection rectangles after focus moves.
-        # This is explanation text, not an editor or a focus/selection target.
-        self.classification_explainer.append(wrapped(CLASSIFICATION_EXPLANATION))
-        content.append(self.classification_explainer)
-        self.summary_explainer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-            margin_start=18, margin_end=18, margin_top=12, visible=False)
-        self.summary_explainer.add_css_class("profile-classification-explainer")
-        summary_title = wrapped(SUMMARY_TITLE)
-        summary_title.add_css_class("heading")
-        self.summary_explainer.append(summary_title)
-        summary_progression = wrapped(SUMMARY_PROGRESSION)
-        summary_progression.add_css_class("accent")
-        summary_progression.add_css_class("heading")
-        self.summary_explainer.append(summary_progression)
-        self.summary_explainer.append(wrapped(SUMMARY_EXPLANATION))
-        content.append(self.summary_explainer)
-        content.append(self.stack)
-        self.body.set_content(content)
-        self.navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, valign=Gtk.Align.START,
-                                      margin_start=12, margin_end=12, margin_top=12, margin_bottom=12)
-        self.navigation.add_css_class("boxed-list")
-        self.navigation.add_css_class("profile-navigation")
-        sidebar = Gtk.ScrolledWindow(vexpand=True)
-        sidebar.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sidebar.set_child(self.navigation)
-        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        sidebar_box.append(sidebar)
-        self.body.set_sidebar(sidebar_box)
+        if hasattr(self, "_navigation"):
+            self._navigation.headers["home"].set_title_widget(None)
+        clear(self.body)
+        self._navigation = SettingsNavigation(self._save, lambda: self._closing)
+        self._navigation.headers["home"].set_title_widget(self.title_widget)
+        self.save_button = self._navigation.save_buttons["home"]
+        self._topic_editors = {}
+        self.navigation = self._navigation.home_list
+        self.body.append(self._navigation.view)
         self.title_widget.set_subtitle(self.editor.manifest["display_name"])
         self.title_widget.set_tooltip_text(self.editor.manifest["display_name"])
         self.profile_notice.set_text(self.notice)
@@ -462,7 +413,8 @@ class ProfileEditorWindow(Adw.Window):
         else:
             self._recordprep_form()
         self._nav_updating = False
-        self._select_page(self._active_page if self._active_page in self.pages else next(iter(self.pages)))
+        self._navigation.finish()
+        self._active_page = "home"
         self._saved_state = self._state()
         self._loading = False
 
@@ -492,27 +444,26 @@ class ProfileEditorWindow(Adw.Window):
 
     def _page(self, category, key, title):
         if category not in self.nav_groups:
-            row = Adw.ExpanderRow(title=category)
+            row = self._navigation.add_category(category)
             row.set_title_lines(2)
-            row.connect("notify::expanded", self._category_expanded, category)
-            self.navigation.append(row)
             self.nav_groups[category] = row
         row = Adw.ActionRow(title=title, activatable=True)
         row.add_css_class("profile-destination")
         row.set_title_lines(2)
-        marker = Gtk.Image(icon_name="object-select-symbolic", visible=False)
+        marker = Gtk.Image(icon_name="go-next-symbolic")
         row.add_suffix(marker)
         row.connect("activated", lambda _row: self._select_page(key))
         self.nav_groups[category].add_row(row)
         self.nav_rows[key], self.nav_markers[key], self.page_groups[key] = row, marker, category
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, vexpand=True,
-                       margin_start=18, margin_end=18, margin_top=18, margin_bottom=18)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True,
+                       margin_start=12, margin_end=12, margin_top=12, margin_bottom=12)
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_child(body)
-        self.stack.add_named(scroll, key)
+        self._navigation.add_page(key, title, scroll, prompt=category == "Classification" or key == "minutes")
         self.pages[key] = scroll
         self._page_body = body
+        self._building_page = key
 
     def _category_expanded(self, row, _spec, category):
         if self._nav_updating or not row.get_expanded():
@@ -527,21 +478,7 @@ class ProfileEditorWindow(Adw.Window):
         if key not in self.pages:
             return
         self._active_page = key
-        self.stack.set_visible_child_name(key)
-        self.classification_explainer.set_visible(self.store.application == "recordprep"
-                                                 and self.page_groups[key] == "Classification")
-        self.summary_explainer.set_visible(self.store.application == "recordprep"
-                                          and self.page_groups[key] == "Summaries")
-        self._nav_updating = True
-        for category, row in self.nav_groups.items():
-            row.set_expanded(category == self.page_groups[key])
-        self._nav_updating = False
-        for name, marker in self.nav_markers.items():
-            marker.set_visible(name == key)
-            self.nav_rows[name].update_property([Gtk.AccessibleProperty.DESCRIPTION],
-                                                ["Current settings page" if name == key else ""])
-        if dismiss_sidebar and self.body.get_collapsed():
-            self.body.set_show_sidebar(False)
+        self._navigation.open(key, self.nav_rows.get(key))
 
     def _prompt_page(self, category, key, title, resource, *, owner=None, field=None):
         self._page(category, key, title)
@@ -555,15 +492,20 @@ class ProfileEditorWindow(Adw.Window):
     def _guidance(self, group, resource, label, *, owner=None, key=None):
         owner = self.editor.resources if owner is None else owner
         key = resource if key is None else key
-        if group.get_title() != label:
-            group.add(wrapped(label, margin_top=6, margin_bottom=4))
-        group.set_vexpand(True)
+        self._page_body.remove(group)
+        page_key = self._building_page
+        scroll = self.pages[page_key]
+        scroll.set_child(None)
+        self._navigation.pages[page_key].get_child().set_content(self._page_body)
+        self.pages[page_key] = self._page_body
+        category = self.page_groups[page_key]
+        self._explanation(self._page_body, category,
+            classification_task_contract(key) if resource in ("classification", "classification_tasks") else group.get_description())
         warning = None
         if resource in ("classification", "classification_tasks"):
-            group.add(wrapped(classification_task_contract(key), margin_bottom=8))
-            warning = wrapped("", margin_bottom=8)
+            warning = wrapped("", margin_bottom=4)
             warning.add_css_class("warning")
-            group.add(warning)
+            self._page_body.append(warning)
         def update(text):
             if warning is not None:
                 message = classification_guidance_warning(text, key)
@@ -573,7 +515,22 @@ class ProfileEditorWindow(Adw.Window):
             owner[key] = text
             update(text)
         update(owner[key])
-        group.add(text_editor(owner[key], change, label=label, tall=True))
+        self._page_body.append(text_editor(owner[key], change, label=label, tall=True))
+
+    def _explanation(self, box, category, task=None):
+        classification = category == "Classification"
+        short = "Classification · page types → starts → dates and names" if classification else "Summaries · topic digests → narrative sections"
+        box.append(wrapped(short))
+        expander = Gtk.Expander(label="About classification" if classification else "About summaries", expanded=False)
+        explanation = (CLASSIFICATION_PROGRESSION + "\n\n" + CLASSIFICATION_EXPLANATION if classification else
+                       SUMMARY_TITLE + "\n" + SUMMARY_PROGRESSION + "\n\n" + SUMMARY_EXPLANATION)
+        if task:
+            explanation += "\n\n" + task
+        scroller = Gtk.ScrolledWindow(max_content_height=140, propagate_natural_height=True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(wrapped(explanation, margin_top=6, margin_bottom=6))
+        expander.set_child(scroller)
+        box.append(expander)
 
     def _terms(self, group, owner, key, label):
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -599,6 +556,8 @@ class ProfileEditorWindow(Adw.Window):
         render()
 
     def _catalog(self, group, values, *, roles=False, forms=False):
+        if not roles and not forms:
+            return self._topic_catalog(group, values)
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
         def render():
@@ -651,6 +610,71 @@ class ProfileEditorWindow(Adw.Window):
                                "guidance": "Capture material source-supported information."})
                 render()
             holder.append(button("Add form" if forms else "Add role" if roles else "Add topic", add))
+        render()
+
+    def _topic_catalog(self, group, values):
+        kind = "hearings" if values is self.editor.resources["hearings"] else "reports"
+        catalog_key = kind + "-topics"
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        group.add(holder)
+        def render():
+            clear(holder)
+            for value in values:
+                identity = value["id"]
+                detail = f"topic:{kind}:{identity}"
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                               margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+                holder.append(card)
+                entry = Gtk.Entry(text=value["title"], hexpand=True)
+                entry.update_property([Gtk.AccessibleProperty.LABEL], ["Topic name"])
+                def rename(widget, value=value, detail=detail):
+                    value["title"] = widget.get_text()
+                    if detail in self._navigation.pages:
+                        self._navigation.pages[detail].set_title(value["title"] or "Topic instructions")
+                        self._navigation.finish()
+                entry.connect("changed", rename)
+                card.append(entry)
+                if detail not in self._topic_editors:
+                    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True,
+                                  margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+                    self._explanation(box, "Summaries")
+                    editor = text_editor(value["guidance"],
+                        lambda text, value=value: value.__setitem__("guidance", text), label="Topic instructions", tall=True)
+                    box.append(editor)
+                    self._topic_editors[detail] = editor
+                    self._navigation.add_page(detail, value["title"], box, prompt=True)
+                    self._navigation.parents[detail] = catalog_key
+                    self.pages[detail] = box
+                edit = button("Edit instructions", lambda detail=detail: self._select_page(detail))
+                card.append(edit)
+                tools = Gtk.Box(spacing=6)
+                card.append(tools)
+                def move(delta, value=value):
+                    index = next(i for i, item in enumerate(values) if item is value)
+                    other = index + delta
+                    if 0 <= other < len(values):
+                        values[index], values[other] = values[other], values[index]
+                        render()
+                up = button("Move up", lambda move=move: move(-1))
+                up.set_sensitive(value is not values[0])
+                tools.append(up)
+                down = button("Move down", lambda move=move: move(1))
+                down.set_sensitive(value is not values[-1])
+                tools.append(down)
+                def remove(value=value, detail=detail):
+                    values.remove(value)
+                    self._navigation.open(catalog_key)
+                    self._navigation.remove_page(detail)
+                    self._topic_editors.pop(detail)
+                    self.pages.pop(detail)
+                    render()
+                tools.append(button("Remove", remove))
+            def add():
+                values.append({"id": f"item-{uuid.uuid4().hex}", "title": "New topic",
+                               "guidance": "Capture material source-supported information."})
+                render()
+            holder.append(button("Add topic", add))
+            self._navigation.finish()
         render()
 
     def _recordprep_form(self):
@@ -814,16 +838,20 @@ class ProfileEditorWindow(Adw.Window):
             saved_ref = ref
             self.expected_head = ref.content_sha256
             self.expected_default = self.store.read_registry()["default"]
+            # Rebind publication identity without rebuilding widgets. The retained
+            # draft containers become the new editor's containers, so every existing
+            # callback targets the current editor, not an abandoned resource tree.
+            resources = self.editor.resources
             self.editor = ProfileEditor(self.store.load_profile_snapshot(ref))
+            self.editor.resources = resources
             self._saved_state = self._state()
             self.personal = personal
             self.expected_heads = dict(self.store.read_registry()["heads"])
             self.candidates = list(api.profile_catalog(store=self.store))
-            self._render()
             self.message.set_text("Profile saved.")
             self.saved_dialog = self.on_saved(ref)
             return True
-        except (ProfileError, OSError, ValueError) as exc:
+        except Exception as exc:
             if saved_ref is not None:
                 self.saved_apply_failed = True
                 self.message.set_text("Profile saved; reopen the menu to refresh the current selection.")

@@ -1,5 +1,8 @@
 # RecordPrep Agent Notes
 
+## Settings interaction contract
+Model and Profile settings have separate persistence boundaries. Use expandable homes and retained full-width rounded editors, not permanent sidebars. Save all draft pages without closing or changing destination; only successful persistence advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Reopening presents the application-owned draft. Retain topic IDs, buffers/undo/selection/viewport and guarded revision/default publication. Details and validation: `docs/unified-settings-validation.md`.
+
 ## README style
 
 Keep `README.md` minimalistic and streamlined. Add only important user-facing
@@ -95,8 +98,7 @@ Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrapp
 Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
 accepted revisions remain intact as historical data. A deleted application selection
 returns to General; old drafts cannot resurrect it. Historical pins never select guidance.
-Classification has a pinned, display-only explainer above its editors and RT-first,
-CT-second navigation with stage subtitles. Common guidance combines only with the
+Classification keeps a short pinned stage/context summary plus a collapsed About classification disclosure containing the complete explanation, bounded when expanded. Summaries uses the equivalent About summaries disclosure. Preserve RT-first, CT-second navigation with stage subtitles and task-specific guidance; keep the remaining height available to the editor. Common guidance combines only with the
 current page-type/first-page/date task; naming uses separate approved-name instructions.
 Hearing labels are dates; report Names extracts name/date at continuous report-run starts.
 Classification editor resource keys and pipeline order remain unchanged. The

@@ -239,7 +239,7 @@ if mode == "stop":
         owner = SimpleNamespace(_prompt_editors={}, _local_ocr_widgets=None, _summarize_widgets=None,
                                 _agent_widgets=None, _text_source_row=None, _on_saved=None, close=Mock())
         with patch.object(ui, "_read_config", return_value=dict(config)), patch.object(ui, "_write_config") as save:
-            ui.SettingsWindow._save_settings(owner)
+            ui.SettingsWindow._persist_settings(owner)
             save.assert_called_once_with(config)
 
     def test_ui_routes_only_to_native_skill(self):

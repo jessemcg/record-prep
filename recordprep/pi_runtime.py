@@ -347,7 +347,8 @@ def available_pi_models(
 
 def _read_pi_settings(path: Path) -> dict[str, Any]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        from ._model_store import read_ordinary
+        raw = read_ordinary(path)
     except FileNotFoundError as exc:
         if config_dir() is not None and path == pi_settings_path():
             return dict(DEFAULT_PUBLIC_PI_SETTINGS)
@@ -387,7 +388,8 @@ def current_project_pi_thinking_level(
 
 def _write_pi_settings(settings: dict[str, Any], path: Path) -> None:
     try:
-        atomic_private_json(path, settings)
+        from ._model_store import save_ordinary
+        save_ordinary(path, settings)
     except (OSError, ValueError) as exc:
         raise PiSettingsError(f"Unable to save PI project settings: {exc}") from exc
 

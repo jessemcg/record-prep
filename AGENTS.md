@@ -1,5 +1,22 @@
 # RecordPrep Agent Notes
 
+## Application-owned model maintenance
+
+`model-settings --stdin` precedes GUI/OCR/pipeline/Pi imports. Resolve only the
+owner-selected absolute config location, shared Pi setting and classifier request
+connection; a local-server management switch is not a different model/URL slot.
+Vendored schema/store stay app-owned. Ordinary writes share CAS/locks and propagate
+stale-store failures even without `raise_errors`; failed drafts never become saved
+baselines. Reconcile/Retain are receipt-only, not later-edit rollback authority.
+Ordinary current-user-owned settings accept primary-group-writable synchronized
+0664 files; world-write, foreign-group write, wrong ownership and extra links
+remain rejected. Private state and writer locks stay strict 0700/0600. This
+RecordPrep-specific leaf permission policy intentionally differs from the sibling
+vendored model stores; retain it when refreshing shared code. Never chmod real
+synchronized settings as a workaround. Validate with
+`tests/test_model_settings_permissions.py` and the actual CLI contract suite.
+Use synthetic source/HOME/state only; see SkillsMenu's package protocol-v1 reference.
+
 ## Settings interaction contract
 Model and Profile settings have separate persistence boundaries. Use expandable homes and retained full-width rounded editors, not permanent sidebars. Save all draft pages without closing or changing destination; only successful persistence advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Reopening presents the application-owned draft. Retain topic IDs, buffers/undo/selection/viewport and guarded revision/default publication. Details and validation: `docs/unified-settings-validation.md`.
 

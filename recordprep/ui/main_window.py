@@ -1759,8 +1759,8 @@ def _read_config() -> dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {}
     try:
-        raw = CONFIG_FILE.read_text(encoding="utf-8")
-        data = json.loads(raw)
+        from .._model_store import read_ordinary
+        data = read_ordinary(CONFIG_FILE)
         if isinstance(data, dict):
             cleaned = {
                 key: value for key, value in data.items()
@@ -1785,21 +1785,11 @@ def _write_config(config: dict[str, Any], *, preserve_obsolete: bool = False, ra
     # leave a truncated config.json whose next read would look like an empty
     # settings store.
     try:
-        if config_dir() is not None:
-            atomic_private_json(CONFIG_FILE, serializable)
-            return
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        temp = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.{os.getpid()}.tmp")
-        try:
-            with temp.open("w", encoding="utf-8") as handle:
-                handle.write(json.dumps(serializable, indent=2))
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp, CONFIG_FILE)
-        finally:
-            temp.unlink(missing_ok=True)
-    except OSError:
-        if raise_errors:
+        from .._model_store import save_ordinary
+        save_ordinary(CONFIG_FILE, serializable)
+    except OSError as exc:
+        from .._model_store import Failure
+        if raise_errors or isinstance(exc, Failure):
             raise
 
 

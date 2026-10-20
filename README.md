@@ -1,5 +1,11 @@
 # RecordPrep
 
+Model maintenance: `recordprep model-settings --stdin` supports Skills Menu's
+**Maintenance → Replace Workhorse Model** without GUI, OCR or pipeline startup.
+Normal synchronized settings permissions (`0664`, owned by you in your primary
+group) are supported without manual chmod; private recovery state remains protected.
+See the [app-owned protocol and safety boundary](../SkillsMenu/.pi/skills/replace-workhorse-model/references/protocol-v1.md).
+
 Model and Profile settings save separately and stay open after Save.
 [Settings guide and validation](docs/unified-settings-validation.md).
 

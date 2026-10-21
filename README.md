@@ -1,7 +1,5 @@
 # RecordPrep
 
-[Settings guide and validation](docs/unified-settings-validation.md).
-
 <img src="recordprep_icon.svg" alt="RecordPrep icon" width="96" align="right">
 
 A Linux desktop app for preparing court-record PDFs for

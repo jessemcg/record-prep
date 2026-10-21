@@ -27,6 +27,16 @@ information, with explanations that are short and to the point. Put detailed
 technical explanations, implementation notes and validation reports in `docs/`,
 not the README.
 
+## Pi inheritance
+
+Ship no personal `.pi/settings.json` or model/reasoning/general Pi seeds. Missing
+preferences work in checkout and standalone modes and stay absent until an explicit
+model/effort save; unrelated saves never create them. Keep guarded reads/writes and
+the RecordPrep-specific permission policy above. Required `/skill:` expansion is
+enabled only in the private stage workspace, not in persistent settings. See
+`docs/pi-inheritance-validation.md` and the older-checkout preservation warning in
+`docs/source-install.md`. Do not migrate or rewrite private preferences/artifacts.
+
 ## Public installation boundary
 
 See `docs/source-install.md`. Finish RecordPrep, persist the completed receipt and

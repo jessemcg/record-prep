@@ -336,11 +336,9 @@ class PiResourceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("sequential PI resources are valid", result.stdout)
 
-    def test_project_has_only_settings_skills_runner_and_auto_exit(self) -> None:
-        settings = json.loads((PI_DIR / "settings.json").read_text(encoding="utf-8"))
-        self.assertTrue(settings["defaultProvider"])
-        self.assertTrue(settings["defaultModel"])
-        self.assertTrue(settings["enableSkillCommands"])
+    def test_project_ships_resources_not_personal_settings(self) -> None:
+        tracked = subprocess.check_output(["git", "ls-files", ".pi/settings.json"], cwd=PROJECT_DIR)
+        self.assertEqual(tracked.strip(), b"")
         system_prompt = (PI_DIR / "SYSTEM.md").read_text(encoding="utf-8")
         self.assertIn("appellate-record organization", system_prompt)
         self.assertIn("not a coding assistant", system_prompt)

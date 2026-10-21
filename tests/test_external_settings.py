@@ -87,13 +87,13 @@ class ExternalSettingsTests(unittest.TestCase):
         # The independent legacy staging API preserves exact bytes, not just JSON.
         self.project.joinpath('settings.json').write_bytes(original[self.project / 'settings.json'][0])
         staged = self.root / 'staged.json'; paths.stage_pi_settings(self.project, staged)
-        self.assertEqual(staged.read_bytes(), original[self.project / 'settings.json'][0])
+        self.assertEqual(json.loads(staged.read_text()), dict(json.loads(original[self.project / 'settings.json'][0]), enableSkillCommands=True))
 
-    def test_missing_public_defaults_atomic_saves_and_no_source_mutation(self):
+    def test_missing_public_preferences_stay_empty_until_explicit_save(self):
         before = (self.project / 'settings.json').read_bytes()
         with patch.dict(os.environ, RECORDPREP_CONFIG_DIR=str(self.external)):
-            self.assertEqual(paths.effective_pi_settings(self.project), paths.DEFAULT_PUBLIC_PI_SETTINGS)
-            self.assertIsNone(pi.current_project_pi_model()); self.assertEqual(pi.current_project_pi_thinking_level(), 'high')
+            self.assertEqual(paths.effective_pi_settings(self.project), {})
+            self.assertIsNone(pi.current_project_pi_model()); self.assertIsNone(pi.current_project_pi_thinking_level())
             self.assertFalse((self.external / 'pi/settings.json').exists())
             pi.save_project_pi_model(pi.PiModel('synthetic', 'chosen', 'Chosen'))
             pi.save_project_pi_thinking_level('low')
@@ -127,7 +127,7 @@ class ExternalSettingsTests(unittest.TestCase):
             def query(command, request, **kw):
                 cwd = kw['cwd']; seen.append(cwd)
                 self.assertNotEqual(cwd, ROOT)
-                self.assertEqual(json.loads((cwd / '.pi/settings.json').read_text()), paths.DEFAULT_PUBLIC_PI_SETTINGS)
+                self.assertEqual(json.loads((cwd / '.pi/settings.json').read_text()), {})
                 return {'success': True, 'data': {'models': []}}
             with patch.object(pi, '_query_pi_rpc', query): self.assertEqual(pi.available_pi_models(['synthetic']), [])
             self.assertFalse(seen[0].exists())

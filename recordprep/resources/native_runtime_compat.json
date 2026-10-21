@@ -1,8 +1,13 @@
 {
   "participants": {
-    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes historical boundary prerequisites and adds downstream validation mode; participant prompts, evidence validation and consumed-input hashing unchanged (see docs/application-profiles.md)",
-    "stage_code_sha256": "e007007e81c9f9da8d792a0ec580b1fd85a18d284acb91e3777d208f281dc069",
+    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes historical boundary prerequisites and adds downstream validation mode; participant prompts, evidence validation and consumed-input hashing unchanged; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
+    "stage_code_sha256": "675abd27aec9aba67b9f7b9c49a3ebf176769bcfdba6ff3c4adba21e1e3dd426",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "e007007e81c9f9da8d792a0ec580b1fd85a18d284acb91e3777d208f281dc069"
+      },
       {
         "contract": 2,
         "stage": "participants",
@@ -42,9 +47,14 @@
     ]
   },
   "overview": {
-    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes upstream historical freshness prerequisites; overview prompts unchanged, actual source-text input hashes still required, historical summary metadata no longer consumed (see docs/application-profiles.md)",
-    "stage_code_sha256": "5af1165aee47f2c29bfccc8bf2c3cc38c22e5dd01988f706fee76547055ecc92",
+    "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes upstream historical freshness prerequisites; overview prompts unchanged, actual source-text input hashes still required, historical summary metadata no longer consumed; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
+    "stage_code_sha256": "60ca803cf2d915411a4cac0fed419a787d8c43caf2fc26ab65eb446cb54c92b0",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "5af1165aee47f2c29bfccc8bf2c3cc38c22e5dd01988f706fee76547055ecc92"
+      },
       {
         "contract": 2,
         "stage": "overview",

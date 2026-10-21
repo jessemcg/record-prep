@@ -8,14 +8,13 @@ import shutil
 import subprocess
 import time
 import tempfile
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
 
 from .paths import (SOURCE_ROOT, resource_root, pi_settings_path, config_dir,
-                    DEFAULT_PUBLIC_PI_SETTINGS, atomic_private_json, stage_pi_settings)
+                    stage_pi_settings)
 
 PROJECT_DIR = SOURCE_ROOT
 PROJECT_PI_DIR = resource_root()
@@ -184,7 +183,7 @@ def _pi_rpc_response(command: list[str], request: dict[str, Any], *, timeout: fl
     if config_dir() is not None:
         with tempfile.TemporaryDirectory(prefix="recordprep-models-") as temporary:
             workspace = Path(temporary)
-            stage_pi_settings(PROJECT_PI_DIR, workspace / ".pi/settings.json")
+            stage_pi_settings(PROJECT_PI_DIR, workspace / ".pi/settings.json", skill_commands=False)
             return _query_pi_rpc(command, request, timeout=timeout, cwd=workspace)
     return _query_pi_rpc(command, request, timeout=timeout, cwd=PROJECT_DIR)
 
@@ -349,10 +348,8 @@ def _read_pi_settings(path: Path) -> dict[str, Any]:
     try:
         from ._model_store import read_ordinary
         raw = read_ordinary(path)
-    except FileNotFoundError as exc:
-        if config_dir() is not None and path == pi_settings_path():
-            return dict(DEFAULT_PUBLIC_PI_SETTINGS)
-        raise PiSettingsError(f"PI project settings not found: {path}") from exc
+    except FileNotFoundError:
+        return {}
     except (OSError, json.JSONDecodeError) as exc:
         raise PiSettingsError(f"Unable to read PI project settings: {exc}") from exc
     if not isinstance(raw, dict):
@@ -500,16 +497,10 @@ def resolve_stage_model_identity(
 
     project_provider = ""
     project_model = ""
-    try:
-        resolved = current_project_pi_model(project_settings_path)
-        if resolved is not None:
-            project_provider, project_model = resolved
-    except PiSettingsError:
-        project_provider, project_model = "", ""
-    try:
-        project_thinking = current_project_pi_thinking_level(project_settings_path) or ""
-    except PiSettingsError:
-        project_thinking = ""
+    resolved = current_project_pi_model(project_settings_path)
+    if resolved is not None:
+        project_provider, project_model = resolved
+    project_thinking = current_project_pi_thinking_level(project_settings_path) or ""
 
     return PiModelIdentity(
         provider=override_provider or project_provider,

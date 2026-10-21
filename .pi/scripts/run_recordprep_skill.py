@@ -194,11 +194,9 @@ def _resource_issues(project_dir: Path) -> list[str]:
         system_prompt = ""
     if not system_prompt.strip():
         issues.append("SYSTEM.md is missing or empty.")
-    from recordprep.paths import effective_pi_settings, pi_settings_path, config_dir
+    from recordprep.paths import effective_pi_settings
     try:
         effective_pi_settings(project_dir)
-        if config_dir() is None and not pi_settings_path(project_dir).is_file():
-            issues.append("settings.json is missing.")
     except (OSError, ValueError) as exc:
         issues.append(f"PI preferences are invalid: {type(exc).__name__}.")
     for stage in STAGES.values():

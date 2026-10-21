@@ -2230,7 +2230,7 @@ raise SystemExit(3)
         source_pi = PROJECT_DIR / ".pi"
         shutil_pi = project / ".pi"
         shutil_pi.mkdir()
-        for name in ("settings.json", "SYSTEM.md"):
+        for name in ("SYSTEM.md",):
             (shutil_pi / name).write_text(
                 (source_pi / name).read_text(encoding="utf-8"), encoding="utf-8"
             )

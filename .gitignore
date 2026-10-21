@@ -6,6 +6,7 @@ __pycache__/
 .venv
 
 # App config and prompts
+/.pi/settings.json
 config.json
 config_copy.json
 prompts/

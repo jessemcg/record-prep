@@ -62,7 +62,7 @@ class SharedPiSelectionTests(unittest.TestCase):
                                          ('synthetic', 'accounts/models/shared', 'high'))
                         workspace, staged, staged_skill = runner._staged_workspace(project, skill, base)
                         try:
-                            self.assertEqual(json.loads((staged / 'settings.json').read_text()), shared)
+                            self.assertEqual(json.loads((staged / 'settings.json').read_text()), dict(shared, enableSkillCommands=True))
                             command = runner._base_child_command(['fake-pi'], staged, staged_skill, 'fake-tools', 'synthetic', settings, phase)
                             for flag in ('--provider', '--model', '--thinking'):
                                 self.assertNotIn(flag, command)

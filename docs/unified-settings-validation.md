@@ -1,5 +1,9 @@
 # Unified Model and Profile settings — 2026-10-19
 
+Pi inheritance follow-up (2026-10-21): see [validation](pi-inheritance-validation.md)
+for missing checkout/external preferences and current isolated native Model settings
+acceptance. Historical Profile settings evidence below is unchanged.
+
 ## Summaries inline-editor follow-up — 2026-10-19
 
 The latest follow-up supersedes the older third-level topic-editor and bounded

@@ -3501,6 +3501,9 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
             options.append(unavailable)
             labels.append(f"{unavailable.label} (currently configured; unavailable)")
+        if current is None:
+            options.append(None)
+            labels.append("Use Pi default (inherited)")
         options.extend(models)
         labels.extend(model.label for model in models)
         if not options:
@@ -3526,7 +3529,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._pi_model_row.set_sensitive(bool(models))
         if selected_model is None:
             self._pi_model_row.set_subtitle(
-                "Authorize a provider in PI, then refresh this list."
+                "Inherit Pi's current model. Install Pi, use /login and select an available model if unconfigured."
             )
         else:
             self._update_pi_model_subtitle()
@@ -3702,13 +3705,14 @@ class SettingsWindow(Adw.ApplicationWindow):
                 if 0 <= thinking_index < len(PI_THINKING_LEVEL_OPTIONS)
                 else None
             )
-            try:
-                save_project_pi_thinking_level(thinking_level)
-            except PiSettingsError as exc:
-                agent_widgets.pi_thinking_level_row.set_subtitle(str(exc))
-                self._select_settings_page("pi")
-                return
-            self._original_pi_thinking_level = thinking_level
+            if thinking_level != self._original_pi_thinking_level:
+                try:
+                    save_project_pi_thinking_level(thinking_level)
+                except PiSettingsError as exc:
+                    agent_widgets.pi_thinking_level_row.set_subtitle(str(exc))
+                    self._select_settings_page("pi")
+                    return
+                self._original_pi_thinking_level = thinking_level
             save_pi_agent_command_setting(pi_command)
         if self._on_saved:
             self._on_saved()

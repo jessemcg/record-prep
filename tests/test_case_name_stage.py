@@ -160,7 +160,8 @@ class CaseNameStageTests(unittest.TestCase):
             self.assertNotIn("--model", command)
             self.assertNotIn("--provider", command)
             self.assertNotIn("--thinking", command)
-            self.assertEqual((Path(cwd) / ".pi/settings.json").read_bytes(), (self.project / "settings.json").read_bytes())
+            self.assertEqual(json.loads((Path(cwd) / ".pi/settings.json").read_text()),
+                             dict(json.loads((self.project / "settings.json").read_text()), enableSkillCommands=True))
             access = json.loads(Path(env["RECORDPREP_CASE_NAME_ACCESS_SPEC"]).read_text())
             Path(access["candidate"]).write_text("Smith_v._Jones")
             return SimpleNamespace(pid=os.getpid(), wait=lambda **kwargs: 0)

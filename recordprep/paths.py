@@ -8,14 +8,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
-# Application policy, not a copy of a developer's provider/model preferences.
-DEFAULT_PUBLIC_PI_SETTINGS = {"enableSkillCommands": True, "defaultThinkingLevel": "high"}
 
 
 def config_dir() -> Path | None:
@@ -55,8 +52,12 @@ def read_json_object(path: Path, *, missing: dict | None = None) -> dict[str, An
 
 
 def effective_pi_settings(project_dir: Path | None = None) -> dict[str, Any]:
-    return read_json_object(pi_settings_path(project_dir),
-                            missing=DEFAULT_PUBLIC_PI_SETTINGS if config_dir() is not None else {})
+    # Missing app preferences mean Pi's own global/default policy applies.
+    from ._model_store import read_ordinary
+    try:
+        return read_ordinary(pi_settings_path(project_dir))
+    except FileNotFoundError:
+        return {}
 
 
 def atomic_private_json(path: Path, data: dict) -> None:
@@ -74,13 +75,14 @@ def atomic_private_json(path: Path, data: dict) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def stage_pi_settings(project_dir: Path, destination: Path) -> None:
+def stage_pi_settings(project_dir: Path, destination: Path, *, skill_commands: bool = True) -> None:
+    # Validate through the ordinary model store (including RecordPrep's synchronized
+    # file permission policy). Missing preferences are not a persistent seed.
     settings = effective_pi_settings(project_dir)
-    if config_dir() is None:
-        # Preserve the established exact legacy staging behavior, including bytes.
-        shutil.copy2(pi_settings_path(project_dir), destination)
-    else:
-        atomic_private_json(destination, settings)
+    if skill_commands:
+        # Required by /skill: launches, only in the private app-owned workspace.
+        settings = dict(settings, enableSkillCommands=True)
+    atomic_private_json(destination, settings)
 
 
 def startup_log_path() -> Path:

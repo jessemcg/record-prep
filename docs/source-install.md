@@ -120,8 +120,18 @@ Public commands/helpers set absolute `RECORDPREP_CONFIG_DIR`; that selection is
 authoritative and does not merge checkout-local personal settings. Without it,
 existing checkout `config.json` and `.pi/settings.json` remain supported, including
 explicit test/staging roots. Startup never migrates, overwrites or deletes them.
-Missing public Pi preferences use app-owned policy defaults in memory, with no
-hardcoded provider/model. Explicit Model settings saves create private atomic files;
+Missing Pi preferences in either mode mean no app override: inherit live user Pi
+settings/native behavior, with no shipped model, reasoning or general preferences.
+Startup, reads, refresh and unrelated saves never create Pi preferences. Explicit
+model-only saves do not add reasoning. Existing standalone XDG preferences are
+unaffected. Before updating an older Git checkout, preserve any personal selection
+from the formerly tracked `.pi/settings.json` outside the checkout, then restore it
+to that ignored path if desired. Git removal can delete a downstream checkout's
+unmodified tracked file; it does not automatically preserve every user's copy.
+No automatic settings migration or reset is performed.
+Private workflow workspaces enable skill commands for required `/skill:` expansion;
+this is a workflow requirement, not a persistent preference default.
+Explicit Model settings saves create private atomic files;
 malformed existing settings are not silently repaired/replaced. Public startup logs
 live in private XDG state, not the legacy shared `/tmp/recordprep_startup.log`.
 

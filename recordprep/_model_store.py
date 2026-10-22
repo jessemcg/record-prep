@@ -97,6 +97,16 @@ def private_dir(path):
         if m.st_uid != os.getuid() or m.st_mode & 0o077: fail('unsafe_state_directory')
     finally: os.close(fd)
 
+def settings_lock_path(path):
+    """Stable per-path locks belong to this machine, never beside synced settings.
+
+    All RecordPrep writers must use the same XDG_STATE_HOME. Settings paths are
+    already absolute and symlink-free (Store/directory); do not resolve symlinks
+    here or key locks by the replaceable settings inode.
+    """
+    root = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')
+    return root/'recordprep/settings-locks'/(digest(os.fsencode(path))+'.lock')
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
@@ -152,16 +162,23 @@ class Store:
     @contextlib.contextmanager
     def lock(self):
         self.check()
-        fd = self.open('.'+self.path.name+'.writer.lock', os.O_RDWR | os.O_CREAT)
-        try:
-            m=os.fstat(fd)
-            if not stat.S_ISREG(m.st_mode) or m.st_uid!=os.getuid() or m.st_nlink!=1 or m.st_mode & 0o077: fail('unsafe_settings_lock')
-            try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError: fail('settings_busy')
-            self.check()
-            yield self
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
+        lockpath = settings_lock_path(self.path)
+        private_dir(lockpath.parent)
+        with Store(lockpath) as locks:
+            fd = locks.open(lockpath.name, os.O_RDWR | os.O_CREAT)
+            try:
+                m=os.fstat(fd)
+                if not stat.S_ISREG(m.st_mode) or m.st_uid!=os.getuid() or m.st_nlink!=1 or m.st_mode & 0o077: fail('unsafe_settings_lock')
+                try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError: fail('settings_busy')
+                locks.check()
+                current = os.stat(lockpath.name, dir_fd=locks.fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (m.st_dev, m.st_ino):
+                    fail('unsafe_settings_lock')
+                self.check()
+                yield self
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
     def revision(self):
         try: return self.read()['revision']
         except FileNotFoundError: return 'missing'

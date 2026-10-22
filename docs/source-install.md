@@ -135,6 +135,17 @@ Explicit Model settings saves create private atomic files;
 malformed existing settings are not silently repaired/replaced. Public startup logs
 live in private XDG state, not the legacy shared `/tmp/recordprep_startup.log`.
 
+Settings saves use private, machine-local locks in
+`$XDG_STATE_HOME/recordprep/settings-locks` (default
+`~/.local/state/recordprep/settings-locks`), for both GUI and model-maintenance
+commands. Keep XDG state outside synchronized folders and use the same state
+location for all RecordPrep processes. Settings themselves may remain synchronized.
+Close all RecordPrep processes before updating from versions with adjacent
+`.writer.lock` files, then relaunch; old adjacent locks are ignored and left
+untouched. Do not delete active local lock files. Locking coordinates this computer
+only: shared settings still require single-writer use and completed synchronization
+before switching computers. No settings or case-file migration is required.
+
 `RECORDPREP_PI_PROJECT_DIR` selects **tracked resources**, not a settings-only directory.
 Prompts, skills, extensions and runner stay under the installed checkout's `.pi/`.
 The selected effective preferences are privately staged beside those resources for

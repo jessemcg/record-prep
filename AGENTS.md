@@ -10,7 +10,14 @@ stale-store failures even without `raise_errors`; failed drafts never become sav
 baselines. Reconcile/Retain are receipt-only, not later-edit rollback authority.
 Ordinary current-user-owned settings accept primary-group-writable synchronized
 0664 files; world-write, foreign-group write, wrong ownership and extra links
-remain rejected. Private state and writer locks stay strict 0700/0600. This
+remain rejected. Private state and writer locks stay strict 0700/0600.
+Settings writer locks live under local `$XDG_STATE_HOME/recordprep/settings-locks`
+(default `~/.local/state`), keyed by the absolute settings path, never beside
+synchronized settings. All GUI/CLI writers share this Store lock. Keep lock files
+stable; never delete them during normal cleanup. Old adjacent writer locks are
+ignored, not migrated or chmodded. Close all RecordPrep processes before upgrading
+from adjacent locks. XDG state must be machine-local and identical for cooperating
+processes; cross-computer use still requires single-writer synchronization. This
 RecordPrep-specific leaf permission policy intentionally differs from the sibling
 vendored model stores; retain it when refreshing shared code. Never chmod real
 synchronized settings as a workaround. Validate with

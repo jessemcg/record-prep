@@ -114,7 +114,15 @@ files are absent. Profile/model changes, source timestamps, metadata versions an
 freshness do not change these visual completion badges. Steps that modify the
 same files (such as Build/Correct TOC) share that output-presence indication.
 Existing clerk-only participant skipping remains separate because that step is
-not applicable. Resume skips existing outputs too. Consumers still validate actual
+not applicable. **Process text files** requires its own completion receipt,
+`artifacts/text_processing.complete`, as well as text files: raw extraction alone
+never proves processing ran. The receipt is published atomically only after every
+page and the transcript-layout refresh succeed. Stop/failure after processing
+starts leaves it pending; filling missing source pages clears an earlier receipt.
+It travels with the synchronized bundle, without model/settings freshness checks.
+Older bundles without this receipt show processing as pending and Resume runs it;
+no receipt is inferred from downstream files or historical pipeline status.
+Resume skips existing outputs too. Consumers still validate actual
 required files/ranges; explicit generation protects checkpoints and in-flight inputs.
 
 **Run through** applies to **Run**, **Resume**, and a step's **Run from here**.

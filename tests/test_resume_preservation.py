@@ -57,6 +57,8 @@ class ResumePreservationTests(unittest.TestCase):
         self.assertFalse(self.owner._bundle_reset_required)
 
     def test_create_files_never_resets_existing_work_on_any_entry_path(self):
+        from recordprep.text_processing_completion import publish
+        publish(self.root)
         for reset, changed in ((True, False), (False, True), (False, False)):
             with self.subTest(reset=reset, changed=changed):
                 self.owner._bundle_reset_required = reset
@@ -72,6 +74,25 @@ class ResumePreservationTests(unittest.TestCase):
                 self.assertEqual(ok, not (reset or changed))
                 for mock in (erase, merge, manifest, text, images): mock.assert_not_called()
                 self.assertEqual(self.snapshot(), before)
+
+    def test_source_refill_invalidates_processing_receipt_before_extraction(self):
+        from recordprep.text_processing_completion import RECEIPT, publish
+        publish(self.root)
+        self.owner._has_layout_dependent_work = lambda root: False
+        self.owner._step_artifact_complete = lambda *args: False
+
+        def check_receipt_then_stop(*args):
+            self.assertFalse((self.root / RECEIPT).exists())
+            raise ui.StopRequested()
+
+        with patch.object(ui, '_bundle_inputs_changed', return_value=False), \
+             patch.object(ui, '_write_manifest'), \
+             patch.object(ui, 'load_text_source_setting', return_value='embedded'), \
+             patch.object(ui, '_generate_text_files', side_effect=check_receipt_then_stop) as extract, \
+             patch.object(ui.GLib, 'idle_add', side_effect=lambda fn, *args: fn(*args)):
+            self.assertFalse(ui.RecordPrepWindow._run_step_one(self.owner))
+        extract.assert_called_once()
+        self.assertFalse((self.root / RECEIPT).exists())
 
     def test_resume_rejects_reset_or_missing_sources_before_work_starts(self):
         self.owner._pipeline_steps = lambda: [('create_files', Mock(), Mock()), ('build_participant_index', Mock(), Mock())]

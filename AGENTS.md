@@ -323,6 +323,12 @@ invalidations, plus unchanged bytes/mtime when accepting an old supported artifa
 
 ## Completion badges
 
+Process text files is an in-place stage: raw `text_pages` presence is not its
+output proof. Require `artifacts/text_processing.complete` plus text presence for
+badges and Resume. Publish the receipt atomically only after all processing and
+layout rebind succeed; invalidate before processing mutations or source refill.
+Legacy bundles without a receipt remain pending, with no inferred/migrated marker.
+
 Visual checkmarks are output-presence only (`output_presence.step_outputs_present`),
 not current-generation freshness. Do not make existing output Pending for changed
 models, profiles, timestamps, schema versions or metadata; do not add a stale-settings

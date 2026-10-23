@@ -11,7 +11,7 @@ from recordprep.ui.main_window import PIPELINE_PHASES, RecordPrepWindow
 
 OUTPUTS = {
     'create_files': ['text_pages/0001.txt', 'image_pages/0001.png'],
-    'strip_characters': ['text_pages/0001.txt'],
+    'strip_characters': ['artifacts/text_processing.complete', 'text_pages/0001.txt'],
     'detect_transcript_layout': ['artifacts/transcript_layout.json'],
     'infer_case': ['case_name.txt'],
     'classify_basic': ['classification/RT_basic.jsonl'],

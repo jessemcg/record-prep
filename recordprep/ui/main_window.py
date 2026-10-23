@@ -4781,7 +4781,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id == "detect_transcript_layout":
             return read_resolved_layout(root_dir) is not None
         if step_id == "strip_characters":
-            return _dir_has_files(text_dir, "*.txt")
+            from recordprep.output_presence import step_outputs_present
+            return step_outputs_present(step_id, root_dir)
         if step_id == "infer_case":
             from recordprep.case_name_stage import is_current
             return is_current(root_dir, PI_PROJECT_DIR)
@@ -6261,6 +6262,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 success = True
                 return True
             root_dir, text_dir, image_pages_dir = _ensure_case_bundle_dirs(base_dir)
+            # Filling missing source pages invalidates an earlier processing pass.
+            if not self._step_artifact_complete("create_files", root_dir, self.selected_pdfs):
+                from recordprep.text_processing_completion import invalidate
+                invalidate(root_dir)
             # Profiles are application settings; never pin instructions in a bundle.
             self._pending_preparation_profile = None
             if len(self.selected_pdfs) > 1:
@@ -6369,6 +6374,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         def _rebind_after_writes() -> None:
             if guard is not None and rewritten_sizes:
                 finalize_layout_rebind(guard, rewritten_sizes)
+                rewritten_sizes.clear()
 
         try:
             self._raise_if_stop_requested()
@@ -6390,6 +6396,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             except TranscriptLayoutError as exc:
                 raise ValueError(str(exc)) from exc
+            from recordprep.text_processing_completion import invalidate, publish
+            # A stopped/failed explicit rerun must not retain an old success receipt.
+            invalidate(root_dir)
             for text_path in text_files:
                 self._raise_if_stop_requested()
                 content = text_path.read_text(encoding="utf-8", errors="ignore")
@@ -6412,6 +6421,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         if text_path.is_file():
                             rewritten_sizes[text_path.name] = text_path.stat().st_size
             _rebind_after_writes()
+            self._raise_if_stop_requested()
+            publish(root_dir)
         except StopRequested:
             try:
                 _rebind_after_writes()

@@ -7,6 +7,8 @@ source pages from destructive replacement beneath already-prepared work.
 """
 from pathlib import Path
 
+from recordprep.text_processing_completion import RECEIPT
+
 
 _FILES = {
     "detect_transcript_layout": ("artifacts/transcript_layout.json",),
@@ -44,7 +46,7 @@ def step_outputs_present(step_id: str, root: Path) -> bool:
         if step_id == "create_files":
             return _has_file(root / "text_pages", "*.txt") and _has_file(root / "image_pages", "*.png")
         if step_id == "strip_characters":
-            return _has_file(root / "text_pages", "*.txt")
+            return (root / RECEIPT).is_file() and _has_file(root / "text_pages", "*.txt")
         if step_id in _FILES:
             return all((root / name).is_file() for name in _FILES[step_id])
         if step_id in _CLASSIFICATION:

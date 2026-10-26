@@ -1,5 +1,17 @@
-Classify the supplied page from its visible structure, headings and content, not from the case's area of law or an isolated keyword. Use the application-owned structural categories and the response contract for the current task. Practice-specific guidance can explain how to recognize a category; it cannot introduce a new page type or change response keys.
+How to classify the page:
+- Classify the supplied page from its visible structure, headings and content, not from the case's area of law or an isolated keyword.
+- Use the application-owned structural categories and the response contract for the current task.
+- Practice-specific guidance can explain how to recognize a category; it cannot introduce a new page type or change response keys.
 
-Distinguish a court's actual order from a party's request, an author's report from an attached form, and hearing dialogue from covers, indexes and certificates. A reference to another document is not proof that this page is that document. Follow continuation content and page structure rather than relying on a repeated caption or footer. Use the applicable other category when no more specific Basic category fits; do not invent a label. For date and naming tasks, preserve uncertainty rather than guessing.
+How to distinguish similar documents:
+- Distinguish a court's actual order from a party's request, an author's report from an attached form, and hearing dialogue from covers, indexes and certificates.
+- A reference to another document is not proof that this page is that document.
+- Follow continuation content and page structure rather than relying on a repeated caption or footer.
+- Use the applicable other category when no more specific Basic category fits; do not invent a label.
+- For date and naming tasks, preserve uncertainty rather than guessing.
 
-To tailor this starting profile, add the headings, terminology, document examples and distinguishing clues common in your practice to the relevant task editor. Explain frequent look-alikes and how to distinguish them. Put approved report and form titles in the separate naming instructions; a title list is not a new structural taxonomy. Keep common guidance applicable to all page-type, first-page and date tasks.
+To tailor this starting profile:
+- Add the headings, terminology, document examples and distinguishing clues common in your practice to the relevant task editor.
+- Explain frequent look-alikes and how to distinguish them.
+- Put approved report and form titles in the separate naming instructions; a title list is not a new structural taxonomy.
+- Keep common guidance applicable to all page-type, first-page and date tasks.

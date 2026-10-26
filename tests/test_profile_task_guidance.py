@@ -49,6 +49,25 @@ class TaskGuidanceTests(unittest.TestCase):
             # Instructions describe how to add names, without preapproving examples.
             self.assertEqual(compiled.normalize({"name": "Invented title", "date": ""}).name, "")
 
+    def test_general_guidance_has_readable_sections_without_example_names(self):
+        from recordprep.document_naming import compile_naming_profile
+        common = self.base.resource("classification")
+        self.assertIn("How to classify the page:\n- ", common)
+        for text in self.base.resource("classification_tasks").values():
+            self.assertIn("\n\nHow to decide", text)
+            self.assertIn("\n\nTo tailor this task:\n- ", text)
+        naming = self.base.resource("naming")
+        for kind in ("report", "form"):
+            text = naming[kind + "_guidance"]
+            self.assertTrue(text.startswith("Approved " + kind + " names"))
+            self.assertIn("\n\nHow to decide", text)
+            self.assertIn("\n\nTask and response:\n- ", text)
+            # Formatting bullets must not accidentally become approved names.
+            self.assertNotIn("\n- **", text)
+            self.assertEqual(compile_naming_profile(self.base, kind).normalize(
+                {"name": "Name", "date": ""}).name, "")
+        self.assertNotIn("provisional labels", naming["report_guidance"])
+
     def test_guidance_warning_does_not_reject_or_rewrite_profile(self):
         from recordprep.profile_contract import classification_guidance_warning
         editor = ProfileEditor(self.base)

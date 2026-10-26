@@ -5,7 +5,7 @@
   "application": "recordprep",
   "display_name": "General Court Record",
   "description": "Practice-neutral preparation with structural classification guidance ready to tailor to your field.",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "required_capabilities": [
     "preparation-v1"
   ],

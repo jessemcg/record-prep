@@ -99,12 +99,19 @@ and negations can intentionally mention other labels, and prose-only contradicti
 may go undetected. Warnings do not block Save, rewrite guidance, reject historical
 profiles or loosen runtime validation. Review a warning before running a case.
 
-General Court Record 1.5.0 provides a practice-neutral starting point: definitions
+General Court Record 1.5.1 provides a practice-neutral starting point: definitions
 of every Basic category, start/continuation clues, competing-date guidance and
 instructions for adding your practice's headings, terminology and examples. Add
 approved report/form names in the separate naming editors; General deliberately
 ships without a specialty-specific title list. Dependency's bundled and private
-instructions are untouched. Existing personal profiles and accepted case revisions
+instructions are untouched. General's common classification, task and naming
+instructions use plain section headings, separate bullets and blank-line spacing,
+matching Dependency's naming-editor style without importing specialty rules. Create
+a new profile from General to use this baseline (for example, name your draft
+California Criminal Law, then supply your own criminal-practice guidance and approved
+names). No criminal-law rules or approved titles are supplied by the formatting update.
+The report-naming help also reflects the existing unnamed-report omission policy,
+not the retired provisional-label behavior. Existing personal profiles and accepted case revisions
 are never automatically replaced by these new General resources.
 
 Summaries shows one pinned **Topic-guided agentic summarization** explainer above

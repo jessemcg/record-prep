@@ -11,6 +11,9 @@ config.json
 config_copy.json
 prompts/
 
+# Legacy adjacent settings writer locks (machine-local, never tracked or deleted)
+*.writer.lock
+
 # Local assets and reference scripts
 .codex
 CreateMinOutlineFromTOC.sh

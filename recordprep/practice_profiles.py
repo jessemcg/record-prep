@@ -13,9 +13,13 @@ from .profile_contract import (
 from .profile_store import ProfileStore
 
 APPLICATION = "recordprep"
-BUNDLED_PROFILES = ("general", "california_dependency")
+BUNDLED_PROFILES = ("california_dependency",)
+DEFAULT_PROFILE_ID = "california-juvenile-dependency"
+# Retired identities remain readable, but never appear as choices or bases.
+RETIRED_PROFILE_IDS = frozenset({"general-court-record"})
 # Reviewed, exact prior bundled snapshots; ordinary acceptance is not ownership.
 KNOWN_BASELINES = (
+    "8b451694685162200a99c342c501b770fba61c976721322bec2c416a13f366d8",
     "32da44dd71053b9abef31cf991550bf28803ec05b90e27fcc8b37c54e37dee51",
     "a215bd81feb4aacf6aa1bbc16e30fb952e52fa5028a141afa0cfb2530be168ef",
     "1de6857de38358bcbd6d204f70f4e6457e2bfa943a71304e41a1ed9877bda24b",
@@ -41,10 +45,15 @@ def profile_catalog(*, store=None, customization=None):
             raise ProfileError("invalid_bundled_profile", "profiles")
         bundled.append(snapshot)
     return current_catalog(store or profile_store(), bundled, known_baselines=KNOWN_BASELINES,
-                           customization=initial_candidate if customization is None else customization)
+                           customization=initial_candidate if customization is None else customization,
+                           excluded_identities=RETIRED_PROFILE_IDS)
 
 
 def bundled_profile_directory(name: str) -> Path:
+    # Compatibility-only lookup for old minute defaults, schema-1 editing and
+    # historical fixtures. This archive is not part of the selectable catalog.
+    if name == "general":
+        return Path(__file__).resolve().parent / "resources" / "legacy_practice_profiles" / name
     if name not in BUNDLED_PROFILES:
         raise ProfileError("unknown_bundled_profile", "profile")
     return Path(__file__).resolve().parent / "resources" / "practice_profiles" / name
@@ -76,10 +85,12 @@ def default_profile_candidate(*, store: ProfileStore | None = None) -> ProfileSn
     if store.application != APPLICATION:
         raise ProfileError("wrong_application", "default")
     registry = store.read_registry()
-    if registry["default"] is not None:
+    if registry["default"] is not None and registry["default"]["specialty_id"] not in RETIRED_PROFILE_IDS:
         return store.load_profile_snapshot(ProfileRef.from_dict(registry["default"]))
+    # A retired selection falls back in memory only. Never rewrite the registry
+    # or its immutable snapshots merely by opening the application.
     return next(candidate.snapshot for candidate in profile_catalog(store=store, customization=lambda _base: None)
-                if candidate.snapshot.ref.specialty_id == "general-court-record")
+                if candidate.snapshot.ref.specialty_id == DEFAULT_PROFILE_ID)
 
 
 def accept_new_context_default(*, store: ProfileStore | None = None) -> ProfileRef:

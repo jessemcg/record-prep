@@ -30,7 +30,7 @@ class ProfileCandidate:
     notice: str = ""
 
 
-def current_catalog(store, bundled, *, known_baselines=(), customization=None):
+def current_catalog(store, bundled, *, known_baselines=(), customization=None, excluded_identities=()):
     """Read-only: one current entry per identity, no revision discovery in UI.
 
     Exact known bundled bytes distinguish old ordinary acceptance from personal
@@ -57,7 +57,7 @@ def current_catalog(store, bundled, *, known_baselines=(), customization=None):
         result.append(ProfileCandidate(snapshot, personal, notice))
         seen.add(identity)
     for identity, head in registry["heads"].items():
-        if identity not in seen and identity not in registry.get("deleted", []):
+        if identity not in seen and identity not in registry.get("deleted", []) and identity not in excluded_identities:
             result.append(ProfileCandidate(store.load_profile_snapshot(ProfileRef.from_dict(accepted[head])), True))
     return result
 

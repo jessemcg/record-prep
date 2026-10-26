@@ -26,7 +26,8 @@ DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RESOURCE_TYPES = {
     "focus": {"research": "md", "answer_guidance": "md", "search": "json"},
     "recordprep": {
-        "classification": "md", "naming": "json", "roles": "json",
+        "classification": "md",  # Historical schemas 1–5 only; never compiled.
+        "naming": "json", "roles": "json",
         "hearings": "json", "reports": "json", "policies": "json",
         "hearing_extraction": "md", "report_extraction": "md",
         "hearing_synthesis": "md", "report_synthesis": "md",
@@ -43,7 +44,7 @@ RETIRED_OVERVIEW_RESOURCES = frozenset({"overview"})
 STAGE_RESOURCES = {
     "focus": {"research": ("research", "answer_guidance", "search")},
     "recordprep": {
-        "classification": ("classification",),
+        "classification": (),
         "naming": ("naming",),
         "participants": (),  # Identification is application-owned for every specialty.
         # Historical instructions/catalogs remain readable, never compiled.
@@ -355,7 +356,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -380,6 +381,8 @@ def _manifest(data: bytes, application: str) -> dict:
         if value["schema_version"] >= 5:
             for name in RETIRED_OVERVIEW_RESOURCES:
                 types.pop(name)
+        if value["schema_version"] >= 6:
+            types.pop("classification")
     resources = _object(value["resources"], set(types), "resources")
     paths = set()
     for name, suffix in types.items():
@@ -479,7 +482,7 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
              (extended and stage in {*task_stages, "case_name"}), "unsupported_stage", "stage")
     _require(isinstance(core_contract, bytes) and bool(core_contract), "missing_core_contract", "stage")
     resources = []
-    names = (("classification", "classification_tasks") if stage in task_stages else
+    names = (("classification_tasks",) if stage in task_stages else
              ("case_name",) if stage == "case_name" else STAGE_RESOURCES[snapshot.ref.application][stage])
     if stage == "classification" and extended:
         names += ("classification_tasks",)

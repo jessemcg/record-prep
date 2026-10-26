@@ -121,8 +121,11 @@ class UnifiedSettingsTests(unittest.TestCase):
 
     def profile_window(self):
         store = api.ProfileStore("recordprep", config_root=self.root / "config", data_root=self.root / "data")
+        no_legacy = patch("recordprep.profile_customization.initial_candidate", return_value=None)
+        no_legacy.start()
+        self.addCleanup(no_legacy.stop)
         candidates = list(api.profile_catalog(store=store))
-        candidate = next(c for c in candidates if c.snapshot.ref.specialty_id == "general-court-record")
+        candidate = next(c for c in candidates if c.snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID)
         window = ProfileEditorWindow(self.parent, editable_profile(candidate.snapshot), store,
             expected_head=None, can_modify=lambda: True, preview=lambda _: None, on_saved=Mock(), candidates=candidates)
         self.addCleanup(dispose, window)
@@ -139,8 +142,10 @@ class UnifiedSettingsTests(unittest.TestCase):
         }
         self.assertEqual(CLASSIFICATION_OUTLINE_GROUPS, expected_groups)
         children = {key for keys in expected_groups.values() for key in keys}
-        keys = ["classification"] + [key for key, _, _ in CLASSIFICATION_PAGES]
-        self.assertEqual(list(w.nav_rows)[:10], keys)
+        keys = [key for key, _, _ in CLASSIFICATION_PAGES]
+        self.assertEqual(list(w.nav_rows)[:9], keys)
+        self.assertNotIn("classification", w.pages)
+        self.assertNotIn("Common guidance", [row.get_title() for row in w.nav_rows.values()])
         chooser_before = list(w._navigation._prompt_keys)
         for key, row in w.nav_rows.items():
             self.assertEqual(row.get_margin_start(), 24 if key in children else 0, key)
@@ -158,9 +163,7 @@ class UnifiedSettingsTests(unittest.TestCase):
                 buffer = view.get_buffer()
                 literal = "Synthetic outline guidance: " + key
                 buffer.set_text(literal)
-                if key == "classification":
-                    self.assertEqual(w.editor.resources[key], literal)
-                elif key.endswith("-naming"):
+                if key.endswith("-naming"):
                     self.assertEqual(w.editor.resources["naming"][key.removesuffix("-naming") + "_guidance"], literal)
                 else:
                     self.assertEqual(w.editor.resources["classification_tasks"][key], literal)
@@ -353,7 +356,7 @@ class UnifiedSettingsTests(unittest.TestCase):
 
     def test_profile_failed_publication_and_post_save_refresh_feedback(self):
         w, store = self.profile_window()
-        w.editor.resources["classification"] += " synthetic saved guidance"
+        w.editor.resources["classification_tasks"]["rt"] += " synthetic saved guidance"
         before = copy.deepcopy(w._saved_state)
         with patch.object(type(w.editor), "managed_save", side_effect=OSError("synthetic write failure")):
             self.assertFalse(w._save())
@@ -372,15 +375,15 @@ class UnifiedSettingsTests(unittest.TestCase):
         from types import SimpleNamespace
         from recordprep.profile_manager_ui import ProfileManagerWindow
         w, _ = self.profile_window()
-        w.editor.resources["classification"] += " unsaved retained draft"
+        w.editor.resources["classification_tasks"]["rt"] += " unsaved retained draft"
         menu = SimpleNamespace(parent_window=self.parent, get_ancestor=lambda _type: None)
         self.assertIs(ProfileManagerWindow._edit(menu), w)
-        self.assertIn("unsaved retained draft", w.editor.resources["classification"])
+        self.assertIn("unsaved retained draft", w.editor.resources["classification_tasks"]["rt"])
         self.assertTrue(w._dirty())
 
     def test_profile_close_only_keep_or_discard(self):
         w, _ = self.profile_window()
-        w.editor.resources["classification"] += " draft"
+        w.editor.resources["classification_tasks"]["rt"] += " draft"
         self.assertTrue(w._close_request())
         responses = w.unsaved_dialog
         self.assertTrue(responses.has_response("keep"))

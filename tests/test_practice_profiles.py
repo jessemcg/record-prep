@@ -59,7 +59,9 @@ def historical_snapshot(profile, version=3):
     manifest["schema_version"] = version
     synthetic = synthetic_files("recordprep")
     old_manifest = json.loads(synthetic["profile.json"])
-    retired = set(contract.RETIRED_OVERVIEW_RESOURCES) if version < 5 else set()
+    retired = {"classification"} if version < 6 else set()
+    if version < 5:
+        retired.update(contract.RETIRED_OVERVIEW_RESOURCES)
     if version < 4:
         retired.update(contract.RETIRED_PARTICIPANT_RESOURCES)
     if version < 3:

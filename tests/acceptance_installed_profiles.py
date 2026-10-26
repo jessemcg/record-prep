@@ -22,7 +22,9 @@ for archive in Path(artifacts).iterdir():
     else:
         with tarfile.open(archive) as opened:
             names = opened.getnames()
-    for profile in api.BUNDLED_PROFILES:
+    # Compatibility-only General resources must still ship, without becoming
+    # a visible catalog entry.
+    for profile in (*api.BUNDLED_PROFILES, "general"):
         original = api.bundled_profile_directory(profile)
         for resource in original.rglob('*'):
             if resource.is_file():
@@ -35,7 +37,7 @@ with tempfile.TemporaryDirectory() as temporary:
         os.environ[key] = str(root / key)
     store = store_module.ProfileStore(package, config_root=root / 'private-config', data_root=root / 'private-data')
     candidates = api.profile_catalog(store=store)
-    assert [item.snapshot.manifest['display_name'] for item in candidates] == ['General Court Record', 'California Juvenile Dependency']
+    assert [item.snapshot.manifest['display_name'] for item in candidates] == ['California Juvenile Dependency']
     assert all(not item.personal and not item.notice for item in candidates)
     assert not store.registry_path.exists()
     for candidate in candidates:

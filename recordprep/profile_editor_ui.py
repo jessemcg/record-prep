@@ -35,8 +35,7 @@ SUMMARY_EXPLANATION = (
 CLASSIFICATION_PROGRESSION = "Page types → First pages → Dates & names → Table of contents → Boundaries"
 CLASSIFICATION_EXPLANATION = (
     "The vision model reads page images to both classify pages and extract information, such as dates and document names. "
-    "Common guidance is combined with the instructions for the current page-type, first-page or date task; "
-    "document naming uses separate instructions.\n\n"
+    "Each task uses only its own specialty instructions, alongside the application's fixed safeguards.\n\n"
     "Reporter’s transcript (RT): Basic separates hearing dialogue from covers and indexes; Advanced marks hearing starts; "
     "Dates reads their dates. Hearing labels use those dates, not a separate name prompt.\n\n"
     "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced marks minute-order and form starts; "
@@ -82,10 +81,7 @@ def classification_task_contract(task):
     if task in ('date_hearing', 'date_minute'):
         return ('Dates output: JSON with the key date: a long-form U.S. date, or an empty string if unresolved. '
                 'Explain where the relevant date appears and which competing dates to exclude.')
-    return ('Common guidance applies to Basic, Advanced and Dates, each with its own output contract. '
-            'It does not apply to naming. Keep response instructions in the relevant task, not here. '
-            'Supported Basic RT labels: ' + ', '.join(CLASSIFICATION_PAGE_TYPES['rt'])
-            + '. Supported Basic CT labels: ' + ', '.join(CLASSIFICATION_PAGE_TYPES['ct']) + '.')
+    raise ValueError("Unknown classification task")
 
 
 def friendly(value):
@@ -443,7 +439,7 @@ class ProfileEditorWindow(Adw.Window):
         self.expected_default = registry["default"]
         self.default_row = Adw.SwitchRow(title="Use for new cases")
         self.default_row.set_active(bool(registry["default"] and registry["default"]["specialty_id"] == identity)
-                                   or (registry["default"] is None and identity == "general-court-record"))
+                                   or (registry["default"] is None and identity == api.DEFAULT_PROFILE_ID))
         group.add(self.default_row)
 
     def refresh_case_notice(self):
@@ -509,9 +505,9 @@ class ProfileEditorWindow(Adw.Window):
             self._navigation.pages[page_key].get_child().set_content(self._page_body)
             self.pages[page_key] = self._page_body
         self._explanation(self._page_body, category,
-            classification_task_contract(key) if resource in ("classification", "classification_tasks") else group.get_description())
+            classification_task_contract(key) if resource == "classification_tasks" else group.get_description())
         warning = None
-        if resource in ("classification", "classification_tasks"):
+        if resource == "classification_tasks":
             warning = wrapped("", margin_bottom=4)
             warning.add_css_class("warning")
             self._page_body.append(warning)
@@ -697,8 +693,6 @@ class ProfileEditorWindow(Adw.Window):
         render()
 
     def _recordprep_form(self):
-        self._prompt_page("Classification", "classification", "Common guidance", "classification")
-        self.nav_rows["classification"].set_subtitle("Shared · Basic / Advanced / Dates")
         for key, title, stage in CLASSIFICATION_PAGES:
             if key.endswith("-naming"):
                 kind = key.removesuffix("-naming")
@@ -746,7 +740,7 @@ class ProfileEditorWindow(Adw.Window):
             box.append(name)
             box.append(wrapped("Start with"))
             choice = ProfileSelector([item.snapshot.manifest["display_name"] for item in candidates])
-            choice.set_selected(next(i for i, item in enumerate(candidates) if item.snapshot.ref.specialty_id == "general-court-record"), notify=False)
+            choice.set_selected(next(i for i, item in enumerate(candidates) if item.snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID), notify=False)
             box.append(choice)
             message = wrapped("")
             box.append(message)
@@ -815,7 +809,7 @@ class ProfileEditorWindow(Adw.Window):
                             updated = self.store.read_registry()
                             self.expected_heads = dict(updated["heads"])
                             if self.editor.manifest["specialty_id"] == target.ref.specialty_id:
-                                candidate = next(item for item in self.candidates if item.snapshot.ref.specialty_id == "general-court-record")
+                                candidate = next(item for item in self.candidates if item.snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID)
                                 self.editor = editable_profile(candidate.snapshot)
                                 self.expected_head = updated["heads"].get(candidate.snapshot.ref.specialty_id)
                                 self.personal, self.notice = candidate.personal, candidate.notice
@@ -902,7 +896,9 @@ def editable_profile(snapshot):
             for name in ("classification_tasks", "case_name"):
                 editor.manifest["resources"][name] = general.manifest["resources"][name]
                 editor.resources[name] = general.resource(name)
-        editor.manifest["schema_version"] = 5
+        editor.manifest["schema_version"] = 6
+        editor.manifest["resources"].pop("classification", None)
+        editor.resources.pop("classification", None)
         for name in RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES | RETIRED_OVERVIEW_RESOURCES:
             editor.manifest["resources"].pop(name, None)
             editor.resources.pop(name, None)

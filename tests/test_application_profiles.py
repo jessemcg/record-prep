@@ -48,7 +48,7 @@ class ApplicationProfilesTests(unittest.TestCase):
         self.assertEqual(cases.resolve_case_profile(self.bundle).ref, self.dependency.ref)
         self.assertEqual(self.tree(self.bundle), before)
         self.store.set_default(self.general.ref)
-        self.assertEqual(cases.resolve_case_profile(self.bundle).ref, self.general.ref)
+        self.assertEqual(cases.resolve_case_profile(self.bundle).ref, self.dependency.ref)
         self.assertEqual(self.tree(self.bundle), before)
 
     def test_malformed_or_symlinked_historical_pin_is_not_instruction_authority(self):

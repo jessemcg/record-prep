@@ -119,7 +119,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         layout(editor)
         assert editor.navigation.has_css_class("boxed-list")
         assert editor.body.has_css_class("profile-settings-layout")
-        first_page = "classification" if package == "recordprep" else "profile"
+        first_page = "rt" if package == "recordprep" else "profile"
         assert editor.stack.get_visible_child_name() == first_page
         if package == "recordprep":
             assert not hasattr(editor, "selector")
@@ -201,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
         assert not list(root.iterdir())
         click(manager, "Profile settings")
         editor = manager.children_windows[-1]
-        resource = "research" if package == "focus" else "classification"
+        resource = "research" if package == "focus" else "minutes"
         editor.editor.resources[resource] += "\nSynthetic personal instructions.\n"
         click(editor, "Save")
         assert store.read_registry()["personal"]
@@ -250,7 +250,7 @@ with tempfile.TemporaryDirectory(prefix="simple-profile-gui-") as temporary:
             editor.selector._choose(1)
             editor.unsaved_dialog.response("save")
             # Resolve the explicit case question before changing the viewed draft.
-            assert editor.editor.manifest["specialty_id"] == "general-court-record"
+            assert editor.editor.manifest["specialty_id"] == api.DEFAULT_PROFILE_ID
             manager.apply_dialog.response("later")
             assert editor.editor.manifest["specialty_id"] == "california-juvenile-dependency"
             assert selected == [ref]

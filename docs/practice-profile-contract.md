@@ -30,7 +30,7 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 
 | Resource | Format |
 | --- | --- |
-| classification | Markdown |
+| classification (historical schemas 1–5 only; inert) | Markdown |
 | naming, hearings, reports, policies | JSON |
 | roles (historical schemas 1–3 only; inert) | JSON |
 | hearing_extraction, report_extraction (historical schemas 1/2 only; inert) | Markdown |
@@ -38,8 +38,8 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 | minutes | Markdown |
 | overview (historical schemas 1–4 only; inert) | Markdown |
 | participants (historical schemas 1–3 only; inert) | Markdown |
-| classification_tasks (content schemas 2–5) | JSON |
-| case_name (content schemas 2–5; inert historical caption guidance) | Markdown |
+| classification_tasks (content schemas 2–6) | JSON |
+| case_name (content schemas 2–6; inert historical caption guidance) | Markdown |
 
 RecordPrep schema 1 retains its old required resources for read compatibility. Schema 2 adds
 exact task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
@@ -50,8 +50,11 @@ may upgrade it, but never rewrites the accepted snapshot.
 
 Content schema 3 removes all four extra summary instruction resources and rejects
 them if present. Content schema 4 additionally removes roles and participants;
-schema 5 also removes overview instructions. Bundled defaults and ordinary GUI
-edit/create use schema 5; schemas 1–4 retain read-only compatibility. Participant identification
+schema 5 also removes overview instructions. Schema 6 removes common classification
+guidance. Bundled defaults and ordinary GUI edit/create use schema 6; schemas 1–5
+retain read-only compatibility. Common classification text is never compiled or
+fingerprinted, including for older schemas. Explicit editor Save omits the old field
+and file instead of preserving them in the new revision. Participant identification
 is application-owned and independent of specialty. Historical roles and identification
 instructions affect no stage prompt or component hash. Summary compilation for every
 supported schema uses only the matching topic catalog, never the historical four fields.

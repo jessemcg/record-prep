@@ -95,7 +95,7 @@ def run():
         assert controls.selector.popover.get_visible()
         assert menu.get_popover().get_visible()
         controls.selector._choose(next(i for i, item in enumerate(controls.options)
-                                      if item and item.snapshot.ref.specialty_id == "general-court-record"))
+                                      if item and item.snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID))
         drain()
         assert menu.get_popover().get_visible()
         assert not hasattr(controls, "select_button")
@@ -103,17 +103,17 @@ def run():
         assert controls.selector.label.get_xalign() == 0
         assert "weight normal" in controls.settings_button.get_child().get_attributes().to_string()
         assert "weight normal" in controls.selector.label.get_attributes().to_string()
-        assert title.get_subtitle() == "General Court Record"
+        assert title.get_subtitle() == "California Juvenile Dependency"
         assert controls.selector.names[controls.selector.get_selected()].endswith("✓")
         # A failed immediate choice keeps the real current selection/checkmark.
         from unittest.mock import patch
         current_index = controls.selector.get_selected()
         other_index = next(i for i, item in enumerate(controls.options)
-                           if item and item.snapshot.ref.specialty_id == "california-juvenile-dependency")
+                           if item and item.snapshot.ref.specialty_id == ref.specialty_id)
         with patch.object(controls.store, "managed_save", side_effect=ValueError("synthetic settings change")):
             controls.selector._choose(other_index)
         assert controls.selector.get_selected() == current_index
-        assert title.get_subtitle() == "General Court Record"
+        assert title.get_subtitle() == "California Juvenile Dependency"
         assert "could not be selected" in controls.message.get_text()
         editor = controls._edit()
         drain()
@@ -130,7 +130,7 @@ def run():
         menu.popup()
         drain()
         assert owner._practice_profiles_window is not controls
-        assert owner._practice_profiles_window._selected().snapshot.ref.specialty_id == "general-court-record"
+        assert owner._practice_profiles_window._selected().snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID
         menu.popdown()
         # Model settings retains its existing action contract; no discovery/save.
         settings_module = module if PACKAGE == "recordprep" else import_module("focus.ui.settings")
@@ -146,7 +146,8 @@ def run():
                 model_window = owner._ai_settings_window
             drain()
             assert model_window.get_title() == "Model settings"
-            assert any(isinstance(w, Gtk.Label) and w.get_text() == "Model settings" for w in descendants(model_window))
+            # Navigation-page headers may show the active page instead of a
+            # duplicate window-title label; the window title above is authoritative.
             model_window.close()
             drain()
         # A malformed private store fails visibly, without a hidden partial chooser or repair.

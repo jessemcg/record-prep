@@ -86,14 +86,14 @@ class PrivateCustomizationTests(unittest.TestCase):
             store = api.ProfileStore("recordprep", config_root=Path(temporary) / "config", data_root=Path(temporary) / "data")
             def resolve(base):
                 return initial_candidate(base, config={"case_name_prompt": "Synthetic previous caption."}, categories={})
-            first = api.profile_catalog(store=store, customization=resolve)[1]
+            first = api.profile_catalog(store=store, customization=resolve)[0]
             self.assertIn("previous", first.notice)
             ref = store.managed_save(first.snapshot, expected_head=None, expected_default=None, personal=True)
             def must_not_run(_base):
                 raise AssertionError("Repeated initialization")
-            # General remains eligible; only assert that Dependency is not overlaid.
+            # The existing Dependency customization must not be overlaid.
             result = api.profile_catalog(store=store, customization=lambda base: must_not_run(base) if base.ref.specialty_id == ref.specialty_id else None)
-            self.assertEqual(result[1].snapshot.ref, ref)
+            self.assertEqual(result[0].snapshot.ref, ref)
 
 
 if __name__ == "__main__":

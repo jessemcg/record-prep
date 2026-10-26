@@ -130,7 +130,7 @@ def run():
         assert editor.get_visible()
         assert not editor.case_notice.get_visible() and not editor.case_notice.get_text()
         assert "General" not in editor.pages
-        editor.editor.resources["classification"] += "\nSynthetic no-case customization.\n"
+        editor.editor.resources["classification_tasks"]["rt"] += "\nSynthetic no-case customization.\n"
         save = next(widget for widget in descendants(editor) if isinstance(widget, Gtk.Button) and widget.get_label() == "Save")
         save.emit("clicked")
         drain()
@@ -142,7 +142,7 @@ def run():
         assert not reopened.case_notice.get_visible() and not reopened.case_notice.get_text()
         reopened.close()
         assert profile_integration.pending_profile(owner, None) == editor.editor.base.ref
-        assert "Synthetic no-case customization" in api.profile_store().load_profile_snapshot(editor.editor.base.ref).resource("classification")
+        assert "Synthetic no-case customization" in api.profile_store().load_profile_snapshot(editor.editor.base.ref).resource("classification_tasks")["rt"]
         assert (metadata / "practice-profile.json").read_bytes() == pin_after
         assert owner._resolve_case_root() is None
         editor.close()

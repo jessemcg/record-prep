@@ -51,8 +51,7 @@ class TaskGuidanceTests(unittest.TestCase):
 
     def test_general_guidance_has_readable_sections_without_example_names(self):
         from recordprep.document_naming import compile_naming_profile
-        common = self.base.resource("classification")
-        self.assertIn("How to classify the page:\n- ", common)
+        self.assertNotIn("classification", self.base.manifest["resources"])
         for text in self.base.resource("classification_tasks").values():
             self.assertIn("\n\nHow to decide", text)
             self.assertIn("\n\nTo tailor this task:\n- ", text)

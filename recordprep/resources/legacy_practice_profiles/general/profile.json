@@ -1,16 +1,15 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "profile_api": 1,
   "specialty_id": "general-court-record",
   "application": "recordprep",
   "display_name": "General Court Record",
   "description": "Practice-neutral preparation with structural classification guidance ready to tailor to your field.",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "required_capabilities": [
     "preparation-v1"
   ],
   "resources": {
-    "classification": "classification.md",
     "classification_tasks": "classification-tasks.json",
     "case_name": "case-name.md",
     "naming": "naming.json",

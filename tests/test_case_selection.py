@@ -29,6 +29,7 @@ class CaseBindingPermissionsTests(unittest.TestCase):
         self.general = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
         self.dependency = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
         self.store.accept_profile(self.general, expected_previous_digest=None)
+        self.store.accept_profile(self.dependency, expected_previous_digest=None)
         self.directory = self.root / ".recordprep"
         self.directory.mkdir()
         self.selection = self.directory / "practice-profile.json"
@@ -49,10 +50,10 @@ class CaseBindingPermissionsTests(unittest.TestCase):
                 previous = self.store.read_registry()["default"]
                 previous = api.ProfileRef.from_dict(previous) if previous else None
                 before = self.selection.read_bytes()
-                bindings.apply_case_profile(self.root, self.general.ref, expected_previous=previous, store=self.store)
+                bindings.apply_case_profile(self.root, self.dependency.ref, expected_previous=previous, store=self.store)
                 self.assertEqual(self.selection.read_bytes(), before)
-                self.assertEqual(bindings.read_case_profile_ref(self.root), self.general.ref)
-                with bindings.case_profile_publication(self.root, self.general.ref):
+                self.assertEqual(bindings.read_case_profile_ref(self.root), self.dependency.ref)
+                with bindings.case_profile_publication(self.root, self.dependency.ref):
                     pass
                 self.assertEqual(stat.S_IMODE(self.directory.stat().st_mode), directory_mode)
                 self.assertEqual(stat.S_IMODE(self.lock.stat().st_mode), file_mode)
@@ -126,10 +127,10 @@ class CaseBindingPermissionsTests(unittest.TestCase):
         self.assertEqual(bindings.read_historical_case_profile_ref(self.root), self.dependency.ref)
 
     def test_selection_keeps_compare_and_swap_protection(self):
-        bindings.apply_case_profile(self.root, self.general.ref, expected_previous=None, store=self.store)
+        bindings.apply_case_profile(self.root, self.dependency.ref, expected_previous=None, store=self.store)
         with self.assertRaises(ProfileError):
-            bindings.apply_case_profile(self.root, self.general.ref, expected_previous=None, store=self.store)
-        self.assertEqual(bindings.read_case_profile_ref(self.root), self.general.ref)
+            bindings.apply_case_profile(self.root, self.dependency.ref, expected_previous=None, store=self.store)
+        self.assertEqual(bindings.read_case_profile_ref(self.root), self.dependency.ref)
         self.assertEqual(bindings.read_historical_case_profile_ref(self.root), self.dependency.ref)
 
 

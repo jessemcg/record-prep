@@ -60,8 +60,8 @@ class LegacyProfileBaselineTests(unittest.TestCase):
                 if actual["id"] == "agency_recommendations":
                     self.assertEqual(actual["id"], historical["id"])
                     self.assertEqual(actual["title"], historical["title"])
-                    self.assertIn("wherever they appear", actual["guidance"])
-                    self.assertIn("clear distinction from actual court", actual["guidance"])
+                    self.assertIn("substantive recommendations to the court", actual["guidance"])
+                    self.assertIn("apart from", actual["guidance"])
                 else:
                     self.assertEqual(actual, historical)
         self.assertNotIn("roles", result.draft.manifest["resources"])

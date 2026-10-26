@@ -79,7 +79,8 @@ Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
-RecordPrep includes **General Court Record** and **California Juvenile Dependency**.
+RecordPrep starts with **California Juvenile Dependency**. Use **Create profiles**
+to copy it—or another saved profile—as the base for a new practice profile.
 The selected profile governs new preparation, not the bundle itself. Existing
 preparation remains reusable when settings change. **Profile storage…**
 can save or select portable settings separately from your cases.

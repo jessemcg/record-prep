@@ -1,8 +1,14 @@
 {
   "participants": {
     "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes historical boundary prerequisites and adds downstream validation mode; participant prompts, evidence validation and consumed-input hashing unchanged; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
-    "stage_code_sha256": "675abd27aec9aba67b9f7b9c49a3ebf176769bcfdba6ff3c4adba21e1e3dd426",
+    "stage_code_sha256": "8a89f981f32ce6c8c4b01eac1e6b37b2a6c441953a178ec276ab44859902d558",
+    "schema6_review": "Only the shared profile contract changes: schema 6 removes common classification guidance; participant resources and method are unchanged. See docs/task-only-classification.md.",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "participants",
+        "code": "675abd27aec9aba67b9f7b9c49a3ebf176769bcfdba6ff3c4adba21e1e3dd426"
+      },
       {
         "contract": 2,
         "stage": "participants",
@@ -48,8 +54,14 @@
   },
   "overview": {
     "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes upstream historical freshness prerequisites; overview prompts unchanged, actual source-text input hashes still required, historical summary metadata no longer consumed; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
-    "stage_code_sha256": "60ca803cf2d915411a4cac0fed419a787d8c43caf2fc26ab65eb446cb54c92b0",
+    "stage_code_sha256": "e70c1a22603136ea2492aa9620db53febf842c004d98b808eea3572bb7a942f1",
+    "schema6_review": "Only the shared profile contract changes: schema 6 removes common classification guidance; overview resources and method are unchanged. See docs/task-only-classification.md.",
     "legacy": [
+      {
+        "contract": 2,
+        "stage": "overview",
+        "code": "60ca803cf2d915411a4cac0fed419a787d8c43caf2fc26ab65eb446cb54c92b0"
+      },
       {
         "contract": 2,
         "stage": "overview",

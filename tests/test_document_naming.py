@@ -184,7 +184,7 @@ class PromptNamingTests(unittest.TestCase):
         for _name, heading, code in FORM_RULES:
             self.assertIn(heading, resource["form_guidance"])
             self.assertIn(code, resource["form_guidance"])
-        self.assertIn("A code alone is not a match", resource["form_guidance"])
+        self.assertIn("Both title and code must be visible on the same page", resource["form_guidance"])
 
     def test_prompt_edit_alone_changes_membership_and_freshness(self):
         draft = self.public()

@@ -1,1 +1,0 @@
-Recognize juvenile dependency hearing transcripts, minute orders, child-welfare reports, and juvenile court/JV forms, including petitions. Dependency vocabulary supplies context, not a substitute for page structure.

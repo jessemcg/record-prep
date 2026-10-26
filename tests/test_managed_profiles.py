@@ -19,7 +19,7 @@ class ManagedProfilesTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.store = api.ProfileStore(PACKAGE, config_root=self.root / "config", data_root=self.root / "data")
-        self.base = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
+        self.base = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
 
     def catalog(self, **kwargs):
         return api.profile_catalog(store=self.store, customization=kwargs.get("customization", lambda _base: None))
@@ -38,7 +38,7 @@ class ManagedProfilesTests(unittest.TestCase):
     def test_fresh_catalog_and_inspection_have_no_side_effects(self):
         catalog = self.catalog()
         self.assertEqual([item.snapshot.manifest["display_name"] for item in catalog],
-                         ["General Court Record", "California Juvenile Dependency"])
+                         ["California Juvenile Dependency"])
         for item in catalog:
             self.assertFalse(item.personal)
             for resource in item.snapshot.manifest["resources"]:
@@ -132,7 +132,7 @@ class ManagedProfilesTests(unittest.TestCase):
             return source if name == "third" else original(name)
         with patch.object(api, "BUNDLED_PROFILES", (*api.BUNDLED_PROFILES, "third")), patch.object(api, "bundled_profile_directory", side_effect=directory):
             catalog = self.catalog()
-            self.assertEqual(len(catalog), 3)
+            self.assertEqual(len(catalog), 2)
             third = catalog[-1].snapshot
             self.assertEqual(third.ref, snapshot.ref)
             for stage in contract.STAGE_RESOURCES[PACKAGE]:

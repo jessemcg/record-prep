@@ -30,7 +30,7 @@ app = Adw.Application(application_id="org.synthetic.EditProfiles")
 app.register(None)
 parent = Adw.ApplicationWindow(application=app, title="Synthetic Edit profiles", default_width=700, default_height=600)
 store = api.ProfileStore(package, config_root=ROOT / "config", data_root=ROOT / "data")
-general = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
+general = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
 first = workflows.ProfileEditor.create(general, "Synthetic first profile").snapshot()
 second = workflows.ProfileEditor.create(general, "Synthetic second profile").snapshot()
 for snapshot in (first, second):
@@ -49,7 +49,8 @@ def drain():
         time.sleep(.01)
 
 
-with patch.object(api, "profile_store", return_value=store):
+with patch.object(api, "profile_store", return_value=store), \
+        patch(package + ".profile_customization.initial_candidate", return_value=None):
     selected, deleted = [], []
     allowed = [True]
     manager = manager_ui.ProfileManagerWindow(parent, can_modify=lambda: allowed[0],
@@ -68,7 +69,7 @@ with patch.object(api, "profile_store", return_value=store):
     assert store.registry_path.read_bytes() == before and not deleted
     # A concurrent save must not allow a stale delete to win.
     updated = workflows.ProfileEditor(first)
-    updated.resources["research" if package == "focus" else "classification"] += "\nSynthetic concurrent change.\n"
+    updated.resources["research" if package == "focus" else "minutes"] += "\nSynthetic concurrent change.\n"
     revised = updated.snapshot()
     store.managed_save(revised, expected_head=first.ref.content_sha256, expected_default=store.read_registry()["default"])
     concurrent = store.registry_path.read_bytes()
@@ -84,15 +85,15 @@ with patch.object(api, "profile_store", return_value=store):
     editor.delete_dialog.response("delete")
     drain()
     assert deleted == [revised.ref] and not selected
-    assert manager.selected_ref.specialty_id == "general-court-record"
+    assert manager.selected_ref.specialty_id == api.DEFAULT_PROFILE_ID
     assert store.read_registry()["default"] is None
-    assert editor.editor.manifest["specialty_id"] == "general-court-record"
+    assert editor.editor.manifest["specialty_id"] == api.DEFAULT_PROFILE_ID
     assert first.ref.specialty_id not in {item.snapshot.ref.specialty_id for item in manager.candidates}
     assert store.load_profile_snapshot(first.ref).files == first.files
     assert store.load_profile_snapshot(revised.ref).files == revised.files
     assert case_pin.read_bytes() == pin_bytes
     # Historical pins stay byte-preserved; deleting the application selection
-    # returns to General even while a case is open.
+    # returns to Dependency even while a case is open.
     manager.has_case = True
     manager.selected_ref = second.ref
     manager._refresh(second.ref)
@@ -108,7 +109,7 @@ with patch.object(api, "profile_store", return_value=store):
     other.delete_button.emit("clicked")
     other.delete_dialog.response("delete")
     drain()
-    assert manager.selected_ref.specialty_id == "general-court-record" and not selected
+    assert manager.selected_ref.specialty_id == api.DEFAULT_PROFILE_ID and not selected
     assert deleted == [revised.ref, second.ref]
     assert store.load_profile_snapshot(second.ref).files == second.files
     assert case_pin.read_bytes() == pin_bytes

@@ -1,7 +1,8 @@
 # Shipped practice profiles and personal settings
 
-RecordPrep ships **General Court Record** and **California Juvenile Dependency**.
-General is the initial application selection. Profiles are independent of bundles;
+RecordPrep ships **California Juvenile Dependency**, the initial application selection
+and default starting profile for **Create profiles**. Any available saved profile
+can be used as a base, including future specialties such as California Criminal Law. Profiles are independent of bundles;
 see [application profiles and portable storage](application-profiles.md) for the
 current selection, Save, resume and synchronization contract. Dependency is a complete public specialty, useful
 without anyone's private configuration. Focus now uses one fixed specialty-neutral
@@ -9,6 +10,23 @@ research method, not profiles; no Focus counterpart is needed to consume a bundl
 There is no profile repository, download, sibling package import or automatic
 cross-app synchronization. Portable profile settings may be explicitly selected
 outside bundles; historical case pins no longer authorize instructions.
+
+## Bundled Dependency baseline
+
+Dependency version 1.6.0 incorporates the reviewed saved Dependency guidance as
+its public, version-controlled baseline. Classification tasks, report/form naming,
+and the Agency Recommendations digest topic retain that guidance verbatim;
+stored case-name prose is also retained but remains inactive. Hearing topics and
+effective minute-order guidance already matched and are unchanged. This promotion
+uses the current editor representation: schema 6, no retired instruction resources
+or attendance policy, and the current replacement for exact historical minute defaults.
+It does not restore retired fields or change the shared summarization method.
+
+All current editable resources were compared with the saved profile after the
+same read-only normalization used by Profile settings and matched. Public tests
+pin the promoted resource bytes without reading personal settings. Private
+registries, snapshots and prepared cases are untouched. Personal profiles remain
+supported; a later personal edit or bundled update can make them differ again.
 
 ## Choose, edit, save
 
@@ -41,14 +59,14 @@ At narrow widths, the **Show categories** button opens the sidebar as an overlay
 selecting a subcategory closes the overlay without squeezing the editor. A built-in opens with
 complete populated settings; personal settings appear in place of its baseline.
 Create profiles has a **Create a profile** section asking for a name and starting
-profile (General by default). Identifiers are generated internally. Create opens
+profile (California Juvenile Dependency by default). Identifiers are generated internally. Create opens
 an unsaved draft; only Save keeps it. Cancelling a draft saves nothing.
 
 Its **Delete a personal profile** section lists only user-created specialties,
 not built-ins (including personal edits of built-ins). Choose one and press
 **Delete profile…**, then confirm. Delete removes the chooser entry, never its accepted revision files or existing
 case metadata. Existing case output remains readable. Deleting the selected profile
-returns the application selection to General. No case is rebound and nothing is
+returns the application selection to California Juvenile Dependency. No case is rebound and nothing is
 regenerated. Reusing the name creates a new identity; old open drafts
 cannot resurrect a deleted identity. Stale profile/default/case state or active
 work blocks deletion without repairing private files.
@@ -69,15 +87,16 @@ border, shadow or contrasting panel. A wrapping, accent-colored progression read
 The explanation describes the vision model's dual role: classifying page images
 and extracting dates and document names. The progression is a display-only overview,
 not clickable navigation or live progress; correction steps still run in their usual places.
-Common guidance is first; reporter’s-transcript (RT)
-page types → hearing starts → hearing dates come next, followed by clerk’s-transcript
+Reporter’s-transcript (RT) page types → hearing starts → hearing dates come next, followed by clerk’s-transcript
 (CT) page types → minute-order/form starts → minute-order dates → report names/dates
 and form names. Subtitles identify RT/CT and Basic/Advanced/Dates/Names without a
 new navigation level. Each task keeps its tall editor (at least 360 pixels,
 expanding with the window). Report/form naming remains under Classification.
 
-Common guidance is combined with only the active page-type, first-page or date task,
-not every task prompt. Naming has separate instructions and approved-name entries.
+Each classification task uses only its own instructions beneath the fixed application
+contract. There is no Common guidance editor, shared prompt or hidden shared text in
+newly saved profiles. Put specialty clues directly in the relevant task. Naming has
+separate instructions and approved-name entries.
 Advanced uses Basic’s page types to select hearing, minute-order and form start
 checks; Dates uses marked hearing/minute-order first pages. Names reads a report’s
 name and date at the start of each continuous group of report pages, and reads form
@@ -99,20 +118,20 @@ and negations can intentionally mention other labels, and prose-only contradicti
 may go undetected. Warnings do not block Save, rewrite guidance, reject historical
 profiles or loosen runtime validation. Review a warning before running a case.
 
-General Court Record 1.5.1 provides a practice-neutral starting point: definitions
-of every Basic category, start/continuation clues, competing-date guidance and
-instructions for adding your practice's headings, terminology and examples. Add
-approved report/form names in the separate naming editors; General deliberately
-ships without a specialty-specific title list. Dependency's bundled and private
-instructions are untouched. General's common classification, task and naming
-instructions use plain section headings, separate bullets and blank-line spacing,
-matching Dependency's naming-editor style without importing specialty rules. Create
-a new profile from General to use this baseline (for example, name your draft
-California Criminal Law, then supply your own criminal-practice guidance and approved
-names). No criminal-law rules or approved titles are supplied by the formatting update.
-The report-naming help also reflects the existing unnamed-report omission policy,
-not the retired provisional-label behavior. Existing personal profiles and accepted case revisions
-are never automatically replaced by these new General resources.
+Create a profile by copying California Juvenile Dependency or any other available
+profile, then tailoring its instructions, digest topics and approved report/form
+names. The copy retains the base's actual language and formatting; it is not
+neutralized automatically. Review and replace Dependency-specific guidance when
+creating a different specialty. California Criminal Law is not yet bundled.
+
+**General Court Record is retired.** It is absent from selection and starting-profile
+lists, including previously accepted or edited copies of that built-in identity.
+An old General application selection resolves to the current personal or bundled
+Dependency profile without rewriting any settings. Independently created custom
+profiles remain available, even if originally copied from General. Saved General
+revisions and case data remain byte-preserved and readable; an internal compatibility
+archive supports historical minute defaults and schema-1 readers/editing only.
+No private profile is migrated or deleted, and no prepared output is regenerated.
 
 Summaries shows one pinned **Topic-guided agentic summarization** explainer above
 exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
@@ -173,7 +192,7 @@ dates even if earlier. Do not move that report calendar into Orders. Submission 
 containers, not demands for a narrative in each.
 Profiles provide specialty terminology, relevant participants and emphasis: for
 California Dependency, that includes the parents and dependency orders rather than
-forcing those concepts on General. Specialty guidance remains subordinate to the
+forcing those concepts on other specialties. Specialty guidance remains subordinate to the
 shared selection and safety method. No fixed length cap or mechanical truncation.
 Current contract8 and label-v2 identity are documented in [plain-English minute
 entries](minute-plain.md). See [earlier compact entries and validation](minute-compact.md); the
@@ -198,9 +217,9 @@ optional matching requirements follow an em dash. The same entries supply both
 the model prompt and Python's exact approved-name check. There is no naming-mode
 selector, separate title list, or form-rule card editor. Editing the prompt's list
 changes the approved names; prose outside those entries does not silently add names.
-Dependency retains its reviewed names and form codes. General has no approved names
-until you add practice-appropriate entries. **Only successfully named reports enter
-the report TOC and standalone report-summary worklist.** General without approved
+Dependency retains its reviewed names and form codes; copies inherit them until
+you edit them for the new specialty. **Only successfully named reports enter
+the report TOC and standalone report-summary worklist.** Any profile without approved
 report names therefore produces no eligible report summaries. Report dates can still
 be extracted independently, but cannot substitute for a name. Named single-page,
 missing-date and different same-name/date reports remain eligible. Unnamed runs,
@@ -229,7 +248,7 @@ initial display formatting only: opening or browsing does not change saved guida
 or mark the profile dirty. Editing a topic makes its displayed text the draft;
 only the normal Save flow persists that draft.
 Topics guide capture from each complete hearing or report, not required headings
-in the narrative. New RecordPrep profiles use content schema 5, without the four
+in the narrative. New RecordPrep profiles use content schema 6, without Common guidance, the four
 extra summary instruction resources, role catalogs, participant or overview instructions. Explicit editing upgrades only a draft; historical
 accepted revisions are never rewritten. Focus's neutral research method has no
 editable guidance or search priorities; document labels supply navigation, not
@@ -305,7 +324,7 @@ atomically updates references/ownership/initialization/default under the registr
 lock. Repeated unchanged Save is idempotent. A failed publication may leave an
 unauthorized orphan snapshot, never a selected profile. Concurrent changes keep
 the draft and require reopening saved settings. Saving the default advances it;
-clearing its preference returns to personal General, or bundled General.
+clearing its preference returns to personal Dependency, or bundled Dependency.
 
 A release can add a specialty without registration. Updated bundled guidance
 does not overwrite personal edits, rebind case pins, rename cases or regenerate
@@ -376,8 +395,11 @@ and participant instructions; historical schemas 1–3 remain readable, and all 
 retired fields are inert in every stage's prompts and component fingerprints.
 Schema 5 additionally removes overview instructions. Overview compilation selects
 no profile resources; it follows the application method and runtime summary inputs.
-Schemas 1–4 remain readable with historical overview prose inert. Common classification guidance is composed
-with application-owned taxonomy and only the current task's guidance. Component
+Schema 6 removes Common guidance from stored resources. Explicit editing and Save
+omit its field and file; no hidden backup or automatic distribution into task prompts
+is created. Existing immutable schemas 1–5 remain readable, but their common text is
+never compiled or fingerprinted. Only the current task's guidance is composed with
+the application-owned taxonomy. See [task-only classification](task-only-classification.md). Component
 fingerprints isolate basic, first-page/correction and date guidance; caption
 inference uses one application-owned, practice-neutral prompt and its own
 source/model/output freshness marker. The native `recordprep-infer-case` skill

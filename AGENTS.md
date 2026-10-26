@@ -85,7 +85,7 @@ runtime/resources/schemas/fingerprints and pipeline remain unchanged. Never impo
 sibling app or its instructions at runtime. Bundled resources are app-owned and read-only.
 
 Application profiles are independent of bundles (docs/application-profiles.md).
-Every new generation uses the current application selection (General by default),
+Every new generation uses the current application selection (California Juvenile Dependency by default),
 not a case pin. Create files never writes a profile reference. Historical pins are
 inert, left untouched, and never required to browse or regenerate. Selection and
 Save change application settings only, never regenerate output. Saving selected
@@ -105,7 +105,7 @@ require an accepted nonempty name for TOC entries and standalone summary boundar
 Correct boundaries omits empty/unresolved names, never inferring a name from an old
 synthetic report_label. Keep named one-page/missing-date and same-name/date reports.
 Preserve all source pages/classifications; never merge unnamed fragments across gaps.
-General without approved report names yields no eligible report summaries. This
+A profile without approved report names yields no eligible report summaries. This
 approved policy replaces provisional report labels/ranges from 2303297. Historical
 readers still display output as stored, without writes. Explicit Build TOC → Correct
 TOC → Find boundaries → Correct boundaries applies the policy. TOC correction keeps
@@ -131,9 +131,11 @@ Create profiles (no ellipsis) is a hamburger-menu link below Profile settings, n
 Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrappers.
 Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
 accepted revisions remain intact as historical data. A deleted application selection
-returns to General; old drafts cannot resurrect it. Historical pins never select guidance.
-Classification keeps a short pinned stage/context summary plus a collapsed About classification disclosure containing the complete explanation, bounded when expanded. About summaries instead expands to its full natural height in the page's ordinary scroll area, pushing editors below it; never put that explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Preserve RT-first, CT-second navigation with stage subtitles and task-specific guidance; keep the remaining height available to the Classification editor. Common guidance combines only with the
-current page-type/first-page/date task; naming uses separate approved-name instructions.
+returns to California Juvenile Dependency; old drafts cannot resurrect it. Historical pins never select guidance.
+Classification keeps a short pinned stage/context summary plus a collapsed About classification disclosure containing the complete explanation, bounded when expanded. About summaries instead expands to its full natural height in the page's ordinary scroll area, pushing editors below it; never put that explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Preserve RT-first, CT-second navigation with stage subtitles and task-specific guidance; keep the remaining height available to the Classification editor. Classification has only task-specific prompts; Common guidance is removed from the editor,
+compilation and fingerprints. Schema 6 omits its resource entirely; explicit Profile settings
+Save drops the old field and file rather than storing hidden text. Do not migrate private
+snapshots in place. Naming uses separate approved-name instructions.
 Hearing labels are dates; report Names extracts name/date at continuous report-run starts.
 Classification editor resource keys and pipeline order remain unchanged. The
 application taxonomy must preserve pre-profile structural labels including
@@ -144,9 +146,14 @@ for runtime prompts, validation and the editor's task contracts. Preserve those 
 through downstream stages, and continue rejecting invented/cross-side labels. Profile
 editors advise on unsupported RT_/CT_/CR_ references without rejecting Save/load or
 rewriting historical guidance; the token lint cannot prove semantic consistency.
-General 1.5.0 provides neutral category definitions and task-specific customization
-clues, with no preapproved specialty report/form names. Never auto-replace personal
-profiles or case pins with updated bundled resources. Contract changes participate in freshness; never migrate private guidance
+General Court Record is retired from selection and starting-profile catalogs,
+including saved heads of that built-in identity. California Juvenile Dependency is
+the default and new-profile base; all available saved profiles remain usable as
+bases. Retired General defaults resolve read-only to Dependency. Preserve General
+snapshots and independent custom copies; no private migrations or deletions.
+The resources/legacy_practice_profiles/general archive is compatibility-only for
+old minute defaults and schema-1 editing, never a selectable public specialty.
+Never auto-replace personal profiles or case pins with updated bundled resources. Contract changes participate in freshness; never migrate private guidance
 or fabricate metadata to reuse incompatible checkpoints.
 Summaries has exactly Hearing digest topics, Report digest topics and Minute orders.
 Content schema 5 additionally removes overview instructions; the overview stage
@@ -163,7 +170,7 @@ for each section to teach selection, not case facts or fixed section sizes. Omit
 inventories and routine negative checklists; preserve necessary qualifications and
 claim-specific adjudication status, never blanket-label mixed matters unadjudicated.
 Historical overview
-prose is inert; only explicit Save publishes a schema-5 draft. Preserve private
+prose is inert; only explicit Save publishes a current schema-6 draft. Preserve private
 candidate guards and Focus's nonauthoritative orientation contract.
 Content schema 4 removes role catalogs and participant instructions in addition to
 schema 3's four extra summary instruction resources. Older schemas remain readable;

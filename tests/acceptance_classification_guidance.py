@@ -72,11 +72,11 @@ with patch.object(api, "profile_store", return_value=store):
     before = editor._state()
     original_files = editor.editor.base.files
     if package == "recordprep":
-        expected = ["classification", "rt", "first_hearing", "date_hearing", "ct", "first_minute",
+        expected = ["rt", "first_hearing", "date_hearing", "ct", "first_minute",
                     "first_form", "date_minute", "report-naming", "form-naming"]
         assert [key for key in editor.pages if editor.page_groups[key] == "Classification"] == expected
-        assert editor.nav_rows["classification"].get_subtitle() == "Shared · Basic / Advanced / Dates"
-        assert [editor.nav_rows[key].get_subtitle() for key in expected[1:]] == [
+        assert "classification" not in editor.nav_rows
+        assert [editor.nav_rows[key].get_subtitle() for key in expected] == [
             "RT · Basic", "RT · Advanced", "RT · Dates", "CT · Basic", "CT · Advanced",
             "CT · Advanced", "CT · Dates", "CT · Names", "CT · Names"]
         assert editor.nav_rows["report-naming"].get_title() == "Report names and dates"
@@ -93,15 +93,14 @@ with patch.object(api, "profile_store", return_value=store):
             view = next(item for item in descendants(editor.pages[key]) if isinstance(item, Gtk.TextView))
             buffer = view.get_buffer()
             value = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-            resource = (editor.editor.resources["classification"] if key == "classification" else
-                editor.editor.resources["naming"][key.removesuffix("-naming") + "_guidance"] if key.endswith("-naming") else
+            resource = (editor.editor.resources["naming"][key.removesuffix("-naming") + "_guidance"] if key.endswith("-naming") else
                 editor.editor.resources["classification_tasks"][key])
             assert value == resource
             valid, explanation_bounds = editor.classification_explainer.compute_bounds(editor)
             valid_page, page_bounds = editor.pages[key].compute_bounds(editor)
             assert valid and valid_page and explanation_bounds.get_y() + explanation_bounds.get_height() <= page_bounds.get_y()
         # Task-local output contracts and live, advisory-only conflict warnings.
-        for key in expected[:8]:
+        for key in expected[:7]:
             texts = [item.get_text() for item in descendants(editor.pages[key]) if isinstance(item, Gtk.Label)]
             assert editor_ui.classification_task_contract(key) in texts
         editor._select_page("ct")
@@ -176,7 +175,8 @@ with patch.object(api, "profile_store", return_value=store):
         historical = historical_editor.snapshot()
         historical_files = historical.files
         upgraded = editor_ui.editable_profile(historical)
-        assert upgraded.manifest["schema_version"] == 5
+        assert upgraded.manifest["schema_version"] == 6
+        assert "classification" not in upgraded.resources
         assert not (editor_ui.RETIRED_SUMMARY_RESOURCES | editor_ui.RETIRED_PARTICIPANT_RESOURCES | editor_ui.RETIRED_OVERVIEW_RESOURCES).intersection(upgraded.resources)
         upgraded_snapshot = upgraded.snapshot()
         assert upgraded_snapshot.manifest == editor.editor.base.manifest

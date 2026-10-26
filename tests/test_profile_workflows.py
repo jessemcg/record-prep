@@ -18,7 +18,7 @@ class WorkflowTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.store = store_module.ProfileStore(PACKAGE, config_root=self.root / "config", data_root=self.root / "data")
-        self.base = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
+        self.base = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
 
     def editor(self):
         return workflows.ProfileEditor.create(self.base, "Synthetic specialty")
@@ -76,7 +76,8 @@ class WorkflowTests(unittest.TestCase):
         first = editor.save(self.store, source, expected_head=None)
         review = workflows.ReviewedFolder.inspect(self.store, source)
         old_editor = workflows.ProfileEditor(review.draft, source=source)
-        resource = next(name for name, kind in contract.RESOURCE_TYPES[PACKAGE].items() if kind == "md")
+        resource = next(name for name in review.draft.manifest["resources"]
+                        if contract.RESOURCE_TYPES[PACKAGE][name] == "md")
         path = source / review.draft.manifest["resources"][resource]
         path.write_text("Changed external guidance.\n", encoding="utf-8")
         with self.assertRaisesRegex(contract.ProfileError, "external_profile_changed"):
@@ -120,7 +121,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(list(target.iterdir()), [])
         self.assertEqual(list(self.root.iterdir()), [target])
 
-    def test_new_context_default_is_general_without_startup_or_read_writes(self):
+    def test_new_context_default_is_dependency_without_startup_or_read_writes(self):
         self.assertEqual(api.default_profile_candidate(store=self.store).ref, self.base.ref)
         self.assertEqual(list(self.root.iterdir()), [])
         ref = api.accept_new_context_default(store=self.store)
@@ -132,7 +133,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(api.accept_new_context_default(store=self.store), custom)
         self.assertEqual(self.store.load_profile_snapshot(ref).ref, self.base.ref)
 
-    def test_new_context_default_uses_personal_general_settings(self):
+    def test_new_context_default_uses_personal_dependency_settings(self):
         editor = workflows.ProfileEditor(self.base)
         editor.manifest["description"] = "Explicitly accepted local revision."
         ref = editor.save(self.store, self.root / "local", expected_head=None)

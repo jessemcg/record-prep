@@ -18,6 +18,7 @@ class NewCaseProfileTests(unittest.TestCase):
                                 _bundle_reset_required=False, _pending_preparation_profile=pending,
                                 _raise_if_stop_requested=Mock(), _safe_update_manifest=Mock(), _load_rt_ct_split=Mock(),
                                 _finish_step=Mock(), _stop_status_if_idle=Mock(), _stop_button_if_idle=Mock(),
+                                _step_artifact_complete=Mock(return_value=False),
                                 step_one_row=Mock(), show_toast=Mock())
         owner._has_layout_dependent_work = lambda root: ui.RecordPrepWindow._has_layout_dependent_work(owner, root)
         with patch("recordprep.practice_profiles.profile_store", return_value=store), \

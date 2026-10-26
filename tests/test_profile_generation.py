@@ -19,6 +19,14 @@ from recordprep.summary_profiles import compile_summary
 def bundled(name):
     result = validate_profile_directory(bundled_profile_directory(name))
     assert result.draft is not None
+    if name == "general":
+        # Neutral pipeline coverage uses an independent custom identity now that
+        # the shipped General identity is retired. Keep its historical prose.
+        files = dict(result.draft.files)
+        manifest = result.draft.manifest
+        manifest.update(specialty_id="synthetic-neutral-practice", display_name="Synthetic neutral practice")
+        files["profile.json"] = json_bytes(manifest)
+        return validate_contents(tuple(files.items()), "recordprep")
     return result.draft
 
 
@@ -207,7 +215,9 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(synthesize.call_count, 1)
             # Saved preparation is reusable despite changes to unrelated
             # classification guidance, mtimes, or missing historical metadata.
-            revised = changed(profile, "classification", "Revised source-grounded classification guidance.\n")
+            tasks = profile.resource("classification_tasks")
+            tasks["rt"] += " Revised source-grounded classification guidance."
+            revised = changed(profile, "classification_tasks", tasks)
             store.accept_profile(revised, expected_previous_digest=profile.ref.content_sha256)
             apply_case_profile(self.root, revised.ref, expected_previous=profile.ref, store=store)
             old_final = sa.summary_final_path(self.root, "reports").read_bytes()
@@ -360,7 +370,7 @@ class ProfileGenerationTests(unittest.TestCase):
     def test_application_selection_is_explicit_private_and_compare_and_swap(self):
         store = ProfileStore("recordprep", config_root=self.root / "config", data_root=self.root / "data")
         profile = bundled("general")
-        self.assertEqual(resolve_case_profile(self.root, store=store), profile)
+        self.assertEqual(resolve_case_profile(self.root, store=store), bundled("california_dependency"))
         self.assertFalse((self.root / ".recordprep").exists())
         with self.assertRaises(ProfileError):
             apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)

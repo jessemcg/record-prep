@@ -48,7 +48,7 @@ def run():
         window.set_title('Synthetic application profiles — RecordPrep')
         window._resolve_case_root = lambda: bundle
         integration.update_indicator(window)
-        assert window._title_widget.get_subtitle() == 'General Court Record'
+        assert window._title_widget.get_subtitle() == 'California Juvenile Dependency'
         manager = integration.open_manager(window, HERE / '.pi')
         dependency = next(i for i, candidate in enumerate(manager.options)
                           if candidate.snapshot.ref.specialty_id == 'california-juvenile-dependency')

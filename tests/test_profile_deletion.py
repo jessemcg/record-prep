@@ -31,7 +31,7 @@ class ProfileDeletionTests(unittest.TestCase):
 
     def test_delete_hides_catalog_but_preserves_all_snapshot_bytes_and_refs(self):
         revised = workflow.ProfileEditor(self.custom)
-        key = "research" if PACKAGE == "focus" else "classification"
+        key = "research" if PACKAGE == "focus" else "minutes"
         revised.resources[key] += "\nSynthetic revision.\n"
         revision = revised.snapshot()
         self.store.managed_save(revision, expected_head=self.custom.ref.content_sha256, expected_default=None)
@@ -46,11 +46,11 @@ class ProfileDeletionTests(unittest.TestCase):
             self.assertEqual(self.store.load_profile_snapshot(snapshot.ref).files, snapshot.files)
         self.assertNotIn(self.custom.ref.specialty_id, {item.snapshot.ref.specialty_id for item in self.catalog()})
 
-    def test_deleting_current_default_returns_to_general(self):
+    def test_deleting_current_default_returns_to_dependency(self):
         self.store.set_default(self.custom.ref)
         self.delete(default=asdict(self.custom.ref))
         self.assertIsNone(self.store.read_registry()["default"])
-        self.assertEqual(api.default_profile_candidate(store=self.store).ref.specialty_id, "general-court-record")
+        self.assertEqual(api.default_profile_candidate(store=self.store).ref.specialty_id, api.DEFAULT_PROFILE_ID)
 
     def test_other_default_is_preserved(self):
         self.store.accept_profile(self.general, expected_previous_digest=None)
@@ -73,7 +73,7 @@ class ProfileDeletionTests(unittest.TestCase):
             with self.subTest(change=change):
                 if change == "head":
                     editor = workflow.ProfileEditor(self.custom)
-                    editor.resources["research" if PACKAGE == "focus" else "classification"] += "\nNew head.\n"
+                    editor.resources["research" if PACKAGE == "focus" else "minutes"] += "\nNew head.\n"
                     self.store.managed_save(editor.snapshot(), expected_head=self.custom.ref.content_sha256, expected_default=None)
                 else:
                     self.store.set_default(self.custom.ref)

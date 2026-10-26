@@ -226,7 +226,7 @@ class ProfileManagerWindow(Gtk.Box):
         try:
             candidate = self._selected()
             if candidate is None:
-                candidate = next(item for item in self.candidates if item.snapshot.ref.specialty_id == "general-court-record")
+                candidate = next(item for item in self.candidates if item.snapshot.ref.specialty_id == api.DEFAULT_PROFILE_ID)
             editor = ProfileEditorWindow(self.parent_window, editable_profile(candidate.snapshot), self.store,
                                          expected_head=self.revision_heads.get(candidate.snapshot.ref.specialty_id),
                                          can_modify=self.can_modify, preview=self.preview, on_saved=self._saved,

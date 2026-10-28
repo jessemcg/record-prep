@@ -49,6 +49,27 @@ def profile_catalog(*, store=None, customization=None):
                            excluded_identities=RETIRED_PROFILE_IDS)
 
 
+def bundled_profile_for_identity(application: str, specialty_id: str) -> ProfileSnapshot | None:
+    """Read-only, validated shipped counterpart, never a personal catalog override.
+
+    Fail closed on a corrupt bundle; legacy archives and creation bases are not
+    candidates. Call again before publishing a target frozen for confirmation.
+    """
+    if application != APPLICATION or specialty_id in RETIRED_PROFILE_IDS:
+        return None
+    matches = []
+    for name in BUNDLED_PROFILES:
+        result = validate_profile_directory(bundled_profile_directory(name))
+        if result.draft is None:
+            raise ProfileError("invalid_bundled_profile", "profiles")
+        snapshot = result.draft
+        if (snapshot.ref.application, snapshot.ref.specialty_id) == (application, specialty_id):
+            matches.append(snapshot)
+    if len(matches) > 1:
+        raise ProfileError("duplicate_bundled_identity", "profiles")
+    return matches[0] if matches else None
+
+
 def bundled_profile_directory(name: str) -> Path:
     # Compatibility-only lookup for old minute defaults, schema-1 editing and
     # historical fixtures. This archive is not part of the selectable catalog.

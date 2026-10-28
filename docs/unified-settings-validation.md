@@ -1,5 +1,17 @@
 # Unified Model and Profile settings — 2026-10-19
 
+## Confirmed bundled reset — 2026-10-28
+
+**Reset to bundled… → Reset and Save** is the deliberate immediate-save exception
+to the ordinary draft/Save contract. It replaces every profile resource from an
+exact validated shipped counterpart, after confirmation, through the existing
+production preview and managed transaction. Cancel/default/close changes nothing;
+invalid discarded drafts are never compiled. Personal ownership, immutable history,
+selection/default guards, retained topic IDs/buffers/undo/navigation and callback
+bindings remain. Reset does not change Model settings or generated output.
+See [implementation, tests and limits](bundled-reset-validation.md) for this
+follow-up; historical validation below remains scoped to its original versions.
+
 Pi inheritance follow-up (2026-10-21): see [validation](pi-inheritance-validation.md)
 for missing checkout/external preferences and current isolated native Model settings
 acceptance. Historical Profile settings evidence below is unchanged.

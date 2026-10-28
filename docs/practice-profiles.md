@@ -28,6 +28,11 @@ pin the promoted resource bytes without reading personal settings. Private
 registries, snapshots and prepared cases are untouched. Personal profiles remain
 supported; a later personal edit or bundled update can make them differ again.
 
+The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. The bundle
+again matches the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
+original wording and formatting; Reset to bundled remains available. See
+[reset and restoration validation](bundled-reset-validation.md).
+
 ## Choose, edit, save
 
 The chosen profile name appears as a subtitle immediately below the app title,
@@ -254,9 +259,37 @@ accepted revisions are never rewritten. Focus's neutral research method has no
 editable guidance or search priorities; document labels supply navigation, not
 automatic evidence authority.
 
-Changing profiles or closing an unsaved draft offers **Save / Discard / Cancel**.
+Close offers **Keep Editing / Discard Unsaved Changes**, never Save-and-close.
 Opening, inspecting and cancelling do not write a registry, snapshot, settings
-file or case. Save needs no file picker, export, registration, technical version
+file or case.
+
+### Reset to bundled prompts
+
+On the Profile settings home, **Bundled prompts → Reset to bundled…** is shown
+only for the edited profile's exact shipped application/specialty identity, not
+its name or creation base. Independent custom copies and retired General have no
+reset target. Future shipped specialties use the same action.
+
+Cancel (also the default/close response) changes nothing. **Reset and Save**
+replaces all Classification and Summaries guidance, approved names, topic catalogs
+and unsaved edits with the installed bundle, and **saves immediately**. This is an
+explicit exception to draft-until-Save behavior; no second Save is needed. Model
+settings, cases and generated output do not change, and no model runs.
+
+The reset publishes the exact current bundled manifest/resources, including inert
+resources and current schema metadata. It keeps personal ownership, advances an
+already selected revision without choosing another profile, and retains all prior
+immutable revisions. Repeated identical reset is idempotent. It is a one-time
+synchronization, not automatic tracking of future releases.
+
+Production preview/compilers and the existing head/default, work/case/storage and
+locked publication guards still apply, even to an invalid discarded draft. A bundle
+changed during confirmation requires another confirmation. Failure keeps the live
+draft/selection; stale settings require reopening, never refreshed expectations to
+force publication. A post-publication display failure says **saved, refresh required**.
+Surviving topic IDs/cards/buffers, navigation and expanded states are retained.
+Undo changes the new unsaved draft, not the saved revision. See
+[reset validation](bundled-reset-validation.md). Save needs no file picker, export, registration, technical version
 entry, separate acceptance step or Git operation.
 
 Saving the selected profile advances application guidance immediately, without a

@@ -20,6 +20,17 @@ profile advances the application's selected revision immediately, with no separa
 Choosing a different profile also changes the application selection for future
 runs and survives restart, regardless of which case is open.
 
+**Bundled prompts → Reset to bundled… → Reset and Save** is the confirmed,
+immediately persisted exception to draft editing. It restores the exact installed
+bundle for that application/specialty identity, including all guidance, approved
+names, topics and unsaved edits. Cancel changes nothing. Custom copies and retired
+General are excluded. Reset retains personal ownership and previous revisions,
+advances the same selected profile, and does not enable automatic future updates.
+It runs no model and writes no Model settings or prepared output. The current
+Dependency bundle is the restored, exact pre-editorial 1.6.0 baseline.
+See [reset semantics](practice-profiles.md#reset-to-bundled-prompts) and
+[validation](bundled-reset-validation.md).
+
 Generated artifacts continue recording descriptive profile provenance and actual
 component/source/model/tool fingerprints. Those fingerprints prove whether a
 checkpoint can be reused; they do not require its historical instructions to be

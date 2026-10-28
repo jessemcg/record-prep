@@ -1,4 +1,4 @@
-"""Lawyer-facing typed profile settings, vendored identically by both apps."""
+"""RecordPrep-owned typed profile settings and guarded explicit publication."""
 from __future__ import annotations
 
 import copy
@@ -347,14 +347,17 @@ class ProfileEditorWindow(Adw.Window):
         return self.unsaved_dialog
 
     def _refresh_guard(self):
-        allowed = self.can_modify()
+        refresh_required = getattr(self, "_reset_refresh_required", False)
+        allowed = self.can_modify() and not refresh_required
         self.body.set_sensitive(allowed)
         self.save_button.set_sensitive(allowed)
         if hasattr(self, "_navigation"):
             for save in self._navigation.save_buttons.values():
                 save.set_sensitive(allowed)
         blocked = "Settings cannot be changed while work is active or the case has changed. Your draft is kept; cancel and reopen when ready."
-        if not allowed:
+        if refresh_required:
+            self.message.set_text("Profile reset saved, refresh required. Close and reopen Profile settings and the profile menu before editing again.")
+        elif not allowed:
             self.message.set_text(blocked)
         elif self.message.get_text() == blocked:
             self.message.set_text("")
@@ -395,6 +398,11 @@ class ProfileEditorWindow(Adw.Window):
         self.save_button = self._navigation.save_buttons["home"]
         self._topic_editors = {}
         self._topic_expanders = {}
+        self._topic_refreshers = {}
+        self._guidance_bindings = []
+        self._installing = False
+        self.reset_dialog = None
+        self.reset_button = None
         self.navigation = self._navigation.home_list
         self.body.append(self._navigation.view)
         self.title_widget.set_subtitle(self.editor.manifest["display_name"])
@@ -416,6 +424,7 @@ class ProfileEditorWindow(Adw.Window):
                 self._terms(group, self.editor.resources["search"], key, label)
         else:
             self._recordprep_form()
+            self._bundled_action()
         self._nav_updating = False
         self._navigation.finish()
         self._active_page = "home"
@@ -517,10 +526,12 @@ class ProfileEditorWindow(Adw.Window):
                 warning.set_text(message)
                 warning.set_visible(bool(message))
         def change(text):
-            owner[key] = text
-            update(text)
+            if not self._installing:
+                owner[key] = text
+                update(text)
         update(owner[key])
         editor = text_editor(owner[key], change, label=label, tall=True)
+        self._guidance_bindings.append((owner, key, editor.get_child().get_buffer(), update))
         if category == "Summaries":
             # The complete disclosure pushes this editor down in the page scroll.
             editor.set_min_content_height(240)
@@ -631,8 +642,14 @@ class ProfileEditorWindow(Adw.Window):
         group.add(holder)
         # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
         cards = {}
-        def render():
+        def render(refresh=False):
             clear(holder)
+            live_ids = {value["id"] for value in values}
+            for identity in set(cards) - live_ids:
+                cards.pop(identity)
+                detail = f"topic:{kind}:{identity}"
+                self._topic_editors.pop(detail, None)
+                self._topic_expanders.pop(detail, None)
             for value in values:
                 identity = value["id"]
                 detail = f"topic:{kind}:{identity}"
@@ -649,12 +666,15 @@ class ProfileEditorWindow(Adw.Window):
                     entry = Gtk.Entry(text=value["title"], hexpand=True)
                     entry.update_property([Gtk.AccessibleProperty.LABEL], ["Topic name"])
                     def rename(widget, value=value, name=name):
-                        value["title"] = widget.get_text()
-                        name.set_text(value["title"] or "Topic instructions")
+                        if not self._installing:
+                            value["title"] = widget.get_text()
+                            name.set_text(value["title"] or "Topic instructions")
                     entry.connect("changed", rename)
                     inner.append(entry)
-                    editor = text_editor(topic_editor_text(value["guidance"]),
-                        lambda text, value=value: value.__setitem__("guidance", text), label="Topic instructions")
+                    def change_topic(text, value=value):
+                        if not self._installing:
+                            value["guidance"] = text
+                    editor = text_editor(topic_editor_text(value["guidance"]), change_topic, label="Topic instructions")
                     editor.set_min_content_height(120)
                     editor.set_max_content_height(300)
                     editor.set_propagate_natural_height(True)
@@ -680,8 +700,12 @@ class ProfileEditorWindow(Adw.Window):
                         self._topic_expanders.pop(detail)
                         render()
                     tools.append(button("Remove", remove))
-                    cards[identity] = (card, up, down)
-                card, up, down = cards[identity]
+                    cards[identity] = (card, up, down, entry, editor, name)
+                card, up, down, entry, editor, name = cards[identity]
+                if refresh:
+                    entry.set_text(value["title"])
+                    name.set_text(value["title"])
+                    self._replace_buffer(editor.get_child().get_buffer(), topic_editor_text(value["guidance"]))
                 up.set_sensitive(value is not values[0])
                 down.set_sensitive(value is not values[-1])
                 holder.append(card)
@@ -690,6 +714,7 @@ class ProfileEditorWindow(Adw.Window):
                                "guidance": "Capture material source-supported information."})
                 render()
             holder.append(button("Add topic", add))
+        self._topic_refreshers[kind] = render
         render()
 
     def _recordprep_form(self):
@@ -713,6 +738,171 @@ class ProfileEditorWindow(Adw.Window):
         self._page("Summaries", "minutes", "Minute orders")
         group = self._group("Minute orders", "One agent summarizes each complete minute order directly, without a topic-digest stage.")
         self._guidance(group, "minutes", "Writing minute-order summaries")
+
+    def _bundled_action(self):
+        try:
+            target = api.bundled_profile_for_identity(self.editor.base.ref.application, self.editor.manifest["specialty_id"])
+        except (ValueError, OSError):
+            self.message.set_text("Bundled prompts could not be verified. Reopen Profile settings after restoring the installed resources.")
+            return
+        if target is None:
+            return
+        row = Adw.ActionRow(title="Bundled prompts", subtitle="Restore and save all guidance for this profile.")
+        row.set_title_lines(2)
+        row.set_subtitle_lines(0)
+        self.reset_button = button("Reset to bundled…", self._reset)
+        self.reset_button.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(self.reset_button)
+        row.set_activatable_widget(self.reset_button)
+        self.reset_row = row
+        self._navigation.home_list.append(row)
+
+    def _reset(self):
+        if self.reset_dialog is not None:
+            self.reset_dialog.present()
+            return self.reset_dialog
+        if not self.can_modify() or getattr(self, "_reset_refresh_required", False):
+            self._refresh_guard()
+            return None
+        try:
+            target = api.bundled_profile_for_identity(self.editor.base.ref.application, self.editor.manifest["specialty_id"])
+            if target is None:
+                raise ProfileError("missing_bundled_profile", "profiles")
+        except (ValueError, OSError):
+            self.message.set_text("Bundled prompts are unavailable or corrupt. Restore the installed resources and reopen Profile settings; your draft is kept.")
+            return None
+        # Freeze the target and the editor's CAS expectations, not a later head.
+        expected_head, expected_default = self.expected_head, copy.deepcopy(self.expected_default)
+        use_default = self.default_row.get_active() if self.default_row is not None else None
+        def respond(response):
+            self.reset_dialog = None
+            if response == "reset" and not self._closing:
+                self._reset_to(target, expected_head, expected_default, use_default)
+        self.reset_dialog = confirmation(self, "Reset to bundled prompts?",
+            f'For “{target.manifest["display_name"]}”, replace all Classification and Summaries guidance, '
+            'including approved names, topic catalogs, and unsaved profile edits. Saves immediately. '
+            'Model settings, case files, and generated output do not change.',
+            (("cancel", "Cancel"), ("reset", "Reset and Save")), respond)
+        self.reset_dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
+        return self.reset_dialog
+
+    def _reset_to(self, target, expected_head, expected_default, use_default=None):
+        saved_ref = None
+        self.saved_apply_failed = False
+        self.saved_dialog = None
+        try:
+            def guarded():
+                if not self.can_modify() or self._closing:
+                    raise ProfileError("work_active_or_case_changed", "reset")
+                current = api.bundled_profile_for_identity(target.ref.application, target.ref.specialty_id)
+                if current is None or current.files != target.files:
+                    raise ProfileError("bundled_profile_changed", "reset")
+                return True
+            guarded()
+            # Do not compile or mutate the discarded draft, even when invalid.
+            replacement = ProfileEditor(target)
+            ref = replacement.managed_save(self.store, expected_head=expected_head,
+                expected_default=expected_default, validate=self.preview, can_modify=guarded,
+                use_for_new_cases=use_default, personal=True)
+            saved_ref = ref
+            try:
+                accepted = self.store.load_profile_snapshot(ref)
+                registry = self.store.read_registry()
+                self._adopt_reset(accepted)
+                self.expected_head = ref.content_sha256
+                self.expected_default = registry["default"]
+                self.expected_heads = dict(registry["heads"])
+                self.personal, self.notice = True, ""
+                self.profile_notice.set_text("")
+                self.profile_notice.set_visible(False)
+                self.candidates = list(api.profile_catalog(store=self.store))
+                self._saved_state = self._state()
+                self.message.set_text("Profile reset to bundled prompts and saved.")
+            finally:
+                # Publication already succeeded: notify the selection owner even
+                # if retained-widget refresh fails. Never claim a rollback.
+                self.saved_dialog = self.on_saved(ref)
+            return True
+        except Exception as exc:
+            if saved_ref is not None:
+                self.saved_apply_failed = True
+                self.message.set_text("Profile reset saved, refresh required. Close and reopen Profile settings and the profile menu before editing again.")
+                # Partial display installation is not a safe subsequent draft.
+                self._reset_refresh_required = True
+                self._refresh_guard()
+                return True
+            code = exc.issue.code if isinstance(exc, ProfileError) else "invalid_settings"
+            if code == "bundled_profile_changed":
+                text = "Bundled prompts changed during confirmation. Your draft is kept; choose Reset to bundled again to review the new target."
+            elif code in {"stale_profile_revision", "external_profile_changed", "deleted_profile"}:
+                text = "Saved profile or default changed elsewhere. Your draft is kept; close and reopen the saved settings before resetting."
+            elif code == "work_active_or_case_changed":
+                text = "Work is active, or the case or profile storage changed. Your draft is kept; stop work and reopen Profile settings before resetting."
+            else:
+                text = "Reset could not be validated or saved. Your draft and selection are kept. Check installed resources and profile storage, then reopen Profile settings."
+            self.message.set_text(text)
+            return False
+
+    @staticmethod
+    def _replace_buffer(buffer, text):
+        if buffer.get_text(*buffer.get_bounds(), True) == text:
+            return
+        insert = buffer.get_iter_at_mark(buffer.get_insert()).get_offset()
+        bound = buffer.get_iter_at_mark(buffer.get_selection_bound()).get_offset()
+        buffer.begin_user_action()
+        try:
+            buffer.delete(*buffer.get_bounds())
+            buffer.insert(buffer.get_start_iter(), text)
+        finally:
+            buffer.end_user_action()
+        size = buffer.get_char_count()
+        buffer.select_range(buffer.get_iter_at_offset(min(insert, size)), buffer.get_iter_at_offset(min(bound, size)))
+
+    def _adopt_reset(self, snapshot):
+        """Install exact saved values through retained containers and stable IDs."""
+        visible = self._navigation.view.get_visible_page().get_tag()
+        self._navigation._capture(visible)
+        resources = self.editor.resources
+        self._installing = True
+        try:
+            for name in snapshot.manifest["resources"]:
+                value = snapshot.resource(name)
+                if name in self._topic_refreshers:
+                    values = resources[name]
+                    retained = {item["id"]: item for item in values}
+                    ordered = []
+                    for topic in value:
+                        item = retained.get(topic["id"], {})
+                        item.clear()
+                        item.update(topic)
+                        ordered.append(item)
+                    values[:] = ordered
+                elif isinstance(value, dict) and isinstance(resources.get(name), dict):
+                    resources[name].clear()
+                    resources[name].update(value)
+                else:
+                    resources[name] = value
+            for name in set(resources) - set(snapshot.manifest["resources"]):
+                del resources[name]
+            self.editor = ProfileEditor(snapshot)
+            self.editor.resources = resources
+            self.title_widget.set_subtitle(snapshot.manifest["display_name"])
+            self.title_widget.set_tooltip_text(snapshot.manifest["display_name"])
+            for owner, key, buffer, update in self._guidance_bindings:
+                self._replace_buffer(buffer, owner[key])
+                update(owner[key])
+            for render in self._topic_refreshers.values():
+                render(refresh=True)
+            # Clamp cached offsets too: hidden pages may contain shorter text now.
+            live_buffers = {binding[2] for binding in self._guidance_bindings}
+            live_buffers.update(scroll.get_child().get_buffer() for scroll in self._topic_editors.values())
+            for key, selections in self._navigation._selections.items():
+                self._navigation._selections[key] = [
+                    (buffer, min(insert, buffer.get_char_count()), min(bound, buffer.get_char_count()))
+                    for buffer, insert, bound in selections if buffer in live_buffers]
+            self._navigation._restore(visible)
+        finally:
+            self._installing = False
 
     def _new(self):
         if not self.can_modify():
@@ -839,7 +1029,7 @@ class ProfileEditorWindow(Adw.Window):
         saved_ref = None
         self.saved_dialog = None
         self.saved_apply_failed = False
-        if not self.can_modify():
+        if not self.can_modify() or getattr(self, "_reset_refresh_required", False):
             self._refresh_guard()
             return False
         try:

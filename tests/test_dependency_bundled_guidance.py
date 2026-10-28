@@ -3,6 +3,7 @@
 Never read a real personal store/configuration: the bundle is self-contained.
 """
 import hashlib
+from pathlib import Path
 import unittest
 
 from recordprep import practice_profiles as api
@@ -24,6 +25,16 @@ class DependencyBundledGuidanceTests(unittest.TestCase):
         for path, digest in expected.items():
             with self.subTest(path=path):
                 self.assertEqual(hashlib.sha256(files[path]).hexdigest(), digest)
+
+    def test_exact_pre_editorial_bundle_restored(self):
+        bundled = api.bundled_profile_for_identity(api.APPLICATION, api.DEFAULT_PROFILE_ID)
+        self.assertEqual(bundled.manifest["version"], "1.6.0")
+        self.assertEqual(bundled.ref.content_sha256,
+                         "9009fbc8300ec42b0eec7786960e162956a8b6152a6315a3c8a185e0b5987c17")
+        files = dict(bundled.files)
+        for fixture in (Path(__file__).parent / "fixtures/dependency-1.6.0").iterdir():
+            with self.subTest(path=fixture.name):
+                self.assertEqual(files[fixture.name], fixture.read_bytes())
 
     def test_bundle_already_matches_current_editor_resources(self):
         bundled = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft

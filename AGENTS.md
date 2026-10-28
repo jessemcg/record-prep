@@ -25,7 +25,15 @@ synchronized settings as a workaround. Validate with
 Use synthetic source/HOME/state only; see SkillsMenu's package protocol-v1 reference.
 
 ## Settings interaction contract
-Model and Profile settings have separate persistence boundaries. Use expandable homes and retained full-width rounded editors, not permanent sidebars. Save all draft pages without closing or changing destination; only successful persistence advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Reopening presents the application-owned draft. Retain topic IDs, buffers/undo/selection/viewport and guarded revision/default publication. Details and validation: `docs/unified-settings-validation.md`.
+Model and Profile settings have separate persistence boundaries. Use expandable homes and retained full-width rounded editors, not permanent sidebars. Save all draft pages without closing or changing destination; only successful persistence advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Reopening presents the application-owned draft.
+Explicit Reset to bundled… → Reset and Save is the confirmed immediate-save
+exception: exact validated shipped identity/resources, separate replacement draft,
+production preview and existing guarded managed transaction. Never normalize the
+bundle through editable_profile before reset, mutate a discarded draft before
+publication, or refresh stale expectations to force it through. Retain personal
+ownership/history, topic-ID objects/buffers/navigation and source bytes; suppress
+edit callbacks during display installation. Undo is a new unsaved edit, not storage
+rollback. See docs/bundled-reset-validation.md. Retain topic IDs, buffers/undo/selection/viewport and guarded revision/default publication. Details and validation: `docs/unified-settings-validation.md`.
 
 ## README style
 

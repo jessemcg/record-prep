@@ -34,18 +34,23 @@ SUMMARY_EXPLANATION = (
 )
 CLASSIFICATION_PROGRESSION = "Page types → First pages → Dates & names → Table of contents → Boundaries"
 CLASSIFICATION_EXPLANATION = (
-    "The vision model reads page images to both classify pages and extract information, such as dates and document names. "
-    "Each task uses only its own specialty instructions, alongside the application's fixed safeguards.\n\n"
-    "Reporter’s transcript (RT): Basic separates hearing dialogue from covers and indexes; Advanced marks hearing starts; "
-    "Dates reads their dates. Hearing labels use those dates, not a separate name prompt.\n\n"
-    "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced checks every such page for a document start, "
-    "including reports placed directly next to each other. Dates reads minute-order dates. Names reads report names and dates "
-    "and form names only on their marked first pages. Unnamed reports still mark a document break but are omitted from standalone summaries.\n\n"
-    "Each stage builds on earlier results: page types guide first-page checks, and first pages guide date and name extraction. "
-    "The resulting labels help build the table of contents; later boundary stages determine each document’s page range.\n\n"
-    "Page types are fixed structural categories shared across legal fields. Customize the recognition clues below—"
-    "headings, terminology, examples and distinctions—not the category labels or response keys. "
-    "Report Names and Form Names control naming and selection only; page-type and first-page checks do not use those catalogs."
+    "Before classification, the “Detect transcript layout” step determines where the reporter’s transcript (RT) ends "
+    "and the clerk’s transcript (CT) begins, or whether the record contains only RT or only CT pages. This effectively "
+    "performs the first classification step. Here, RT pages and CT pages undergo further classification and information "
+    "extraction through an image model that examines their corresponding images and returns results as JSON fields. "
+    "First, the image model classifies the RT pages and CT pages into page types.\n\n"
+    "For RT pages, the most important page type is the RT body page type, which contains dialogue from a given hearing. "
+    "Once RT body pages are identified, the image model re-examines each one to determine whether it is the first page "
+    "of a hearing. For CT pages, the most important page types are minute orders, reports, and forms. As with RT body "
+    "pages, once these page types are identified, the image model re-examines each page to determine whether it is the "
+    "first page of a minute order, report, or form. This allows the app to know the boundary of each hearing, "
+    "minute order, report, and form.\n\n"
+    "The image model also re-examines the first page of each hearing, minute order, report, and form to extract "
+    "information. For each hearing and minute order, only the date is extracted. For each report, the name and date "
+    "are extracted; for each form, only the name is extracted. Report and form names must match an approved name in "
+    "the profile’s user-editable Report Names or Form Names list. Reports and forms without an accepted name are omitted from "
+    "the table of contents, and unnamed reports are excluded from standalone report summaries. "
+    "This ensures that only relevant reports and forms are identified."
 )
 CLASSIFICATION_PAGES = (
     ("rt", "Reporter transcript page types", "Basic"),
@@ -538,26 +543,22 @@ class ProfileEditorWindow(Adw.Window):
 
     def _explanation(self, box, category, task=None):
         classification = category == "Classification"
-        short = "Classification · page types → starts → dates and names" if classification else "Summaries · topic digests → narrative sections"
-        box.append(wrapped(short))
+        if not classification:
+            box.append(wrapped("Summaries · topic digests → narrative sections"))
         expander = Gtk.Expander(label="About classification" if classification else "About summaries", expanded=False)
-        explanation = (CLASSIFICATION_PROGRESSION + "\n\n" + CLASSIFICATION_EXPLANATION if classification else
+        explanation = (CLASSIFICATION_EXPLANATION if classification else
                        SUMMARY_TITLE + "\n" + SUMMARY_PROGRESSION + "\n\n" + SUMMARY_EXPLANATION)
         if task:
             explanation += "\n\n" + task
+        if classification:
+            explanation += "\n\n" + CLASSIFICATION_PROGRESSION
         label = wrapped(explanation, margin_top=6, margin_bottom=6)
         disclosure = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         inspect = button("View full prompts…", lambda: self._inspect_prompts(category))
         inspect.set_halign(Gtk.Align.START)
         disclosure.append(inspect)
         disclosure.append(label)
-        if classification:
-            scroller = Gtk.ScrolledWindow(max_content_height=140, propagate_natural_height=True)
-            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            scroller.set_child(disclosure)
-            expander.set_child(scroller)
-        else:
-            expander.set_child(disclosure)
+        expander.set_child(disclosure)
         box.append(expander)
 
     def _terms(self, group, owner, key, label):
@@ -803,7 +804,6 @@ class ProfileEditorWindow(Adw.Window):
         naming = self.editor.resources["naming"]
         self._explanation(self._page_body, "Classification")
         if key in ("rt", "ct") and "page_types" in tasks:
-            self._page_body.append(wrapped("Compare all descriptions for best fit. Display order is not priority. Output keys are fixed."))
             self._fixed_cards(tasks["page_types"][key], CLASSIFICATION_PAGE_TYPES[key])
         elif key == "first-pages":
             owner = tasks.get("first_pages", tasks)

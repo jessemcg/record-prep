@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from gi.repository import GLib
 from recordprep.ui import main_window as ui
 from recordprep import practice_profiles as api
-from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, SUMMARY_EXPLANATION, topic_editor_text
+from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, CLASSIFICATION_PROGRESSION, SUMMARY_EXPLANATION, topic_editor_text
 from recordprep.settings_navigation import descendants
 
 Adw, Gtk = ui.Adw, ui.Gtk
@@ -220,8 +220,26 @@ class UnifiedSettingsTests(unittest.TestCase):
         widgets = list(descendants(w.pages["rt"]))
         explanation = next(x for x in widgets if isinstance(x, Gtk.Expander))
         self.assertFalse(explanation.get_expanded())
-        text = "\n".join(x.get_text() for x in descendants(explanation.get_child().get_child()) if isinstance(x, Gtk.Label))
+        self.assertIsInstance(explanation.get_child(), Gtk.Box)
+        self.assertFalse(any(isinstance(x, Gtk.ScrolledWindow) for x in descendants(explanation.get_child())))
+        text = "\n".join(x.get_text() for x in descendants(explanation.get_child()) if isinstance(x, Gtk.Label))
         self.assertIn(CLASSIFICATION_EXPLANATION, text)
+        self.assertTrue(text.endswith(CLASSIFICATION_PROGRESSION))
+        self.assertFalse(any(isinstance(x, Gtk.Label) and x.get_text().startswith(
+            ("Classification ·", "Compare all descriptions")) for x in widgets))
+        self.assertEqual(explanation.get_label(), "About classification")
+        for detail in (
+            "Detect transcript layout",
+            "only RT or only CT pages",
+            "This allows the app to know the boundary of each hearing, minute order, report, and form.",
+            "for each form, only the name is extracted",
+            "This ensures that only relevant reports and forms are identified.",
+        ):
+            self.assertIn(detail, text)
+        explanation.set_expanded(True)
+        drain()
+        self.assertTrue(explanation.get_expanded())
+        explanation.set_expanded(False)
         view = next(x for x in widgets if isinstance(x, Gtk.TextView))
         buffer = view.get_buffer()
         literal = "Literal α {{placeholder}}\n  retained\ttext.\n" * 100

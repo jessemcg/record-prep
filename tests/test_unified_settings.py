@@ -136,11 +136,8 @@ class UnifiedSettingsTests(unittest.TestCase):
         return window, store
 
     def test_classification_outline_structure_navigation_and_bindings(self):
-        from recordprep.profile_editor_ui import CLASSIFICATION_PAGES, CLASSIFICATION_OUTLINE_GROUPS
+        from recordprep.profile_editor_ui import CLASSIFICATION_PAGES
         w, store = self.profile_window()
-        expected_groups = {}
-        self.assertEqual(CLASSIFICATION_OUTLINE_GROUPS, expected_groups)
-        children = {key for keys in expected_groups.values() for key in keys}
         keys = [key for key, _, _ in CLASSIFICATION_PAGES]
         self.assertEqual(list(w.nav_rows)[:5], keys)
         self.assertEqual(keys, ['rt', 'ct', 'first-pages', 'report-naming', 'form-naming'])
@@ -148,7 +145,7 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertNotIn("Common guidance", [row.get_title() for row in w.nav_rows.values()])
         chooser_before = list(w._navigation._prompt_keys)
         for key, row in w.nav_rows.items():
-            self.assertEqual(row.get_margin_start(), 24 if key in children else 0, key)
+            self.assertEqual(row.get_margin_start(), 0, key)
             self.assertEqual(row.get_margin_end(), 0, key)
         w.nav_groups["Classification"].set_expanded(True)
         drain()

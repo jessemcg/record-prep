@@ -42,17 +42,14 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 | case_name (content schemas 2–8; inert historical caption guidance) | Markdown |
 
 RecordPrep schema 1 retains its old required resources for read compatibility. Schema 2 adds
-exact task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
-`date_hearing`, `date_minute`. Only the current task is composed beneath the
-application's protected classification contract. Caption inference uses its own
-resource/component; schema-1 caption behavior is unchanged. Editing an old draft
+exact historical task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
+`date_hearing`, `date_minute`. Only active recognition clues are composed with the application's classification method. Dates and caption inference use fixed application instructions for every schema; historical profile/legacy date and caption text is inert. Schema 1 uses explicit practice-neutral structural descriptions and first-page clues, never retired Common guidance or Dependency-specific substitutes. Editing an old draft
 may upgrade it, but never rewrites the accepted snapshot.
 
 Content schema 3 removes all four extra summary instruction resources and rejects
 them if present. Content schema 4 additionally removes roles and participants;
 schema 5 also removes overview instructions. Schema 6 removes common classification
-guidance. Bundled defaults and ordinary GUI edit/create use schema 6; schemas 1–5
-retain read-only compatibility. Common classification text is never compiled or
+guidance. Bundled Dependency is 1.8.0/schema 8; structured GUI edit/create uses schema 8, while mixed/legacy resources can retain schema 6. Schemas 1–7 retain read compatibility. Common classification text is never compiled or
 fingerprinted, including for older schemas. Explicit editor Save omits the old field
 and file instead of preserving them in the new revision. Participant identification
 is application-owned and independent of specialty. Historical roles and identification
@@ -93,9 +90,9 @@ Dates and summary model instructions are unchanged; actual upstream bytes still
 control downstream workspaces.
 
 Schemas 1–7 and prior naming formats remain readable without writes. Only exact
-complete public resources adapt read-only: original, initial-structured and reviewed
-shared-catalog 1.7.0 classifications map to the frozen 1.8.0 equivalent. Unknown
-custom descriptions stay literal, including any old footer/name restrictions.
+public **active content** adapts read-only: original, initial-structured and reviewed
+shared-catalog 1.7.0 classifications map to the frozen 1.8.0 equivalent. Matching is exact, not fuzzy: retired flat dates are excluded, while every active clue participates. A lossless flat-v3 wrapper is equivalent only with the exact application fallback report-start clue; custom report-start prose remains custom. Runtime adaptation and editable representation are separate: custom inactive dates retain a lossless compatibility draft instead of being discarded. Opening/inspection never writes accepted resources. Unknown
+custom descriptions stay literal, including any old footer/name restrictions. Runtime recognition compares complete task-local values (whole legacy strings or RT/CT description maps), so changing one active task cannot disable public adaptation for unrelated tasks. It never splits or partially replaces unknown task prose; editable full-resource conversion remains separately allowlisted.
 The Detention-only date exception remains explicitly deleted. Only guarded
 Save/Reset publishes revisions; no stage runs or private migration follows Save.
 This section supersedes older current-schema descriptions below.
@@ -119,6 +116,7 @@ Every object rejects unknown fields, duplicate keys and nonfinite numbers.
   validation proves. Schema/first-page/evidence/date/publication guards remain
   application-owned. Opening an old profile converts only the editor draft; an
   explicit save publishes a new revision, never a rewrite of historical bytes.
+- Unknown naming v1/v2 editing uses one retained full-resource JSON buffer shared by Report Names/Form Names, preserving undo/selection through navigation and Save. No automatic conversion of arbitrary modes/prose/heading/code rules to v4 cards. v3 remains literal prose; v4 uses naming cards. Invalid JSON blocks Save without advancing the baseline and inspection shows raw text plus an explicit incomplete/invalid warning, not the last parsed catalog. Inspection freezes resources, raw buffers, issues and a snapshot only when the complete draft validates; unrelated tasks may still be viewed with the limitation visible.
 - Legacy naming v2: `{schema_version: 2, mode, report_titles, form_rules,
   report_guidance, form_guidance}`. Mode is `source_title` or `approved_titles`.
   Each of 0–256 form rules has exactly `{name, title, code}`, with names/codes
@@ -161,8 +159,7 @@ snapshots cause verification failure, not automatic revision acceptance.
 `compile_stage_profile(snapshot, stage, core_contract=...)` selects code-owned
 resource dependencies. Markdown remains exact; structured content is canonical
 JSON. Component hashes include application, stage and caller-supplied core bytes,
-not unrelated display metadata or the whole-profile digest. Classification task
-groups and caption guidance are isolated. Report extraction selects topics, not
+not unrelated display metadata or the whole-profile digest. Classification task groups are stage-local; Dates and caption use fixed application methods, not historical profile text. Report extraction selects topics, not
 retired extra instructions or policies; minutes selects only minute guidance,
 never historical roles or policies. Participants selects no profile resources;
 its component hashes the fixed application contract. Hearing extraction and overview
@@ -176,6 +173,12 @@ requires explicit rerunning rather than being silently reused or regenerated.
 Runtime freshness additionally binds source,
 model, upstream artifacts and validators. Application compilers own exact response
 keys, approved-name membership, date validation and publication.
+
+See [the ownership inventory](profile-ownership-audit.md) for editable surfaces, adapters, consumers, stage-local dependencies and active/historical/dead-code decisions. Profile selection/publication guards still compare the full selected revision even when an inert edit leaves effective components unchanged.
+
+## Editor and publication boundary
+
+The retained destination home has only Classification (RT types, CT types, First pages, Report Names, Form Names) and Summaries (Hearing digest topics, Report digest topics, Minute orders). No General/date/caption/participant/overview settings or in-window profile switching. Both About disclosures expand naturally in the ordinary page scroller. Save validates all draft pages without closing or changing destination; failure never advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Confirmed Reset to bundled → Reset and Save is the explicit immediate-publication exception, using the exact validated bundle and original CAS expectations.
 
 ## Private storage and managed Save
 
@@ -196,15 +199,14 @@ fsyncs immutable bytes, then atomically commits registry references and private
 ownership/initialization/default metadata. It is idempotent for unchanged Save.
 An interrupted write may leave an unauthorized orphan, never a selected revision.
 Capacity is bounded to 256 accepted revisions; no automatic pruning. Saving the
-current default advances it; explicitly clearing it returns to personal or public
-General. Missing configured defaults are errors, not fallback permission.
+current default advances it; clearing it returns to personal or public Dependency. Missing configured defaults are errors, not fallback permission.
 
 `ProfileStore.delete_profile(ref, expected_default=..., can_modify=...)` hides a
 user-created specialty using an optional `deleted` identity list, under the same
 private lock and atomic publication rules. It checks the exact accepted head,
 expected default and work/case guard before commit; built-in identities are
 protected even if personally customized. Deleting the selected application profile
-clears it to General. Heads, accepted references, ownership metadata and immutable
+clears it to Dependency. Heads, accepted references, ownership metadata and immutable
 snapshot bytes remain intact as historical data; case pins never authorize current
 instructions. Catalog discovery excludes deleted identities. Managed Save,
 accept_profile and set_default reject a tombstoned identity rather than resurrecting

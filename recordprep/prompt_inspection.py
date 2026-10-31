@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from .classifier_prompts import classifier_document
 from .document_naming import naming_document
-from .profile_contract import CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PAGE_TYPES
+from .profile_contract import CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PAGE_TYPES, ProfileSnapshot
 from .structured_guidance import effective_resource
 
 CLASSIFICATION_TASKS = (
@@ -34,6 +34,41 @@ class Inspection:
 
     def display_text(self):
         return "\n\n".join("===== " + label + " =====\n" + text for label, text in self.components)
+
+
+@dataclass(frozen=True)
+class DraftInspectionState:
+    """A private copy of the complete editor draft, including unparsed buffers."""
+    resources: dict
+    raw_resources: tuple[tuple[str, str], ...]
+    issues: tuple[str, ...]
+    snapshot: ProfileSnapshot | None
+
+
+def freeze_draft(editor, *, raw_resources=None) -> DraftInspectionState:
+    from .profile_workflows import ProfileEditor
+    from .profile_contract import _json
+    draft = ProfileEditor(editor.base)
+    draft.manifest = copy.deepcopy(editor.manifest)
+    draft.resources = copy.deepcopy(editor.resources)
+    raw = tuple((raw_resources or {}).items())
+    issues = []
+    for name, text in raw:
+        try:
+            draft.resources[name] = _json(text.encode('utf-8'), name)
+        except (ValueError, OSError):
+            # Never leave the last successfully parsed object masquerading as
+            # this raw draft. Unrelated tasks may still be inspected literally.
+            draft.resources.pop(name, None)
+            issues.append(f"INCOMPLETE / INVALID DRAFT: Draft validation issue: invalid JSON in {name}. Literal raw text is shown; no executable naming prompt is available.")
+    snapshot = None
+    if not issues:
+        try:
+            snapshot = draft.snapshot()
+        except (ValueError, OSError) as exc:
+            code = exc.issue.code if hasattr(exc, 'issue') else 'invalid settings'
+            issues.append("INCOMPLETE / INVALID DRAFT: Draft validation issue: " + code + ". Literal draft values remain inspectable.")
+    return DraftInspectionState(copy.deepcopy(draft.resources), raw, tuple(issues), snapshot)
 
 
 def tool_audit(project_dir: Path, phase: str):
@@ -64,7 +99,20 @@ def tool_audit(project_dir: Path, phase: str):
         return "Tool audit unavailable.", ("INCOMPLETE INSPECTION: packaged tool schemas or tracked extension sources are unavailable.",)
 
 
-def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None) -> Inspection:
+def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None,
+                   draft: DraftInspectionState | None = None) -> Inspection:
+    if draft is not None:
+        resources, snapshot = draft.resources, draft.snapshot
+        raw = dict(draft.raw_resources)
+        if not template and task in ('report', 'form') and 'naming' in raw and snapshot is None:
+            return Inspection((("Current draft — literal naming JSON (not compiled)", raw['naming']),),
+                              draft.issues or ("INCOMPLETE / INVALID DRAFT: naming has not validated.",))
+    result = _inspect_prompt(resources, task, project_dir, template=template, snapshot=snapshot)
+    issues = (*draft.issues, *result.issues) if draft else result.issues
+    return Inspection(result.components, tuple(dict.fromkeys(issues)))
+
+
+def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None) -> Inspection:
     resources = copy.deepcopy(resources)
     if task in dict(CLASSIFICATION_TASKS):
         if task in ("report", "form"):
@@ -83,7 +131,7 @@ def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=Tr
                 return Inspection((("System message", prompt), PAGE_IMAGE_COMPONENT),
                                   ("Compatibility naming inspection is incomplete until this draft validates; literal resource shown without substitution.",))
         else:
-            tasks = effective_resource(resources["classification_tasks"], "classification_tasks")
+            tasks = effective_resource(resources.get("classification_tasks", {}), "classification_tasks")
             if template:
                 tasks = {"schema_version": 3,
                          "page_types": {side: {key: "⟪" + key + " recognition description⟫" for key in keys} for side, keys in CLASSIFICATION_PAGE_TYPES.items()},

@@ -1503,7 +1503,7 @@ def _label_starts_with_date(name: str, display_date: str) -> bool:
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExtractionConfig:
     kind: str
     guidance: str
@@ -1516,20 +1516,27 @@ class ExtractionConfig:
 
     def __post_init__(self):
         if self.profile is not None:
-            self.guidance = compile_summary(self.profile, self.kind, "extract").prompt
-            self.additional_guidance = ""
+            # One validated contract per frozen configuration, never a global
+            # cache of settings/drafts. Unassigned category loading stays live.
+            # Derived private attributes are not dataclass fields: preserve the
+            # established asdict/configuration serialization surface exactly.
+            compiled = compile_summary(self.profile, self.kind, "extract")
+            object.__setattr__(self, "guidance", compiled.prompt)
+            object.__setattr__(self, "additional_guidance", "")
+            object.__setattr__(self, "_profile_component", compiled.component_sha256)
+            object.__setattr__(self, "_profile_definitions", tuple(CategoryDefinition(*entry) for entry in compiled.category_catalog))
 
     @property
     def definitions(self) -> tuple[CategoryDefinition, ...]:
         if self.profile is None:
             return summary_category_definitions(self.kind)
-        return tuple(CategoryDefinition(*entry) for entry in compile_summary(self.profile, self.kind, "extract").category_catalog)
+        return self._profile_definitions
 
     def fingerprint_payload(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
             "categories": [definition.identifier for definition in self.definitions],
-            **({"profile_component": compile_summary(self.profile, self.kind, "extract").component_sha256}
+            **({"profile_component": self._profile_component}
                if self.profile is not None else {}),
             "runtime_contract_sha256": self.runtime_contract_sha256,
             "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,

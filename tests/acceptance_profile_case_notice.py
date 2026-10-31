@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
-package = "focus" if (HERE / "focus").is_dir() else "recordprep"
+package = "recordprep"
 TEMP = tempfile.TemporaryDirectory(prefix="profile-case-notice-")
 ROOT = Path(TEMP.name)
-for key in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+for key in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "PI_CODING_AGENT_DIR"):
     directory = ROOT / key.lower()
     directory.mkdir()
     os.environ[key] = str(directory)
@@ -23,6 +23,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib
 
+os.environ['PI_RUN_METRICS_ENABLED'] = '0'
 api = importlib.import_module(package + ".practice_profiles")
 manager_ui = importlib.import_module(package + ".profile_manager_ui")
 Adw.init()
@@ -40,6 +41,11 @@ def drain():
         time.sleep(.01)
 
 
+# One bundled specialty is selectable now. Create a synthetic second identity,
+# rather than assuming the retired General profile is a selectable choice.
+from recordprep.profile_workflows import ProfileEditor
+custom = ProfileEditor.create(api.bundled_profile_for_identity('recordprep',api.DEFAULT_PROFILE_ID),'Synthetic second specialty').snapshot()
+store.managed_save(custom,expected_head=None,expected_default=None,personal=True)
 with patch.object(api, "profile_store", return_value=store):
     manager = manager_ui.ProfileManagerWindow(parent, can_modify=lambda: True,
         preview=lambda snapshot: None, on_select=lambda ref: None,
@@ -50,13 +56,12 @@ with patch.object(api, "profile_store", return_value=store):
     editor = manager._edit()
     drain()
     assert editor.case_notice.get_visible()
-    resource = "research" if package == "focus" else "classification"
+    resource = "minutes"
     editor.editor.resources[resource] += "\nSynthetic new-case settings.\n"
     editor._save()
     drain()
     assert editor.editor.base.ref != pending
     assert manager.selected_ref == editor.editor.base.ref
-    # Focus retains its existing General/default switch semantics on Save;
     # RecordPrep advances the default remembered by its explicit selection.
     assert store.read_registry()["default"] == asdict(editor.editor.base.ref)
     assert not hasattr(manager, "apply_dialog")

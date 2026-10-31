@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory() as temporary:
             from recordprep.document_naming import compile_naming_profile
             from recordprep.summary_profiles import compile_summary
             assert compile_case_name(snapshot)
-            for task in ('rt', 'ct', 'first_hearing', 'first_minute', 'first_form', 'date_hearing', 'date_minute'):
+            for task in ('rt', 'ct', 'first_hearing', 'first_minute', 'first_form', 'first_report', 'date_hearing', 'date_minute'):
                 assert classifier_prompt(snapshot, task)[0]
             for kind in ('report', 'form'):
                 assert compile_naming_profile(snapshot, kind).prompt
@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as temporary:
             from focus.research_profiles import compile_research
             assert compile_research(snapshot).skill
         editor = workflow.ProfileEditor(snapshot)
-        key = 'case_name' if package == 'recordprep' else 'answer_guidance'
+        key = 'minutes' if package == 'recordprep' else 'answer_guidance'
         editor.resources[key] += '\nSynthetic installed-wheel customization.\n'
         ref = editor.managed_save(store, expected_head=None, expected_default=None,
                                   can_modify=lambda: True, validate=lambda draft: draft,

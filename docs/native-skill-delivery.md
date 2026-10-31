@@ -94,5 +94,5 @@ or completion of the broader historical GTK manual matrix.
 Evidence root: `/tmp/recordprep-structured.SyH095`; `native-skill-before/`,
 `native-skill-initial.log`, `native-skill-sdk.log`, `native-skill-full-initial.log`,
 `native-skill-focused.log`, `native-skill-full-final.log`, `native-skill-resources.log`
-and `native-skill-package.log`. Changes remain uncommitted. Reopen RecordPrep manually
+and `native-skill-package.log`. These delivery changes were subsequently committed and pushed in `59eb40a`; this evidence remains chronological. Reopen RecordPrep manually
 before using the updated code; no existing case has been rerun.

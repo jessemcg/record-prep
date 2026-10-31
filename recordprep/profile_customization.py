@@ -18,8 +18,6 @@ TASK_KEYS = {
     "first_hearing": ("advanced_classify_hearing_prompt", "DEFAULT_ADVANCED_HEARING_PROMPT"),
     "first_minute": ("advanced_classify_minute_prompt", "DEFAULT_ADVANCED_MINUTE_PROMPT"),
     "first_form": ("advanced_classify_form_prompt", "DEFAULT_ADVANCED_FORM_PROMPT"),
-    "date_hearing": ("classify_dates_hearing_prompt", "DEFAULT_CLASSIFY_HEARING_DATES_PROMPT"),
-    "date_minute": ("classify_dates_minute_prompt", "DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT"),
 }
 
 
@@ -50,9 +48,8 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
                 editor.resources["classification_tasks"] = json.loads((_BASE / "classification-tasks.json").read_bytes())
                 editor.manifest["schema_version"] = 6
             editor.resources["classification_tasks"][task] = value
-    value = custom("case_name_prompt", defaults.DEFAULT_CASE_NAME_PROMPT)
-    if value is not None:
-        editor.resources["case_name"] = value
+    # Retired date/caption inputs are not user-controlled initialization data.
+    # Existing accepted resources remain readable; never mutate the source config.
     value = custom("summarize_minutes_prompt", DEFAULT_MINUTES_PROMPT)
     if value is not None:
         editor.resources["minutes"] = value

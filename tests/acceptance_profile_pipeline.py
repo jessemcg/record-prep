@@ -1,9 +1,12 @@
-"""Synthetic mixed RT/CT producer acceptance; never performs network/model calls.
+"""HISTORICAL synthetic artifact producer, retained as chronological evidence.
 
-Run from an isolated source checkout/environment. Arguments: NEW output directory,
-optional GUI-authored RecordPrep profile folder. Exported cases contain only
-synthetic source/artifacts, not the private registry, instructions or model config.
+This old case-pin/General-profile/export harness is not a current acceptance check.
+Its source documents the original synthetic artifacts only. Current discoverable
+classification/report-start/summary/Resume tests cover the maintained pipeline;
+see docs/profile-ownership-audit.md. Never use this harness on a real case.
 """
+if __name__ == '__main__':
+    raise SystemExit('Historical profile pipeline harness retired. Run python -m unittest discover -s tests in an isolated RecordPrep checkout; see docs/profile-ownership-audit.md.')
 import base64
 import json
 import os

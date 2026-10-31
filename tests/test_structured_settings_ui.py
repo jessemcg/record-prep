@@ -95,6 +95,103 @@ class StructuredSettingsUITests(unittest.TestCase):
                          bundle().resource('classification_tasks')['first_pages']['first_report'])
         self.assertFalse(w._dirty())
 
+    def test_complete_legacy_naming_buffer_and_invalid_inspection(self):
+        import json
+        from recordprep.classification_profiles import classifier_prompt
+        root = self.root
+        for version in (1, 2):
+            with self.subTest(version=version):
+                self.root = root / str(version)
+                self.root.mkdir()
+                w, store = self.profile_window()
+                from recordprep.profile_integration import preview
+                w.preview = lambda snapshot: preview(snapshot,ROOT/'.pi')
+                e = ProfileEditor(legacy())
+                naming = ({'mode': 'approved_titles', 'report_titles': ['Synthetic report'],
+                           'form_titles': ['Synthetic form'], 'guidance': 'Literal matching guidance.'}
+                          if version == 1 else json.loads((ROOT/'tests/fixtures/naming-v2/california_dependency.json').read_bytes()))
+                naming['guidance' if version == 1 else 'report_guidance'] += ' Unknown synthetic guidance.'
+                e.resources['naming'] = naming
+                w.editor = editable_profile(e.snapshot()); w._render()
+                buffer = w._legacy_naming_buffer
+                self.assertIsNotNone(buffer)
+                for page in ('report-naming','form-naming'):
+                    w._select_page(page)
+                    views = [x for x in descendants(w.pages[page]) if isinstance(x,Gtk.TextView)]
+                    self.assertEqual(len(views),1); self.assertIs(views[0].get_buffer(),buffer)
+                value = copy.deepcopy(naming)
+                value['report_titles'] = ['Changed synthetic report']
+                if version == 1:
+                    value['form_titles'] = ['Changed synthetic form']
+                else:
+                    value['form_rules'] = [{'name':'Changed synthetic form','title':'Changed synthetic heading','code':'SYN-2'}]
+                    value['form_guidance'] = 'Require the synthetic heading and code on the supplied first page.'
+                text = json.dumps(value,ensure_ascii=False,indent=2)
+                w._replace_buffer(buffer,text)
+                buffer.select_range(buffer.get_iter_at_offset(5),buffer.get_iter_at_offset(2))
+                w._select_page('ct'); w._select_page('report-naming')
+                self.assertTrue(buffer.get_can_undo())
+                self.assertTrue(w._save(),w.message.get_text())
+                saved = store.load_profile_snapshot(w.editor.base.ref); files = saved.files
+                self.assertEqual(saved.resource('naming'),value)
+                self.assertIn('Changed synthetic report',classifier_prompt(saved,'report')[0])
+                from recordprep.document_naming import compile_naming_profile
+                from recordprep.ui import main_window as ui
+                from types import SimpleNamespace as NS
+                image = self.root/'0001.png'; image.write_bytes(b'synthetic page image')
+                worker = NS(_raise_if_stop_requested=lambda:None,_extract_response_text=lambda p:p,_extract_json_payload=lambda p:p)
+                for kind in ('report','form'):
+                    contract = compile_naming_profile(saved,kind)
+                    name = 'Changed synthetic '+kind
+                    response = {'name':name,**({'date':'March 5, 2030'} if kind == 'report' else {})}
+                    self.assertEqual(contract.normalize(response).name,name)
+                    self.assertEqual(contract.normalize({'name':'Unapproved synthetic name','date':''}).name,'')
+                    captured = []
+                    def post(request,**kwargs):
+                        captured.append(json.loads(request.data)); return json.dumps(response)
+                    with patch.object(ui,'_post_json_with_retries',side_effect=post):
+                        ui.RecordPrepWindow._classify_image(worker,{'api_url':'https://synthetic.invalid','model_id':'offline','prompt':'INACTIVE_CANARY',
+                            'profile_snapshot':saved,'profile_kind':kind},'0001.txt',image)
+                    self.assertEqual(captured[0]['messages'][0]['content'],contract.prompt)
+                    if version == 2 and kind == 'form':
+                        self.assertIn('SYN-2',contract.prompt)
+                        self.assertIn('Changed synthetic heading',contract.prompt)
+                baseline = w._saved_state
+                w._replace_buffer(buffer,'{ invalid raw naming α')
+                self.assertFalse(w._save()); self.assertEqual(w._saved_state,baseline)
+                w._inspect_prompts('Classification'); inspector = w.prompt_inspector
+                self.addCleanup(dispose,inspector)
+                inspector.mode.set_selected(1)
+                self.assertIsNone(inspector.snapshot)
+                self.assertIn('invalid',inspector.status.get_text().lower())
+                displayed = inspector.text.get_buffer().get_text(*inspector.text.get_buffer().get_bounds(),True)
+                self.assertIn('{ invalid raw naming α',displayed)
+                self.assertNotIn('Changed synthetic report',displayed)
+                # Inspector is frozen even if its parent draft is changed by a test.
+                buffer.undo()
+                self.assertFalse(w._legacy_naming_error)
+                inspector._refresh()
+                self.assertIn('invalid',inspector.status.get_text().lower())
+                self.assertEqual(saved.files,files)
+                inspector.destroy(); drain()
+                self.assertFalse(w._dirty())
+                self.assertTrue(w._save())
+                buffer.undo(); self.assertTrue(w._dirty())
+                self.assertTrue(w._close_request())
+                w.unsaved_dialog.response('keep'); drain()
+                self.assertTrue(w.get_visible())
+                # Reset deliberately replaces the compatibility resource; no
+                # discarded raw buffer may leak back into current inspection.
+                w._reset().response('reset'); drain()
+                self.assertIsNone(w._legacy_naming_buffer)
+                self.assertEqual(w.editor.snapshot().files,bundle().files)
+                self.assertEqual(store.load_profile_snapshot(saved.ref).files,files)
+                w._inspect_prompts('Classification'); current = w.prompt_inspector
+                self.addCleanup(dispose,current)
+                current.mode.set_selected(1)
+                self.assertIsNotNone(current.snapshot)
+                self.assertFalse(current.status.get_text(),current.status.get_text())
+
     def test_frozen_invalid_inspector_does_not_discover_or_write(self):
         w,store=self.profile_window()
         w.editor.resources['classification_tasks']['page_types']['rt']['RT_body']=''

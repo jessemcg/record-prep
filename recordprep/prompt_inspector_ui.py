@@ -1,6 +1,5 @@
 """Read-only modal audit; its draft snapshot cannot silently become stale."""
 from __future__ import annotations
-import copy
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -11,16 +10,13 @@ from .paths import resource_root
 
 
 class PromptInspector(Adw.Window):
-    def __init__(self, parent, category, page, editor):
+    def __init__(self, parent, category, page, draft):
         super().__init__(transient_for=parent, modal=True, resizable=True,
                          title="Full prompts — RecordPrep-controlled instructions", default_width=850, default_height=720)
-        self.resources = copy.deepcopy(editor.resources)
-        try:
-            self.snapshot = editor.snapshot()
-            validation = ""
-        except (ValueError, OSError) as exc:
-            self.snapshot = None
-            validation = "Draft validation issue: " + (exc.issue.code if hasattr(exc, "issue") else "invalid settings") + ". Literal draft values remain inspectable."
+        self.draft = draft
+        self.resources = draft.resources
+        self.snapshot = draft.snapshot
+        validation = "\n".join(draft.issues)
         self.tasks = CLASSIFICATION_TASKS if category == "Classification" else SUMMARY_TASKS
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         toolbar = Adw.ToolbarView()
@@ -66,13 +62,15 @@ class PromptInspector(Adw.Window):
         self.mode_note.set_visible(self.mode.get_selected() == 1)
         try:
             result = inspect_prompt(self.resources, self.tasks[self.selector.get_selected()][0], resource_root(),
-                                    template=self.mode.get_selected() == 0, snapshot=self.snapshot)
+                                    template=self.mode.get_selected() == 0, draft=self.draft)
             self.text.get_buffer().set_text(result.display_text())
-            self.status.set_text("\n".join(filter(None, [self.validation, *result.issues])))
+            self.status.set_text("\n".join(result.issues))
         except (ValueError, OSError, KeyError, TypeError):
-            self.status.set_text("Incomplete inspection: this draft or an installed resource is malformed. No bundled values have been substituted.")
+            self.status.set_text("\n".join(filter(None, [self.validation,
+                "Incomplete inspection: this draft or an installed resource is malformed. No bundled values have been substituted."])))
             import json
-            self.text.get_buffer().set_text(json.dumps(self.resources, ensure_ascii=False, indent=2))
+            self.text.get_buffer().set_text(json.dumps(self.resources, ensure_ascii=False, indent=2)
+                + "\n\n" + "\n\n".join(name + " (literal raw draft)\n" + text for name, text in self.draft.raw_resources))
 
     def _copy(self):
         buffer = self.text.get_buffer()

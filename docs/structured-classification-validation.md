@@ -2,7 +2,7 @@
 
 ## Status: implemented, **not fully accepted**
 
-Core classification/schema/editor/inspector work is implemented and uncommitted.
+Core classification/schema/editor/inspector work was committed and pushed in `59eb40a`; the status below records historical validation, not pending publication. See [the ownership follow-up](profile-ownership-audit.md) for the subsequent targeted audit.
 The follow-ups below record successive test/desktop evidence. The latest separately
 authorized summary skill-delivery fix supersedes the former summary-delivery blocker:
 all five summary launches expand correctly in installed-Pi SDK captures. See

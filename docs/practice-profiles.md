@@ -33,7 +33,8 @@ Both About disclosures offer **View full prompts…**, with a placeholder templa
 model request is needed. The separately authorized [summary skill-delivery fix](summary-skill-delivery.md)
 now verifies expansion of all five summary skills through the installed Pi SDK.
 The inspector distinguishes staged skills from launch messages before expansion;
-missing or stale audits remain visible. See the [current schema, information review,
+missing or stale audits remain visible. Invalid compatibility JSON is frozen as literal raw text with an incomplete/invalid-draft warning; the inspector never labels the last valid naming object as the current draft. Valid unrelated tasks remain inspectable, with the limitation visible.
+See the [ownership/dependency inventory and validation](profile-ownership-audit.md) and the [current schema, information review,
 compatibility and delivery verification](structured-classification.md) and
 [validation](structured-classification-validation.md). Historical format details
 below apply to older immutable snapshots where identified; no private migration or
@@ -46,7 +47,7 @@ its public, version-controlled baseline. Classification tasks, report/form namin
 and the Agency Recommendations digest topic retain that guidance verbatim;
 stored case-name prose is also retained but remains inactive. Hearing topics and
 effective minute-order guidance already matched and are unchanged. This promotion
-uses the current editor representation: schema 6, no retired instruction resources
+used the then-current editor representation: schema 6, no retired instruction resources
 or attendance policy, and the current replacement for exact historical minute defaults.
 It does not restore retired fields or change the shared summarization method.
 
@@ -56,9 +57,9 @@ pin the promoted resource bytes without reading personal settings. Private
 registries, snapshots and prepared cases are untouched. Personal profiles remain
 supported; a later personal edit or bundled update can make them differ again.
 
-The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. The bundle
-again matches the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
-original wording and formatting; Reset to bundled remains available. See
+The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. At that time the bundle
+again matched the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
+original wording and formatting. Current Dependency is 1.8.0/schema 8 as described above; Reset to bundled restores that current shipped revision. See
 [reset and restoration validation](bundled-reset-validation.md).
 
 ## Choose, edit, save
@@ -86,8 +87,7 @@ model/appearance/speech/launch controls are in Settings.
 not a button at the bottom of the sidebar. Its Cancel/Create actions use flat
 buttons without an extra selectable hover background. Saving the selected profile
 advances its application-wide revision for future preparation.
-The profile name remains beneath the window title; **Save** and **Cancel** stay in
-the header. Switching pages preserves unsaved edits and each page's scroll position.
+The profile name remains beneath the window title; **Save** stays in each retained destination's header. **Close** offers **Keep Editing** / **Discard Unsaved Changes** when dirty, never Save-and-close. Only successful Save advances the baseline, without closing or changing destination. Switching pages preserves unsaved edits and each page's scroll position.
 At narrow widths, Back returns to the full-width destination list; retained inline
 cards and wrapped editors use the available width without a sidebar. A built-in opens with
 complete populated settings; personal settings appear in place of its baseline.
@@ -104,7 +104,7 @@ regenerated. Reusing the name creates a new identity; old open drafts
 cannot resurrect a deleted identity. Stale profile/default/case state or active
 work blocks deletion without repairing private files.
 
-RecordPrep opens at Classification. Its only main categories are **Classification**
+Profile settings opens at its expandable destination home. Its only main categories are **Classification**
 and **Summaries**. Case Overview remains a pipeline step, not a settings category.
 One fixed, practice-neutral method reads all summaries completely and supplies Focus
 with central parties, record-bounded procedural posture, chronological material events,
@@ -112,14 +112,7 @@ neutral principal disputes and record scope/gaps. It preserves allegations versu
 findings, uncertainty and identity-only participant metadata; it has no word/event
 quotas, assumed appeal or outside legal analysis. Historical overview instructions
 are ignored, not rewritten. The five-section format and nonauthoritative disclaimer
-remain unchanged. Every Classification page
-shows a short, display-only **How classification builds the record** explanation
-above its scrolling editor, as plain text on the window background without a box,
-border, shadow or contrasting panel. A wrapping, accent-colored progression reads
-**Page types → First pages → Dates & names → Table of contents → Boundaries**.
-The explanation describes the vision model's dual role: classifying page images
-and extracting dates and document names. The progression is a display-only overview,
-not clickable navigation or live progress; correction steps still run in their usual places.
+remain unchanged. Every Classification page has a collapsed **About classification** disclosure in the ordinary page scroller. It expands to its full natural height, pushing editors below it, and explains classification and date/name extraction. It ends with the display-only progression **Page types → First pages → Dates & names → Table of contents → Boundaries**; this is not navigation or live progress. There is no pinned explainer or separate capped explanation scroller.
 RT and CT page types come first, followed by First pages, Report Names,
 and Form Names, without child indentation or date editors. Subtitles identify
 pipeline stages, not matching precedence. Retained expandable recognition cards
@@ -165,8 +158,7 @@ revisions and case data remain byte-preserved and readable; an internal compatib
 archive supports historical minute defaults and schema-1 readers/editing only.
 No private profile is migrated or deleted, and no prepared output is regenerated.
 
-Summaries shows one pinned **Topic-guided agentic summarization** explainer above
-exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
+Summaries has a naturally expanding **About summaries** disclosure on each of exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
 report → Topic digest + quotes → Narrative section → Hearing / report summary**.
 Stage 1 reads each complete hearing or report across all its pages; after the digests
 are ready, Stage 2 synthesizes hearing by hearing or report by report, producing
@@ -247,8 +239,7 @@ Minute orders use only the current order, not this index or a profile role catal
 use stable-ID approved-name cards. Each has an editable canonical name and optional
 description/matching instructions, including any required form heading/code. The
 same structured names supply the model prompt and Python's exact membership check.
-No naming-mode selector, technical rule editor, or special Markdown syntax is needed.
-Legacy unknown prose retains a labeled compatibility editor rather than guessed splitting.
+For current v4 cards no naming-mode selector, technical rule editor, or special Markdown syntax is needed. Historical v1/v2 resources instead expose their complete JSON, v3 its literal prose; there is no guessed splitting or automatic conversion.
 Dependency retains its reviewed names and form codes; copies inherit them until
 you edit them for the new specialty. **Only successfully named reports enter
 the report TOC and standalone report-summary worklist.** Any profile without approved
@@ -266,7 +257,7 @@ runs: **Build TOC → Correct TOC → Find boundaries → Correct boundaries**.
 Correct TOC retains the first entry per recognized minute-order date in source order;
 unknown dates remain separate. This applies to profiles too, but does not deduplicate
 their underlying same-day order boundaries, summaries or checkpoints. Old output is
-still displayed as stored. Derived-selection freshness v2 requires the explicit
+still displayed as stored. Derived-selection freshness v4 requires the explicit
 organizing refresh, not reclassification or renaming. Unchanged hearing/RT inputs
 reuse participants afterward; organizing-only changes do not stale minute checkpoints.
 The separately changed minute selection method does require explicit paid regeneration;
@@ -324,7 +315,7 @@ separate case-use confirmation. Every dropdown choice is remembered for subseque
 runs and launches, whether a case is open or not. Existing summaries and other
 outputs are never regenerated by selection or Save. Create files writes no profile
 pin; old pins are preserved as inert historical data. Instruction fingerprints in
-prepared artifacts continue protecting resume from incompatible guidance changes.
+prepared artifacts protect explicit-run checkpoint reuse from incompatible guidance changes; output-presence badges and Resume do not force regeneration for changed settings.
 
 RecordPrep's header has dim **Choose case bundle**, **Choose PDF(s)** and
 **Clear current case** buttons, in that order. The trash button clears only the
@@ -403,9 +394,7 @@ profile wins and is never repeatedly overlaid.
 Empty overrides inherit public guidance. Genuine prose is retained without
 unnecessary stripping. Historical built-ins are recognized so retired output
 instructions are not reattached as personal guidance. RecordPrep preserves
-classification by task, historical case-name text (stored but inert), report/form guidance and known
-structured naming rules, hearing/report topics and minute guidance. Extra summary
-phase instructions and historical attendance choices are not imported. Ambiguous naming prose is retained with a
+active classification by task, report/form guidance, hearing/report topics and minute guidance. Retired date/caption, extra-summary and attendance inputs are not imported into fresh candidates; already accepted historical resource bytes remain readable and unchanged. Ambiguous naming prose is retained with a
 focused review notice: prose does not invent approved-title/catalog rules.
 Focus does not load historical profile/legacy prompt guidance into new research;
 old private stores and saved answers remain untouched. No credentials, endpoints, paths, commands or
@@ -460,7 +449,7 @@ omit its field and file; no hidden backup or automatic distribution into task pr
 is created. Existing immutable schemas 1–5 remain readable, but their common text is
 never compiled or fingerprinted. Only the current task's guidance is composed with
 the application-owned taxonomy. See [task-only classification](task-only-classification.md). Component
-fingerprints isolate basic, first-page/correction and date guidance; caption
+fingerprints isolate Basic/Corrected recognition and Advanced/Corrected starts; Dates is fixed and independent of retired date prose. Schema 1 has neutral application-owned descriptions for every structural label and missing first-page clue, never retired Common or Dependency instructions. Exact legacy active-field matches receive the public adapter even if inactive dates differ; unknown active task prose stays literal. Exact whole-task runtime recognition keeps other tasks independent when one clue changes. A lossless editing draft retains custom inactive date text rather than silently discarding it. Caption
 inference uses one application-owned, practice-neutral prompt and its own
 source/model/output freshness marker. The native `recordprep-infer-case` skill
 reads only private copies of the first three pages and writes only a candidate;
@@ -475,14 +464,11 @@ remain application-owned. Selecting a profile never renames the case.
 Schema-1 snapshots remain byte-preserved. Explicit caption inference uses the
 same built-in prompt and shared native-Pi model for every case. Caption freshness
 now requires the schema-2 marker bound to the source/model/contract/output;
-existing names remain readable but may show pending until explicitly rerun.
+existing names remain readable. Output-presence badges and Resume remain unchanged; only explicit inference checks generation freshness.
 Opening a case never renames it or migrates its data.
 The retired report-scope field is an explicit exception: it remains readable but
 no longer controls extraction. Explicit editing upgrades only an in-memory draft.
-Old unversioned and v2 naming catalogs remain readable with their historical
-runtime behavior and immutable bytes. Explicit editing folds their names, known
-heading/code requirements and original prose into v3 naming instructions. Save or
-selecting a new bundled revision is deliberate; existing case pins are not rewritten.
+Old unversioned (v1) and v2 naming catalogs remain readable with their historical runtime behavior and immutable bytes. Unknown v1/v2 resources use a clearly labeled **full-resource JSON compatibility editor**, shared by Report Names and Form Names, exposing authoritative catalogs, source-title/approved-name mode, heading/code rules and global prose. They are not automatically converted to v4 cards or v3 prose. v3 keeps literal prose editors; v4 keeps ordinary naming cards. Exact known public resources may adapt read-only, without replacing arbitrary custom prose. Save or selecting a bundled revision is deliberate; existing case pins are not rewritten.
 Prior private naming prose is preserved for review alongside the approved entries;
 no model or heuristic invents a new allowlist from arbitrary prose.
 
@@ -509,8 +495,7 @@ and historical Focus saved-answer schema 2 remain descriptive reader contracts,
 while new Focus answers use saved schema 3 / context schema 2 for its fixed method,
 not instruction authority. Legacy readers and frozen fixtures remain intact.
 Old private snapshots and generated output are never rewritten on inspection.
-The changed participant/minute contracts make affected profile-bound work pending
-until explicitly rerun; historical role edits alone no longer change stage components.
+Changed participant/minute contracts affect explicit-run freshness, not output-presence badges or Resume. Existing output stays readable and untouched; historical role edits alone do not change stage components.
 Prepared provenance and research choices remain separate; different specialties
 are not intrinsically structural incompatibility. Source pages remain authority.
 

@@ -94,7 +94,9 @@ only. Adjacent unnamed reports still mark document breaks. Its
 visual-check limits and the separately verified [summary skill-loading fix](docs/summary-skill-delivery.md).
 The [native/caption skill-loading follow-up](docs/native-skill-delivery.md) verifies
 those launch paths too, preserves publication/tool guards, and makes pre-fix native
-generation identities non-equivalent without rewriting saved output.
+generation identities non-equivalent without rewriting saved output. The
+[profile ownership audit](docs/profile-ownership-audit.md) documents active guidance,
+legacy compatibility, and current validation limits.
 
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify

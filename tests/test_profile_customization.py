@@ -38,7 +38,7 @@ class PrivateCustomizationTests(unittest.TestCase):
         self.assertEqual(next(row["guidance"] for row in edited.resource("reports")
                               if row["id"] == "agency_recommendations"), "Synthetic personal agency guidance.")
 
-    def test_allowlist_keeps_raw_text_by_task_and_case_name(self):
+    def test_allowlist_keeps_raw_active_text_and_ignores_caption(self):
         keys = [key for key, _ in TASK_KEYS.values()] + ["case_name_prompt", "summarize_minutes_prompt", "classify_names_report_prompt", "classify_names_form_prompt"]
         config = {key: f"\n  Synthetic personal prose for {key}.\t\n\n" for key in keys}
         config.update({"api_key": "SECRET_CANARY", "model_id": "MODEL_CANARY", "api_url": "ENDPOINT_CANARY",
@@ -59,7 +59,7 @@ class PrivateCustomizationTests(unittest.TestCase):
                 for other_task, text in loaded.resource("classification_tasks").items():
                     if task != other_task:
                         self.assertNotIn(config[key], text)
-            self.assertEqual(config["case_name_prompt"], loaded.resource("case_name"))
+            self.assertEqual(loaded.resource("case_name"), api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft.resource("case_name"))
             self.assertTrue(loaded.resource("naming")["report_guidance"].endswith(config["classify_names_report_prompt"]))
             self.assertIn("- **Detention Report**", loaded.resource("naming")["report_guidance"])
             self.assertIn("naming", editor.review_notices)
@@ -87,7 +87,7 @@ class PrivateCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store = api.ProfileStore("recordprep", config_root=Path(temporary) / "config", data_root=Path(temporary) / "data")
             def resolve(base):
-                return initial_candidate(base, config={"case_name_prompt": "Synthetic previous caption."}, categories={})
+                return initial_candidate(base, config={"summarize_minutes_prompt": "Synthetic previous minute guidance."}, categories={})
             first = api.profile_catalog(store=store, customization=resolve)[0]
             self.assertIn("previous", first.notice)
             ref = store.managed_save(first.snapshot, expected_head=None, expected_default=None, personal=True)

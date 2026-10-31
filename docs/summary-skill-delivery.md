@@ -115,4 +115,4 @@ The first full run exposed expected historical-fixture assumptions about unchang
 summary identities and an ad-hoc current JSONL fixture without staged-resource hashes;
 those tests now account explicitly for the authorized delivery change. Original
 fixtures were not rewritten. Synthetic GUI PID365934 was stopped; the maintained
-application was not restarted. Changes remain uncommitted.
+application was not restarted. These delivery changes were subsequently committed and pushed in `59eb40a`; the evidence above remains chronological.

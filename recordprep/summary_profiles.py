@@ -279,12 +279,19 @@ class SummaryProfile:
     category_catalog: tuple[tuple[str, str, str], ...]
 
 
+def summary_core(kind: str, phase: str) -> str:
+    """Pure byte-preserving method selection for runtime and draft inspection."""
+    if kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
+        raise ValueError("Unsupported summary kind or phase.")
+    return CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
+                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
+
+
 def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> SummaryProfile:
     if snapshot.ref.application != "recordprep" or kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary profile application, kind or phase.")
     stage = ("hearing" if kind == "hearings" else "report") + ("_extraction" if phase == "extract" else "_synthesis")
-    core = CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
-                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
+    core = summary_core(kind, phase)
     compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8"))
     prompt = summary_guidance(core, compiled.resources)
     provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
@@ -303,9 +310,7 @@ def summary_guidance(core, resources):
 def draft_summary_guidance(catalog, kind, phase):
     """Literal incomplete drafts may be inspected without validating unrelated fields."""
     from .profile_contract import json_bytes
-    core = CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
-                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
-    return summary_guidance(core, ((kind, json_bytes(catalog)),))
+    return summary_guidance(summary_core(kind, phase), ((kind, json_bytes(catalog)),))
 
 
 def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:

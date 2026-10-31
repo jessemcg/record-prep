@@ -23,16 +23,11 @@ from .summary_agents import _atomic_write, sha256_json
 # Preserve the structural categories supported by pre-profile personal prompts.
 # One source of truth keeps the model contract and its validator in agreement.
 PAGE_TYPES = CLASSIFICATION_PAGE_TYPES
-KINDS = {
-    "rt": ('page_type', 'Classify this reporter page as exactly one of: ' + ', '.join(PAGE_TYPES['rt']) + '. RT_body is hearing dialogue; indexes, covers and reporter certificates are not hearings.'),
-    "ct": ('page_type', 'Classify this clerk page as exactly one of: ' + ', '.join(PAGE_TYPES['ct']) + '. Distinguish judicial minute orders, authored reports, structured court forms, certificates, motions, notices and proofs of service. Do not restrict forms to any specialty.'),
-    "first_hearing": ('first_page', 'Is this the first page of a hearing? Use the court calling the case and appearances, not printed page numbers. Return yes or no.'),
-    "first_minute": ('first_page', 'Is this the first page of this minute order? Consider its heading and Page 1 of X. Return yes or no.'),
-    "first_form": ('first_page', 'Is this the first page of this form? Consider its heading and Page 1 of X. Return yes or no.'),
-    "first_report": ('first_page', 'Is this the first page of a distinct report, not a continuation? Return yes or no.'),
-    "date_hearing": ('date', 'Extract the hearing date shown on the first hearing page, not an unrelated footer date. Return a long-form U.S. date, or an empty string if unknown.'),
-    "date_minute": ('date', 'Extract the minute-order date shown on this first page. Return a long-form U.S. date, or an empty string if unknown.'),
-}
+# Response metadata only. Active task instructions/fallbacks live in
+# classifier_prompts; do not keep a second, unused instruction source here.
+KINDS = {"rt": ("page_type",), "ct": ("page_type",),
+         **{task: ("first_page",) for task in CLASSIFICATION_FIRST_PAGE_TYPES},
+         "date_hearing": ("date",), "date_minute": ("date",)}
 from .classifier_prompts import INSTRUCTIONS as CORE, classifier_document
 STAGES = ("basic", "advanced", "corrected", "dates", "names")
 SUFFIXES = ("basic", "basic_advanced", "basic_advanced_corrected", "basic_advanced_corrected_dates", "basic_advanced_corrected_dates_names")

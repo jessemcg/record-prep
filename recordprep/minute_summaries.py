@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from recordprep import pi_runtime, summary_agents as sa
+from recordprep import pi_runtime, summary_agents as sa, summary_prompts
 from recordprep.profile_artifacts import preparation_provenance, validate_role_descriptor
 from recordprep.profile_contract import ProfileSnapshot, compile_stage_profile
 from recordprep.summary_profiles import CORE
@@ -75,6 +75,7 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
     )
     config = {
         "contract_version": 1,
+        "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
         "guidance": CONTRACT,
         "additional_guidance": custom,
         "provider": identity.provider,

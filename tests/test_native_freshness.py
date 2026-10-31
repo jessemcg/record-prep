@@ -86,14 +86,20 @@ def entry(stage):
             for stage in nf.STEPS:
                 self.assertNotEqual(runtime[stage], nf.runtime_digest(self.project, stage))
 
-    def test_legacy_support_is_exact_and_gated_by_current_stage_code_and_model(self):
+    def test_pre_expansion_legacy_is_not_equivalent_to_delivered_skills(self):
         manifest = json.loads((PROJECT / 'recordprep/resources/native_runtime_compat.json').read_text())
         identity = {'provider': 'synthetic', 'model': 'test', 'thinking': 'low', 'system': 'x', 'auto_exit': 'y', 'inherited': None}
         with patch.object(nf, 'runtime_identity', return_value=identity):
             expected = nf.runtime_digest(self.project, 'participants')
-            for legacy in manifest['participants']['legacy']:
-                recorded = sa.sha256_json(identity | legacy)
-                self.assertTrue(nf.runtime_matches(recorded, expected, self.project, 'participants'))
+            self.assertTrue(nf.runtime_matches(expected, expected, self.project, 'participants'))
+            for stage in nf.STEPS:
+                for legacy in manifest[stage]['legacy']:
+                    recorded = sa.sha256_json(identity | legacy)
+                    self.assertFalse(nf.runtime_matches(recorded, nf.runtime_digest(self.project, stage), self.project, stage))
+                    # Even refreshing a historical code guard must not bless
+                    # pre-expansion delivery as equivalent to the corrected run.
+                    with patch.object(nf, 'stage_code_digest', return_value=manifest[stage]['stage_code_sha256']):
+                        self.assertFalse(nf.runtime_matches(recorded, nf.runtime_digest(self.project, stage), self.project, stage))
             self.assertFalse(nf.runtime_matches('unknown', expected, self.project, 'participants'))
             self.assertFalse(nf.runtime_matches(recorded, nf.runtime_digest(self.project, 'overview'), self.project, 'overview'))
             with patch.object(nf, 'runtime_identity', return_value=identity | {'model': 'different'}):

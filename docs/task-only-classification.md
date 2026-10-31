@@ -1,5 +1,14 @@
 # Task-only classification
 
+**Current:** [Structured classification schema 8](structured-classification.md)
+uses five flat card destinations and application-owned dates. Best fit compares
+all descriptions without precedence. Report Names/Form Names supply naming only;
+Basic recognizes structural types and Advanced independently detects report starts,
+including adjacent/unnamed reports. Catalog edits affect only Names fingerprints.
+See [report-start behavior and compatibility](report-first-pages.md). This document records
+the preceding schema-6 Common-guidance removal; its historical UI descriptions do
+not override the current contract. No Common guidance or private migration returns.
+
 Classification settings starts with Reporter transcript pages, followed by the
 RT and CT task editors. Common guidance is removed: no editor, default text file,
 shared prompt composition, or component dependency remains. The application-owned

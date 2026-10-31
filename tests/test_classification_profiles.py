@@ -30,8 +30,8 @@ class ClassificationProfileTests(unittest.TestCase):
         self.store.accept_profile(self.profile, expected_previous_digest=None)
         apply_case_profile(self.root, self.profile.ref, expected_previous=None, store=self.store)
         self.settings = {"api_url": "https://synthetic.invalid/v1/chat/completions", "model_id": "synthetic",
-                         "api_key": "NEVER-PERSIST", "disable_reasoning": True, "prompt": "legacy", "rt_prompt": "legacy", "ct_prompt": "legacy",
-                         "hearing_prompt": "legacy", "minute_prompt": "legacy", "form_prompt": "legacy", "report_prompt": "legacy"}
+                         "api_key": "NEVER-PERSIST", "disable_reasoning": True, "prompt": "SETTINGS_CANARY", "rt_prompt": "SETTINGS_CANARY", "ct_prompt": "SETTINGS_CANARY",
+                         "hearing_prompt": "SETTINGS_CANARY", "minute_prompt": "SETTINGS_CANARY", "form_prompt": "SETTINGS_CANARY", "report_prompt": "SETTINGS_CANARY"}
         self.patch = patch("recordprep.case_profiles.profile_store", return_value=self.store)
         self.patch.start()
         self.addCleanup(self.patch.stop)
@@ -114,11 +114,11 @@ class ClassificationProfileTests(unittest.TestCase):
         def response(request, **kwargs):
             prompt = json.loads(request.data)["messages"][0]["content"]
             prompts.append(prompt)
-            if "CURRENT TASK: Classify" in prompt:
+            if "Allowed page_type values:" in prompt:
                 return json.dumps({"page_type": {"report": "CT_report", "minutes": "CT_minute_order"}.get(kind, kind)})
-            if "CURRENT TASK: Is this" in prompt:
+            if 'Return {"first_page": "yes"}' in prompt:
                 return json.dumps({"first_page": "yes"})
-            if "CURRENT TASK: Extract" in prompt:
+            if 'Ignore headers, footers' in prompt:
                 return json.dumps({"date": date_value})
             return json.dumps({"name": "Independent Report", "date": "January 2, 2026"})
         with patch.object(ui.GLib, "idle_add"), patch.object(ui, "_post_json_with_retries", side_effect=response), \
@@ -131,8 +131,8 @@ class ClassificationProfileTests(unittest.TestCase):
                 self.assertTrue(getattr(ui.RecordPrepWindow, method)(worker), method)
                 if method == "_run_step_six" and kind == "minutes" and date_value:
                     self.assertFalse(ui.RecordPrepWindow._step_artifact_complete(worker, "correct_toc", self.root))
-        self.assertEqual(len(prompts), {"report": 2, "minutes": 6, "CT_form": 3}.get(kind, 1))
-        self.assertTrue(all("legacy" not in prompt for prompt in prompts))
+        self.assertEqual(len(prompts), {"report": 3, "minutes": 6, "CT_form": 3}.get(kind, 1))
+        self.assertTrue(all("SETTINGS_CANARY" not in prompt for prompt in prompts))
         entries = [json.loads(line) for line in (self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl").read_text().splitlines()]
         if kind == "report":
             self.assertEqual(entries[0]["name"], "Independent Report")

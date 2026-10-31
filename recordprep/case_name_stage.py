@@ -14,6 +14,7 @@ from .case_profiles import case_profile_publication, read_case_profile_ref
 from .profile_contract import read_file_at
 from .profile_store import _check_directory
 from .summary_agents import _atomic_write
+from .skill_commands import SKILL_DELIVERY_CONTRACT, skill_launch
 
 SKILL = "recordprep-infer-case"
 EXTENSION = "recordprep-case-name-tools.ts"
@@ -70,6 +71,8 @@ def capture(root, project_dir):
                  project_dir / "extensions" / EXTENSION, project_dir / "extensions/recordprep-auto-exit.ts"]
     signature = {"sources": {name: _sha(data) for name, data in pages},
                  "contract": _sha(CASE_NAME_PROMPT.encode()),
+                 "skill_delivery": SKILL_DELIVERY_CONTRACT,
+                 "skill_launch_sha256": _sha(Path(__file__).with_name("skill_commands.py").read_bytes()),
                  "runtime": [_sha(_read(path)) for path in resources],
                  "model": _model_settings(project_dir)}
     ref = read_case_profile_ref(root)
@@ -91,7 +94,7 @@ def stage_inputs(root, project_dir, workspace):
     spec = workspace / "case-name-access.json"
     spec.write_text(json.dumps({"reads": reads, "candidate": str(candidate)}), encoding="utf-8")
     spec.chmod(0o600)
-    prompt = (f"/skill:{SKILL}\n" + CASE_NAME_PROMPT + "\n"
+    prompt = skill_launch(SKILL, CASE_NAME_PROMPT + "\n"
               + "Read only these staged source pages, in order:\n" + "\n".join(reads)
               + f"\nWrite the candidate only to: {candidate}\n"
               + "Python owns validation and publication. Do not modify the case bundle or rename anything.")

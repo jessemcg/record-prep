@@ -41,7 +41,7 @@ class NativeProfileTests(unittest.TestCase):
     def test_actual_participant_runner_never_publishes_after_no_progress(self):
         self._run_private_candidate(exhausted='partial_validation_no_progress')
 
-    def test_reviewed_legacy_participant_runtime_is_read_only_compatible(self):
+    def test_pre_delivery_participant_runtime_is_readable_but_not_equivalent(self):
         self._run_private_candidate(legacy=True)
 
     def _run_private_candidate(self, *, quality=False, exhausted=False, legacy=False):
@@ -131,9 +131,11 @@ class NativeProfileTests(unittest.TestCase):
                         compatibility['participants']['legacy'][0])
                     artifact.write_text(json.dumps(payload))
                     before = (artifact.read_bytes(), artifact.stat().st_mtime_ns)
-                self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
                 if legacy:
+                    self.assertTrue(participant_freshness_issues(root, profile, PROJECT / ".pi"))
                     self.assertEqual(before, (artifact.read_bytes(), artifact.stat().st_mtime_ns))
+                    return
+                self.assertEqual(participant_freshness_issues(root, profile, PROJECT / ".pi"), [])
                 # Rebuild report-only selection through the normal publisher;
                 # unchanged RT/hearing inputs must reuse participant generation.
                 from recordprep.boundary_profiles import boundary_inputs, publish_boundaries, FILES

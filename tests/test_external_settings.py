@@ -47,6 +47,17 @@ class ExternalSettingsTests(unittest.TestCase):
             'synthesis': {k: norm(sa.effective_synthesis_config(self.project, k)) for k in ('hearings', 'reports')},
             'minutes': minutes.stage_config(self.project)[1], 'caption_model': caption._model_settings(self.project),
         }
+        actual = json.loads(json.dumps(current))
+        # Delivery is now explicit in all summary identities; the newly active
+        # unassigned extraction skill/system/extension bytes are also hashed.
+        # Normalize only those reviewed additions for the historical aggregate.
+        from recordprep.summary_prompts import SKILL_DELIVERY_CONTRACT
+        for kind in ('hearings', 'reports'):
+            self.assertEqual(sa.effective_extraction_config(self.project, kind).fingerprint_payload()['skill_delivery'], SKILL_DELIVERY_CONTRACT)
+            self.assertEqual(len(current['extraction'][kind]['runtime_contract_sha256']), 64)
+            current['extraction'][kind]['runtime_contract_sha256'] = ''
+            self.assertEqual(current['synthesis'][kind].pop('skill_delivery'), SKILL_DELIVERY_CONTRACT)
+        self.assertEqual(current['minutes'].pop('skill_delivery'), SKILL_DELIVERY_CONTRACT)
         # The frozen fixture intentionally selected fixture/extract and low
         # summary reasoning. Those retired keys now inherit fixture/model/high.
         # Assert the real identity, then normalize ONLY those known identity
@@ -67,9 +78,10 @@ class ExternalSettingsTests(unittest.TestCase):
         }
         for key, value in current.items():
             with self.subTest(identity=key): self.assertEqual(sa.sha256_json(value), changed_contracts.get(key, BASELINE[key + '_sha256']))
+        return actual
 
     def test_legacy_and_external_identical_effective_identities(self):
-        self.assert_baseline()
+        legacy = self.assert_baseline()
         original = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (self.project / 'settings.json', self.project.parent / 'config.json')}
         self.write(self.external / 'pi/settings.json', BASELINE['pi_settings']); self.write(self.external / 'config.json', BASELINE['config'])
         with patch.dict(os.environ, RECORDPREP_CONFIG_DIR=str(self.external)):
@@ -77,7 +89,7 @@ class ExternalSettingsTests(unittest.TestCase):
             self.write(self.project / 'settings.json', {'defaultProvider': 'foreign', 'defaultModel': 'wrong'})
             self.write(self.project.parent / 'config.json', {'classifier_model_id': 'wrong'})
             source_bytes = (self.project / 'settings.json').read_bytes()
-            self.assert_baseline()
+            self.assertEqual(self.assert_baseline(), legacy)
             self.assertEqual(paths.resource_root(self.project), self.project)
             workspace, staged, skill = self.runner._staged_workspace(self.project, 'recordprep-extract-hearing', self.root)
             try:
@@ -146,11 +158,11 @@ class ExternalSettingsTests(unittest.TestCase):
             self.write(self.external / 'config.json', BASELINE['config'] | {'summary_extract_pi_model': 'changed-extract'})
             self.assertEqual(changed, sa.effective_extraction_config(self.project, 'hearings'))
 
-    def test_pre_install_native_fingerprints_are_narrowly_compatible(self):
+    def test_pre_delivery_native_fingerprints_are_no_longer_equivalent(self):
         self.assert_baseline()
         for stage in nf.STEPS:
             with self.subTest(stage=stage):
-                self.assertTrue(nf.runtime_matches(BASELINE['runtime'][stage], nf.runtime_digest(self.project, stage), self.project, stage))
+                self.assertFalse(nf.runtime_matches(BASELINE['runtime'][stage], nf.runtime_digest(self.project, stage), self.project, stage))
                 self.assertFalse(nf.runtime_matches('unknown', nf.runtime_digest(self.project, stage), self.project, stage))
         source = self.project / 'SYSTEM.md'; source.write_text(source.read_text() + '\nChanged\n')
         for stage in nf.STEPS:

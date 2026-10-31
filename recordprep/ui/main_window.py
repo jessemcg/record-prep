@@ -54,6 +54,8 @@ from recordprep.case_name_prompt import CASE_NAME_PROMPT as DEFAULT_CASE_NAME_PR
 from recordprep.classification import run_classifier_jobs
 from recordprep.classification_profiles import ClassificationRun, ClassifierResponseError, classifier_prompt
 from recordprep.document_naming import NamingContract
+from recordprep.classifier_prompts import classifier_document
+from recordprep.report_pages import REPORT_TYPES, REPORT_FIRST_FIELD, report_detection_mode, report_check_signature, report_ranges
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
     pi_step_complete,
@@ -1960,6 +1962,7 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         "hearing_prompt": hearing_prompt or DEFAULT_ADVANCED_HEARING_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT,
         "form_prompt": form_prompt or DEFAULT_ADVANCED_FORM_PROMPT,
+        "report_first_prompt": classifier_document({}, "first_report").render(),
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
@@ -1987,25 +1990,21 @@ def save_advanced_classify_settings(
     _write_config(config)
 
 def load_classify_dates_settings() -> dict[str, Any]:
-    config = _read_config()
     shared = load_classifier_settings()
     api_url = shared["api_url"]
     model_id = shared["model_id"]
     api_key = shared["api_key"]
-    hearing_prompt = str(
-        config.get(CONFIG_KEY_CLASSIFY_DATES_HEARING_PROMPT, DEFAULT_CLASSIFY_HEARING_DATES_PROMPT)
-        or ""
-    ).strip()
-    minute_prompt = str(
-        config.get(CONFIG_KEY_CLASSIFY_DATES_MINUTE_PROMPT, DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT)
-        or ""
-    ).strip()
+    # Old config/snapshot date prose remains stored but cannot override the
+    # fixed extraction method, including unassigned compatibility runs.
+    from ..classifier_prompts import classifier_document
+    hearing_prompt = classifier_document({}, "date_hearing").render()
+    minute_prompt = classifier_document({}, "date_minute").render()
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "hearing_prompt": hearing_prompt or DEFAULT_CLASSIFY_HEARING_DATES_PROMPT,
-        "minute_prompt": minute_prompt or DEFAULT_CLASSIFY_MINUTE_DATES_PROMPT,
+        "hearing_prompt": hearing_prompt,
+        "minute_prompt": minute_prompt,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
@@ -7167,39 +7166,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ):
                 self._raise_if_stop_requested()
                 append_basic_entry(is_rt, file_name, entry)
-            if need_ct and ct_basic_path.exists():
-                self._raise_if_stop_requested()
-                ct_entries = _load_jsonl_entries(ct_basic_path)
-                if ct_entries:
-                    ct_entries.sort(
-                        key=lambda entry: _natural_sort_key(
-                            _extract_entry_value(entry, "file_name", "filename")
-                        )
-                    )
-                    changed = False
-                    for idx in range(1, len(ct_entries) - 1):
-                        current = ct_entries[idx]
-                        prev_entry = ct_entries[idx - 1]
-                        next_entry = ct_entries[idx + 1]
-                        current_type = _extract_entry_value(
-                            current, "page_type", "pagetype"
-                        ).strip().lower()
-                        prev_type = _extract_entry_value(
-                            prev_entry, "page_type", "pagetype"
-                        ).strip().lower()
-                        next_type = _extract_entry_value(
-                            next_entry, "page_type", "pagetype"
-                        ).strip().lower()
-                        if current_type != "ct_report" and prev_type == "ct_report" and next_type == "ct_report":
-                            normalized = {_normalize_key(key): key for key in current}
-                            target_key = normalized.get("pagetype", "page_type")
-                            current[target_key] = "CT_report"
-                            changed = True
-                    if changed:
-                        with ct_basic_path.open("w", encoding="utf-8") as handle:
-                            for entry in ct_entries:
-                                handle.write(json.dumps(entry))
-                                handle.write("\n")
+            # Keep the classifier's best-supported type. A one-page form,
+            # minute order or other separator must not be filled into a report.
             classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
@@ -7285,8 +7253,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                     ),
                 }
-                payload = classification_run.payload(payload, "first_hearing" if updated_type.startswith("RT") else
-                                                       "first_minute" if "minute" in updated_type else "first_form")
+                task = {"RT_body_first_page": "first_hearing", "CT_minute_order_first_page": "first_minute",
+                        "CT_form_first_page": "first_form", "CT_report_first_page": "first_report"}[updated_type]
+                payload = classification_run.payload(payload, task)
                 jobs.append((self._classify_image, (payload, file_name, image_path)))
                 metadata.append((entry, updated_type, truthy_keys))
 
@@ -7361,61 +7330,50 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         _extract_entry_value(entry, "file_name", "filename")
                     )
                 )
-                ct_done = _load_jsonl_file_names(ct_advanced_path)
-                ct_last_done = _last_jsonl_file_name(ct_advanced_path)
-                ct_resume_key = _natural_sort_key(ct_last_done) if ct_last_done else None
-                if ct_last_done:
-                    GLib.idle_add(
-                        self.show_toast,
-                        f"Classification advanced CT resume: continuing after {ct_last_done}.",
-                    )
-                ct_mode = "a" if ct_done else "w"
+                cached = {_extract_entry_value(row, "file_name", "filename"): row
+                          for row in _load_jsonl_entries(ct_advanced_path)}
                 ct_pending_entries: list[dict[str, Any]] = []
                 ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
                 ct_metadata: list[tuple[dict[str, Any], str, tuple[str, ...]]] = []
                 for entry in ct_entries:
                     self._raise_if_stop_requested()
                     file_name = _extract_entry_value(entry, "file_name", "filename")
-                    if file_name and ct_resume_key is not None:
-                        if _natural_sort_key(file_name) <= ct_resume_key:
-                            continue
-                    if file_name and file_name in ct_done:
+                    source_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
+                    saved = cached.get(file_name)
+                    saved_type = _extract_entry_value(saved or {}, "page_type", "pagetype").strip().lower()
+                    reusable = saved is not None and saved_type in {source_type, source_type + "_first_page"}
+                    if source_type in REPORT_TYPES:
+                        reusable = saved is not None and saved_type in REPORT_TYPES and saved.get(REPORT_FIRST_FIELD) == (
+                            "yes" if saved_type == "ct_report_first_page" else "no")
+                        entry["page_type"] = "CT_report"
+                    if reusable:
+                        ct_pending_entries.append(saved)
                         continue
                     ct_pending_entries.append(entry)
-                    _queue_page_type_update(
-                        ct_jobs,
-                        ct_metadata,
-                        entry,
-                        ("ct_minute_order",),
-                        "CT_minute_order_first_page",
-                        settings["minute_prompt"],
-                        ("first_page", "first", "is_first_page", "is_first"),
-                    )
-                    _queue_page_type_update(
-                        ct_jobs,
-                        ct_metadata,
-                        entry,
-                        ("ct_form",),
-                        "CT_form_first_page",
-                        settings["form_prompt"],
-                        ("first_page", "first", "is_first_page", "is_first"),
-                    )
+                    for target_type, updated_type, prompt in (
+                        ("ct_minute_order", "CT_minute_order_first_page", settings["minute_prompt"]),
+                        ("ct_form", "CT_form_first_page", settings["form_prompt"]),
+                        ("ct_report", "CT_report_first_page", settings.get("report_first_prompt")
+                         or classifier_document({}, "first_report").render()),
+                    ):
+                        _queue_page_type_update(ct_jobs, ct_metadata, entry, (target_type,), updated_type, prompt,
+                                                ("first_page", "first", "is_first_page", "is_first"))
                 for (entry, updated_type, truthy_keys), response in zip(
                     ct_metadata,
                     self._run_classifier_jobs(ct_jobs, workers),
                     strict=True,
                 ):
-                    if _is_truthy(_extract_entry_value(response, *truthy_keys)):
+                    answer = _extract_entry_value(response, *truthy_keys).strip().lower()
+                    if updated_type == "CT_report_first_page":
+                        if answer not in {"yes", "no"}:
+                            raise ClassifierResponseError("Report first-page check requires yes or no.")
+                        entry[REPORT_FIRST_FIELD] = answer
+                    if _is_truthy(answer):
                         entry["page_type"] = updated_type
                         updates += 1
-                with ct_advanced_path.open(ct_mode, encoding="utf-8") as handle:
-                    for entry in ct_pending_entries:
-                        self._raise_if_stop_requested()
-                        file_name = _extract_entry_value(entry, "file_name", "filename")
-                        handle.write(json.dumps(entry))
-                        handle.write("\n")
-                        if file_name:
-                            ct_done.add(file_name)
+                report_detection_mode(ct_pending_entries, required=True)
+                self._raise_if_stop_requested()
+                _summary_agents._atomic_write(ct_advanced_path, "".join(json.dumps(row) + "\n" for row in ct_pending_entries))
             classification_run.publish(load_classifier_settings())
         except StopRequested:
             success = None
@@ -7517,6 +7475,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise FileNotFoundError(
                         "No entries found in CT_basic_advanced.jsonl."
                     )
+                report_detection_mode(ct_entries)
                 ct_entries.sort(
                     key=lambda entry: _natural_sort_key(
                         _extract_entry_value(entry, "file_name", "filename")
@@ -7682,13 +7641,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise FileNotFoundError(
                         "No entries found in CT_basic_advanced_corrected.jsonl."
                     )
+                report_detection_mode(ct_entries)
                 ct_entries.sort(
                     key=lambda entry: _natural_sort_key(
                         _extract_entry_value(entry, "file_name", "filename")
                     )
                 )
-                ct_done = _load_jsonl_file_names(ct_dated_path)
-                ct_last_done = _last_jsonl_file_name(ct_dated_path)
+                cached_dates = _load_jsonl_entries(ct_dated_path)
+                same_checks = report_check_signature(ct_entries) == report_check_signature(cached_dates)
+                ct_done = _load_jsonl_file_names(ct_dated_path) if same_checks else set()
+                ct_last_done = _last_jsonl_file_name(ct_dated_path) if same_checks else ""
                 ct_resume_key = _natural_sort_key(ct_last_done) if ct_last_done else None
                 if ct_last_done:
                     GLib.idle_add(
@@ -7810,7 +7772,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise FileNotFoundError(
                     "Run Classification dates to generate CT_basic_advanced_corrected_dates.jsonl first."
                 )
-            report_types = {"ct_report"}
+            if need_ct:
+                report_detection_mode(_load_jsonl_entries(ct_dated_path), required=True)
             form_first_types = {"ct_form_first_page"}
             updates = 0
 
@@ -7859,8 +7822,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         _extract_entry_value(entry, "file_name", "filename")
                     )
                 )
-                ct_done = _load_jsonl_file_names(ct_named_path)
-                ct_last_done = _last_jsonl_file_name(ct_named_path)
+                cached_names = _load_jsonl_entries(ct_named_path)
+                same_checks = report_check_signature(ct_entries) == report_check_signature(cached_names)
+                ct_done = _load_jsonl_file_names(ct_named_path) if same_checks else set()
+                ct_last_done = _last_jsonl_file_name(ct_named_path) if same_checks else ""
                 ct_resume_key = _natural_sort_key(ct_last_done) if ct_last_done else None
                 if ct_last_done:
                     GLib.idle_add(
@@ -7868,30 +7833,27 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         f"Classification names CT resume: continuing after {ct_last_done}.",
                     )
                 ct_mode = "a" if ct_done else "w"
-                previous_report = False
                 ct_pending_entries: list[dict[str, Any]] = []
                 ct_jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []
                 ct_metadata: list[tuple[dict[str, Any], tuple[str, ...], bool]] = []
                 for entry in ct_entries:
                     self._raise_if_stop_requested()
                     page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
-                    is_report_start = page_type in report_types and not previous_report
-                    previous_report = page_type in report_types
+                    is_report_start = page_type == "ct_report_first_page"
                     file_name = _extract_entry_value(entry, "file_name", "filename")
                     if file_name and ct_resume_key is not None:
                         if _natural_sort_key(file_name) <= ct_resume_key:
                             continue
                     if file_name and file_name in ct_done:
                         continue
+                    if page_type in REPORT_TYPES:
+                        # Do not inherit a name/date from the old run-start
+                        # heuristic or a continuation page into a new attempt.
+                        for key in list(entry):
+                            if _normalize_key(key) in {"name", "reportname", "date", "reportdate"}:
+                                entry.pop(key)
                     ct_pending_entries.append(entry)
-                    if (
-                        is_report_start
-                        and (
-                            not _extract_entry_value(entry, "name", "report_name")
-                            or not _extract_entry_value(entry, "date", "report_date")
-                        )
-                        and file_name
-                    ):
+                    if is_report_start and file_name:
                         image_path = _image_path_for_filename(file_name, image_dir)
                         ct_jobs.append(
                             (
@@ -8024,6 +7986,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             toc_profile = resolve_case_profile(root_dir)
             toc_expected = boundary_inputs(root_dir, toc_profile, load_classifier_settings())
             basic_entries = _load_combined_jsonl_entries(paths)
+            modern_reports = report_detection_mode(basic_entries)
             if not basic_entries:
                 raise FileNotFoundError("No entries found in classified JSONL files.")
             date_by_file: dict[str, str] = {}
@@ -8037,9 +8000,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     date_by_file[file_name] = date_value
             form_lines: list[str] = []
             report_lines: list[str] = []
-            report_types = {
-                "ct_report",
-            }
+            report_types = REPORT_TYPES
             form_first_types = {
                 "ct_form_first_page",
             }
@@ -8052,9 +8013,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 file_name = _extract_entry_value(entry, "file_name", "filename")
                 page_number = _extract_page_number(file_name)
                 is_report = page_type in report_types and page_number is not None and page_number > split_page
-                is_report_start = is_report and (
-                    previous_report_page is None or page_number != previous_report_page + 1
-                )
+                run_start = is_report and (previous_report_page is None or page_number != previous_report_page + 1)
+                is_report_start = is_report and (page_type == "ct_report_first_page" if modern_reports else run_start)
+                if modern_reports and run_start and not is_report_start:
+                    unresolved_names += 1  # Undetected leading/gap fragment, not a naming candidate.
                 previous_report_page = page_number if is_report else None
                 if page_number is None or page_number <= split_page:
                     continue
@@ -8066,7 +8028,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 page = _page_label_from_filename(file_name)
                 if page_type in form_first_types:
                     form_lines.append(_format_toc_line(name_value, page))
-                elif page_type in report_types:
+                elif page_type in report_types and (not modern_reports or is_report_start):
                     report_date = _extract_entry_value(entry, "date", "report_date").strip()
                     report_lines.append(
                         _format_toc_line(_format_report_label(name_value, report_date), page)
@@ -8135,7 +8097,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if unresolved_names:
                 GLib.idle_add(
                     self.show_toast,
-                    f"{unresolved_names} unnamed report runs omitted from navigation; source pages retained.",
+                    f"{unresolved_names} unnamed reports omitted from navigation; source pages retained.",
                     "WARN",
                 )
         finally:
@@ -8231,6 +8193,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if need_ct:
                 paths.append(ct_named_path)
             payload_entries = _load_combined_jsonl_entries(paths)
+            modern_reports = report_detection_mode(payload_entries)
             for entry in payload_entries:
                 self._raise_if_stop_requested()
                 file_name = _extract_entry_value(entry, "file_name", "filename")
@@ -8241,9 +8204,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     date_by_file[file_name] = date_value
                 page_type = _extract_entry_value(entry, "page_type", "pagetype").strip().lower()
                 name_value = _extract_entry_value(entry, "name", "report_name")
-                if page_type in {"ct_report"} and name_value:
+                if page_type in REPORT_TYPES and name_value and (not modern_reports or page_type == "ct_report_first_page"):
                     report_name_by_file[file_name] = name_value
-            relevant_report_files: set[str] | None = None
             from recordprep.case_profiles import resolve_case_profile
             from recordprep.boundary_profiles import boundary_inputs, publish_boundaries
             boundary_profile = resolve_case_profile(root_dir)
@@ -8264,90 +8226,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not entries:
                 raise FileNotFoundError("No entries found in classified JSONL files.")
             unnamed_report_runs = 0
-            previous_report_number = None
-            for file_name, page_type, page_number in entries:
-                if page_number > split_page and page_type == "ct_report":
-                    if previous_report_number != page_number - 1 and not report_name_by_file.get(file_name):
-                        unnamed_report_runs += 1
-                    previous_report_number = page_number
-                else:
-                    previous_report_number = None
-            current_report_start: str | None = None
-            current_report_end: str | None = None
-            report_sequence_relevant = False
-            for file_name, page_type, page_number in entries:
+            for report in report_ranges(entries, split_page, modern=modern_reports):
                 self._raise_if_stop_requested()
-                if page_number <= split_page:
-                    if current_report_start:
-                        if report_sequence_relevant:
-                            self._append_boundary_entry(
-                                "report",
-                                current_report_start,
-                                current_report_end,
-                                date_by_file,
-                                report_name_by_file,
-                                hearing_boundaries,
-                                report_boundaries,
-                                minutes_boundaries,
-                            )
-                        current_report_start = None
-                        current_report_end = None
-                        report_sequence_relevant = False
+                if not report.start_detected or not report_name_by_file.get(report.start_file):
+                    unnamed_report_runs += 1
                     continue
-                if page_type not in {"ct_report"}:
-                    if current_report_start:
-                        if report_sequence_relevant:
-                            self._append_boundary_entry(
-                                "report",
-                                current_report_start,
-                                current_report_end,
-                                date_by_file,
-                                report_name_by_file,
-                                hearing_boundaries,
-                                report_boundaries,
-                                minutes_boundaries,
-                            )
-                        current_report_start = None
-                        current_report_end = None
-                        report_sequence_relevant = False
-                    continue
-                if (
-                    current_report_end is not None
-                    and _extract_page_number(current_report_end) == page_number - 1
-                ):
-                    current_report_end = file_name
-                else:
-                    if current_report_start:
-                        if report_sequence_relevant:
-                            self._append_boundary_entry(
-                                "report",
-                                current_report_start,
-                                current_report_end,
-                                date_by_file,
-                                report_name_by_file,
-                                hearing_boundaries,
-                                report_boundaries,
-                                minutes_boundaries,
-                            )
-                    current_report_start = file_name
-                    current_report_end = file_name
-                    report_sequence_relevant = (
-                        True
-                        if relevant_report_files is None
-                        else file_name in relevant_report_files
-                    )
-            if current_report_start:
-                if report_sequence_relevant:
-                    self._append_boundary_entry(
-                        "report",
-                        current_report_start,
-                        current_report_end,
-                        date_by_file,
-                        report_name_by_file,
-                        hearing_boundaries,
-                        report_boundaries,
-                        minutes_boundaries,
-                    )
+                self._append_boundary_entry(
+                    "report", report.start_file, report.end_file, date_by_file,
+                    report_name_by_file, hearing_boundaries, report_boundaries, minutes_boundaries,
+                )
 
             hearing_start_types = {
                 "rt_body_first_page",
@@ -8476,7 +8363,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if unnamed_report_runs:
                 GLib.idle_add(
                     self.show_toast,
-                    f"{unnamed_report_runs} unnamed report runs omitted from standalone summaries; source pages retained.",
+                    f"{unnamed_report_runs} unnamed reports or undetected report fragments omitted from standalone summaries; source pages retained.",
                     "WARN",
                 )
         finally:

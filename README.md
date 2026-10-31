@@ -85,7 +85,16 @@ The selected profile governs new preparation, not the bundle itself. Existing
 preparation remains reusable when settings change. **Profile storage…**
 can save or select portable settings separately from your cases.
 See [application profiles](docs/application-profiles.md), [preparation guidance](docs/workflow.md) and [practice profiles](docs/practice-profiles.md)
-for workflow, customization, and safe continuation.
+for workflow, customization, and safe continuation. The new
+[structured classification and prompt inspector](docs/structured-classification.md)
+separates structural recognition from approved naming. **First pages** includes
+independent report-start checks; **Report Names** and **Form Names** control naming
+only. Adjacent unnamed reports still mark document breaks. Its
+[validation report](docs/structured-classification-validation.md) records local
+visual-check limits and the separately verified [summary skill-loading fix](docs/summary-skill-delivery.md).
+The [native/caption skill-loading follow-up](docs/native-skill-delivery.md) verifies
+those launch paths too, preserves publication/tool guards, and makes pre-fix native
+generation identities non-equivalent without rewriting saved output.
 
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify

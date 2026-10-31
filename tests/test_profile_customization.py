@@ -79,7 +79,9 @@ class PrivateCustomizationTests(unittest.TestCase):
         shared = "  Synthetic shared classifier guidance.\n"
         editor = legacy_customization_editor({"classifier_prompt": shared, "classifier_ct_prompt": ""})
         self.assertEqual(editor.resources["classification_tasks"]["rt"], shared)
-        self.assertEqual(editor.resources["classification_tasks"]["ct"], base.resource("classification_tasks")["ct"])
+        from recordprep.structured_guidance import _BASE
+        import json
+        self.assertEqual(editor.resources["classification_tasks"]["ct"], json.loads((_BASE/'classification-tasks.json').read_bytes())["ct"])
 
     def test_existing_personal_profile_and_completed_initialization_never_overlay(self):
         with tempfile.TemporaryDirectory() as temporary:

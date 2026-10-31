@@ -38,33 +38,26 @@ CLASSIFICATION_EXPLANATION = (
     "Each task uses only its own specialty instructions, alongside the application's fixed safeguards.\n\n"
     "Reporter’s transcript (RT): Basic separates hearing dialogue from covers and indexes; Advanced marks hearing starts; "
     "Dates reads their dates. Hearing labels use those dates, not a separate name prompt.\n\n"
-    "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced marks minute-order and form starts; "
-    "Dates reads minute-order dates. Names uses separate naming instructions to read report names and dates "
-    "at the start of each continuous group of report pages, and form names on marked first pages.\n\n"
+    "Clerk’s transcript (CT): Basic separates minute orders, reports and forms; Advanced checks every such page for a document start, "
+    "including reports placed directly next to each other. Dates reads minute-order dates. Names reads report names and dates "
+    "and form names only on their marked first pages. Unnamed reports still mark a document break but are omitted from standalone summaries.\n\n"
     "Each stage builds on earlier results: page types guide first-page checks, and first pages guide date and name extraction. "
     "The resulting labels help build the table of contents; later boundary stages determine each document’s page range.\n\n"
     "Page types are fixed structural categories shared across legal fields. Customize the recognition clues below—"
     "headings, terminology, examples and distinctions—not the category labels or response keys. "
-    "Specific report/form titles belong in the separate naming instructions."
+    "Report Names and Form Names control naming and selection only; page-type and first-page checks do not use those catalogs."
 )
 CLASSIFICATION_PAGES = (
-    ("rt", "Reporter transcript pages", "RT · Basic"),
-    ("first_hearing", "Hearing first pages", "RT · Advanced"),
-    ("date_hearing", "Hearing dates", "RT · Dates"),
-    ("ct", "Clerk transcript pages", "CT · Basic"),
-    ("first_minute", "Minute-order first pages", "CT · Advanced"),
-    ("first_form", "Form first pages", "CT · Advanced"),
-    ("date_minute", "Minute-order dates", "CT · Dates"),
-    ("report-naming", "Report names and dates", "CT · Names"),
-    ("form-naming", "Form naming instructions", "CT · Names"),
+    ("rt", "Reporter transcript page types", "Basic"),
+    ("ct", "Clerk transcript page types", "Basic"),
+    ("first-pages", "First pages", "Advanced · hearing, minute order, form, report"),
+    ("report-naming", "Report Names", "Names"),
+    ("form-naming", "Form Names", "Names"),
 )
 
 
 # Home-outline membership only: follow-up tasks, not pipeline dependencies.
-CLASSIFICATION_OUTLINE_GROUPS = {
-    "rt": ("first_hearing", "date_hearing"),
-    "ct": ("first_minute", "first_form", "date_minute", "report-naming", "form-naming"),
-}
+CLASSIFICATION_OUTLINE_GROUPS = {}  # Flat destinations, never priority.
 
 
 def classification_task_contract(task):
@@ -310,7 +303,7 @@ class ProfileEditorWindow(Adw.Window):
                               self.default_row.get_active() if self.default_row is not None else None))
 
     def _dirty(self):
-        return self._state() != self._saved_state
+        return bool(getattr(self, '_legacy_naming_error', False)) or self._state() != self._saved_state
 
     def _destroyed(self, *_args):
         self._closing = True
@@ -400,6 +393,11 @@ class ProfileEditorWindow(Adw.Window):
         self._topic_expanders = {}
         self._topic_refreshers = {}
         self._guidance_bindings = []
+        self._recognition_cards = {}
+        self._recognition_pages = {}
+        self._page_bodies = {}
+        self._legacy_naming_buffer = None
+        self._legacy_naming_error = False
         self._installing = False
         self.reset_dialog = None
         self.reset_button = None
@@ -475,6 +473,7 @@ class ProfileEditorWindow(Adw.Window):
         scroll.set_child(body)
         self._navigation.add_page(key, title, scroll, prompt=category == "Classification" or key == "minutes")
         self.pages[key] = scroll
+        self._page_bodies[key] = body
         self._page_body = body
         self._building_page = key
 
@@ -547,13 +546,18 @@ class ProfileEditorWindow(Adw.Window):
         if task:
             explanation += "\n\n" + task
         label = wrapped(explanation, margin_top=6, margin_bottom=6)
+        disclosure = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        inspect = button("View full prompts…", lambda: self._inspect_prompts(category))
+        inspect.set_halign(Gtk.Align.START)
+        disclosure.append(inspect)
+        disclosure.append(label)
         if classification:
             scroller = Gtk.ScrolledWindow(max_content_height=140, propagate_natural_height=True)
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            scroller.set_child(label)
+            scroller.set_child(disclosure)
             expander.set_child(scroller)
         else:
-            expander.set_child(label)
+            expander.set_child(disclosure)
         box.append(expander)
 
     def _terms(self, group, owner, key, label):
@@ -636,13 +640,20 @@ class ProfileEditorWindow(Adw.Window):
             holder.append(button("Add form" if forms else "Add role" if roles else "Add topic", add))
         render()
 
-    def _topic_catalog(self, group, values):
-        kind = "hearings" if values is self.editor.resources["hearings"] else "reports"
+    def _topic_catalog(self, group, values, *, kind=None):
+        kind = kind or ("hearings" if values is self.editor.resources["hearings"] else "reports")
+        naming = kind in {"naming-reports", "naming-forms"}
+        title_key = "name" if naming else "title"
+        noun = "Report" if kind == "naming-reports" else "Form" if naming else "Topic"
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
         # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
         cards = {}
         def render(refresh=False):
+            visible = self._navigation.view.get_visible_page()
+            retained_page = visible.get_tag() if visible is not None and cards and not refresh else None
+            if retained_page is not None:
+                self._navigation._capture(retained_page)
             clear(holder)
             live_ids = {value["id"] for value in values}
             for identity in set(cards) - live_ids:
@@ -655,26 +666,27 @@ class ProfileEditorWindow(Adw.Window):
                 detail = f"topic:{kind}:{identity}"
                 if identity not in cards:
                     card = Gtk.Expander()
-                    name = wrapped(value["title"], margin_top=10, margin_bottom=10,
+                    name = wrapped(value[title_key], margin_top=10, margin_bottom=10,
                                    margin_start=10, margin_end=10)
                     card.set_label_widget(name)
                     card.add_css_class("card")
                     inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                                     margin_top=8, margin_bottom=12, margin_start=12, margin_end=12)
                     card.set_child(inner)
-                    inner.append(wrapped("Topic name"))
-                    entry = Gtk.Entry(text=value["title"], hexpand=True)
-                    entry.update_property([Gtk.AccessibleProperty.LABEL], ["Topic name"])
+                    inner.append(wrapped(noun + " name"))
+                    entry = Gtk.Entry(text=value[title_key], hexpand=True)
+                    entry.update_property([Gtk.AccessibleProperty.LABEL], [noun + " name"])
                     def rename(widget, value=value, name=name):
                         if not self._installing:
-                            value["title"] = widget.get_text()
-                            name.set_text(value["title"] or "Topic instructions")
+                            value[title_key] = widget.get_text()
+                            name.set_text(value[title_key] or noun + " instructions")
                     entry.connect("changed", rename)
                     inner.append(entry)
                     def change_topic(text, value=value):
                         if not self._installing:
                             value["guidance"] = text
-                    editor = text_editor(topic_editor_text(value["guidance"]), change_topic, label="Topic instructions")
+                    if naming:inner.append(wrapped("Description (optional)"))
+                    editor = text_editor(topic_editor_text(value["guidance"]), change_topic, label=noun + " description" if naming else noun + " description / matching instructions")
                     editor.set_min_content_height(120)
                     editor.set_max_content_height(300)
                     editor.set_propagate_natural_height(True)
@@ -703,33 +715,126 @@ class ProfileEditorWindow(Adw.Window):
                     cards[identity] = (card, up, down, entry, editor, name)
                 card, up, down, entry, editor, name = cards[identity]
                 if refresh:
-                    entry.set_text(value["title"])
-                    name.set_text(value["title"])
+                    entry.set_text(value[title_key])
+                    name.set_text(value[title_key])
                     self._replace_buffer(editor.get_child().get_buffer(), topic_editor_text(value["guidance"]))
                 up.set_sensitive(value is not values[0])
                 down.set_sensitive(value is not values[-1])
                 holder.append(card)
             def add():
-                values.append({"id": f"item-{uuid.uuid4().hex}", "title": "New topic",
-                               "guidance": "Capture material source-supported information."})
+                values.append({"id": f"item-{uuid.uuid4().hex}", title_key: "New " + noun.lower(),
+                               "guidance": "" if naming else "Capture material source-supported information."})
                 render()
-            holder.append(button("Add topic", add))
+            holder.append(button("Add " + noun.lower(), add))
+            if retained_page is not None:
+                self._navigation._restore(retained_page)
         self._topic_refreshers[kind] = render
         render()
 
+    def _inspect_prompts(self, category):
+        from .prompt_inspector_ui import PromptInspector
+        self.prompt_inspector = PromptInspector(self, category, self._active_page, self.editor)
+        self.prompt_inspector.present()
+
+    def _fixed_cards(self, owner, keys, *, read_only=False):
+        titles = {"first_hearing": "Hearing first page", "first_minute": "Minute-order first page",
+                  "first_form": "Form first page", "first_report": "Report first page", "RT_body": "Hearing dialogue"}
+        for key in keys:
+            card = Gtk.Expander()
+            title = titles.get(key, friendly(key.removeprefix("RT_").removeprefix("CT_")))
+            card.set_label_widget(wrapped(title, margin_start=10, margin_end=10, margin_top=10, margin_bottom=10))
+            card.add_css_class("card")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                            margin_start=12, margin_end=12, margin_top=8, margin_bottom=12)
+            output = CLASSIFICATION_FIRST_PAGE_TYPES.get(key, key)
+            label = wrapped("Output key: " + output, selectable=True)
+            label.add_css_class("dim-label")
+            inner.append(label)
+            warning = wrapped("")
+            warning.add_css_class("warning")
+            inner.append(warning)
+            def update(text, warning=warning, key=key):
+                from .structured_guidance import legacy_policy_warning
+                message = classification_guidance_warning(text, key) or legacy_policy_warning(text)
+                warning.set_text(message)
+                warning.set_visible(bool(message))
+            def change(text, owner=owner, key=key, update=update):
+                if not self._installing:
+                    owner[key] = text
+                    update(text)
+            editor = text_editor(topic_editor_text(owner[key]), None if read_only else change, label=title + " recognition description")
+            editor.set_min_content_height(120)
+            editor.set_max_content_height(420)
+            editor.set_propagate_natural_height(True)
+            update(owner[key])
+            if not read_only:self._guidance_bindings.append((owner, key, editor.get_child().get_buffer(), update))
+            inner.append(editor)
+            card.set_child(inner)
+            self._page_body.append(card)
+            self._recognition_cards[key] = (card, editor)
+            self._recognition_pages[key] = self._building_page
+
+    def _legacy_naming(self, naming):
+        import json
+        self._page_body.append(wrapped("Historical naming catalog (JSON compatibility editor). Unrecognized prose is not split or replaced. Preserve the original catalog format."))
+        def change(text):
+            if not self._installing:
+                try:
+                    value = json.loads(text)
+                    if isinstance(value, dict):
+                        naming.clear()
+                        naming.update(value)
+                        self._legacy_naming_error = False
+                    else:
+                        self._legacy_naming_error = True
+                except ValueError:
+                    self._legacy_naming_error = True
+        scroll = text_editor(json.dumps(naming, ensure_ascii=False, indent=2), change,
+                             label="Legacy naming JSON", tall=True)
+        view = scroll.get_child()
+        if self._legacy_naming_buffer is None:
+            self._legacy_naming_buffer = view.get_buffer()
+        else:
+            view.set_buffer(self._legacy_naming_buffer)
+        self._page_body.append(scroll)
+
+    def _classification_contents(self, key, title):
+        tasks = self.editor.resources["classification_tasks"]
+        naming = self.editor.resources["naming"]
+        self._explanation(self._page_body, "Classification")
+        if key in ("rt", "ct") and "page_types" in tasks:
+            self._page_body.append(wrapped("Compare all descriptions for best fit. Display order is not priority. Output keys are fixed."))
+            self._fixed_cards(tasks["page_types"][key], CLASSIFICATION_PAGE_TYPES[key])
+        elif key == "first-pages":
+            owner = tasks.get("first_pages", tasks)
+            if owner is tasks:
+                self._page_body.append(wrapped("Legacy compatibility guidance — retained without splitting. Date extraction is application-owned."))
+            self._fixed_cards(owner, (task for task in CLASSIFICATION_FIRST_PAGE_TYPES if task in owner))
+            if "first_report" not in owner:
+                from .classifier_prompts import REPORT_FIRST_CLUES
+                self._page_body.append(wrapped("Report first-page detection uses the application's default clues for this older profile."))
+                self._fixed_cards({"first_report": REPORT_FIRST_CLUES}, ("first_report",), read_only=True)
+        elif key.endswith("-naming") and naming.get("schema_version") == 4:
+            plural = key.removesuffix("-naming") + "s"
+            self._page_body.append(wrapped("Enter each approved name and optional recognition description once. "
+                                           "This catalog is used only to name marked first pages, not to classify page types or detect document starts."))
+            self._topic_catalog(self._group(title), naming[plural], kind="naming-" + plural)
+        else:
+            self._page_body.append(wrapped("Legacy compatibility editor — original prose is preserved. Best-fit application policy overrides any ordering language. Reset to bundled explicitly replaces all guidance with structured settings."))
+            if key in ("rt", "ct"):
+                self._fixed_cards(tasks, (key,))
+            else:
+                field = key.removesuffix("-naming") + "_guidance"
+                if field in naming:
+                    self._fixed_cards(naming, (field,))
+                else:
+                    self._legacy_naming(naming)
+
     def _recordprep_form(self):
         for key, title, stage in CLASSIFICATION_PAGES:
-            if key.endswith("-naming"):
-                kind = key.removesuffix("-naming")
-                self._prompt_page("Classification", key, title, "naming",
-                                  owner=self.editor.resources["naming"], field=kind + "_guidance")
-            else:
-                self._prompt_page("Classification", key, title, "classification_tasks",
-                                  owner=self.editor.resources["classification_tasks"], field=key)
+            self._page("Classification", key, title)
             self.nav_rows[key].set_subtitle(stage)
-            if any(key in children for children in CLASSIFICATION_OUTLINE_GROUPS.values()):
-                # Logical start only; preserve suffix/end alignment and the editor.
-                self.nav_rows[key].set_margin_start(24)
+            self._classification_contents(key, title)
         for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
             self._page("Summaries", kind + "-topics", title + " digest topics")
             self._explanation(self._page_body, "Summaries")
@@ -863,8 +968,33 @@ class ProfileEditorWindow(Adw.Window):
         visible = self._navigation.view.get_visible_page().get_tag()
         self._navigation._capture(visible)
         resources = self.editor.resources
+        rebuild = set()
+        for resource, pages in (("classification_tasks", ("rt", "ct", "first-pages")),
+                                ("naming", ("report-naming", "form-naming"))):
+            old, new = resources[resource], snapshot.resource(resource)
+            if (old.get("schema_version"), "page_types" in old) != (new.get("schema_version"), "page_types" in new):
+                rebuild.update(pages)
+        retired_buffers = set()
+        for key, page in list(self._recognition_pages.items()):
+            if page in rebuild:
+                retired_buffers.add(self._recognition_cards.pop(key)[1].get_child().get_buffer())
+                self._recognition_pages.pop(key)
+        self._guidance_bindings[:] = [binding for binding in self._guidance_bindings if binding[2] not in retired_buffers]
         self._installing = True
+        self._legacy_naming_error = False
         try:
+            def retain(old, new):
+                if isinstance(old, dict) and isinstance(new, dict):
+                    for key in set(old) - set(new):
+                        del old[key]
+                    for key, value in new.items():
+                        old[key] = retain(old.get(key), value)
+                    return old
+                if isinstance(old, list) and isinstance(new, list):
+                    by_id = {item.get("id"): item for item in old if isinstance(item, dict)}
+                    old[:] = [retain(by_id.get(item.get("id")), item) if isinstance(item, dict) else item for item in new]
+                    return old
+                return new
             for name in snapshot.manifest["resources"]:
                 value = snapshot.resource(name)
                 if name in self._topic_refreshers:
@@ -878,8 +1008,7 @@ class ProfileEditorWindow(Adw.Window):
                         ordered.append(item)
                     values[:] = ordered
                 elif isinstance(value, dict) and isinstance(resources.get(name), dict):
-                    resources[name].clear()
-                    resources[name].update(value)
+                    retain(resources[name], value)
                 else:
                     resources[name] = value
             for name in set(resources) - set(snapshot.manifest["resources"]):
@@ -888,6 +1017,13 @@ class ProfileEditorWindow(Adw.Window):
             self.editor.resources = resources
             self.title_widget.set_subtitle(snapshot.manifest["display_name"])
             self.title_widget.set_tooltip_text(snapshot.manifest["display_name"])
+            for key, title, _stage in CLASSIFICATION_PAGES:
+                if key in rebuild:
+                    self._page_body = self._page_bodies[key]
+                    self._building_page = key
+                    clear(self._page_body)
+                    self._navigation._focus.pop(key, None)
+                    self._classification_contents(key, title)
             for owner, key, buffer, update in self._guidance_bindings:
                 self._replace_buffer(buffer, owner[key])
                 update(owner[key])
@@ -1033,6 +1169,8 @@ class ProfileEditorWindow(Adw.Window):
             self._refresh_guard()
             return False
         try:
+            if getattr(self, "_legacy_naming_error", False):
+                raise ProfileError("invalid_json", "naming")
             draft = self.editor.snapshot()
             others = [item for item in api.profile_catalog(store=self.store) if item.snapshot.ref.specialty_id != draft.ref.specialty_id]
             if any(item.snapshot.manifest["display_name"].strip().casefold() == draft.manifest["display_name"].strip().casefold() for item in others):
@@ -1087,11 +1225,17 @@ def editable_profile(snapshot):
                 editor.manifest["resources"][name] = general.manifest["resources"][name]
                 editor.resources[name] = general.resource(name)
         editor.manifest["schema_version"] = 6
+        from .structured_guidance import structured_resources
+        tasks, naming, structured = structured_resources(editor.resources)
+        editor.resources["classification_tasks"] = tasks
+        editor.resources["naming"] = naming
+        if structured:
+            editor.manifest["schema_version"] = 8
         editor.manifest["resources"].pop("classification", None)
         editor.resources.pop("classification", None)
         for name in RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES | RETIRED_OVERVIEW_RESOURCES:
             editor.manifest["resources"].pop(name, None)
             editor.resources.pop(name, None)
-        from .document_naming import editable_naming
-        editor.resources["naming"] = editable_naming(editor.resources["naming"])
+        # Unknown legacy resources retain their exact format and prose. Only the
+        # structured resource pair above becomes a schema-8 draft.
     return editor

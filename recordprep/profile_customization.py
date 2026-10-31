@@ -44,6 +44,11 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
     for task, (key, default_name) in TASK_KEYS.items():
         value = custom(key, getattr(defaults, default_name), fallback=shared if task in ("rt", "ct") else None)
         if value is not None:
+            if "page_types" in editor.resources["classification_tasks"]:
+                import json
+                from .structured_guidance import _BASE
+                editor.resources["classification_tasks"] = json.loads((_BASE / "classification-tasks.json").read_bytes())
+                editor.manifest["schema_version"] = 6
             editor.resources["classification_tasks"][task] = value
     value = custom("case_name_prompt", defaults.DEFAULT_CASE_NAME_PROMPT)
     if value is not None:
@@ -58,6 +63,12 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
         value = custom(f"classify_names_{kind}_prompt", getattr(defaults, default_name))
         if value is not None:
             naming = editor.resources["naming"]
+            if naming.get("schema_version") == 4:
+                import json
+                from .structured_guidance import _BASE
+                naming = json.loads((_BASE / "naming.json").read_bytes())
+                editor.resources["naming"] = naming
+                editor.manifest["schema_version"] = 6
             if naming.get("schema_version") == 3:
                 # Preserve previous prose verbatim, without pretending arbitrary
                 # prose supplies a machine-verifiable list of approved names.

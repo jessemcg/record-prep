@@ -1,0 +1,14 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Review a page labeled RT_body in a legal transcript image. Decide whether this is the first page of the hearing for the particular case that is called. Ignore page numbers. If the page shows that hearing starting, answer yes; otherwise answer no.
+
+- The court is calling the case name or docket number.
+- Parties or attorneys announce their appearances.
+- The hearing appears to be starting (opening statements/roll call).
+
+Return {"first_page": "yes"} or {"first_page": "no"}.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

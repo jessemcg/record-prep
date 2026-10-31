@@ -79,7 +79,7 @@ with patch.object(api, "profile_store", return_value=store):
         assert [editor.nav_rows[key].get_subtitle() for key in expected] == [
             "RT · Basic", "RT · Advanced", "RT · Dates", "CT · Basic", "CT · Advanced",
             "CT · Advanced", "CT · Dates", "CT · Names", "CT · Names"]
-        assert editor.nav_rows["report-naming"].get_title() == "Report names and dates"
+        assert editor.nav_rows["report-naming"].get_title() == "Report Names"
         assert editor.classification_explainer.has_css_class("profile-classification-explainer")
         assert editor.classification_explainer.get_parent().has_css_class("profile-settings-content")
         assert not editor.classification_explainer.has_css_class("card")

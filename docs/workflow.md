@@ -33,10 +33,16 @@ supplies detailed, practice-neutral category definitions, continuation/date clue
 and customization suggestions; add your own approved report/form names separately.
 Existing personal profiles and case pins are not automatically updated.
 A brief **How classification builds the record** explanation stays above every
-Classification editor. Common guidance is first, followed by all reporter’s-transcript
-(RT) prompts, then clerk’s-transcript (CT) prompts; small stage labels show Basic,
-Advanced, Dates and Names. **Report names and dates** accurately describes the
-report naming prompt. Hearing labels are dates, not separately extracted names.
+Classification editor. The five flat destinations are RT page types, CT page types,
+First pages, **Report Names**, and **Form Names**; small labels identify pipeline
+stages. Report/form names and optional descriptions supply naming only, not page
+classification. First pages includes a Report card: Advanced independently checks
+every report page, and Names reads only marked first pages. Even unnamed starts
+end earlier report ranges, so adjacent reports remain separate. No one-page
+report-gap filling or report-specific date editor is used. See
+[report starts, cost and saved-output compatibility](report-first-pages.md). Hearing labels are dates, not
+separately extracted names. See [structured classification](structured-classification.md)
+for the current schema and the read-only handling of older profiles.
 Summaries has exactly three pages: **Hearing digest topics**, **Report digest topics**,
 and **Minute orders**. Topics are the hearing/report personalization controls. One pinned **Topic-guided agentic
 summarization** explainer and linear progression appears throughout the section:

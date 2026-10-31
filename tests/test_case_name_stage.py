@@ -80,14 +80,31 @@ class CaseNameStageTests(unittest.TestCase):
                 self.assertEqual((self.root / "case_name.txt").read_bytes(), before)
 
     def test_profile_switch_rejects_publication(self):
-        guard, ref, candidate, _, _ = self.prepared()
+        from test_profile_generation import bundled
         store = api.ProfileStore("recordprep", config_root=self.base / "config", data_root=self.base / "data")
-        profile = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
+        first, second = bundled('california_dependency'), bundled('general')
+        for profile in (first, second):
+            store.accept_profile(profile, expected_previous_digest=None)
+        apply_case_profile(self.root, first.ref, expected_previous=None, store=store)
+        with patch("recordprep.case_profiles.profile_store", return_value=store):
+            guard, ref, candidate, _, _ = self.prepared()
+            self.assertEqual(ref, first.ref)
+            apply_case_profile(self.root, second.ref, expected_previous=first.ref, store=store)
+            with self.assertRaises(ValueError):
+                stage.publish(self.root, self.project, guard, ref, candidate)
+        self.assertEqual((self.root / "case_name.txt").read_text(), "Prior_Name")
+
+    def test_same_profile_reselection_is_not_a_selection_change(self):
+        from test_profile_generation import bundled
+        store = api.ProfileStore("recordprep", config_root=self.base / "config", data_root=self.base / "data")
+        profile = bundled('california_dependency')
         store.accept_profile(profile, expected_previous_digest=None)
         apply_case_profile(self.root, profile.ref, expected_previous=None, store=store)
-        with patch("recordprep.case_profiles.profile_store", return_value=store), self.assertRaises(ValueError):
+        with patch("recordprep.case_profiles.profile_store", return_value=store):
+            guard, ref, candidate, _, _ = self.prepared()
+            apply_case_profile(self.root, profile.ref, expected_previous=profile.ref, store=store)
             stage.publish(self.root, self.project, guard, ref, candidate)
-        self.assertEqual((self.root / "case_name.txt").read_text(), "Prior_Name")
+            self.assertTrue(stage.is_current(self.root, self.project))
 
     def test_stop_invalid_and_unknown_preserve_prior_output(self):
         guard, ref, candidate, _, _ = self.prepared()

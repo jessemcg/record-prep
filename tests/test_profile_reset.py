@@ -69,7 +69,7 @@ class ProfileResetTests(unittest.TestCase):
 
     def test_cancel_duplicate_and_default_leave_dirty_draft_and_store_unchanged(self):
         w, store = self.window()
-        w.editor.resources["classification_tasks"]["rt"] = ""
+        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = ""
         before = w._state(), tree_bytes(self.root)
         dialog = w._reset()
         self.assertIs(w._reset(), dialog)
@@ -89,11 +89,11 @@ class ProfileResetTests(unittest.TestCase):
         w, store = self.window()
         self.assertTrue(w._save())
         old_ref = w.editor.base.ref
-        w.editor.resources["classification_tasks"]["rt"] = "Synthetic prior revision"
+        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic prior revision"
         self.assertTrue(w._save())
         prior = w.editor.base.ref
         prior_files = store.load_profile_snapshot(prior).files
-        w.editor.resources["naming"]["form_guidance"] = "- **Unclosed"
+        w.editor.resources["naming"]["forms"][0]["name"] = ""
         w.editor.resources["hearings"][0]["guidance"] = ""
         self.confirm(w)
         self.assertEqual(w.message.get_text(), "Profile reset to bundled prompts and saved.")
@@ -117,7 +117,7 @@ class ProfileResetTests(unittest.TestCase):
         for selected in (True, False):
             with self.subTest(selected=selected):
                 w, store = self.window()
-                w.editor.resources["classification_tasks"]["rt"] = "Synthetic old guidance"
+                w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic old guidance"
                 old = w.editor.snapshot()
                 other = ProfileEditor.create(self.bundle, "Other synthetic profile").snapshot()
                 store.managed_save(other, expected_head=None, expected_default=None, use_for_new_cases=True)
@@ -146,6 +146,7 @@ class ProfileResetTests(unittest.TestCase):
         values.append({"id": "personal-only", "title": "Only personal", "guidance": "Synthetic prose"})
         # Render only the synthetic setup. Reset itself must never rebuild.
         w._render()
+        w._recognition_cards['RT_cover'][0].set_expanded(True)
         rt_buffer = next(x for x in descendants(w.pages["rt"]) if isinstance(x, Gtk.TextView)).get_buffer()
         detail = "topic:hearings:" + surviving["id"]
         card = w._topic_expanders[detail]
@@ -173,11 +174,11 @@ class ProfileResetTests(unittest.TestCase):
         self.assertIn("Synthetic dirty topic", values[0]["guidance"])
         self.assertEqual(store.load_profile_snapshot(w.editor.base.ref).files, self.bundle.files)
         rt_buffer.insert_at_cursor(" subsequent synthetic edit")
-        self.assertIn("subsequent synthetic edit", w.editor.resources["classification_tasks"]["rt"])
+        self.assertIn("subsequent synthetic edit", w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"])
         self.assertTrue(w._save())
         self.assertFalse(w._dirty())
         saved = store.load_profile_snapshot(w.editor.base.ref)
-        self.assertIn("subsequent synthetic edit", saved.resource("classification_tasks")["rt"])
+        self.assertIn("subsequent synthetic edit", saved.resource("classification_tasks")["page_types"]["rt"]["RT_cover"])
         reopened = editable_profile(saved)
         self.assertEqual(reopened.snapshot().files, saved.files)
 
@@ -209,7 +210,7 @@ class ProfileResetTests(unittest.TestCase):
                 dialog = w._reset()
                 edit = ProfileEditor(self.bundle)
                 if change == "head":
-                    edit.resources["classification_tasks"]["rt"] = "Synthetic competing head"
+                    edit.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic competing head"
                 else:
                     edit = ProfileEditor.create(self.bundle, "Synthetic other default")
                 store.managed_save(edit.snapshot(), expected_head=None, expected_default=None,
@@ -259,7 +260,7 @@ class ProfileResetTests(unittest.TestCase):
 
     def test_validation_and_write_failure_preserve_invalid_draft(self):
         w, store = self.window()
-        w.editor.resources["classification_tasks"]["ct"] = ""
+        w.editor.resources["classification_tasks"]["page_types"]["ct"]["CT_cover"] = ""
         for target in ("preview", "write"):
             before = copy.deepcopy(w._state()), w.editor, w.expected_head, w.expected_default
             registry_before = store.read_registry()

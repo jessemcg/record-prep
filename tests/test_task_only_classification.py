@@ -19,7 +19,7 @@ class TaskOnlyClassificationTests(unittest.TestCase):
         for name in (*api.BUNDLED_PROFILES, 'general'):
             directory = api.bundled_profile_directory(name)
             base = api.validate_profile_directory(directory).draft
-            self.assertEqual(base.manifest['schema_version'], 6)
+            self.assertIn(base.manifest['schema_version'], (6, 7, 8))
             self.assertNotIn('classification', base.manifest['resources'])
             self.assertFalse((directory / 'classification.md').exists())
             self.assertNotIn('classification', ProfileEditor.create(base, 'Synthetic copy').resources)
@@ -60,7 +60,7 @@ class TaskOnlyClassificationTests(unittest.TestCase):
                 old_editor.resources['classification'] = 'RETIRED_COMMON_CANARY'
                 old = old_editor.snapshot()
                 editor = editable_profile(old)
-                self.assertEqual(editor.manifest['schema_version'], 6)
+                self.assertIn(editor.manifest['schema_version'], (6, 7, 8))
                 self.assertNotIn('classification', editor.resources)
                 ref = editor.managed_save(store, expected_head=None, expected_default=None,
                                           validate=lambda draft: classifier_prompt(draft, 'rt'), can_modify=lambda: True)

@@ -1,0 +1,1033 @@
+{
+  "baseline_sha256": {
+    "classification-tasks.json": "ff5f02032aa081923badf4c40c5df19cb137af8be0c8a4512536fe0dbc97c189",
+    "naming.json": "a8801e6912ee939a468d3cf8e18f4b8953aa25c696fcd13346f3f6585cc68b16"
+  },
+  "shared_catalog_follow_up": {
+    "catalogs": [
+      "naming.reports",
+      "naming.forms"
+    ],
+    "consumers": [
+      "CT_report recognition",
+      "CT_form recognition",
+      "subsequent first-page naming and name validation"
+    ],
+    "form_evidence": "Heading/code values stay in shared form descriptions as neutral facts. Prominent heading and same-first-page heading/code requirements stay only in the application naming method.",
+    "footer_rules": "Footer-only report matching, CFS 6.7, DCFS 4216 and Page X of XX exclusion stay on CT_report; the two codes are not approved output names.",
+    "detention_date_exception": "Explicitly removed at user request, not moved into fixed instructions.",
+    "legacy_policy": "Exact complete original/initial-structured resources adapt read-only; customized prose remains literal.",
+    "status": "Historical intermediate decision; superseded by the authorized report-first-pages follow-up below."
+  },
+  "additions": [
+    {
+      "destination": "RT_other",
+      "text": "Other reporter-transcript material distinct from case-identifying covers, dialogue, indexes, and certificates of transcript accuracy. Use only when the visible content best supports this description after comparing all categories.",
+      "reason": "Existing supported key had no description; neutral editable recognition added."
+    }
+  ],
+  "clauses": [
+    {
+      "source": "classification/ct",
+      "original": "You are labeling a single Clerk's Transcript (CT) page from an appellate record.",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/ct",
+      "original": "Return JSON only:",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/ct",
+      "original": "{\"page_type\": CT_report|CT_form|CT_minute_order|CT_cover|CT_index|CT_certificate|CT_proof_of_service|CT_notice|CT_motion|CT_other}",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/ct",
+      "original": "No extra keys. No extra text.",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/ct",
+      "original": "Decision rules (apply in order):",
+      "destination": "Removed: expressly authorized apply-in-order instruction"
+    },
+    {
+      "source": "classification/ct",
+      "original": "1) CT_report: Only if the footer explicitly contains one of these report names:",
+      "destination": "Superseded at user request: structural CT_report recognition replaces mandatory footer/approved-name matching; names supply naming only."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Detention Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Initial Hearing Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Jurisdiction Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Disposition Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Last Minute Information",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Non-Detained Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Status Review Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Interim Review Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Review Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Addendum Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Petition Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - 366.26 WIC Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Permanent Plan Review Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - RPP Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Selection and Implementation Report",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - Additional Information for Court",
+      "destination": "naming.reports: one canonical entry for first-page naming/exact-name validation only; not injected into CT recognition."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - CFS 6.7",
+      "destination": "CT_report supporting code clue, not a mandatory footer condition or approved output name."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   - DCFS 4216",
+      "destination": "CT_report supporting code clue, not a mandatory footer condition or approved output name."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   If the footer does NOT contain one of these names, it is NOT a CT_report.",
+      "destination": "Removed at user request: absence of an approved footer name/code no longer excludes an otherwise recognizable report."
+    },
+    {
+      "source": "classification/ct",
+      "original": "   If the page shows numbering like Page X of XX, it is NOT a CT_report.",
+      "destination": "Superseded at user request: numbering alone no longer excludes a report; structural best-fit recognition applies."
+    },
+    {
+      "source": "classification/ct",
+      "original": "2) CT_form: Preprinted form with a form ID and Judicial Council approval in the footer.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   Form ID must be JV-XXX, FL-XXX, or ICWA-XXX.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   These forms DO show Page X of XX.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "3) CT_minute_order: Clerk-prepared summary of a hearing.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   Often labeled MINUTE ORDER.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   Look for: appearances list, orders issued, judge/bench officer, court reporter, department.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   No verbatim dialogue.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   Not prepared by an attorney.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "   These DO show Page X of XX.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "4) CT_certificate: Certificate executed by the clerk authenticating transcripts or documents.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "5) CT_proof_of_service: Declaration showing a party was served (mail, personal, electronic).",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "6) CT_notice: Formal notice of hearing date/time/nature.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "7) CT_motion: A party's motion asking the court to act; may include points and authorities.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "8) CT_cover: Cover page for the clerk's transcript or a section (case caption, title, etc.).",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "9) CT_index: Index/table of contents listing documents and page numbers.",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "10) CT_other: Anything else (medical records, drug tests, service logs, letters, exhibits,",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/ct",
+      "original": "    photos, text messages, emails, case plans, written court order, etc.).",
+      "destination": "CT card; numeric prefix removed (organizational, not priority)"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "You are given an image of the first hearing page in a legal transcript. Read the page and extract the hearing date from the body text near the top of the page. Ignore headers, footers, page numbers, and file stamps.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "Output a single JSON object with one key.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "Format:",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "{ \"date\": <long-form U.S. date or empty> }",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "Rules:",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "- Use a long-form U.S. date like March 5, 2019.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "- Do not include the day of the week.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "- If the date is missing or unclear, use an empty value.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_hearing",
+      "original": "- Output only the JSON object and nothing else.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "You are given an image of the minute order first page in a legal transcript. Read the page and extract the minute order date from the body text. Ignore headers, footers, page numbers, and file stamps.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "Output a single JSON object with one key.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "Format:",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "{ \"date\": <long-form U.S. date or empty> }",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "Rules:",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "- Use a long-form U.S. date like March 5, 2019.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "- Do not include the day of the week.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "- If the date is missing or unclear, use an empty value.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/date_minute",
+      "original": "- Output only the JSON object and nothing else.",
+      "destination": "Application date contract (complete method); JSON example corrected to quoted strings"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "Task: You are reviewing a page labeled CT_form in a legal transcript image.",
+      "destination": "Application first-page task/context/decision contract: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "Goal: Decide whether this page is the first page of the form.",
+      "destination": "Application first-page task/context/decision contract: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "Visual cues:",
+      "destination": "Formatting only: card description"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "- The form begins here (e.g., heading/title at top, fresh form layout, start of sections).",
+      "destination": "First-page card: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "- You may see a page indicator like Page 1 of X.",
+      "destination": "First-page card: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "Decision rules:",
+      "destination": "Application first-page task/context/decision contract: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "- If this page is clearly the start of the form, answer yes.",
+      "destination": "Application first-page task/context/decision contract: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "- Otherwise answer no.",
+      "destination": "Application first-page task/context/decision contract: first_form"
+    },
+    {
+      "source": "classification/first_form",
+      "original": "Output: Return JSON with key \"first_page\" and value yes or no. Use quotes only around the key.",
+      "destination": "Application JSON contract; invalid unquoted yes/no corrected to JSON strings"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "Task: You are reviewing a page labeled RT_body in a legal transcript image.",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "Goal: Decide whether this page is the first page of the hearing for the particular case that is called.",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "Visual cues:",
+      "destination": "Formatting only: card description"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- The court is calling the case name or docket number.",
+      "destination": "First-page card: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- Parties or attorneys announce their appearances.",
+      "destination": "First-page card: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- The hearing appears to be starting (opening statements/roll call).",
+      "destination": "First-page card: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "Decision rules:",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- Ignore page numbers.",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- If this page shows the hearing starting, answer yes.",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "- Otherwise answer no.",
+      "destination": "Application first-page task/context/decision contract: first_hearing"
+    },
+    {
+      "source": "classification/first_hearing",
+      "original": "Output: Return JSON with key \"first_page\" and value yes or no. Use quotes only around the key.",
+      "destination": "Application JSON contract; invalid unquoted yes/no corrected to JSON strings"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "Task: You are reviewing a page labeled CT_minute_order in a legal transcript image.",
+      "destination": "Application first-page task/context/decision contract: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "Goal: Decide whether this page is the first page of the minute order.",
+      "destination": "Application first-page task/context/decision contract: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "Visual cues:",
+      "destination": "Formatting only: card description"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "- The minute order begins here (e.g., heading/title at top, start of order items).",
+      "destination": "First-page card: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "- You may see a page indicator like Page 1 of X.",
+      "destination": "First-page card: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "Decision rules:",
+      "destination": "Application first-page task/context/decision contract: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "- If this page is clearly the start of the minute order, answer yes.",
+      "destination": "Application first-page task/context/decision contract: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "- Otherwise answer no.",
+      "destination": "Application first-page task/context/decision contract: first_minute"
+    },
+    {
+      "source": "classification/first_minute",
+      "original": "Output: Return JSON with key \"first_page\" and value yes or no. Use quotes only around the key.",
+      "destination": "Application JSON contract; invalid unquoted yes/no corrected to JSON strings"
+    },
+    {
+      "source": "classification/rt",
+      "original": "You are labeling ONE page from a reporter's transcript (RT) in an appellate record. Output EXACTLY one JSON object with a single key: \"page_type\". The value must be one of:",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/rt",
+      "original": "RT_cover, RT_body, RT_index, RT_certificate.",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/rt",
+      "original": "No other keys. No extra text.",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/rt",
+      "original": "Decision rule (in order):",
+      "destination": "Removed: expressly authorized redundant ordered cascade; recognition equivalents retained in RT cards"
+    },
+    {
+      "source": "classification/rt",
+      "original": "1) If the page is a certificate/attestation about the transcript's accuracy or preparation, label RT_certificate.",
+      "destination": "Ordering removed; attestation and preparation merged into page_types.rt.RT_certificate Purpose: Certificate or attestation about the transcript's accuracy or preparation."
+    },
+    {
+      "source": "classification/rt",
+      "original": "2) Else if the page is an index/listing of topics, names, or sections with page numbers, label RT_index.",
+      "destination": "Removed: expressly authorized redundant ordered cascade; recognition equivalents retained in RT cards"
+    },
+    {
+      "source": "classification/rt",
+      "original": "3) Else if the page contains verbatim spoken dialogue (Q/A, speaker labels like THE COURT:, MR. SMITH:, Q:, A:), label RT_body.",
+      "destination": "Removed: expressly authorized redundant ordered cascade; recognition equivalents retained in RT cards"
+    },
+    {
+      "source": "classification/rt",
+      "original": "4) Else label RT_cover (case-identifying cover information only).",
+      "destination": "Removed: expressly authorized redundant ordered cascade; recognition equivalents retained in RT cards"
+    },
+    {
+      "source": "classification/rt",
+      "original": "Definitions and cues:",
+      "destination": "Formatting only: card grouping"
+    },
+    {
+      "source": "classification/rt",
+      "original": "RT_cover",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Purpose: Case-identifying information only.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Typical content: case title, case number, parties, attorneys, court name, department, hearing date, reporter name/address.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- MUST NOT include verbatim dialogue.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- If there is any spoken dialogue on the page, it is NOT RT_cover.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "RT_body",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Purpose: Verbatim transcript of proceedings.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Required cue: Spoken dialogue with speaker labels or Q/A format.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Can include a case header at the top, but must include dialogue somewhere on the page.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "RT_index",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Purpose: Index/list of topics, witness names, or sections with page numbers.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Typical cues: columns with Page or dotted leaders (e.g., Opening statement ........ 12).",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- No verbatim dialogue.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "RT_certificate",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Purpose: Certificate of the transcript's accuracy.",
+      "destination": "page_types.rt.RT_certificate: - Purpose: Certificate or attestation about the transcript's accuracy or preparation. (Merged cascade recognition conditions; no loss.)"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- Typical cues: CERTIFICATE, I certify, I, [name], do hereby certify, reporter/clerk signature line, date, seal, or notary language.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "- No verbatim dialogue.",
+      "destination": "RT card, exact description/key; canonical non-prioritized display"
+    },
+    {
+      "source": "classification/rt",
+      "original": "Output format example (only format allowed):",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "classification/rt",
+      "original": "{\"page_type\":\"RT_body\"}",
+      "destination": "Application single-page task / fixed taxonomy / valid JSON response contract"
+    },
+    {
+      "source": "naming/report",
+      "original": "Approved report names (edit the bold names in this list):",
+      "destination": "Application catalog heading / structured card organization; no Markdown parser requirement"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Detention Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Initial Hearing Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Jurisdiction Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Disposition Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Last Minute Information**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Non-Detained Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Status Review Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Interim Review Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Review Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Addendum Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Petition Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **366.26 WIC Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Permanent Plan Review Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **RPP Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Selection and Implementation Report**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "- **Additional Information for Court**",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/report",
+      "original": "Use only an approved name above, supported by a prominent heading on the supplied page. If no entry matches, leave the name empty; do not discard the document.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "Task: Extract the report name and report date from the first page of a report in a legal transcript.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "Output: Return JSON with keys: \"name\" and \"date\" only.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- \"name\" must be exactly one of the allowed report names listed below.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- \"date\" must be a long-form U.S. date, such as November 30, 2022, if a report date is visible; otherwise use an empty string.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- If the page does not clearly match one allowed report name, return \"name\" as an empty string.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- Never guess. Only extract values when the evidence is clearly visible on the page.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "How to decide the report name:",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- The report title must appear on the page as a prominent heading.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- If multiple report titles appear, choose the most prominent and specific title.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- Do not infer the report name from headers, footers, or page numbers alone.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "How to decide the report date:",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- Use the date tied to the report itself or to the report's hearing, such as a field labeled Hearing Date near the report title.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "- For a Detention Report, the Hearing Date near the DETENTION REPORT heading is the report date.",
+      "destination": "Removed at explicit user request: no Detention-specific date instruction in card or fixed method; general report-date instructions remain"
+    },
+    {
+      "source": "naming/report",
+      "original": "- Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.",
+      "destination": "Application report naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/report",
+      "original": "Allowed report names (exact text to return):",
+      "destination": "Application catalog heading / structured card organization; no Markdown parser requirement"
+    },
+    {
+      "source": "naming/report",
+      "original": "Detention Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Initial Hearing Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Jurisdiction Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Disposition Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Last Minute Information",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Non-Detained Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Status Review Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Interim Review Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Review Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Addendum Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Petition Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "366.26 WIC Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Permanent Plan Review Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "RPP Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Selection and Implementation Report",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/report",
+      "original": "Additional Information for Court",
+      "destination": "Report name card; redundant second name list removed"
+    },
+    {
+      "source": "naming/form",
+      "original": "Approved form names (edit the bold names in this list):",
+      "destination": "Application catalog heading / structured card organization; no Markdown parser requirement"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Parental Notification of Indian Status** — required code: ICWA-020.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Juvenile Dependency Petition** — required code: JV-100.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Notice of Appeal** — required code: JV-800.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Request to Change Court Order** — required code: JV-180.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Waiver of Rights--Juvenile Dependency** — required heading: Waiver of Rights; required code: JV-190.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "- **Notification of Mailing Address** — required code: JV-140.",
+      "destination": "Naming card: canonical name and associated matching requirements"
+    },
+    {
+      "source": "naming/form",
+      "original": "Use only an approved name above, supported by a prominent heading on the supplied page. Use the bold name as the required heading unless another heading is specified. When an entry requires a code, both its heading and code must be visible on that same page. If no entry matches, leave the name empty; do not discard the document.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Task: Extract the form name from the first page of a form in a legal transcript.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Output: Return JSON with keys: \"name\" only.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- \"name\" must be exactly one of the allowed form names listed below.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- If the page does not clearly match one allowed form name, return \"name\" as an empty string.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- Never guess. Only extract when required evidence is visible on the page.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "How to decide a match:",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- The form title must appear on the page as a prominent heading.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- The form code listed in each rule must also appear on the page.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- Both title and code must be visible on the same page.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "- If the code is missing, do not return a name.",
+      "destination": "Application form naming mechanics / uncertainty / output contract; repeated equivalents retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Allowed form names and required evidence:",
+      "destination": "Application catalog heading / structured card organization; no Markdown parser requirement"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Parential Notification of Indian Status",
+      "destination": "Parental Notification card; spelling correction Parential → Parental; canonical output unchanged"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Parential Notification of Indian Status AND the code ICWA-020.",
+      "destination": "Parental Notification card; spelling correction Parential → Parental; canonical output unchanged"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Juvenile Dependency Petition",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Juvenile Dependency Petition AND the code JV-100.",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Notice of Appeal",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Notice of Appeal AND the code JV-800.",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Request to Change Court Order",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Request to Change Court Order AND the code JV-180.",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Waiver of Rights--Juvenile Dependency",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Waiver of Rights AND the code JV-190",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "## Notification of Mailing Address",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    },
+    {
+      "source": "naming/form",
+      "original": "Required: the title Notification of Mailing Address AND code JV-140",
+      "destination": "Associated form card; duplicate heading/code evidence retained once"
+    }
+  ],
+  "report_first_pages_follow_up": {
+    "release": "Dependency 1.8.0 / manifest 8 / classification 3 / naming 4",
+    "catalog_consumers": [
+      "first-page naming extraction",
+      "exact-name validation"
+    ],
+    "classification": "Structural report/form recognition without automatic name catalogs. Independent report-start checks cover every CT_report page.",
+    "report_footer_rules": "Mandatory footer/approved-name gate and numbering disqualification explicitly superseded. CFS 6.7/DCFS 4216 remain supporting clues, never approved names.",
+    "ranges": "Every detected report start ends the preceding range, even unnamed. No one-page report-gap filling. Only accepted names create standalone work.",
+    "legacy_policy": "Known complete public resources adapt read-only; unknown custom prose and immutable historical files remain literal. Explicit editing adds the fourth task without splitting old text.",
+    "authorization": "User approved extra per-report-page checking cost and consistent report/form naming."
+  }
+}

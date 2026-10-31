@@ -38,8 +38,8 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 | minutes | Markdown |
 | overview (historical schemas 1–4 only; inert) | Markdown |
 | participants (historical schemas 1–3 only; inert) | Markdown |
-| classification_tasks (content schemas 2–6) | JSON |
-| case_name (content schemas 2–6; inert historical caption guidance) | Markdown |
+| classification_tasks (content schemas 2–8) | JSON |
+| case_name (content schemas 2–8; inert historical caption guidance) | Markdown |
 
 RecordPrep schema 1 retains its old required resources for read compatibility. Schema 2 adds
 exact task keys `rt`, `ct`, `first_hearing`, `first_minute`, `first_form`,
@@ -60,6 +60,45 @@ instructions affect no stage prompt or component hash. Summary compilation for e
 supported schema uses only the matching topic catalog, never the historical four fields.
 Their text and presence do not affect summary component hashes. Old saved schemas
 remain readable byte-for-byte; no private revision migration is performed.
+
+## Schema 8 structured classification/naming
+
+Dependency **1.8.0** retains schema-6 resource names/paths and `profile_api: 1`,
+requiring classification resource **3** and naming **4**. Schema 7 remains readable
+with classification resource 2 and its original three start tasks.
+See [structured settings](structured-classification.md) and [report starts](report-first-pages.md).
+`page_types.rt` and `.ct` map exactly the supported structural keys to nonempty
+recognition descriptions (8192 characters). `first_pages` now requires four keys:
+`first_hearing`, `first_minute`, `first_form`, **`first_report`**. Unknown keys,
+priority metadata and date fields are forbidden in this structured representation.
+The new positive output is `CT_report_first_page`; Basic still returns `CT_report`.
+
+Classification v3 also accepts a lossless compatibility representation: the seven
+historical flat task strings plus `schema_version: 3` and `first_report`. This is
+used when editing unknown monolithic guidance; all old strings, including inert
+dates, remain literal and bounded by the original file limit. No prose is split or
+reinterpreted. Immutable old snapshots without a report task use fixed application
+report-start clues. Explicit editing adds an editable fourth task to the draft;
+mixed old naming formats can retain manifest schema 6, as before.
+
+Naming remains `reports`/`forms` arrays (0–256) of exactly `{id, name, guidance}`,
+with stable unique IDs, case-insensitive unique single-line names (160 characters)
+and optional descriptions (8192 characters). Catalogs supply **only naming and
+exact-name validation**, never page-type or start prompts. CT uses structural clues;
+report codes are supporting evidence, not output names or mandatory footer gates.
+Catalog edits change only Names fingerprints. Report-start edits change Advanced
+and Corrected. Basic/Advanced/Corrected include the new page-flow identity, Names
+includes the explicit-start selection identity, and derived selection is contract 4.
+Dates and summary model instructions are unchanged; actual upstream bytes still
+control downstream workspaces.
+
+Schemas 1–7 and prior naming formats remain readable without writes. Only exact
+complete public resources adapt read-only: original, initial-structured and reviewed
+shared-catalog 1.7.0 classifications map to the frozen 1.8.0 equivalent. Unknown
+custom descriptions stay literal, including any old footer/name restrictions.
+The Detention-only date exception remains explicitly deleted. Only guarded
+Save/Reset publishes revisions; no stage runs or private migration follows Save.
+This section supersedes older current-schema descriptions below.
 
 ## Structured resources
 

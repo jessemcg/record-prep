@@ -11,9 +11,37 @@ There is no profile repository, download, sibling package import or automatic
 cross-app synchronization. Portable profile settings may be explicitly selected
 outside bundles; historical case pins no longer authorize instructions.
 
-## Bundled Dependency baseline
+## Structured settings (current)
 
-Dependency version 1.6.0 incorporates the reviewed saved Dependency guidance as
+Dependency **1.8.0**, content schema **8**, provides five flat Classification
+destinations: **Reporter transcript page types**, **Clerk transcript page types**,
+**First pages**, **Report Names**, and **Form Names**. Edit descriptions,
+not fixed page-type/output keys. RT/CT uses best fit across all descriptions, not
+list order. First pages has four cards: hearing, minute order, form and report.
+Hearing/minute dates are fixed application instructions, inspectable but not editable.
+Approved report/form names are retained stable-ID cards with optional recognition
+descriptions and organizational Add/Remove/reorder actions, not Markdown bullet syntax.
+These catalogs supply naming only, not structural page recognition or start checks.
+Advanced checks every report page independently, including adjacent and unnamed
+reports. Names uses marked first pages, and unnamed starts still break earlier
+report ranges. CT catalog previews/links and report-gap filling are removed.
+See [report starts, cost and compatibility](report-first-pages.md).
+There is no Detention-specific date exception; report dates use the general method.
+
+Both About disclosures offer **View full prompts…**, with a placeholder template
+(default) or a frozen unsaved draft, search and Copy. No case, credentials, Node or
+model request is needed. The separately authorized [summary skill-delivery fix](summary-skill-delivery.md)
+now verifies expansion of all five summary skills through the installed Pi SDK.
+The inspector distinguishes staged skills from launch messages before expansion;
+missing or stale audits remain visible. See the [current schema, information review,
+compatibility and delivery verification](structured-classification.md) and
+[validation](structured-classification-validation.md). Historical format details
+below apply to older immutable snapshots where identified; no private migration or
+automatic output regeneration occurs.
+
+## Historical bundled Dependency baseline
+
+Dependency version 1.6.0 incorporated the reviewed saved Dependency guidance as
 its public, version-controlled baseline. Classification tasks, report/form naming,
 and the Agency Recommendations digest topic retain that guidance verbatim;
 stored case-name prose is also retained but remains inactive. Hearing topics and
@@ -47,10 +75,10 @@ selection, never the bundle. A failed storage transaction retains the current ch
 Profile settings opens in an independent, non-modal window with minimize, maximize
 and close controls. It can be moved/resized independently while the main app stays
 usable. Active work or changing cases still blocks stale settings application.
-The window uses a boxed category/subcategory list on the left and shows only the
-selected settings page on the right, like Model settings. The list sits directly on
-the window background, without a contrasting full-height left panel. The header
-also uses Model settings' flat toolbar styling and shares the window background.
+The window opens on boxed expandable Classification and Summaries destinations.
+Choosing a page opens its retained editor with Back/Save controls and a prompt-page
+chooser, not a permanent sidebar. The header uses Model settings' flat toolbar
+styling and shares the window background.
 RecordPrep has no General section or second profile picker/default checkbox;
 it edits the already-selected profile. Focus has no profile controls; its ordinary
 model/appearance/speech/launch controls are in Settings.
@@ -60,8 +88,8 @@ buttons without an extra selectable hover background. Saving the selected profil
 advances its application-wide revision for future preparation.
 The profile name remains beneath the window title; **Save** and **Cancel** stay in
 the header. Switching pages preserves unsaved edits and each page's scroll position.
-At narrow widths, the **Show categories** button opens the sidebar as an overlay;
-selecting a subcategory closes the overlay without squeezing the editor. A built-in opens with
+At narrow widths, Back returns to the full-width destination list; retained inline
+cards and wrapped editors use the available width without a sidebar. A built-in opens with
 complete populated settings; personal settings appear in place of its baseline.
 Create profiles has a **Create a profile** section asking for a name and starting
 profile (California Juvenile Dependency by default). Identifiers are generated internally. Create opens
@@ -92,20 +120,19 @@ border, shadow or contrasting panel. A wrapping, accent-colored progression read
 The explanation describes the vision model's dual role: classifying page images
 and extracting dates and document names. The progression is a display-only overview,
 not clickable navigation or live progress; correction steps still run in their usual places.
-Reporter’s-transcript (RT) page types → hearing starts → hearing dates come next, followed by clerk’s-transcript
-(CT) page types → minute-order/form starts → minute-order dates → report names/dates
-and form names. Subtitles identify RT/CT and Basic/Advanced/Dates/Names without a
-new navigation level. Each task keeps its tall editor (at least 360 pixels,
-expanding with the window). Report/form naming remains under Classification.
+RT and CT page types come first, followed by First pages, Report Names,
+and Form Names, without child indentation or date editors. Subtitles identify
+pipeline stages, not matching precedence. Retained expandable recognition cards
+show friendly names, a small read-only output key and full-width wrapped text.
 
-Each classification task uses only its own instructions beneath the fixed application
-contract. There is no Common guidance editor, shared prompt or hidden shared text in
-newly saved profiles. Put specialty clues directly in the relevant task. Naming has
-separate instructions and approved-name entries.
-Advanced uses Basic’s page types to select hearing, minute-order and form start
-checks; Dates uses marked hearing/minute-order first pages. Names reads a report’s
-name and date at the start of each continuous group of report pages, and reads form
-names from marked form first pages. Hearing TOC labels come from hearing dates—not
+Each classification task combines its fixed method with relevant recognition data.
+There is no Common guidance editor or hidden shared instruction block in newly saved
+profiles. Report Names/Form Names supply naming-only data. Put page-specific
+specialty rules in the relevant structural page-type card. Advanced selects hearing,
+minute-order, form and report start checks from Basic’s types; Dates uses marked
+hearing/minute-order first pages. Names reads report name/date and form names only
+from marked first pages. Both named and unnamed report starts terminate preceding
+report ranges; no name match is required to detect a document break. Hearing TOC labels come from hearing dates—not
 a separate hearing-name prompt. Correction stages retain their existing positions;
 TOC and document boundaries use these classification results.
 
@@ -113,7 +140,7 @@ Structural page types and response keys are application-owned, shared across leg
 fields. Profiles customize recognition clues, not category names. Each Basic editor
 shows the supported RT or CT labels from the same definition used by the runtime
 validator. Advanced returns `first_page: yes/no`; Python adds `RT_body_first_page`,
-`CT_minute_order_first_page` or `CT_form_first_page`. Dates returns `date` or an empty
+`CT_minute_order_first_page`, `CT_form_first_page` or `CT_report_first_page`. Dates returns `date` or an empty
 string. Naming uses separate approved names, not new page types. Certificates,
 motions, notices and proofs of service remain recognized structural categories.
 
@@ -217,11 +244,11 @@ express absences, speaking, sworn testimony and examinations, with citations and
 uncertainty. Role labels describe the source rather than an editable category catalog.
 The index still supports hearing summaries, case overview and Focus navigation.
 Minute orders use only the current order, not this index or a profile role catalog. Report naming and form naming
-each have just one instructions editor. Their approved names appear once, as `- **Name**` entries in that editor;
-optional matching requirements follow an em dash. The same entries supply both
-the model prompt and Python's exact approved-name check. There is no naming-mode
-selector, separate title list, or form-rule card editor. Editing the prompt's list
-changes the approved names; prose outside those entries does not silently add names.
+use stable-ID approved-name cards. Each has an editable canonical name and optional
+description/matching instructions, including any required form heading/code. The
+same structured names supply the model prompt and Python's exact membership check.
+No naming-mode selector, technical rule editor, or special Markdown syntax is needed.
+Legacy unknown prose retains a labeled compatibility editor rather than guessed splitting.
 Dependency retains its reviewed names and form codes; copies inherit them until
 you edit them for the new specialty. **Only successfully named reports enter
 the report TOC and standalone report-summary worklist.** Any profile without approved
@@ -253,7 +280,7 @@ initial display formatting only: opening or browsing does not change saved guida
 or mark the profile dirty. Editing a topic makes its displayed text the draft;
 only the normal Save flow persists that draft.
 Topics guide capture from each complete hearing or report, not required headings
-in the narrative. New RecordPrep profiles use content schema 6, without Common guidance, the four
+in the narrative. New structured RecordPrep profiles use content schema 8, without Common guidance, the four
 extra summary instruction resources, role catalogs, participant or overview instructions. Explicit editing upgrades only a draft; historical
 accepted revisions are never rewritten. Focus's neutral research method has no
 editable guidance or search priorities; document labels supply navigation, not

@@ -1,0 +1,117 @@
+{
+  "schema_version": 4,
+  "reports": [
+    {
+      "id": "report-01",
+      "name": "Detention Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-02",
+      "name": "Initial Hearing Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-03",
+      "name": "Jurisdiction Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-04",
+      "name": "Disposition Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-05",
+      "name": "Last Minute Information",
+      "guidance": ""
+    },
+    {
+      "id": "report-06",
+      "name": "Non-Detained Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-07",
+      "name": "Status Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-08",
+      "name": "Interim Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-09",
+      "name": "Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-10",
+      "name": "Addendum Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-11",
+      "name": "Petition Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-12",
+      "name": "366.26 WIC Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-13",
+      "name": "Permanent Plan Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-14",
+      "name": "RPP Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-15",
+      "name": "Selection and Implementation Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-16",
+      "name": "Additional Information for Court",
+      "guidance": ""
+    }
+  ],
+  "forms": [
+    {
+      "id": "form-01",
+      "name": "Parental Notification of Indian Status",
+      "guidance": "Heading: Parental Notification of Indian Status. Form code: ICWA-020."
+    },
+    {
+      "id": "form-02",
+      "name": "Juvenile Dependency Petition",
+      "guidance": "Heading: Juvenile Dependency Petition. Form code: JV-100."
+    },
+    {
+      "id": "form-03",
+      "name": "Notice of Appeal",
+      "guidance": "Heading: Notice of Appeal. Form code: JV-800."
+    },
+    {
+      "id": "form-04",
+      "name": "Request to Change Court Order",
+      "guidance": "Heading: Request to Change Court Order. Form code: JV-180."
+    },
+    {
+      "id": "form-05",
+      "name": "Waiver of Rights--Juvenile Dependency",
+      "guidance": "Heading: Waiver of Rights. Form code: JV-190."
+    },
+    {
+      "id": "form-06",
+      "name": "Notification of Mailing Address",
+      "guidance": "Heading: Notification of Mailing Address. Form code: JV-140."
+    }
+  ]
+}

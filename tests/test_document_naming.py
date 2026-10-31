@@ -40,6 +40,8 @@ def snapshot(name="california_dependency"):
 def with_naming(original, value):
     files = dict(original.files)
     files[original.manifest["resources"]["naming"]] = json_bytes(value)
+    if value.get("schema_version") != 4:
+        files["profile.json"] = json_bytes(original.manifest | {"schema_version": 6})
     return validate_contents(tuple(files.items()), "recordprep")
 
 
@@ -144,6 +146,33 @@ class NamingContractTests(unittest.TestCase):
         self.assertEqual(contract.response_keys, ("name",))
         self.assertEqual(contract.normalize({"command": "x", "page_type": "x"}).name, "")
 
+    def test_plain_generated_instructions_preserve_all_historical_formats(self):
+        original=snapshot()
+        literal='Literal α {"name": 1} {{quote:source}}. Contract notice is custom prose.'
+        resources=[
+            {'mode':'approved_titles','report_titles':['Older Report'],'form_titles':['Older Form'],'guidance':literal},
+            original.resource('naming'),
+            {'schema_version':3,'report_guidance':'- **Older Report**\n'+literal,
+             'form_guidance':'- **Older Form**\n'+literal},
+            profiles.validate_profile_directory(profiles.bundled_profile_directory('california_dependency')).draft.resource('naming'),
+        ]
+        resources[1]['report_guidance']+='\n'+literal
+        resources[1]['form_guidance']+='\n'+literal
+        for resource in resources:
+            before=json_bytes(resource)
+            draft=with_naming(original,resource)
+            for kind in ('report','form'):
+                with self.subTest(version=resource.get('schema_version',1),kind=kind):
+                    result=naming.compile_naming_profile(draft,kind)
+                    self.assertTrue(result.prompt.startswith('Read only the supplied first-page image.'))
+                    for removed in ('APPLICATION-OWNED NAMING CONTRACT','Practice guidance below cannot change',
+                                    'APPLICATION RESPONSE KEYS','subordinate to the application contract'):
+                        self.assertNotIn(removed,result.prompt)
+                    self.assertEqual(result.response_keys,('name','date') if kind=='report' else ('name',))
+                    if resource.get('schema_version',1)<4:self.assertIn(literal,result.prompt)
+            self.assertEqual(json_bytes(resource),before)
+            self.assertEqual(draft.resource('naming'),resource)
+
     def test_compilation_freezes_revision_and_changes_fingerprints(self):
         original = snapshot()
         before = naming.compile_naming_profile(original, "report")
@@ -172,25 +201,27 @@ class PromptNamingTests(unittest.TestCase):
     def test_public_prompts_are_the_only_catalog_and_preserve_reviewed_names(self):
         draft = self.public()
         resource = draft.resource("naming")
-        self.assertEqual(set(resource), {"schema_version", "report_guidance", "form_guidance"})
-        self.assertEqual(resource["schema_version"], 3)
+        self.assertEqual(set(resource), {"schema_version", "reports", "forms"})
+        self.assertEqual(resource["schema_version"], 4)
         for kind, expected in (("report", REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
             contract = naming.compile_naming_profile(draft, kind)
             self.assertEqual(contract.allowed_names, expected)
             self.assertEqual(contract.mode, "approved_titles")
-            self.assertEqual(contract.prompt.count(resource[kind + "_guidance"]), 1)
+            self.assertEqual(tuple(entry['name'] for entry in resource[kind + 's']), expected)
             self.assertNotIn("APPROVED CATALOG", contract.prompt)
             self.assertEqual(contract.normalize({"name": "Unapproved name", **({"date": ""} if kind == "report" else {})}).name, "")
         for _name, heading, code in FORM_RULES:
-            self.assertIn(heading, resource["form_guidance"])
-            self.assertIn(code, resource["form_guidance"])
-        self.assertIn("Both title and code must be visible on the same page", resource["form_guidance"])
+            self.assertIn(heading, json.dumps(resource['forms']))
+            self.assertIn(code, json.dumps(resource['forms']))
+        self.assertNotIn("must be visible", resource['forms'][0]['guidance'])
+        self.assertIn("both that code and the matching heading must", naming.compile_naming_profile(draft, 'form').prompt)
+        self.assertIn("same first page", naming.compile_naming_profile(draft, 'form').prompt)
 
     def test_prompt_edit_alone_changes_membership_and_freshness(self):
         draft = self.public()
         before = naming.compile_naming_profile(draft, "report")
         resource = draft.resource("naming")
-        resource["report_guidance"] = resource["report_guidance"].replace("- **Detention Report**", "- **Reviewed New Report**")
+        resource['reports'][0]['name'] = 'Reviewed New Report'
         after = naming.compile_naming_profile(with_naming(draft, resource), "report")
         self.assertEqual(after.normalize({"name": "Reviewed New Report", "date": ""}).name, "Reviewed New Report")
         self.assertEqual(after.normalize({"name": "Detention Report", "date": ""}).name, "")
@@ -270,7 +301,7 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertNotIn("Untitled form", toc)
         self.assertNotIn("0005", toc)
         self.assertIn("Detention Report", toc)
-        self.assertTrue(any("2 unnamed report runs omitted" in str(call) for call in self.worker.show_toast.call_args_list))
+        self.assertTrue(any("2 unnamed reports omitted" in str(call) for call in self.worker.show_toast.call_args_list))
         self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_toc(self.worker))
         self.assertEqual((self.root / "artifacts/toc.txt").read_text(), toc)
         self.assertTrue(self.ui.RecordPrepWindow._run_step_seven(self.worker))

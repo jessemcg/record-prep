@@ -29,7 +29,7 @@ from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_qu
 from pathlib import Path
 from typing import Any, Sequence
 
-from recordprep import summary_categories
+from recordprep import summary_categories, summary_prompts
 from recordprep.profile_artifacts import digest_profile_metadata, preparation_provenance
 from recordprep.profile_contract import ProfileSnapshot
 from recordprep.summary_profiles import (
@@ -1529,9 +1529,10 @@ class ExtractionConfig:
         return {
             "kind": self.kind,
             "categories": [definition.identifier for definition in self.definitions],
-            **({"profile_component": compile_summary(self.profile, self.kind, "extract").component_sha256,
-                "runtime_contract_sha256": self.runtime_contract_sha256}
+            **({"profile_component": compile_summary(self.profile, self.kind, "extract").component_sha256}
                if self.profile is not None else {}),
+            "runtime_contract_sha256": self.runtime_contract_sha256,
+            "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
             # The effective per-category guidance text is part of the
             # extraction contract; editing a kind's category resource makes
             # that kind's published rows regeneration-pending.
@@ -3915,9 +3916,11 @@ def effective_extraction_config(project_dir: Path, kind: str, *, profile: Profil
         model=identity.model_id,
         thinking=identity.thinking,
         profile=profile,
-        runtime_contract_sha256=(sha256_json({str(path.relative_to(project_dir)): _resource_sha256(path)
-            for path in (project_dir / "SYSTEM.md", project_dir / "resources/profile-summary-extract.md",
-                         project_dir / "extensions/recordprep-summary-tools.ts")}) if profile is not None else ""),
+        runtime_contract_sha256=sha256_json({str(path.relative_to(project_dir)): _resource_sha256(path)
+            for path in (project_dir / "SYSTEM.md",
+                         project_dir / "resources/profile-summary-extract.md" if profile is not None else
+                         project_dir / "skills" / ("recordprep-extract-hearing" if kind == "hearings" else "recordprep-extract-report") / "SKILL.md",
+                         project_dir / "extensions/recordprep-summary-tools.ts")}),
     )
 
 
@@ -3959,6 +3962,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "model": identity.model_id,
         "thinking": identity.thinking,
         "content_contract": SUMMARY_SYNTHESIS_CONTRACT_VERSION,
+        "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
         "skill_sha256": _resource_sha256(
             (project_dir / "resources/profile-summary-synthesize.md") if profile is not None and kind == "hearings" else
             (project_dir / "skills" / skill_names[kind] / "SKILL.md")

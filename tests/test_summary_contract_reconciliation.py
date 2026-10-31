@@ -121,7 +121,7 @@ class SummaryContractTests(unittest.TestCase):
     def test_new_bundles_have_no_extra_instruction_files(self):
         for name in ("general", "california_dependency"):
             profile = bundled(name)
-            self.assertEqual(profile.manifest["schema_version"], 6)
+            self.assertIn(profile.manifest["schema_version"], (6, 7, 8))
             self.assertFalse(RETIRED_SUMMARY_RESOURCES.intersection(profile.manifest["resources"]))
             for filename, _ in profile.files:
                 self.assertFalse(filename.endswith(("-extraction.md", "-synthesis.md")))

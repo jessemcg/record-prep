@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "page_types": {
+    "rt": {
+      "RT_cover": "- Purpose: Case-identifying information only.\n- Typical content: case title, case number, parties, attorneys, court name, department, hearing date, reporter name/address.\n- MUST NOT include verbatim dialogue.\n- If there is any spoken dialogue on the page, it is NOT RT_cover.",
+      "RT_body": "- Purpose: Verbatim transcript of proceedings.\n- Required cue: Spoken dialogue with speaker labels or Q/A format.\n- Can include a case header at the top, but must include dialogue somewhere on the page.",
+      "RT_index": "- Purpose: Index/list of topics, witness names, or sections with page numbers.\n- Typical cues: columns with Page or dotted leaders (e.g., Opening statement ........ 12).\n- No verbatim dialogue.",
+      "RT_certificate": "- Purpose: Certificate or attestation about the transcript's accuracy or preparation.\n- Typical cues: CERTIFICATE, I certify, I, [name], do hereby certify, reporter/clerk signature line, date, seal, or notary language.\n- No verbatim dialogue.",
+      "RT_other": "Other reporter-transcript material distinct from case-identifying covers, dialogue, indexes, and certificates of transcript accuracy. Use only when the visible content best supports this description after comparing all categories."
+    },
+    "ct": {
+      "CT_report": "Only if the footer explicitly contains one of these report names:\n   - Detention Report\n   - Initial Hearing Report\n   - Jurisdiction Report\n   - Disposition Report\n   - Last Minute Information\n   - Non-Detained Report\n   - Status Review Report\n   - Interim Review Report\n   - Review Report\n   - Addendum Report\n   - Petition Report\n   - 366.26 WIC Report\n   - Permanent Plan Review Report\n   - RPP Report\n   - Selection and Implementation Report\n   - Additional Information for Court\n   - CFS 6.7\n   - DCFS 4216\n   If the footer does NOT contain one of these names, it is NOT a CT_report.\n   If the page shows numbering like Page X of XX, it is NOT a CT_report.",
+      "CT_form": "Preprinted form with a form ID and Judicial Council approval in the footer.\n   Form ID must be JV-XXX, FL-XXX, or ICWA-XXX.\n   These forms DO show Page X of XX.",
+      "CT_minute_order": "Clerk-prepared summary of a hearing.\n   Often labeled MINUTE ORDER.\n   Look for: appearances list, orders issued, judge/bench officer, court reporter, department.\n   No verbatim dialogue.\n   Not prepared by an attorney.\n   These DO show Page X of XX.",
+      "CT_certificate": "Certificate executed by the clerk authenticating transcripts or documents.",
+      "CT_proof_of_service": "Declaration showing a party was served (mail, personal, electronic).",
+      "CT_notice": "Formal notice of hearing date/time/nature.",
+      "CT_motion": "A party's motion asking the court to act; may include points and authorities.",
+      "CT_cover": "Cover page for the clerk's transcript or a section (case caption, title, etc.).",
+      "CT_index": "Index/table of contents listing documents and page numbers.",
+      "CT_other": "Anything else (medical records, drug tests, service logs, letters, exhibits,\n    photos, text messages, emails, case plans, written court order, etc.)."
+    }
+  },
+  "first_pages": {
+    "first_hearing": "- The court is calling the case name or docket number.\n- Parties or attorneys announce their appearances.\n- The hearing appears to be starting (opening statements/roll call).",
+    "first_minute": "- The minute order begins here (e.g., heading/title at top, start of order items).\n- You may see a page indicator like Page 1 of X.",
+    "first_form": "- The form begins here (e.g., heading/title at top, fresh form layout, start of sections).\n- You may see a page indicator like Page 1 of X."
+  }
+}

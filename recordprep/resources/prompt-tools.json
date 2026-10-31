@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "sources": {
+    ".pi/extensions/recordprep-summary-tools.ts": "dceb964290ed0680dbe6f34f5e44a2002ddebeafd00f45d52eb5cbcde8ddbe8e",
+    ".pi/extensions/recordprep-summary-synthesis-tools.ts": "a63e513a0f997616de3e888d9e7375ad1f2604b63066a7f94da2bf42d722fcd8",
+    ".pi/extensions/recordprep-profile-minute-tools.ts": "2d4e4b199457ce31812310fe0e403995e7dbfd4d591bba36471754b0d5c39428",
+    ".pi/extensions/recordprep-minute-tools.ts": "9abbd80a5b77ae32e932122fb78baef078aae6304249401ac19172c936778e05",
+    ".pi/skills/recordprep-extract-hearing/SKILL.md": "b38d7d214e5949b0d53296d8aacf038f85ae2fefc5a9f925258c8f6a07cf16db",
+    ".pi/skills/recordprep-extract-report/SKILL.md": "f0fdf69dceb1d56206974fcc64b41aeb4d635538dccdbd65db6e7a2b8fa06db9",
+    ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "d460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee",
+    ".pi/skills/recordprep-synthesize-reports/SKILL.md": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a",
+    ".pi/skills/recordprep-summarize-minutes/SKILL.md": "345dadc6265e896546bb2f1d2a7fe31c56395141e1d80fa8823b5833ba4b5416",
+    ".pi/scripts/run_recordprep_skill.py": "0b8f0ccf5078e1f894e0a9089ce329503f60cb718bc112fbf7f5263c80b9e13a",
+    "recordprep/summary_prompts.py": "06587b5e293b80161f45baaf2c6a6104242efe574aa7cb404a81dc2c90eec5fb",
+    "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
+    ".pi/SYSTEM.md": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",
+    ".pi/resources/profile-summary-extract.md": "80f4d6287976b4540228935828851f00d5422d952fa164ca1457da915c9c2a4c",
+    ".pi/resources/profile-summary-synthesize.md": "d0268d4b0d6b106282738fb1c0d70e42961ce3d0b33798382071f5e93ff96938"
+  },
+  "definitions": {
+    "recordprep-summary-tools.ts": [
+      {
+        "name": "recordprep_get_source",
+        "description": "Return the current document's complete source pages. Read every page before submitting.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "recordprep_submit_extraction",
+        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim two-to-five-word source phrases, preferably distinctive three-to-five-word anchors, with no fixed count — a quotation should help locate source language, not pad the digest. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "categories"
+          ],
+          "properties": {
+            "item_id": {
+              "type": "string"
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "digest": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_synthesis_scratchpad",
+        "description": "Your private synthesis scratchpad. It lives in extension memory separate from the conversation, so it survives context compaction within this process. action=\"read\" returns your notes plus runner-owned progress (read, submitted, and pending documents). action=\"replace\" swaps the entire notes value — replace the whole scratchpad after completing work rather than appending forever. Keep notes to orientation aids: what you already narrated, relevant event dates and attribution, unresolved issues, and developments whose change matters. Notes are never evidence and never published.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "read"
+                },
+                {
+                  "type": "string",
+                  "const": "replace"
+                }
+              ]
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_get_facts",
+        "description": "Return the dataset overview (omit ordinal), one document's Markdown digest block by ordinal (default view=\"digest\"), or that document's already-submitted draft section (view=\"submitted_section\") after a context compaction. Cannot read arbitrary files or other cases.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ordinal": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "view": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_submit_summary_section",
+        "description": "Submit or replace the narrative section for one document: item_id plus flowing prose paragraphs with {{quote:<quote_id>}} placeholders for direct quotations. Placeholders must reference this document's exact quote ids. The tool records the section and returns nonfatal feedback when a placeholder references an unknown quote id — fix the section and submit the same item_id again before finalizing. Submit one section per document in boundary order before finalizing.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "item_id",
+            "paragraphs"
+          ],
+          "properties": {
+            "item_id": {
+              "type": "string"
+            },
+            "paragraphs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_finish_summary",
+        "description": "Finish the synthesis after submitting your sections. This terminates the session. Always call this exactly once, even if you could not read every row or submit every section — Python fills any gaps.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ],
+    "recordprep-summary-synthesis-tools.ts": [
+      {
+        "name": "recordprep_get_source",
+        "description": "Return the current document's complete source pages. Read every page before submitting.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "recordprep_submit_extraction",
+        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim two-to-five-word source phrases, preferably distinctive three-to-five-word anchors, with no fixed count — a quotation should help locate source language, not pad the digest. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "categories"
+          ],
+          "properties": {
+            "item_id": {
+              "type": "string"
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "digest": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_synthesis_scratchpad",
+        "description": "Your private synthesis scratchpad. It lives in extension memory separate from the conversation, so it survives context compaction within this process. action=\"read\" returns your notes plus runner-owned progress (read, submitted, and pending documents). action=\"replace\" swaps the entire notes value — replace the whole scratchpad after completing work rather than appending forever. Keep notes to orientation aids: what you already narrated, relevant event dates and attribution, unresolved issues, and developments whose change matters. Notes are never evidence and never published.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "read"
+                },
+                {
+                  "type": "string",
+                  "const": "replace"
+                }
+              ]
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_get_facts",
+        "description": "Return the dataset overview (omit ordinal), one document's Markdown digest block by ordinal (default view=\"digest\"), or that document's already-submitted draft section (view=\"submitted_section\") after a context compaction. Cannot read arbitrary files or other cases.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ordinal": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "view": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_submit_summary_section",
+        "description": "Submit or replace the narrative section for one document: item_id plus flowing prose paragraphs with {{quote:<quote_id>}} placeholders for direct quotations. Placeholders must reference this document's exact quote ids. The tool records the section and returns nonfatal feedback when a placeholder references an unknown quote id — fix the section and submit the same item_id again before finalizing. Submit one section per document in boundary order before finalizing. Submit one paragraph per paragraphs array entry. For hearings, keep each paragraph short and focused, regroup dense digest topics, and distribute appropriate quote anchors across substantive paragraphs. Review attribution; never force or repeat a quote merely for formatting. For all-caps quotes, optionally supply quote_capitalizations: an object mapping exact quote ids to case-only display spellings. Preserve names, acronyms, identifiers, wording and punctuation. Keep the original quote placeholders in paragraphs; Python validates each proposal and otherwise retains source capitalization.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "item_id",
+            "paragraphs"
+          ],
+          "properties": {
+            "item_id": {
+              "type": "string"
+            },
+            "paragraphs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "quote_capitalizations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "recordprep_finish_summary",
+        "description": "Finish the synthesis after submitting your sections. This terminates the session. Always call this exactly once, even if you could not read every row or submit every section — Python fills any gaps.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ],
+    "recordprep-profile-minute-tools.ts": [
+      {
+        "name": "recordprep_get_minute_source",
+        "description": "Read every original source page of this complete minute order, including appearance entries and future hearing settings.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "recordprep_submit_minute_summary",
+        "description": "Submit normally one or two headline outcomes, not a miniature order or field-by-field narrative. Python renders Date — Hearing type, then Appearances / Orders / Next labeled lines without bullets; Focus makes the labels bold. State the result in plain English, not form legalese. Omit administrative/report-filing mechanics and conditional late-filing sanctions warnings; if administrative-only, say 'No substantive orders recorded.' Keep only essential qualifications and the next substantive hearing type/date. Exclude future report dates and report-only hearings. No separate party-position narrative or calendar inventory. Attendance evidence may come from any page; counsel alone proves neither presence nor absence. Python verifies locations; submission ends this session.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "hearing",
+            "appearances",
+            "orders",
+            "next_hearing"
+          ],
+          "properties": {
+            "hearing": {
+              "type": "string",
+              "description": "Short hearing type only; no date, case caption, birth date, courthouse or department. Python puts this beside the date."
+            },
+            "appearances": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "person",
+                  "role_label",
+                  "status",
+                  "evidence"
+                ],
+                "properties": {
+                  "person": {
+                    "type": "string"
+                  },
+                  "role_label": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "description": "Short role or relationship of a person relevant under the profile, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog."
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "present"
+                      },
+                      {
+                        "type": "string",
+                        "const": "not_present"
+                      },
+                      {
+                        "type": "string",
+                        "const": "unclear"
+                      }
+                    ]
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "file_page",
+                        "text"
+                      ],
+                      "properties": {
+                        "file_page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "maxItems": 128
+                  }
+                }
+              },
+              "maxItems": 128
+            },
+            "orders": {
+              "type": "string",
+              "description": "Normally one or two decisive outcomes in simple, plain English: who must do what, what was allowed/denied, or what changed. Translate legal/form language faithfully; retain necessary terms and essential conditions or substantive deadlines. No statutory/standard/unchanged-order recitals, routine report receipt/preparation, filing/e-filing/portal deadlines, calendar/clerical and service-of-paperwork logistics or conditional late-filing sanctions warnings. For administrative-only orders say 'No substantive orders recorded.' An actually imposed consequential sanction is different. Another outcome only if omission would mislead about disposition. Setting a motion for hearing does not grant relief. Include an objection only if essential; no separate positions narrative or repetition of hearing/next date."
+            },
+            "next_hearing": {
+              "type": "string",
+              "description": "Only the next substantive hearing type/date. Exclude report-only hearings and report filing/due dates, even if earlier. Do not move that report calendar into orders. Omit later settings, times and notice/return directions. Use 'Not stated.' or 'Unclear.' as appropriate; do not invent settings or list a vacated hearing as next."
+            }
+          }
+        }
+      }
+    ],
+    "recordprep-minute-tools.ts": [
+      {
+        "name": "recordprep_get_minute_source",
+        "description": "Read all source pages of the current minute order. The first page is explicitly marked; only that page supports affirmative parent appearances.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "recordprep_submit_minute_summary",
+        "description": "Submit this order's hearing name, reporting status, each parent's personal appearance, and concise actual orders. A present parent requires a verbatim first-page passage showing personal presence, not just counsel. Attorney-only listings mean not_present; ambiguous evidence means unclear. Python validates and renders the final paragraph. Submission ends this session.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "hearing",
+            "reporting",
+            "parents",
+            "orders"
+          ],
+          "properties": {
+            "hearing": {
+              "type": "string"
+            },
+            "reporting": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "reported"
+                },
+                {
+                  "type": "string",
+                  "const": "not_reported"
+                },
+                {
+                  "type": "string",
+                  "const": "unclear"
+                }
+              ]
+            },
+            "parents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "parent",
+                  "status",
+                  "first_page_evidence"
+                ],
+                "properties": {
+                  "parent": {
+                    "type": "string",
+                    "description": "Mother, Father, or a source-supported parent identifier when multiple parents share a role."
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "present"
+                      },
+                      {
+                        "type": "string",
+                        "const": "not_present"
+                      },
+                      {
+                        "type": "string",
+                        "const": "unclear"
+                      }
+                    ]
+                  },
+                  "first_page_evidence": {
+                    "type": "string",
+                    "description": "Verbatim first-page evidence; required for present, otherwise may be empty."
+                  }
+                }
+              }
+            },
+            "orders": {
+              "type": "string",
+              "description": "Brief actual court orders only; do not duplicate hearing/reporting/appearance fields."
+            }
+          }
+        }
+      }
+    ]
+  },
+  "skill_command_audit": {
+    "sdk_version": "1.4.0",
+    "launch_prefix": "slash-skill followed by space",
+    "expands": true,
+    "skills": [
+      "recordprep-extract-hearing",
+      "recordprep-extract-report",
+      "recordprep-synthesize-hearings",
+      "recordprep-synthesize-reports",
+      "recordprep-summarize-minutes"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "hearings-extract": {
+    "component_sha256": "4b1b42f3252035207f6a52a6f5ac9755403ec0ab93861e12c1266f497457f7a5",
+    "prompt_sha256": "a926fc4eb46b23200891378768581b5f2f5469eadf24ed8642fb18ffc486c2ac",
+    "staged_skill_sha256": "40e5d2fbc72214ed803b7a7fe2eae0da3859c8d9ce2ff4b56295da18949cb444"
+  },
+  "hearings-synthesize": {
+    "component_sha256": "12444bb88a1d9170706b3484be63aea11de25b4ae53f9a80da349c9423dd30ed",
+    "prompt_sha256": "5d976904eaf6fcbb7eb7903e9ce05d982d98c91fc67bb5b4b56b2e5d51150ab6",
+    "staged_skill_sha256": "8657ef67f9575da73ba7ef0ddec6fe4b6281bd84ff4099e0dd1bfc1687b78b94"
+  },
+  "reports-extract": {
+    "component_sha256": "b17f3295f040a5eaca13329fc772840e6fbd911b2873e221f1d198e55f0e49bc",
+    "prompt_sha256": "be1120e72f498a7cdf42f70e83799a6e5138009d2c20ed23e15e071287d26796",
+    "staged_skill_sha256": "d40cc359c0f756b31c5bb2bba4d6098414c91713ea192835a99d0e8e5998a088"
+  },
+  "reports-synthesize": {
+    "component_sha256": "dcfbed18258a2371d9e08eeafbb663190c77821718be29f3532fb1443ccd4250",
+    "prompt_sha256": "249750f5a5db7f6fc479a2bf7f084f4ee676d156123a936f227cfa07e2eb1d98",
+    "staged_skill_sha256": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a"
+  },
+  "minutes": {
+    "prompt_sha256": "c60a77500d83ac6140739098b45c7e9bc9244930362851047c285e0120fc0f11"
+  }
+}

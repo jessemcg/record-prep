@@ -61,6 +61,7 @@ CAPABILITIES = {"focus": {"research-v1"}, "recordprep": {"preparation-v1"}}
 # Structural vocabulary belongs to the application, not a legal specialty.
 # Shared by the RecordPrep runtime and the vendored profile editor; changing
 # these labels requires corresponding pipeline support, never private migration.
+LEGACY_CLASSIFICATION_TASKS = ("rt", "ct", "first_hearing", "first_minute", "first_form", "date_hearing", "date_minute")
 CLASSIFICATION_PAGE_TYPES = {
     "rt": ("RT_cover", "RT_index", "RT_body", "RT_certificate", "RT_other"),
     "ct": ("CT_cover", "CT_index", "CT_minute_order", "CT_report", "CT_form",
@@ -70,6 +71,7 @@ CLASSIFICATION_FIRST_PAGE_TYPES = {
     "first_hearing": "RT_body_first_page",
     "first_minute": "CT_minute_order_first_page",
     "first_form": "CT_form_first_page",
+    "first_report": "CT_report_first_page",
 }
 
 
@@ -259,6 +261,22 @@ def _structured(name: str, value: Any) -> None:
                      "unsupported_policy", name)
     elif name == "naming":
         _require(isinstance(value, dict), "invalid_fields", name)
+        if value.get("schema_version") == 4:
+            _object(value, {"schema_version", "reports", "forms"}, name)
+            _require(type(value["schema_version"]) is int, "unsupported_version", name)
+            for kind in ("reports", "forms"):
+                entries = value[kind]
+                _require(isinstance(entries, list) and len(entries) <= 256, "invalid_catalog", kind)
+                ids, names = set(), []
+                for entry in entries:
+                    _object(entry, {"id", "name", "guidance"}, kind)
+                    identity = _identifier(entry["id"], kind)
+                    _require(identity not in ids, "duplicate_id", kind)
+                    ids.add(identity)
+                    names.append(entry["name"])
+                    _text(entry["guidance"], kind, empty=True)
+                _terms(names, kind)
+            return
         if value.get("schema_version") == 3:
             _object(value, {"schema_version", "report_guidance", "form_guidance"}, name)
             _require(type(value["schema_version"]) is int, "unsupported_version", name)
@@ -293,8 +311,30 @@ def _structured(name: str, value: Any) -> None:
         _require(value["mode"] in ("source_title", "approved_titles"), "unsupported_policy", name)
         _terms(value["report_titles"], name)
     elif name == "classification_tasks":
-        _object(value, {"rt", "ct", "first_hearing", "first_minute", "first_form",
-                        "date_hearing", "date_minute"}, name)
+        if isinstance(value, dict) and value.get("schema_version") == 3 and "page_types" not in value:
+            # Lossless compatibility editor: whole historical task prose stays
+            # literal, including inert dates, while the fourth start is editable.
+            _require(type(value["schema_version"]) is int, "unsupported_version", name)
+            _object(value, set(LEGACY_CLASSIFICATION_TASKS) | {"schema_version", "first_report"}, name)
+            for key in (*LEGACY_CLASSIFICATION_TASKS, "first_report"):
+                _text(value[key], name, MAX_FILE_BYTES)
+            return
+        if isinstance(value, dict) and value.get("schema_version") in (2, 3):
+            _object(value, {"schema_version", "page_types", "first_pages"}, name)
+            _require(type(value["schema_version"]) is int, "unsupported_version", name)
+            _object(value["page_types"], set(CLASSIFICATION_PAGE_TYPES), name)
+            for side, keys in CLASSIFICATION_PAGE_TYPES.items():
+                descriptions = _object(value["page_types"][side], set(keys), side)
+                for key in keys:
+                    _text(descriptions[key], key)
+            first_keys = set(CLASSIFICATION_FIRST_PAGE_TYPES)
+            if value["schema_version"] == 2:
+                first_keys.remove("first_report")
+            first = _object(value["first_pages"], first_keys, name)
+            for key, guidance in first.items():
+                _text(guidance, key)
+            return
+        _object(value, set(LEGACY_CLASSIFICATION_TASKS), name)
         for task, guidance in value.items():
             _text(guidance, task, MAX_FILE_BYTES)
     elif name == "search":
@@ -356,7 +396,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5, 6) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6, 7, 8) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -417,7 +457,12 @@ def validate_contents(files: tuple[tuple[str, bytes], ...], application: str) ->
     for name, path in manifest["resources"].items():
         data = mapping[path]
         if RESOURCE_TYPES[application][name] == "json":
-            _structured(name, _json(data, name))
+            value = _json(data, name)
+            _structured(name, value)
+            if application == "recordprep" and manifest["schema_version"] >= 7:
+                if name in {"classification_tasks", "naming"}:
+                    expected = (3 if manifest["schema_version"] >= 8 else 2) if name == "classification_tasks" else 4
+                    _require(value.get("schema_version") == expected, "unsupported_version", name)
         else:
             try:
                 _text(data.decode("utf-8"), name, MAX_FILE_BYTES)
@@ -474,8 +519,8 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
     validated = validate_contents(snapshot.files, snapshot.ref.application)
     _require(validated.ref == snapshot.ref, "snapshot_hash_mismatch", "profile")
     task_stages = {"classification_basic": ("rt", "ct"),
-                   "classification_advanced": ("first_hearing", "first_minute", "first_form"),
-                   "classification_corrected": ("rt", "ct", "first_hearing", "first_minute", "first_form"),
+                   "classification_advanced": tuple(CLASSIFICATION_FIRST_PAGE_TYPES),
+                   "classification_corrected": ("rt", "ct", *CLASSIFICATION_FIRST_PAGE_TYPES),
                    "classification_dates": ("date_hearing", "date_minute")}
     extended = snapshot.ref.application == "recordprep" and snapshot.manifest["schema_version"] >= 2
     _require(stage in STAGE_RESOURCES[snapshot.ref.application] or
@@ -489,7 +534,14 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
     for name in names:
         value = snapshot.resource(name)
         if name == "classification_tasks" and stage in task_stages:
-            value = {task: value[task] for task in task_stages[stage]}
+            # Date extraction is application-owned, including for old snapshots.
+            if stage == "classification_dates":
+                value = {}
+            elif "page_types" in value:
+                selected = dict(value["page_types"]) | value["first_pages"]
+                value = {task: selected[task] for task in task_stages[stage] if task in selected}
+            else:
+                value = {task: value[task] for task in task_stages[stage] if task in value}
         data = value.encode("utf-8") if isinstance(value, str) else json_bytes(value)
         resources.append((name, data))
     digest = _content_digest(tuple(resources) + (("@core", core_contract),

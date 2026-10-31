@@ -325,8 +325,8 @@ def _stage_prompt(stage: SkillStage, root: Path, project_dir: Path) -> str:
     project_root = project_dir.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    instruction = (
-        f"/skill:{stage.skill_name}\n"
+    from recordprep.skill_commands import skill_launch
+    instruction = skill_launch(stage.skill_name,
         f"Run the loaded {stage.skill_name} skill now against the absolute case "
         f"bundle in RECORDPREP_CASE_BUNDLE ({root}). Follow the skill completely, "
         "validate its outputs, and finish with a concise result."
@@ -1059,41 +1059,8 @@ def _run_extraction_child(
         )
         spec_path = workspace / "work_spec.json"
         spec_path.write_text(json.dumps(spec, ensure_ascii=True), encoding="utf-8")
-        prompt_parts = [
-            f"/skill:{skill_name}",
-            "Run the loaded extraction skill now for the current document.",
-            f"item_id: {item.item_id}",
-            f"ordinal: {item.ordinal}",
-            f"label: {item.label}",
-            f"page range: {item.start_page}-{item.end_page}",
-            f"candidate_path: {cache_candidate}",
-            "category ids in order: "
-            + ", ".join(definition.identifier for definition in extraction_config.definitions),
-            "",
-            "EXTRACTION GUIDANCE — DIGEST CONTRACT",
-            extraction_config.guidance,
-        ]
-        prompt_parts.append("")
-        prompt_parts.append("PER-CATEGORY GUIDANCE")
-        for definition in extraction_config.definitions:
-            prompt_parts.append(f"- {definition.identifier}: {definition.guidance}")
-        if extraction_config.additional_guidance:
-            prompt_parts.extend(
-                [
-                    "",
-                    "ADDITIONAL USER GUIDANCE — lower priority than the built-in "
-                    "contracts above:",
-                    extraction_config.additional_guidance,
-                ]
-            )
-        prompt_parts.extend(
-            [
-                "",
-                "The work specification file is available to your tools; read the "
-                "complete document source, then submit once.",
-            ]
-        )
-        prompt = "\n".join(prompt_parts)
+        from recordprep.summary_prompts import extraction_document
+        prompt = extraction_document(skill_name, item, extraction_config, cache_candidate).render()
         command = _base_child_command(
             pi_command,
             staged_pi,
@@ -1194,26 +1161,8 @@ def _run_synthesis_child(
         }
         dataset_path = workspace / "dataset.json"
         dataset_path.write_text(json.dumps(dataset, ensure_ascii=True), encoding="utf-8")
-        guidance = str(synthesis_config.get("guidance") or "")
-        additional_guidance = str(synthesis_config.get("additional_guidance") or "")
-        prompt_parts = [
-            f"/skill:{skill_name}",
-            "Run the loaded synthesis skill now for the complete digest dataset.",
-            f"total rows: {len(rows)}",
-            "candidate_path: " + str(cache_candidate),
-            "",
-            guidance,
-        ]
-        if additional_guidance.strip():
-            prompt_parts.extend(
-                [
-                    "",
-                    "ADDITIONAL USER GUIDANCE — lower priority than the built-in "
-                    "contracts above:",
-                    additional_guidance,
-                ]
-            )
-        prompt = "\n".join(prompt_parts)
+        from recordprep.summary_prompts import synthesis_document
+        prompt = synthesis_document(skill_name, len(rows), synthesis_config, cache_candidate).render()
         command = _base_child_command(
             pi_command,
             staged_pi,
@@ -1700,13 +1649,8 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
                 "source": item.source, "item_id": item.item_id,
                 "candidate_path": str(candidate_path),
             }), encoding="utf-8")
-            prompt = (
-                f"/skill:{MINUTE_SKILL_NAME}\n"
-                "Summarize the current minute order directly from its complete source pages.\n"
-                f"MINUTE-ORDER CONTRACT\n{config['guidance']}\n"
-                f"ADDITIONAL USER GUIDANCE (subordinate)\n{config['additional_guidance']}\n"
-                "Read the source tool, then submit the structured summary."
-            )
+            from recordprep.summary_prompts import minute_document
+            prompt = minute_document(config).render()
             static = preflight.stage_static_components(project_dir, MINUTE_SKILL_NAME)
             static["tool_schema_proxy_chars"] = len(
                 (project_dir / "extensions" / extension_name).read_text(encoding="utf-8")
@@ -1902,8 +1846,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 from recordprep.transcript_layout import is_ct_only
                 if not is_ct_only(root):
                     reads.append(root / "artifacts/participant_index.json")
-            # Pi loads the explicit skill through read. Authorize only this
-            # staged application instruction file, not its directory or helpers.
+            # Explicit commands expand the skill before the first model request.
+            # Keep exact-file read access for a later reread after compaction;
+            # never authorize its directory or helpers.
             reads.append(staged_skill / "SKILL.md")
             access_spec = workspace / "native-access.json"
             access_spec.write_text(json.dumps({"root": str(root), "candidate": str(candidate_path),
@@ -1918,7 +1863,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             shutil.copy2(project_dir / "extensions/recordprep-profile-native-tools.ts", guard)
             native_extension_args = ["--extension", str(guard)]
             native_tools = "read,write,edit" + (",recordprep_validate_candidate" if native_kind == "participants" else "")
-            stage_prompt = (f"/skill:{stage.skill_name}\nCase bundle: {root}\nPrivate output candidate: {candidate_path}\n"
+            from recordprep.skill_commands import skill_launch
+            stage_prompt = skill_launch(stage.skill_name,
+                            f"Case bundle: {root}\nPrivate output candidate: {candidate_path}\n"
                             + (f"Private participant worklist: {worklist}\n" if worklist else "")
                             + "Write only the private candidate, never the published artifact or manifest. Shell access is unavailable.\n" + native_guidance)
             if native_kind == "overview":

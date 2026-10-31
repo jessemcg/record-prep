@@ -1,0 +1,9 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Read the image of the first hearing page in a legal transcript. Extract the hearing date from the body text near the top of the page.
+Ignore headers, footers, page numbers, and file stamps. Use a long-form U.S. date like March 5, 2019. Do not include the day of the week. If the date is missing or unclear, use an empty string. Return one JSON object with only the string key "date", for example {"date": "March 5, 2019"} or {"date": ""}.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

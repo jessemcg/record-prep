@@ -20,7 +20,7 @@ def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
     # Freeze actual inputs for this run, not the settings that created them.
     # Old markers and filesystem timestamps never authorize or block a new run.
     from .classification_profiles import prepared_classification_digest
-    return {"contract_version": 3,
+    return {"contract_version": 4,
             "classification_sha256": prepared_classification_digest(root, "names"),
             "classification_component": component(profile, "basic"),
             "naming_component": component(profile, "names")}

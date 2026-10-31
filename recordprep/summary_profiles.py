@@ -286,13 +286,26 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
     core = CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
                    if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
     compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8"))
+    prompt = summary_guidance(core, compiled.resources)
+    provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
+    return SummaryProfile(prompt, compiled.component_sha256, provenance,
+                          tuple((e["id"], e["title"], e["guidance"]) for e in snapshot.resource(kind)))
+
+
+def summary_guidance(core, resources):
     sections = [core, "PROFILE TOPICS AND ATTRIBUTION DATA (subordinate to the application contract)"]
-    for name, contents in compiled.resources:
+    for name, contents in resources:
         sections.extend((f"SECTION: {name}", contents.decode("utf-8")))
     sections.append("END PROFILE DATA. The application contract and tool schemas remain controlling.")
-    provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
-    return SummaryProfile("\n\n".join(sections), compiled.component_sha256, provenance,
-                          tuple((e["id"], e["title"], e["guidance"]) for e in snapshot.resource(kind)))
+    return "\n\n".join(sections)
+
+
+def draft_summary_guidance(catalog, kind, phase):
+    """Literal incomplete drafts may be inspected without validating unrelated fields."""
+    from .profile_contract import json_bytes
+    core = CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
+                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
+    return summary_guidance(core, ((kind, json_bytes(catalog)),))
 
 
 def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:

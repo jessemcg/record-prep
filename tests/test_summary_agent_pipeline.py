@@ -2551,7 +2551,12 @@ raise SystemExit(3)
                 [],
                 minutes=[(1, 1, "March 3, 2025"), (2, 2, "April 4, 2025")],
             )
-            items = sa.build_work_items(root, _extraction_config())
+            fake_pi = self._write_fake_pi(temp)
+            project = self._staged_project(temp)
+            # A current-format JSONL store can still convert losslessly, but
+            # its rows must include the actual staged-skill delivery identity.
+            # Pre-fix fingerprints are intentionally not reusable.
+            items = sa.build_work_items(root, sa.effective_extraction_config(project / '.pi', 'hearings'))
             legacy_rows = [
                 synthetic_facts_row(
                     "hearings",
@@ -2588,10 +2593,8 @@ raise SystemExit(3)
                 ),
             ]
             write_legacy_digest_jsonl(root, "hearings", legacy_rows)
-            fake_pi = self._write_fake_pi(temp)
-            project = self._staged_project(temp)
-            # Match the fixture extraction config so the migrated rows are
-            # current under the runner's own fingerprint computation.
+            # Retired settings below must not change the shared model identity
+            # or make current rows need new extraction after conversion.
             (project / "config.json").write_text(
                 json.dumps(
                     {

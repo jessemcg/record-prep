@@ -15,19 +15,20 @@ class TaskGuidanceTests(unittest.TestCase):
         self.base = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
 
     def test_task_guidance_changes_only_its_runtime_prompt_and_component(self):
-        groups = {"rt": "basic", "ct": "basic", "first_hearing": "advanced", "first_minute": "advanced", "first_form": "advanced",
+        groups = {"rt": "basic", "ct": "basic", "first_hearing": "advanced", "first_minute": "advanced", "first_form": "advanced", "first_report": "advanced",
                   "date_hearing": "dates", "date_minute": "dates"}
         for task in KINDS:
             with self.subTest(task=task):
-                editor = ProfileEditor(self.base)
+                from recordprep.profile_editor_ui import editable_profile
+                editor = editable_profile(self.base)
                 marker = "Synthetic guidance only for " + task
                 editor.resources["classification_tasks"][task] += "\n" + marker
                 changed = editor.snapshot()
                 for other in KINDS:
                     prompt = classifier_prompt(changed, other)[0]
-                    self.assertEqual(marker in prompt, task == other)
+                    self.assertEqual(marker in prompt, task == other and not task.startswith('date_'))
                 for name in ("basic", "advanced", "dates", "names"):
-                    self.assertEqual(component(changed, name) != component(self.base, name), name == groups[task])
+                    self.assertEqual(component(changed, name) != component(self.base, name), name == groups[task] and not task.startswith('date_'))
                 for name in ("participants", "hearing_extraction", "report_extraction", "minutes", "overview", "case_name"):
                     self.assertEqual(compile_stage_profile(changed, name, core_contract=b"core").component_sha256,
                                      compile_stage_profile(self.base, name, core_contract=b"core").component_sha256)
@@ -101,7 +102,7 @@ class TaskGuidanceTests(unittest.TestCase):
         self.assertEqual(validate_contents(old.files, "recordprep").files, old.files)
         self.assertIsNone(compile_case_name(old))
         self.assertNotIn("TASK GUIDANCE", classifier_prompt(old, "rt")[0])
-        self.assertEqual(component(old, "basic"), compile_stage_profile(old, "classification", core_contract=__import__("recordprep.classification_profiles", fromlist=["CORE"]).CORE.encode()).component_sha256)
+        self.assertEqual(component(old, "basic"), component(validate_contents(old.files, 'recordprep'), 'basic'))
 
 
 if __name__ == "__main__":

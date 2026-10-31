@@ -57,7 +57,7 @@ class ProfileRetirementTests(unittest.TestCase):
     def test_personal_dependency_and_independent_custom_profiles_are_preserved(self):
         self.save(self.retired, personal=False, use_for_new_cases=True)
         editor = ProfileEditor(self.dependency)
-        editor.resources['classification_tasks']['rt'] += '\nSynthetic personal dependency instructions.'
+        editor.resources['classification_tasks']['page_types']['rt']['RT_body'] += '\nSynthetic personal dependency instructions.'
         dependency = editor.snapshot()
         self.save(dependency, personal=True)
         custom = ProfileEditor.create(self.retired, 'Existing custom practice').snapshot()

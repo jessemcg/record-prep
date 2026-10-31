@@ -1,0 +1,38 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Classify one reporter's transcript (RT) page from an appellate record.
+Compare all category descriptions and choose the single best-supported fit.
+
+Allowed page_type values: ["RT_cover", "RT_index", "RT_body", "RT_certificate", "RT_other"].
+Example response: {"page_type": "RT_cover"}
+
+Category Descriptions
+
+RT_cover
+- Purpose: Case-identifying information only.
+- Typical content: case title, case number, parties, attorneys, court name, department, hearing date, reporter name/address.
+- MUST NOT include verbatim dialogue.
+- If there is any spoken dialogue on the page, it is NOT RT_cover.
+
+RT_index
+- Purpose: Index/list of topics, witness names, or sections with page numbers.
+- Typical cues: columns with Page or dotted leaders (e.g., Opening statement ........ 12).
+- No verbatim dialogue.
+
+RT_body
+- Purpose: Verbatim transcript of proceedings.
+- Required cue: Spoken dialogue with speaker labels or Q/A format.
+- Can include a case header at the top, but must include dialogue somewhere on the page.
+
+RT_certificate
+- Purpose: Certificate or attestation about the transcript's accuracy or preparation.
+- Typical cues: CERTIFICATE, I certify, I, [name], do hereby certify, reporter/clerk signature line, date, seal, or notary language.
+- No verbatim dialogue.
+
+RT_other
+Other reporter-transcript material distinct from case-identifying covers, dialogue, indexes, and certificates of transcript accuracy. Use only when the visible content best supports this description after comparing all categories.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

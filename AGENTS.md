@@ -81,6 +81,48 @@ private config/case bundles remain untouched.
 
 ## Practice profiles
 
+Current structured settings: read `docs/structured-classification.md` and its
+validation report and `docs/report-first-pages.md`. Dependency 1.8.0 uses content
+schema 8, classification resource v3 and naming v4; schemas 1–7 stay readable.
+Report Names/Form Names are naming-only catalogs: never inject them into page-type
+or start prompts or restore CT catalog previews. Basic uses structural recognition;
+report footer codes are supporting clues, not approved names or mandatory gates.
+Advanced checks every CT_report page independently, including adjacent/unnamed
+reports: first_report → CT_report_first_page, with explicit report_first_page yes/no
+stored for every checked report page. Names requires complete checks and names
+marked first pages only. All starts, including unnamed ones, terminate earlier
+report ranges; orphan bodies/gaps remain source-only, never inferred starts. Keep
+one-page/adjacent/repeated-name reports separate; do not restore report-gap filling.
+Naming evidence/JSON/date/exact-name validation is unchanged. The Detention-only
+date sentence remains deleted. Only Names depends on catalogs; report-start clue
+edits affect Advanced/Corrected. Page-flow/selection identities invalidate old work
+checkpoints; Dates and summary model instructions stay unchanged. Actual upstream
+bytes still determine downstream workspaces. Unknown prose stays literal; explicit
+editing adds the fourth task, preserving flat legacy strings and inert dates in
+v3's lossless compatibility representation. Exact public adapters are read-only.
+Classification has five flat destinations (RT page types, CT page
+types, First pages, Report Names, Form Names); fixed-key recognition
+cards and stable-ID naming cards replace monolithic prompts. Date extraction is
+entirely application-owned; old date text is byte-preserved but inactive. Best fit
+compares all descriptions, with no precedence, weights or preferred label. Exact
+resource allowlists adapt known baseline prose; unknown custom prose stays in a
+labeled compatibility editor. Only explicit Save upgrades immutable revisions.
+Classification and report/form naming prompts use plain instructions, not branded
+Application/Naming Contract headings or subordinate-guidance/response-key restatements.
+The inspector's System message heading identifies transport, not extra model text.
+Keep first-page evidence, exact-name/JSON/date validation and legacy prose intact.
+Prompt inspection shares pure runtime builders, freezes unsaved drafts modally,
+and reads generated hash-checked registered tool schemas without Node/model access.
+Summary skill delivery uses `/skill:name request` with a literal space, never a
+newline between name and request. Offline installed-Pi captures at all five actual
+summary launch boundaries verify full skill expansion in profile and unassigned
+modes. Preserve staged skill/guidance bytes and custom prose; delivery changes have
+an explicit summary-phase fingerprint (`slash-skill-space-v1`), not private-output
+migration. Unassigned extraction also hashes its now-delivered skill/system/tools.
+The inspector labels staged skill versus launch-before-expansion; missing/stale
+packaged audits still report incomplete inspection. See docs/summary-skill-delivery.md.
+The schema-8 documentation supersedes older current-schema/RT–CT hierarchy/naming-bullet descriptions below.
+
 See `docs/practice-profiles.md` and `docs/practice-profiles-validation.md` for the
 shipped-specialty/personal-settings workflow, v1 API and supported content schemas,
 runtime boundaries and validation limits.
@@ -119,7 +161,7 @@ readers still display output as stored, without writes. Explicit Build TOC → C
 TOC → Find boundaries → Correct boundaries applies the policy. TOC correction keeps
 only the first recognized minute-order date, never collapsing unknown dates, for
 profiles and unassigned cases alike; separate profile-bound order boundaries and
-minute checkpoints remain intact. Derived-selection contract v2 honestly stales old
+minute checkpoints remain intact. Derived-selection contract v4 honestly stales old
 profile-era TOCs/boundaries, not classification/naming. After explicit boundary
 rebuilding, unchanged RT/hearing inputs reuse participants through narrowly reviewed
 runtime compatibility, not private metadata repair. Missing instructions block new
@@ -140,12 +182,16 @@ Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrapp
 Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
 accepted revisions remain intact as historical data. A deleted application selection
 returns to California Juvenile Dependency; old drafts cannot resurrect it. Historical pins never select guidance.
-Classification keeps a short pinned stage/context summary plus a collapsed About classification disclosure containing the complete explanation, bounded when expanded. About summaries instead expands to its full natural height in the page's ordinary scroll area, pushing editors below it; never put that explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Preserve RT-first, CT-second navigation with stage subtitles and task-specific guidance; keep the remaining height available to the Classification editor. Classification has only task-specific prompts; Common guidance is removed from the editor,
+Classification keeps a short pinned stage/context summary plus a collapsed About classification disclosure containing the complete explanation, bounded when expanded. About summaries instead expands to its full natural height in the page's ordinary scroll area, pushing editors below it; never put that explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Preserve flat RT-first, CT-second navigation with stage subtitles, followed by the combined First pages settings and separate report/form naming cards; never restore RT/CT child indentation or date editors. Keep full-width retained editors. Classification has only task-specific prompts; Common guidance is removed from the editor,
 compilation and fingerprints. Schema 6 omits its resource entirely; explicit Profile settings
 Save drops the old field and file rather than storing hidden text. Do not migrate private
 snapshots in place. Naming uses separate approved-name instructions.
-Hearing labels are dates; report Names extracts name/date at continuous report-run starts.
-Classification editor resource keys and pipeline order remain unchanged. The
+Hearing labels are dates; report Names extracts name/date only at independently
+marked CT_report_first_page starts. Fully historical output without checks retains
+its old run grouping when read; new Names work pauses until Advanced/Corrected/Dates
+have supplied complete checks. Mixed/inconsistent report checks fail before model
+work/publication. Basic taxonomy and stage order are unchanged; schema 8 adds the
+new report-first-page marker/task. The
 application taxonomy must preserve pre-profile structural labels including
 RT_certificate and CT_certificate/CT_motion/CT_notice/CT_proof_of_service; do not
 narrow it beneath the legitimate labels imported into private task guidance.
@@ -326,15 +372,20 @@ branches specialized; unknown conditions retain both arms. Include the stage's
 SkillStage declaration, shared safety code, model/reasoning identity and source
 inputs. Do not hash the whole multi-stage runner for both stages. Stage prompts,
 helper/guard resources and profile components remain independently checked.
-The tracked native_runtime_compat.json permits only explicitly reviewed runtime
-hashes (bcbda05, initial stage-scoped runtime, public-settings adapters and the
-72c0487 report-selection prerequisite-only change and removal of the obsolete
-minute-resource presence check) while the current stage-code hash matches its
-reviewed baseline. See docs/hearing-selection-validation.md and docs/minute-selection.md. All current source/component/model checks still apply. This is
-read-only compatibility, not a private artifact migration; never rewrite case metadata
-or expand compatibility to arbitrary historical hashes. Relevant code changes disable
-legacy compatibility unless separately reviewed. Test both stage isolation and real
-invalidations, plus unchanged bytes/mtime when accepting an old supported artifact.
+Native and caption commands use the shared skill_commands.skill_launch builder:
+literal space after /skill:name, never newline. Summary prompts re-export the same
+builder without changing their established request bytes or delivery identity.
+Native runtime contract 3 and caption inputs include slash-skill-space-v1; native
+stage projections/caption inputs also hash the helper. All current source/component/
+model/publication checks still apply. Pre-expansion identities are not equivalent.
+The unchanged native_runtime_compat.json retains historical reviewed hashes only;
+none has the required delivery identity. Never update its guards to bless broken
+skill delivery. Future compatibility requires both the matching delivery identity
+and exact reviewed current code gate. This is read-only inspection, not an artifact
+migration: preserve saved bytes/mtime, badges and Resume; no automatic reruns.
+Test stage isolation, actual installed-SDK body delivery/tool guards and true
+invalidations. See docs/native-skill-delivery.md; earlier prerequisite-only reviews
+in docs/hearing-selection-validation.md and docs/minute-selection.md are historical.
 
 ## Completion badges
 

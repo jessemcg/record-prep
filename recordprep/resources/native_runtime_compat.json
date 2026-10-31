@@ -1,9 +1,13 @@
 {
   "participants": {
     "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes historical boundary prerequisites and adds downstream validation mode; participant prompts, evidence validation and consumed-input hashing unchanged; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
-    "stage_code_sha256": "8a89f981f32ce6c8c4b01eac1e6b37b2a6c441953a178ec276ab44859902d558",
+    "stage_code_sha256": "9f1317b0aa02927dd1e0b5eab0d4847b79e16c933c9f88ae9bcdf6f8732615c9",
+    "schema8_review": "Shared schema 8/classification-v3 validation and stage projections add report starts; native participant instructions, evidence validation and consumed RT inputs are unchanged. Prior schema-7 identity accepted only under this exact current code guard. See docs/report-first-pages.md.",
+    "schema7_review": "Only shared profile-contract schema validation/component selection changed; native prompts, reachable runner code and evidence validation unchanged. See docs/structured-classification.md.",
     "schema6_review": "Only the shared profile contract changes: schema 6 removes common classification guidance; participant resources and method are unchanged. See docs/task-only-classification.md.",
     "legacy": [
+      {"contract": 2, "stage": "participants", "code": "d73b1ff2db59242602a55aa82e59c919adc3ef93312aa4fcdc8a043ea4cb96d5"},
+      {"contract": 2, "stage": "participants", "code": "8a89f981f32ce6c8c4b01eac1e6b37b2a6c441953a178ec276ab44859902d558"},
       {
         "contract": 2,
         "stage": "participants",
@@ -54,9 +58,13 @@
   },
   "overview": {
     "reviewed_release": "Prior reviewed releases plus saved-preparation reuse: removes upstream historical freshness prerequisites; overview prompts unchanged, actual source-text input hashes still required, historical summary metadata no longer consumed; optional preference reads/private skill staging reviewed in docs/pi-inheritance-validation.md (see docs/application-profiles.md)",
-    "stage_code_sha256": "e70c1a22603136ea2492aa9620db53febf842c004d98b808eea3572bb7a942f1",
+    "stage_code_sha256": "48e108ad2579a0397331c155e6d96777af0b21cd119b4b9126ba2871493335da",
+    "schema8_review": "Shared schema 8/classification-v3 validation and stage projections add report starts; native overview instructions, evidence validation and consumed-input hashing are unchanged. Prior schema-7 identity accepted only under this exact current code guard. See docs/report-first-pages.md.",
+    "schema7_review": "Only shared profile-contract schema validation/component selection changed; native prompts, reachable runner code and evidence validation unchanged. See docs/structured-classification.md.",
     "schema6_review": "Only the shared profile contract changes: schema 6 removes common classification guidance; overview resources and method are unchanged. See docs/task-only-classification.md.",
     "legacy": [
+      {"contract": 2, "stage": "overview", "code": "49dfa6c27c7491b0275e68335b3c071817a4b40aea2c7fb28b7a4669f3403a12"},
+      {"contract": 2, "stage": "overview", "code": "e70c1a22603136ea2492aa9620db53febf842c004d98b808eea3572bb7a942f1"},
       {
         "contract": 2,
         "stage": "overview",

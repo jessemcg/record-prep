@@ -11,6 +11,7 @@ import json
 from .paths import pi_settings_path
 from functools import lru_cache
 from pathlib import Path
+from .skill_commands import SKILL_DELIVERY_CONTRACT
 
 STEPS = {"participants": "build_participant_index", "overview": "create_case_overview"}
 _UNKNOWN = object()
@@ -120,6 +121,7 @@ def stage_code_digest(project_dir: Path, stage: str) -> str:
     return sha256_json({
         "stage": stage,
         "projection": _resource_sha256(Path(__file__)),
+        "skill_launch": _resource_sha256(package / "skill_commands.py"),
         "runner": projected_code(runner.read_text(), stage, ("_run_stage",), runner=True),
         "native": projected_code((package / "native_profiles.py").read_text(), stage, roots),
         "shared": {name: _resource_sha256(package / name) for name in
@@ -147,7 +149,8 @@ def runtime_identity(project_dir: Path) -> dict:
 
 def runtime_digest(project_dir: Path, stage: str) -> str:
     from .summary_agents import sha256_json
-    return sha256_json(runtime_identity(project_dir) | {"contract": 2, "stage": stage,
+    return sha256_json(runtime_identity(project_dir) | {"contract": 3, "stage": stage,
+                                                      "skill_delivery": SKILL_DELIVERY_CONTRACT,
                                                       "code": stage_code_digest(project_dir, stage)})
 
 
@@ -163,6 +166,11 @@ def runtime_matches(recorded: str, expected: str, project_dir: Path, stage: str)
         if entry.get("stage_code_sha256") != stage_code_digest(project_dir, stage):
             return False
         identity = runtime_identity(project_dir)
-        return any(recorded == sha256_json(identity | legacy) for legacy in entry.get("legacy", []))
+        # Pre-expansion identities are not instruction-equivalent, even if a
+        # future release reviews a new stage-code guard. Retain the old manifest
+        # as historical data, never upgrade its hashes to hide this behavior fix.
+        return any(legacy.get("skill_delivery") == SKILL_DELIVERY_CONTRACT
+                   and recorded == sha256_json(identity | legacy)
+                   for legacy in entry.get("legacy", []))
     except (OSError, ValueError, TypeError):
         return False

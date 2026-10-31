@@ -1,0 +1,117 @@
+{
+  "schema_version": 4,
+  "reports": [
+    {
+      "id": "report-01",
+      "name": "Detention Report",
+      "guidance": "For a Detention Report, the Hearing Date near the DETENTION REPORT heading is the report date."
+    },
+    {
+      "id": "report-02",
+      "name": "Initial Hearing Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-03",
+      "name": "Jurisdiction Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-04",
+      "name": "Disposition Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-05",
+      "name": "Last Minute Information",
+      "guidance": ""
+    },
+    {
+      "id": "report-06",
+      "name": "Non-Detained Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-07",
+      "name": "Status Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-08",
+      "name": "Interim Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-09",
+      "name": "Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-10",
+      "name": "Addendum Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-11",
+      "name": "Petition Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-12",
+      "name": "366.26 WIC Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-13",
+      "name": "Permanent Plan Review Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-14",
+      "name": "RPP Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-15",
+      "name": "Selection and Implementation Report",
+      "guidance": ""
+    },
+    {
+      "id": "report-16",
+      "name": "Additional Information for Court",
+      "guidance": ""
+    }
+  ],
+  "forms": [
+    {
+      "id": "form-01",
+      "name": "Parental Notification of Indian Status",
+      "guidance": "Required prominent heading: Parental Notification of Indian Status. Required code: ICWA-020. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    },
+    {
+      "id": "form-02",
+      "name": "Juvenile Dependency Petition",
+      "guidance": "Required prominent heading: Juvenile Dependency Petition. Required code: JV-100. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    },
+    {
+      "id": "form-03",
+      "name": "Notice of Appeal",
+      "guidance": "Required prominent heading: Notice of Appeal. Required code: JV-800. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    },
+    {
+      "id": "form-04",
+      "name": "Request to Change Court Order",
+      "guidance": "Required prominent heading: Request to Change Court Order. Required code: JV-180. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    },
+    {
+      "id": "form-05",
+      "name": "Waiver of Rights--Juvenile Dependency",
+      "guidance": "Required prominent heading: Waiver of Rights. Required code: JV-190. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    },
+    {
+      "id": "form-06",
+      "name": "Notification of Mailing Address",
+      "guidance": "Required prominent heading: Notification of Mailing Address. Required code: JV-140. Both heading and code must be visible on the same page; if the code is missing, do not return a name."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Review a page labeled CT_report in a legal transcript image. Decide whether this is clearly the first page of a distinct report, not a continuation. Check each page independently: two reports can be directly adjacent. Detect starts even when the report has no approved output name. Answer yes if clearly the start; otherwise answer no.
+
+Look for a prominent report heading with a fresh opening layout, identifying fields, a report/hearing date, preparer or agency attribution, or introductory sections.
+A first-page indicator can support a start. Repeated headings or report names in headers/footers alone do not establish a new report; continuing text or later sections without a fresh opening are continuation pages. Do not require an approved report name or decide whether this report should be summarized.
+
+Return {"first_page": "yes"} or {"first_page": "no"}.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

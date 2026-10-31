@@ -79,24 +79,9 @@ Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
-RecordPrep starts with **California Juvenile Dependency**. Use **Create profiles**
-to copy it—or another saved profile—as the base for a new practice profile.
-The selected profile governs new preparation, not the bundle itself. Existing
-preparation remains reusable when settings change. **Profile storage…**
-can save or select portable settings separately from your cases.
-See [application profiles](docs/application-profiles.md), [preparation guidance](docs/workflow.md) and [practice profiles](docs/practice-profiles.md)
-for workflow, customization, and safe continuation. The new
-[structured classification and prompt inspector](docs/structured-classification.md)
-separates structural recognition from approved naming. **First pages** includes
-independent report-start checks; **Report Names** and **Form Names** control naming
-only. Adjacent unnamed reports still mark document breaks. Its
-[validation report](docs/structured-classification-validation.md) records local
-visual-check limits and the separately verified [summary skill-loading fix](docs/summary-skill-delivery.md).
-The [native/caption skill-loading follow-up](docs/native-skill-delivery.md) verifies
-those launch paths too, preserves publication/tool guards, and makes pre-fix native
-generation identities non-equivalent without rewriting saved output. The
-[profile ownership audit](docs/profile-ownership-audit.md) documents active guidance,
-legacy compatibility, and current validation limits.
+RecordPrep includes a **California Juvenile Dependency** profile that you can
+customize or use as a starting point for other practice areas.
+See the [user guide](docs/workflow.md) for details.
 
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify

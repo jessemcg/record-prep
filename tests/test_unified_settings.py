@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from gi.repository import GLib
 from recordprep.ui import main_window as ui
 from recordprep import practice_profiles as api
-from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, CLASSIFICATION_PROGRESSION, SUMMARY_EXPLANATION, topic_editor_text
+from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile, CLASSIFICATION_EXPLANATION, CLASSIFICATION_PROGRESSION, SUMMARY_EXPLANATION, SUMMARY_PROGRESSION, topic_editor_text
 from recordprep.settings_navigation import descendants
 
 Adw, Gtk = ui.Adw, ui.Gtk
@@ -362,6 +362,16 @@ class UnifiedSettingsTests(unittest.TestCase):
                 self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), topic_editor_text(topic["guidance"]))
                 self.assertGreaterEqual(editor.get_min_content_height(), 120)
             self.assertFalse(any(isinstance(x, Gtk.Button) and x.get_label() == "Edit instructions"
+                                 for x in descendants(w.pages[page])))
+        for page in ("hearings-topics", "reports-topics", "minutes"):
+            disclosure = next(x for x in descendants(w.pages[page])
+                              if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
+            text = disclosure.get_child().get_last_child().get_text()
+            self.assertEqual(text, SUMMARY_EXPLANATION + "\n\n" + SUMMARY_PROGRESSION)
+            self.assertNotIn("Topic-guided agentic summarization", text)
+            self.assertIs(disclosure.get_parent().get_first_child(), disclosure)
+            self.assertFalse(any(isinstance(x, Gtk.Label) and
+                                 x.get_text() == "Summaries · topic digests → narrative sections"
                                  for x in descendants(w.pages[page])))
         self.assertEqual(w.editor.resources, originals)
         self.assertFalse(w._dirty())

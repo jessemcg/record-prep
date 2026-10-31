@@ -158,7 +158,7 @@ revisions and case data remain byte-preserved and readable; an internal compatib
 archive supports historical minute defaults and schema-1 readers/editing only.
 No private profile is migrated or deleted, and no prepared output is regenerated.
 
-Summaries has a naturally expanding **About summaries** disclosure on each of exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. Its linear overview is **Each hearing /
+Summaries has a naturally expanding **About summaries** disclosure on each of exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. There is no pinned breadcrumb or internal title; the explanation ends with the linear overview **Each hearing /
 report → Topic digest + quotes → Narrative section → Hearing / report summary**.
 Stage 1 reads each complete hearing or report across all its pages; after the digests
 are ready, Stage 2 synthesizes hearing by hearing or report by report, producing

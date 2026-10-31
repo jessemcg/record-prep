@@ -44,11 +44,11 @@ report-gap filling or report-specific date editor is used. See
 separately extracted names. See [structured classification](structured-classification.md)
 for the current schema and the read-only handling of older profiles.
 Summaries has exactly three pages: **Hearing digest topics**, **Report digest topics**,
-and **Minute orders**. Topics are the hearing/report personalization controls. One pinned **Topic-guided agentic
-summarization** explainer and linear progression appears throughout the section:
-each complete hearing/report → topic digest with quotes → narrative section →
-separate hearing/report summary. It explains the two stages and substance-driven detail
-without quotas. Minute orders have their own single-stage note. New content-schema-5
+and **Minute orders**. Topics are the hearing/report personalization controls. Each page has a collapsed **About summaries** disclosure, with no pinned breadcrumb or internal title.
+It explains the two-stage technique, substance-driven summary length, source quotes and
+Focus links, and user-directed minute-order summaries. The hearing/report progression
+appears at the bottom, like About classification. The disclosure expands naturally in
+the page scroller. New content-schema-5
 profiles have no additional digest/narrative instruction fields, role catalogs,
 participant identification instructions or overview instructions. Historical fields remain readable but inert. Application-owned
 contracts restore the pre-profile materiality and narrative method with only

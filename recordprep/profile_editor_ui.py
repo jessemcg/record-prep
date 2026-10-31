@@ -19,18 +19,18 @@ from .profile_workflows import ProfileEditor
 from .profile_store import BUILTIN_SPECIALTIES
 from .profile_contract import CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PAGE_TYPES, classification_guidance_warning
 
-SUMMARY_TITLE = "Topic-guided agentic summarization"
 SUMMARY_PROGRESSION = "Each hearing / report → Topic digest + quotes → Narrative section → Hearing / report summary"
 SUMMARY_EXPLANATION = (
-    "Capture what matters, whether a hearing or report has a few relevant passages or is dense with important information. "
-    "Topics guide selection; detail follows substance, not a word count or a quota.\n\n"
-    "Stage 1 — Build digests: an agent reads each complete hearing or report, across all its pages, and captures material "
-    "information by topic, with supporting source quotes. Personalize what it captures by editing the topic names "
-    "and instructions below. Each topic can be brief or detailed according to its substantive importance.\n\n"
-    "Stage 2 — Write narratives: after the digests are ready, a synthesis agent works hearing by hearing or report "
-    "by report, weaving each hearing’s or report’s digest into a cohesive narrative section with short direct quotes. "
-    "It connects developments without repeating carried-forward history; hearings and reports have separate final summaries. "
-    "Topics organize the digest, not the final narrative’s headings."
+    "This app uses a two-stage, agentic, topic-guided summarization technique. In the first stage, the agent analyzes "
+    "each hearing or report one at a time. For each hearing or report, the agent collects information on each topic "
+    "provided by the user and builds a digest that includes short direct quotes taken verbatim from the source text. "
+    "This ensures that the length of the final summary is determined by the amount of relevant information contained "
+    "in the source text, not merely its length.\n\n"
+    "In the second stage, the agent separately analyzes all digests for the hearings and the reports. For each, the "
+    "agent synthesizes the digests into a cohesive narrative with short direct quotes mixed in. "
+    "The short direct quotes become links when displayed in the Focus app.\n\n"
+    "Minute order summaries are also created by an agent. However, the manner in which these summaries are created "
+    "is completely up to the user."
 )
 CLASSIFICATION_PROGRESSION = "Page types → First pages → Dates & names → Table of contents → Boundaries"
 CLASSIFICATION_EXPLANATION = (
@@ -380,7 +380,7 @@ class ProfileEditorWindow(Adw.Window):
         """Retained minute-guidance editor; classification uses recognition cards."""
         owner = self.editor.resources
         self._page_body.remove(group)
-        self._explanation(self._page_body, "Summaries", group.get_description())
+        self._explanation(self._page_body, "Summaries")
         def change(text):
             if not self._installing:
                 owner[resource] = text
@@ -390,17 +390,11 @@ class ProfileEditorWindow(Adw.Window):
         editor.set_min_content_height(240)
         self._page_body.append(editor)
 
-    def _explanation(self, box, category, task=None):
+    def _explanation(self, box, category):
         classification = category == "Classification"
-        if not classification:
-            box.append(wrapped("Summaries · topic digests → narrative sections"))
         expander = Gtk.Expander(label="About classification" if classification else "About summaries", expanded=False)
-        explanation = (CLASSIFICATION_EXPLANATION if classification else
-                       SUMMARY_TITLE + "\n" + SUMMARY_PROGRESSION + "\n\n" + SUMMARY_EXPLANATION)
-        if task:
-            explanation += "\n\n" + task
-        if classification:
-            explanation += "\n\n" + CLASSIFICATION_PROGRESSION
+        explanation = CLASSIFICATION_EXPLANATION if classification else SUMMARY_EXPLANATION
+        explanation += "\n\n" + (CLASSIFICATION_PROGRESSION if classification else SUMMARY_PROGRESSION)
         label = wrapped(explanation, margin_top=6, margin_bottom=6)
         disclosure = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         inspect = button("View full prompts…", lambda: self._inspect_prompts(category))
@@ -617,7 +611,7 @@ class ProfileEditorWindow(Adw.Window):
             self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind])
             self.nav_rows[kind + "-topics"].set_subtitle("1 · Build digest")
         self._page("Summaries", "minutes", "Minute orders")
-        group = self._group("Minute orders", "One agent summarizes each complete minute order directly, without a topic-digest stage.")
+        group = self._group("Minute orders")
         self._guidance(group, "minutes", "Writing minute-order summaries")
 
     def _bundled_action(self):

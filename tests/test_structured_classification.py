@@ -28,6 +28,7 @@ def bundle():
 def legacy():
     e = ProfileEditor(bundle())
     e.manifest['schema_version'] = 6
+    e.manifest['resources']['classification_tasks'] = 'classification-tasks.json'
     for name, path in [('classification_tasks','classification-tasks.json'),('naming','naming.json')]:
         e.resources[name] = json.loads((BASE/path).read_bytes())
     return e.snapshot()
@@ -39,34 +40,23 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertEqual(len(review['clauses']), 198)
         for file,digest in review['baseline_sha256'].items():
             self.assertEqual(hashlib.sha256((BASE/file).read_bytes()).hexdigest(), digest)
-        t = bundle().resource('classification_tasks')
+        from recordprep.recognition_contract import load_recognition
+        contract = load_recognition()
+        t = {'page_types': {side: dict(entries) for side, entries in contract.page_types},
+             'first_pages': dict(contract.first_pages)}
         old = json.loads((BASE/'classification-tasks.json').read_bytes())
         for side, keys in CLASSIFICATION_PAGE_TYPES.items():
             self.assertEqual(set(t['page_types'][side]), set(keys))
-        for key in CLASSIFICATION_PAGE_TYPES['rt'][:-1]:
-            text = t['page_types']['rt'][key]
-            if key == 'RT_certificate':
-                self.assertIn('accuracy or preparation', text)
-                text = text.replace('Certificate or attestation about the transcript\'s accuracy or preparation.', 'Certificate of the transcript\'s accuracy.')
-            self.assertIn(text, old['rt'])
-        for key,text in t['page_types']['ct'].items():
-            if key!='CT_report':
-                # CT_other's old source-width wrap is not a semantic clause.
-                self.assertIn(' '.join(text.split()), ' '.join(old['ct'].split()))
+        self.assertNotIn('classification_tasks', bundle().manifest['resources'])
         report=t['page_types']['ct']['CT_report']
-        self.assertIn('Footer',report)
-        self.assertNotIn('Report Names',report)
-        self.assertIn('Authored narrative or evaluative report',report)
-        self.assertIn('Page X of XX',report)
+        self.assertIn('prepared for or directed to the court',report)
+        self.assertIn('continuation pages',report)
+        self.assertIn('not judicial action',report)
         for card in bundle().resource('naming')['reports']:
             self.assertNotIn(card['name'],report)
-        for kind, clues in t['first_pages'].items():
-            if kind == 'first_report':
-                self.assertIn('fresh opening', clues)
-            else:
-                self.assertIn(clues, old[kind])
-        self.assertIn('CFS 6.7', t['page_types']['ct']['CT_report'])
-        self.assertIn('DCFS 4216', t['page_types']['ct']['CT_report'])
+        self.assertEqual(len(t['first_pages']), 4)
+        self.assertNotIn('CFS 6.7', json.dumps(t))
+        self.assertNotIn('DCFS 4216', json.dumps(t))
         for path in ('hearings.json','reports.json','minutes.md'):
             self.assertEqual(dict(bundle().files)[path], (BASE/path).read_bytes())
         self.assertNotIn('date_hearing', t)
@@ -91,7 +81,9 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertNotIn('CFS 6.7',compile_naming_profile(b,'report').allowed_names)
 
     def test_best_fit_and_canonical_order(self):
-        b=bundle(); e=ProfileEditor(b)
+        from recordprep.recognition_contract import load_recognition
+        b=bundle(); e=ProfileEditor(legacy())
+        contract = load_recognition()
         for side in ('rt','ct'):
             before=classifier_prompt(b,side)[0]
             self.assertIn('Compare all category descriptions and choose the single best-supported fit.',before)
@@ -103,10 +95,10 @@ class StructuredClassificationTests(unittest.TestCase):
             self.assertEqual(len(descriptions),2)
             keys=CLASSIFICATION_PAGE_TYPES[side]
             self.assertTrue(descriptions[1].startswith(keys[0]+'\n'))
-            self.assertTrue(descriptions[1].endswith(b.resource('classification_tasks')['page_types'][side][keys[-1]]))
+            self.assertTrue(descriptions[1].endswith(dict(contract.descriptions(side))[keys[-1]]))
             self.assertNotIn('apply in order',before); self.assertNotIn('Decision rule (in order)',before)
             self.assertNotIn('date_minute',before)
-            e.resources['classification_tasks']['page_types'][side]=dict(reversed(list(e.resources['classification_tasks']['page_types'][side].items())))
+            e.resources['classification_tasks'][side] = 'RETIRED_PRIVATE_CANARY'
             self.assertEqual(before,classifier_prompt(e.snapshot(),side)[0])
         for value in ('CT_report','invented',''):
             with self.assertRaises(ClassifierResponseError): normalize_classifier({'page_type':value},'rt')
@@ -126,10 +118,10 @@ class StructuredClassificationTests(unittest.TestCase):
 
     def test_stage_local_inputs_and_inactive_dates(self):
         b=bundle(); baseline={s:component(b,s) for s in ('basic','advanced','corrected','dates','names')}
-        e=ProfileEditor(b); e.resources['classification_tasks']['page_types']['rt']['RT_body']+=' literal {json} α'
+        e=ProfileEditor(legacy()); e.resources['classification_tasks']['rt']+=' literal {json} α'
         changed=e.snapshot()
         for stage in baseline:
-            self.assertEqual(component(changed,stage)==baseline[stage],stage not in ('basic','corrected'))
+            self.assertEqual(component(changed,stage),baseline[stage])
         old=legacy(); e=ProfileEditor(old)
         e.resources['classification_tasks']['date_hearing']='PRIVATE LEGACY DATE OVERRIDE'
         self.assertEqual(component(old,'dates'),component(e.snapshot(),'dates'))
@@ -150,7 +142,8 @@ class StructuredClassificationTests(unittest.TestCase):
 
     def test_invalid_structured_resources_fail_closed(self):
         for change in ('unknown','cross','empty','oversize','duplicate-id','duplicate-name'):
-            e=ProfileEditor(bundle())
+            from test_practice_profiles import historical_snapshot
+            e=ProfileEditor(historical_snapshot(bundle(), version=8))
             if change=='unknown': e.resources['classification_tasks']['page_types']['rt']['RT_fake']='x'
             if change=='cross': e.resources['classification_tasks']['page_types']['rt']['CT_report']='x'
             if change=='empty': e.resources['classification_tasks']['first_pages']['first_hearing']=' '
@@ -161,7 +154,6 @@ class StructuredClassificationTests(unittest.TestCase):
 
     def test_all_inspections_offline_literal_invalid_draft(self):
         e=ProfileEditor(bundle()); literal='α {"x": 1} {{quote:hearing:0001/orders/1}}'
-        e.resources['classification_tasks']['page_types']['rt']['RT_body']=literal
         e.resources['naming']['reports'][0]['guidance']=literal
         e.resources['hearings'][0]['guidance']=literal
         for task,_ in (*CLASSIFICATION_TASKS,*SUMMARY_TASKS):
@@ -170,7 +162,7 @@ class StructuredClassificationTests(unittest.TestCase):
                 self.assertEqual(view.issues,())
                 self.assertTrue(view.display_text())
         self.assertIn(literal,inspect_prompt(e.resources,'hearings-extract',ROOT/'.pi',template=False).display_text())
-        self.assertIn(literal,inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False).components[0][1])
+        self.assertNotIn(literal,inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False).components[0][1])
         self.assertEqual(classifier_prompt(e.snapshot(),'rt')[0],inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False).components[0][1])
         e.resources['naming']['reports'][0]['name']=''
         self.assertIn(json.dumps(literal,ensure_ascii=False)[1:-1],inspect_prompt(e.resources,'report',ROOT/'.pi',template=False).display_text())
@@ -227,7 +219,6 @@ class StructuredClassificationTests(unittest.TestCase):
         import tempfile
         from recordprep.ui import main_window as ui
         e=ProfileEditor(bundle())
-        e.resources['classification_tasks']['page_types']['rt']['RT_body']='Literal α {"key": 1}'
         e.resources['naming']['reports'][0]['guidance']='Shared report recognition α'
         e.resources['naming']['forms'][0]['guidance']='Shared form recognition β'
         s=e.snapshot()

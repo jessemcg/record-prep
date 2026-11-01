@@ -6,43 +6,39 @@ This is the detailed preparation reference. Historical adoption notes describe e
 
 ## Practice profiles
 
-RecordPrep includes **General Court Record** and **California Juvenile Dependency**
-preparation profiles, shipped in `recordprep/resources/practice_profiles/`. Open
-the hamburger menu's profile dropdown and select one directly; the checkmark shows
-the current choice. Its name appears beneath the app title. **Profile settings** opens the complete
-settings in an independent, movable and maximizable window for editing and **Save**.
-Report/form naming each has one instructions editor containing the approved names;
-there is no separate naming mode or duplicate list editor. The approved entries also
-supply Python's name validation. General starts without a practice-specific list;
-add approved names there, or use Dependency's supplied list. Unnamed reports retain
-provisional labels and document ranges. Unnamed forms are omitted from the Forms TOC;
-their source pages and classification remain intact. Existing TOCs change only when
-you explicitly run Build TOC, without needing to repeat classification or naming. A boxed category list on the left opens the selected
-settings on the right: Classification and Summaries.
-Participant identification is fixed application behavior, not a settings category.
-The same general instructions identify hearing participants in every area of law,
-using source-described roles and attorney representation instead of a role catalog. There is no General section, duplicate profile picker or default
-checkbox. The selected profile is named in the header; **Create profiles** is a link
-in the hamburger menu, immediately below **Profile settings**. Case naming uses one built-in, practice-neutral prompt rather
-than editable profile instructions. Saved legacy caption prompts remain untouched
-but no longer affect inference. Each classification prompt has its own tall editor. Structural labels are fixed
-across practice areas; profiles customize recognition clues, not label names.
-Task editors display their output contract and warn about unsupported label references
-without blocking Save or changing historical profiles. General Court Record 1.5.0
-supplies detailed, practice-neutral category definitions, continuation/date clues
-and customization suggestions; add your own approved report/form names separately.
-Existing personal profiles and case pins are not automatically updated.
-A brief **How classification builds the record** explanation stays above every
-Classification editor. The five flat destinations are RT page types, CT page types,
-First pages, **Report Names**, and **Form Names**; small labels identify pipeline
-stages. Report/form names and optional descriptions supply naming only, not page
-classification. First pages includes a Report card: Advanced independently checks
-every report page, and Names reads only marked first pages. Even unnamed starts
-end earlier report ranges, so adjacent reports remain separate. No one-page
-report-gap filling or report-specific date editor is used. See
-[report starts, cost and saved-output compatibility](report-first-pages.md). Hearing labels are dates, not
-separately extracted names. See [structured classification](structured-classification.md)
-for the current schema and the read-only handling of older profiles.
+RecordPrep includes **California Juvenile Dependency** as its default preparation
+profile and starting point for personal profiles. General Court Record is a readable
+historical archive, not a current choice. The hamburger profile dropdown selects the
+application-wide guidance used for new work. Its name appears beneath the app title.
+**Profile settings** opens an independent window with two expandable groups:
+**Document naming** (Report Names and Form Names) and **Summaries**. Naming uses
+stable-ID approved-name/description cards; old unknown naming formats remain in a
+literal compatibility editor. Only accepted nonempty names produce form/report TOC
+entries and standalone report-summary work. Source pages/classifications remain intact.
+
+Structural classification is fixed application behavior, not an editable profile
+setting. **App-owned Classification** in the hamburger menu works without a case
+or available profile storage. It explains the five RT types, ten CT types and four
+start detectors and offers all eight complete fixed prompts. RT_body is displayed
+as **Hearing body** and CT_notice as **Hearing notice**. A standardized hearing notice
+stays CT_notice; a distinct service proof stays CT_proof_of_service. Neither enters
+form-start detection, naming or Forms TOC. A qualifying Notice of Appeal remains
+CT_form. Dates retain their fixed extraction rules. See
+[application-owned classification](application-classification.md).
+
+Advanced independently checks every report page, even unnamed or adjacent reports;
+Names reads only marked starts. All starts terminate earlier report ranges, and
+report-gap filling is not used. Hearing labels are dates, not separately extracted
+names. Applying changed classification rules to saved classifications requires an
+explicit Basic run and the desired downstream stages, with new image-model work.
+Opening the reference, saving a profile or Resume never reclassifies existing pages
+or cleans historical names/TOCs. Existing outputs stay as saved.
+
+Participant identification and caption inference also use fixed neutral methods,
+with source-described roles/representation, not editable specialty catalogs.
+**Create profiles** is a hamburger link below **Profile settings**. Explicit create
+and Save use content schema 9 without migrating old revisions, private catalogs,
+configuration or case pins.
 Summaries has exactly three pages: **Hearing digest topics**, **Report digest topics**,
 and **Minute orders**. Topics are the hearing/report personalization controls. Each page has a collapsed **About summaries** disclosure, with no pinned breadcrumb or internal title.
 It explains the two-stage technique, substance-driven summary length, source quotes and
@@ -59,7 +55,7 @@ profile-bound digests and narratives regeneration-pending. At narrow widths, a c
 **Create profiles** creates a profile from a name and starting profile, or deletes
 a personal profile with confirmation. Built-ins are protected; deletion removes
 an entry from the chooser while preserving all revisions used by existing cases.
-Deleting the selected application profile returns it to General; no case is rebound.
+Deleting the selected application profile returns it to Dependency; no case is rebound.
 Personal edits save privately, never into
 installed application files or `config.json`; the public specialties stay tracked
 and useful on every fresh installation.

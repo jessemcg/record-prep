@@ -1,7 +1,7 @@
 """Neutral classifier contracts and isolated, component-keyed stage checkpoints.
 
-Legacy JSONL files remain readable. Explicitly selected profiles work in private
-stage directories and publish only after selection and input revalidation.
+Legacy JSONL files remain readable. Structural work, including unassigned work,
+uses private stage directories and publishes only after selection/input checks.
 """
 from __future__ import annotations
 
@@ -29,16 +29,16 @@ KINDS = {"rt": ("page_type",), "ct": ("page_type",),
          **{task: ("first_page",) for task in CLASSIFICATION_FIRST_PAGE_TYPES},
          "date_hearing": ("date",), "date_minute": ("date",)}
 from .classifier_prompts import INSTRUCTIONS as CORE, classifier_document
+from .recognition_contract import RecognitionContract, load_recognition
 STAGES = ("basic", "advanced", "corrected", "dates", "names")
 SUFFIXES = ("basic", "basic_advanced", "basic_advanced_corrected", "basic_advanced_corrected_dates", "basic_advanced_corrected_dates_names")
 
 
-def classifier_prompt(profile: ProfileSnapshot, kind: str) -> tuple[str, tuple[str, ...]]:
+def classifier_prompt(profile: ProfileSnapshot | None, kind: str, *, contract=None) -> tuple[str, tuple[str, ...]]:
     if kind in ("report", "form"):
         contract = compile_naming_profile(profile, kind)
         return contract.prompt, contract.response_keys
-    tasks = profile.resource("classification_tasks") if profile.manifest["schema_version"] >= 2 else {}
-    return classifier_document(tasks, kind).render(), (KINDS[kind][0],)
+    return classifier_document(kind, contract).render(), (KINDS[kind][0],)
 
 
 class ClassifierResponseError(ValueError):
@@ -69,7 +69,7 @@ def normalize_classifier(payload, kind: str) -> dict[str, str]:
     return {key: value}
 
 
-def component(profile: ProfileSnapshot, stage: str) -> str:
+def component(profile: ProfileSnapshot | None, stage: str, *, contract=None) -> str:
     if stage == "names":
         return sha256_json({"report_start_selection": 2, **{kind: compile_naming_profile(profile, kind).prompt_sha256
                                                         for kind in ("report", "form")}})
@@ -77,8 +77,10 @@ def component(profile: ProfileSnapshot, stage: str) -> str:
              "advanced": tuple(CLASSIFICATION_FIRST_PAGE_TYPES),
              "corrected": ("rt", "ct", *CLASSIFICATION_FIRST_PAGE_TYPES),
              "dates": ("date_hearing", "date_minute")}[stage]
-    prompts = {kind: classifier_prompt(profile, kind)[0] for kind in kinds}
+    contract = contract if contract is not None else load_recognition()
+    prompts = {kind: classifier_prompt(profile, kind, contract=contract)[0] for kind in kinds}
     if stage != "dates":
+        prompts["@recognition"] = contract.identity
         prompts["@page_flow"] = "explicit-report-starts-1; no-report-gap-fill"
     return sha256_json(prompts)
 
@@ -181,13 +183,13 @@ def prepared_classification_digest(root: Path, stage: str) -> str:
     return sha256_json(files)
 
 
-def stage_issues(root: Path, stage: str, profile: ProfileSnapshot, settings: dict) -> list[str]:
+def stage_issues(root: Path, stage: str, profile: ProfileSnapshot | None, settings: dict, *, contract=None) -> list[str]:
     """Cheap UI/preflight check; execution also rehashes actual source bytes."""
     try:
         metadata = _read_stage_metadata(root, stage)
         if metadata.get("schema_version") != 1:
             raise ValueError("unsupported classification metadata")
-        if metadata["component"] != component(profile, stage) or metadata["model"] != model_identity(settings):
+        if metadata["component"] != component(profile, stage, contract=contract) or metadata["model"] != model_identity(settings):
             raise ValueError("component or model changed")
         if (metadata["source_stats"] != json.loads(json.dumps(source_inventory(root, contents=False)))
                 and metadata["sources"] != stable_source_inventory(root)[0]):
@@ -240,19 +242,23 @@ class ClassificationRun:
     profile: ProfileSnapshot | None
     directory: Path
     inputs: dict | None = None
+    contract: RecognitionContract | None = None
 
     @classmethod
     def begin(cls, root: Path, stage: str, settings: dict):
         profile = resolve_case_profile(root)
         canonical = root / "classification"
-        if profile is None:
-            if (canonical / f"profile-{stage}.json").exists():
-                raise ValueError("Recorded profile classification requires an accepted case binding; prior output preserved.")
+        if profile is None and stage == "names":
+            # Historical unassigned naming remains its own literal contract;
+            # retain its refusal to overwrite recorded profile-naming output.
+            if (canonical / "profile-names.json").exists():
+                raise ValueError("Recorded profile naming cannot use the unassigned naming contract; prior output preserved.")
             return cls(root, stage, settings, None, canonical)
+        contract = load_recognition()  # fail before model work, never consult legacy prose
         index = STAGES.index(stage)
         sources, _stats = stable_source_inventory(root)
         upstream = prepared_classification_digest(root, STAGES[index - 1]) if index else None
-        inputs = {"input_contract": 2, "component": component(profile, stage), "model": model_identity(settings),
+        inputs = {"input_contract": 2, "component": component(profile, stage, contract=contract), "model": model_identity(settings),
                   "sources": sources, "upstream": upstream}
         directory = _work_directory(root, stage, sha256_json(inputs))
         if any(path.is_symlink() or not path.is_file() for path in directory.iterdir()):
@@ -264,18 +270,26 @@ class ClassificationRun:
                     target = directory / name
                     if not target.exists() or _digest(target) != _digest(source):
                         shutil.copyfile(source, target)
-        return cls(root, stage, settings, profile, directory, inputs)
+        # Canonical output is a checkpoint only with a matching current identity.
+        # Never erase old canonical files to force regeneration.
+        if not stage_issues(root, stage, profile, settings, contract=contract):
+            for name in output_names(stage):
+                source, target = canonical / name, directory / name
+                if source.is_file() and not target.exists():
+                    shutil.copyfile(source, target)
+        return cls(root, stage, settings, profile, directory, inputs, contract)
 
     def payload(self, settings: dict, kind: str) -> dict:
-        if self.profile is None:
-            return settings
-        return settings | {"profile_snapshot": self.profile, "profile_kind": kind}
+        return settings | {"profile_snapshot": self.profile, "profile_kind": kind,
+                           "recognition_contract": self.contract}
 
     def publish(self, current_settings: dict) -> None:
-        if self.profile is None:
+        if self.inputs is None and self.profile is None and self.stage == "names":
             return
         sources, source_stats = stable_source_inventory(self.root)
-        if (read_case_profile_ref(self.root) != self.profile.ref
+        expected_ref = self.profile.ref if self.profile is not None else None
+        if (read_case_profile_ref(self.root) != expected_ref
+                or component(self.profile, self.stage) != self.inputs["component"]
                 or model_identity(current_settings) != self.inputs["model"]
                 or sources != self.inputs["sources"]):
             raise ValueError("Classifier selection/model/source changed; prior outputs preserved.")
@@ -294,11 +308,11 @@ class ClassificationRun:
         if len(names) != len(set(names)) or set(names) != expected_names:
             raise ValueError("Classifier output must retain every source page exactly once; prior output preserved.")
         canonical = self.root / "classification"
-        with case_profile_publication(self.root, self.profile.ref):
+        with case_profile_publication(self.root, expected_ref):
             canonical.mkdir(exist_ok=True)
             for name in outputs:
                 _atomic_write(canonical / name, (self.directory / name).read_text())
-            metadata = self.inputs | {"schema_version": 1, "profile_ref": asdict(self.profile.ref), "outputs": outputs,
+            metadata = self.inputs | {"schema_version": 1, "profile_ref": asdict(expected_ref) if expected_ref is not None else None, "outputs": outputs,
                                       "source_stats": source_stats}
             # Publish the integrity/freshness marker last. Interrupted publication
             # is incomplete, never current. Source documents remain untouched.

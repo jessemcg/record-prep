@@ -19,16 +19,19 @@ class TaskGuidanceTests(unittest.TestCase):
                   "date_hearing": "dates", "date_minute": "dates"}
         for task in KINDS:
             with self.subTest(task=task):
-                from recordprep.profile_editor_ui import editable_profile
-                editor = editable_profile(self.base)
+                editor = ProfileEditor(self.base)
+                if task == 'first_report':
+                    from recordprep.classifier_prompts import REPORT_FIRST_CLUES
+                    editor.manifest['schema_version'] = 6
+                    editor.resources['classification_tasks'].update(schema_version=3, first_report=REPORT_FIRST_CLUES)
                 marker = "Synthetic guidance only for " + task
                 editor.resources["classification_tasks"][task] += "\n" + marker
                 changed = editor.snapshot()
                 for other in KINDS:
                     prompt = classifier_prompt(changed, other)[0]
-                    self.assertEqual(marker in prompt, task == other and not task.startswith('date_'))
+                    self.assertNotIn(marker, prompt)
                 for name in ("basic", "advanced", "dates", "names"):
-                    self.assertEqual(component(changed, name) != component(self.base, name), name == groups[task] and not task.startswith('date_'))
+                    self.assertEqual(component(changed, name), component(self.base, name))
                 for name in ("participants", "hearing_extraction", "report_extraction", "minutes", "overview", "case_name"):
                     self.assertEqual(compile_stage_profile(changed, name, core_contract=b"core").component_sha256,
                                      compile_stage_profile(self.base, name, core_contract=b"core").component_sha256)

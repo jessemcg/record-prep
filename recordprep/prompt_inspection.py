@@ -18,6 +18,8 @@ CLASSIFICATION_TASKS = (
     ("first_form", "Form first page"), ("first_report", "Report first page"), ("date_hearing", "Hearing dates"),
     ("date_minute", "Minute-order dates"), ("report", "Report Names"), ("form", "Form Names"),
 )
+FIXED_TASKS = CLASSIFICATION_TASKS[:8]
+NAMING_TASKS = CLASSIFICATION_TASKS[8:]
 SUMMARY_TASKS = (("hearings-extract", "Hearing digest"), ("hearings-synthesize", "Hearing narrative"),
                  ("reports-extract", "Report digest"), ("reports-synthesize", "Report narrative"), ("minutes", "Minute-order summary"))
 TOOLS = {"extract": ("recordprep_get_source", "recordprep_submit_extraction"),
@@ -100,7 +102,10 @@ def tool_audit(project_dir: Path, phase: str):
 
 
 def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None,
-                   draft: DraftInspectionState | None = None) -> Inspection:
+                   draft: DraftInspectionState | None = None, contract=None) -> Inspection:
+    if task in dict(FIXED_TASKS):
+        # Application rules remain inspectable even when a draft/store is invalid.
+        return Inspection((("System message", classifier_document(task, contract).render()), PAGE_IMAGE_COMPONENT))
     if draft is not None:
         resources, snapshot = draft.resources, draft.snapshot
         raw = dict(draft.raw_resources)
@@ -130,13 +135,6 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
                 prompt = _CORE + (_REPORT if task == "report" else _FORM) + "\nSaved naming guidance:\n" + ("⟪legacy naming resource⟫" if template else json.dumps(naming, ensure_ascii=False, indent=2))
                 return Inspection((("System message", prompt), PAGE_IMAGE_COMPONENT),
                                   ("Compatibility naming inspection is incomplete until this draft validates; literal resource shown without substitution.",))
-        else:
-            tasks = effective_resource(resources.get("classification_tasks", {}), "classification_tasks")
-            if template:
-                tasks = {"schema_version": 3,
-                         "page_types": {side: {key: "⟪" + key + " recognition description⟫" for key in keys} for side, keys in CLASSIFICATION_PAGE_TYPES.items()},
-                         "first_pages": {key: "⟪" + key + " recognition clues⟫" for key in CLASSIFICATION_FIRST_PAGE_TYPES}}
-            prompt = classifier_document(tasks, task).render()
         return Inspection((("System message", prompt), PAGE_IMAGE_COMPONENT))
 
     from .summary_profiles import profile_skill_text, draft_summary_guidance

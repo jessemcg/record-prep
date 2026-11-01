@@ -18,16 +18,14 @@ class PromptLinebreakTests(unittest.TestCase):
         self.assertNotIn('\n', DATE_RULES)
         self.assertEqual(REPORT_FIRST_CLUES.count('\n'), 1)
         self.assertIn('sections.\nA first-page indicator', REPORT_FIRST_CLUES)
-        tasks = bundle().resource('classification_tasks')
-        self.assertEqual(tasks['first_pages']['first_report'], REPORT_FIRST_CLUES)
-        ct = classifier_document(tasks, 'ct').render()
+        ct = classifier_document('ct').render()
         self.assertIn('\n\nCategory Descriptions\n\nCT_cover\n', ct)
         self.assertIn('record.\nCompare all category descriptions', ct)
         self.assertIn('.\nExample response: {', ct)
-        self.assertIn('exhibits, photos, text messages', ct)
-        rt = classifier_document(tasks, 'rt').render()
-        self.assertIn('\n- Typical content:', rt)
-        self.assertIn('\n- MUST NOT include verbatim dialogue.', rt)
+        self.assertIn('correspondence, exhibits, raw results', ct)
+        rt = classifier_document('rt').render()
+        self.assertIn('\n\nRT_body\n', rt)
+        self.assertIn('uninterrupted speech', rt)
 
     def test_naming_wraps_removed_without_collapsing_sections_or_json(self):
         naming = bundle().resource('naming')
@@ -49,7 +47,7 @@ class PromptLinebreakTests(unittest.TestCase):
         frozen = path.read_bytes()
         old = json.loads(frozen)
         before = copy.deepcopy(old)
-        current = bundle().resource('classification_tasks')
+        current = effective_resource(old, 'classification_tasks')
         self.assertEqual(effective_resource(old, 'classification_tasks'), current)
         self.assertEqual(old, before)
         self.assertEqual(path.read_bytes(), frozen)
@@ -67,11 +65,13 @@ class PromptLinebreakTests(unittest.TestCase):
 
     def test_custom_hard_returns_blank_lines_and_literals_survive_composition(self):
         literal = 'Literal α {"x": 1} {{quote:source}}\ncontinued by choice\n\n- First\n- Second\n'
-        tasks = bundle().resource('classification_tasks')
-        tasks['page_types']['ct']['CT_other'] = literal
-        tasks['first_pages']['first_report'] = literal
-        for kind in ('ct', 'first_report'):
-            self.assertIn(literal, classifier_document(tasks, kind).render())
+        from recordprep.recognition_contract import load_recognition
+        from dataclasses import replace
+        frozen = load_recognition()
+        starts = tuple((key, literal if key == 'first_report' else value) for key, value in frozen.first_pages)
+        changed = replace(frozen, first_pages=starts)
+        self.assertIn(literal, classifier_document('first_report', changed).render())
+        self.assertNotIn(literal, classifier_document('first_report').render())
         naming = bundle().resource('naming')
         naming['reports'][0]['guidance'] = literal
         catalog = json.loads(naming_document(naming, 'report').sections[2].text)

@@ -165,12 +165,30 @@ class ProfileEditor:
     @classmethod
     def create(cls, base: ProfileSnapshot, display_name: str, *, identity: bytes | None = None) -> ProfileEditor:
         editor = cls(base)
+        editor.use_current_schema()
         descriptor = parse_identity_descriptor(identity) if identity is not None else None
         editor.manifest.update({"specialty_id": descriptor["specialty_id"] if descriptor else f"custom-{uuid.uuid4()}",
                                 "display_name": descriptor["display_name"] if descriptor else display_name,
                                 "description": descriptor["description"] if descriptor else base.manifest["description"],
                                 "version": "1.0.0"})
         return editor
+
+    def use_current_schema(self) -> None:
+        """Project a NEW draft only. Historical snapshots/resources stay literal."""
+        if self.base.ref.application != "recordprep":
+            return
+        from .profile_contract import (RETIRED_SUMMARY_RESOURCES, RETIRED_PARTICIPANT_RESOURCES,
+                                       RETIRED_OVERVIEW_RESOURCES)
+        retired = (RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES |
+                   RETIRED_OVERVIEW_RESOURCES | {"classification", "classification_tasks"})
+        for name in retired:
+            self.manifest["resources"].pop(name, None)
+            self.resources.pop(name, None)
+        if "case_name" not in self.resources:
+            from .case_name_prompt import CASE_NAME_PROMPT
+            self.manifest["resources"]["case_name"] = "case-name.md"
+            self.resources["case_name"] = CASE_NAME_PROMPT
+        self.manifest["schema_version"] = 9
 
     def snapshot(self) -> ProfileSnapshot:
         originals = dict(self.base.files)
@@ -191,6 +209,7 @@ class ProfileEditor:
 
     def managed_save(self, store: ProfileStore, *, expected_head, expected_default,
                      validate, can_modify, use_for_new_cases=None, personal=True):
+        self.use_current_schema()
         draft = self.snapshot()
         validate(draft)  # Real application compilers, never validation-only UI.
         self._check_source()
@@ -205,6 +224,7 @@ class ProfileEditor:
                      "external_profile_changed", "editor")
 
     def save(self, store: ProfileStore, destination: Path, *, expected_head: str | None) -> ProfileRef:
+        self.use_current_schema()
         draft = self.snapshot()
         _require(store.application == draft.ref.application, "wrong_application", "editor")
         self._check_source()

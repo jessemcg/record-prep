@@ -1,4 +1,9 @@
-"""Exact public-resource adapters. No settings access, writes or heuristic splitting."""
+"""Exact historical-resource helpers; naming remains active, classification is inert.
+
+Classification adapters below are retained only for historical-format conformance.
+Runtime, draft projection and inspection never call them for recognition. No settings
+access, writes or heuristic splitting.
+"""
 from __future__ import annotations
 
 import json
@@ -33,7 +38,7 @@ def _classification_sources():
 
 
 def classification_task_resource(value: dict, kind: str) -> dict:
-    """Exact whole-task runtime matching, independent of unrelated task edits.
+    """Historical whole-task matching, independent of unrelated task edits.
 
     A known RT/CT description map or complete legacy task string can use its
     public equivalent. Unknown task prose is never split, partially replaced or

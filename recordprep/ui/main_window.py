@@ -1884,20 +1884,15 @@ def load_classifier_settings() -> dict[str, Any]:
         )
         or ""
     ).strip()
-    prompt = str(config.get(CONFIG_KEY_CLASSIFIER_PROMPT, DEFAULT_CLASSIFIER_PROMPT) or "").strip()
-    rt_prompt = str(
-        config.get(CONFIG_KEY_CLASSIFIER_RT_PROMPT, prompt or DEFAULT_CLASSIFIER_PROMPT) or ""
-    ).strip()
-    ct_prompt = str(
-        config.get(CONFIG_KEY_CLASSIFIER_CT_PROMPT, prompt or DEFAULT_CLASSIFIER_PROMPT) or ""
-    ).strip()
+    rt_prompt = classifier_document("rt").render()
+    ct_prompt = classifier_document("ct").render()
     return {
         "api_url": api_url,
         "model_id": model_id,
         "api_key": api_key,
-        "prompt": prompt or DEFAULT_CLASSIFIER_PROMPT,
-        "rt_prompt": rt_prompt or DEFAULT_CLASSIFIER_PROMPT,
-        "ct_prompt": ct_prompt or DEFAULT_CLASSIFIER_PROMPT,
+        "prompt": rt_prompt,
+        "rt_prompt": rt_prompt,
+        "ct_prompt": ct_prompt,
         "disable_reasoning": disable_reasoning,
         "workers": workers,
         "local_vision_enabled": local_vision_enabled,
@@ -1920,11 +1915,7 @@ def save_classifier_settings(
     config[CONFIG_KEY_CLASSIFIER_API_URL] = api_url
     config[CONFIG_KEY_CLASSIFIER_MODEL_ID] = model_id
     config[CONFIG_KEY_CLASSIFIER_API_KEY] = api_key
-    normalized_rt = rt_prompt or DEFAULT_CLASSIFIER_PROMPT
-    normalized_ct = ct_prompt or DEFAULT_CLASSIFIER_PROMPT
-    config[CONFIG_KEY_CLASSIFIER_PROMPT] = normalized_rt
-    config[CONFIG_KEY_CLASSIFIER_RT_PROMPT] = normalized_rt
-    config[CONFIG_KEY_CLASSIFIER_CT_PROMPT] = normalized_ct
+    # Retired prompt parameters remain import-compatible, never persisted.
     config[CONFIG_KEY_CLASSIFIER_DISABLE_REASONING] = bool(disable_reasoning)
     config[CONFIG_KEY_CLASSIFIER_WORKERS] = _read_config_int(
         {CONFIG_KEY_CLASSIFIER_WORKERS: workers},
@@ -1944,17 +1935,9 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         config.get(CONFIG_KEY_ADVANCED_CLASSIFY_MODEL_ID, "") or ""
     ).strip()
     api_key = shared["api_key"] or str(config.get(CONFIG_KEY_ADVANCED_CLASSIFY_API_KEY, "") or "").strip()
-    hearing_prompt = str(
-        config.get(CONFIG_KEY_ADVANCED_CLASSIFY_HEARING_PROMPT, DEFAULT_ADVANCED_HEARING_PROMPT)
-        or ""
-    ).strip()
-    minute_prompt = str(
-        config.get(CONFIG_KEY_ADVANCED_CLASSIFY_MINUTE_PROMPT, DEFAULT_ADVANCED_MINUTE_PROMPT)
-        or ""
-    ).strip()
-    form_prompt = str(
-        config.get(CONFIG_KEY_ADVANCED_CLASSIFY_FORM_PROMPT, DEFAULT_ADVANCED_FORM_PROMPT) or ""
-    ).strip()
+    hearing_prompt = classifier_document("first_hearing").render()
+    minute_prompt = classifier_document("first_minute").render()
+    form_prompt = classifier_document("first_form").render()
     return {
         "api_url": api_url,
         "model_id": model_id,
@@ -1962,7 +1945,7 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         "hearing_prompt": hearing_prompt or DEFAULT_ADVANCED_HEARING_PROMPT,
         "minute_prompt": minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT,
         "form_prompt": form_prompt or DEFAULT_ADVANCED_FORM_PROMPT,
-        "report_first_prompt": classifier_document({}, "first_report").render(),
+        "report_first_prompt": classifier_document("first_report").render(),
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
         "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
@@ -1977,17 +1960,8 @@ def save_advanced_classify_settings(
     minute_prompt: str,
     form_prompt: str,
 ) -> None:
-    config = _read_config()
-    config[CONFIG_KEY_ADVANCED_CLASSIFY_HEARING_PROMPT] = (
-        hearing_prompt or DEFAULT_ADVANCED_HEARING_PROMPT
-    )
-    config[CONFIG_KEY_ADVANCED_CLASSIFY_MINUTE_PROMPT] = (
-        minute_prompt or DEFAULT_ADVANCED_MINUTE_PROMPT
-    )
-    config[CONFIG_KEY_ADVANCED_CLASSIFY_FORM_PROMPT] = (
-        form_prompt or DEFAULT_ADVANCED_FORM_PROMPT
-    )
-    _write_config(config)
+    # Retired compatibility entry point: preserve existing values and absence.
+    return None
 
 def load_classify_dates_settings() -> dict[str, Any]:
     shared = load_classifier_settings()
@@ -1997,8 +1971,8 @@ def load_classify_dates_settings() -> dict[str, Any]:
     # Old config/snapshot date prose remains stored but cannot override the
     # fixed extraction method, including unassigned compatibility runs.
     from ..classifier_prompts import classifier_document
-    hearing_prompt = classifier_document({}, "date_hearing").render()
-    minute_prompt = classifier_document({}, "date_minute").render()
+    hearing_prompt = classifier_document("date_hearing").render()
+    minute_prompt = classifier_document("date_minute").render()
     return {
         "api_url": api_url,
         "model_id": model_id,
@@ -4270,6 +4244,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _setup_menu(self, app: Adw.Application) -> None:
         menu = Gio.Menu()
         menu.append("Model settings", "app.settings")
+        menu.append("App-owned Classification", "app.classification-reference")
+        reference = Gio.SimpleAction.new("classification-reference", None)
+        reference.connect("activate", self._open_classification_reference)
+        app.add_action(reference)
         from recordprep.profile_manager_ui import install_profile_menu
         from recordprep.profile_integration import open_manager
         install_profile_menu(menu, self.menu_button, lambda: open_manager(self, PI_PROJECT_DIR))
@@ -4282,6 +4260,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             save_action = Gio.SimpleAction.new("save-settings", None)
             save_action.connect("activate", self._on_action_save_settings)
             app.add_action(save_action)
+
+    def _open_classification_reference(self, *_args) -> None:
+        from recordprep.classification_reference_ui import ClassificationReference
+        self._classification_reference = ClassificationReference(self)
+        self._classification_reference.present()
 
     def on_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if self._settings_window:
@@ -4717,8 +4700,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if profile is not None:
                 if suffix not in SUFFIXES or stage_issues(root_dir, STAGES[SUFFIXES.index(suffix)], profile, load_classifier_settings()):
                     return False
-            elif suffix in SUFFIXES and (root_dir / "classification" / f"profile-{STAGES[SUFFIXES.index(suffix)]}.json").exists():
-                return False
+            elif suffix in SUFFIXES:
+                stage = STAGES[SUFFIXES.index(suffix)]
+                if (root_dir / "classification" / f"profile-{stage}.json").exists():
+                    # New unassigned structural work has nullable-selection
+                    # metadata too. Historical unassigned Names remains literal.
+                    if stage == "names" or stage_issues(root_dir, stage, None, load_classifier_settings()):
+                        return False
         except (ValueError, OSError):
             return False
         if not need_rt and not need_ct:
@@ -5418,7 +5406,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             raise RuntimeError(
                 f"Classification basic returned an invalid page_type for {filename} "
                 f"after {max_attempts} attempts. {response_error} "
-                "Retry Classification basic; if it persists, check the classifier model and profile guidance."
+                "Retry Classification basic; if it persists, check the classifier model and App-owned Classification."
             ) from response_error
         raise RuntimeError(
             f"Classification basic returned blank page_type for {filename} "
@@ -7103,6 +7091,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("rt_prompt") or shared_settings.get("prompt"),
                 "profile_snapshot": classification_run.profile, "profile_kind": "rt",
+                "recognition_contract": classification_run.contract,
                 "disable_reasoning": bool(
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
@@ -7113,6 +7102,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "api_key": shared_settings["api_key"],
                 "prompt": shared_settings.get("ct_prompt") or shared_settings.get("prompt"),
                 "profile_snapshot": classification_run.profile, "profile_kind": "ct",
+                "recognition_contract": classification_run.contract,
                 "disable_reasoning": bool(
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
@@ -7354,7 +7344,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ("ct_minute_order", "CT_minute_order_first_page", settings["minute_prompt"]),
                         ("ct_form", "CT_form_first_page", settings["form_prompt"]),
                         ("ct_report", "CT_report_first_page", settings.get("report_first_prompt")
-                         or classifier_document({}, "first_report").render()),
+                         or classifier_document("first_report").render()),
                     ):
                         _queue_page_type_update(ct_jobs, ct_metadata, entry, (target_type,), updated_type, prompt,
                                                 ("first_page", "first", "is_first_page", "is_first"))
@@ -7604,6 +7594,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["hearing_prompt"],
                                         "profile_snapshot": classification_run.profile, "profile_kind": "date_hearing",
+                                        "recognition_contract": classification_run.contract,
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -7683,6 +7674,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                         "api_key": shared_settings["api_key"],
                                         "prompt": settings["minute_prompt"],
                                         "profile_snapshot": classification_run.profile, "profile_kind": "date_minute",
+                                        "recognition_contract": classification_run.contract,
                                         "disable_reasoning": bool(
                                             shared_settings.get(
                                                 "disable_reasoning",
@@ -8636,12 +8628,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             raise ValueError("Invalid application-owned naming contract")
         profile = settings.get("profile_snapshot")
         profile_kind = settings.get("profile_kind")
-        effective_prompt = naming_contract.prompt if naming_contract is not None else settings["prompt"]
-        if profile is not None:
-            effective_prompt, _keys = classifier_prompt(profile, profile_kind)
-            if profile_kind in ("report", "form"):
+        if naming_contract is not None and naming_contract.kind != profile_kind:
+            raise ValueError("Naming contract does not match the explicit task")
+        if profile_kind in ("report", "form"):
+            if profile is not None:
                 from recordprep.document_naming import compile_naming_profile
                 naming_contract = compile_naming_profile(profile, profile_kind)
+            effective_prompt = naming_contract.prompt if naming_contract is not None else settings["prompt"]
+        else:
+            # Explicit task owns request construction and response validation.
+            effective_prompt, _keys = classifier_prompt(None, profile_kind, contract=settings.get("recognition_contract"))
         image_base64 = base64.b64encode(image_path.read_bytes()).decode()
         headers = {
             "Content-Type": "application/json",
@@ -8688,37 +8684,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if naming_contract.kind == "report":
                 result["date"] = named.date
             return result
-        if profile is not None:
-            from recordprep.classification_profiles import normalize_classifier
-            return {"file_name": filename, **normalize_classifier(parsed, profile_kind)}
-        if not isinstance(parsed, dict):
-            parsed = {}
-        if not _extract_entry_value(parsed, "page_type", "pagetype"):
-            fallback_page_type = _extract_page_type_from_jsonish(response_text)
-            if fallback_page_type:
-                parsed["page_type"] = fallback_page_type
-        expected_keys = _extract_prompt_keys(settings.get("prompt", ""))
-        filename_key = "file_name"
-        if not expected_keys:
-            result = {str(key): str(value) if value is not None else "" for key, value in parsed.items()}
-            result[filename_key] = filename
-            return result
-        if filename_key not in expected_keys:
-            expected_keys = [filename_key, *expected_keys]
-        normalized_parsed = {_normalize_key(key): key for key in parsed.keys()}
-        result: dict[str, str] = {}
-        for expected_key in expected_keys:
-            normalized_expected = _normalize_key(expected_key)
-            if "filename" in normalized_expected and filename:
-                result[expected_key] = filename
-                continue
-            source_key = normalized_parsed.get(normalized_expected)
-            if source_key is not None:
-                value = parsed.get(source_key)
-                result[expected_key] = str(value) if value is not None else ""
-            else:
-                result[expected_key] = ""
-        return result
+        if profile_kind in ("report", "form"):
+            # Unassigned naming retains literal guidance and explicit fields.
+            parsed = parsed if isinstance(parsed, dict) else {}
+            keys = ("name", "date") if profile_kind == "report" else ("name",)
+            return {"file_name": filename, **{key: str(parsed.get(key) or "") for key in keys}}
+        from recordprep.classification_profiles import normalize_classifier
+        return {"file_name": filename, **normalize_classifier(parsed, profile_kind)}
 
     def _extract_response_text(self, payload: Any) -> str:
         if isinstance(payload, dict):

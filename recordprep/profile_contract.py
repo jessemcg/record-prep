@@ -396,7 +396,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5, 6, 7, 8) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6, 7, 8, 9) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -423,6 +423,8 @@ def _manifest(data: bytes, application: str) -> dict:
                 types.pop(name)
         if value["schema_version"] >= 6:
             types.pop("classification")
+        if value["schema_version"] >= 9:
+            types.pop("classification_tasks")
     resources = _object(value["resources"], set(types), "resources")
     paths = set()
     for name, suffix in types.items():
@@ -459,7 +461,7 @@ def validate_contents(files: tuple[tuple[str, bytes], ...], application: str) ->
         if RESOURCE_TYPES[application][name] == "json":
             value = _json(data, name)
             _structured(name, value)
-            if application == "recordprep" and manifest["schema_version"] >= 7:
+            if application == "recordprep" and manifest["schema_version"] in (7, 8):
                 if name in {"classification_tasks", "naming"}:
                     expected = (3 if manifest["schema_version"] >= 8 else 2) if name == "classification_tasks" else 4
                     _require(value.get("schema_version") == expected, "unsupported_version", name)
@@ -527,21 +529,12 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
              (extended and stage in {*task_stages, "case_name"}), "unsupported_stage", "stage")
     _require(isinstance(core_contract, bytes) and bool(core_contract), "missing_core_contract", "stage")
     resources = []
-    names = (("classification_tasks",) if stage in task_stages else
+    # Structural/start/date instructions belong solely to the application,
+    # including for immutable historical profiles. Never project their prose.
+    names = (() if stage in task_stages else
              ("case_name",) if stage == "case_name" else STAGE_RESOURCES[snapshot.ref.application][stage])
-    if stage == "classification" and extended:
-        names += ("classification_tasks",)
     for name in names:
         value = snapshot.resource(name)
-        if name == "classification_tasks" and stage in task_stages:
-            # Date extraction is application-owned, including for old snapshots.
-            if stage == "classification_dates":
-                value = {}
-            elif "page_types" in value:
-                selected = dict(value["page_types"]) | value["first_pages"]
-                value = {task: selected[task] for task in task_stages[stage] if task in selected}
-            else:
-                value = {task: value[task] for task in task_stages[stage] if task in value}
         data = value.encode("utf-8") if isinstance(value, str) else json_bytes(value)
         resources.append((name, data))
     digest = _content_digest(tuple(resources) + (("@core", core_contract),

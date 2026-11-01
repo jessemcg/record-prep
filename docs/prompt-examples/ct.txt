@@ -11,45 +11,34 @@ Example response: {"page_type": "CT_cover"}
 Category Descriptions
 
 CT_cover
-Cover page for the clerk's transcript or a section (case caption, title, etc.).
+A transcript, volume or section cover or divider identifying the collection rather than presenting an individual substantive document. Collection titles, volume ranges and court/case identification often support recognition, without a required arrangement. Include recognizable continuation collection front matter. A pleading, report or form's substantive first page remains that document type despite a caption or large title; an internal attachment divider is not automatically a transcript cover.
 
 CT_index
-Index/table of contents listing documents and page numbers.
+A navigational listing of record documents with page or location references, including chronological, alphabetical and continuation indexes. Short entries, date/location columns and headings may support recognition, but none is mandatory on every page. Sparse final index pages qualify when their navigational function remains recognizable. Distinguish a collection index from substantive tables, exhibit inventories and lists embedded within individual documents.
 
 CT_minute_order
-Clerk-prepared summary of a hearing.
-   Often labeled MINUTE ORDER.
-   Look for: appearances list, orders issued, judge/bench officer, court reporter, department.
-   No verbatim dialogue.
-   Not prepared by an attorney.
-   These DO show Page X of XX.
+A court- or clerk-generated record of proceedings and judicial action. Appearances, hearing fields, court personnel, recorded findings and rulings often support recognition; no heading, page count, signature or particular layout is required. Include recognizable continuing and concluding pages, including sparse endings and integral signature, attestation or service/mailing blocks when the page visibly continues the minute order. Distinguish court action from a party's requested relief or an author's recommendations. Boxes alone do not make a minute sheet a standardized court form. A separately written order is not necessarily a minute order; qualifying standardized order forms remain CT_form, and standalone orders fitting neither definition belong in CT_other.
 
 CT_report
-Authored narrative or evaluative report prepared for the court, including continuation pages.
-Look for a report heading, preparer or agency attribution, dated sections, findings, assessment or recommendations.
-Footer report labels or codes such as CFS 6.7 and DCFS 4216 are supporting clues, not required names.
-Distinguish reports from clerk-prepared minute orders, preprinted court forms, motions, notices and raw records or exhibits.
-A report need not have an approved output name. Page X of XX numbering alone does not make it a form or exclude a report.
+An authored report prepared for or directed to the court to inform its consideration. Attribution, a court-directed purpose, narrative or evaluative discussion, assessments and recommendations often support recognition. Include recognizable identification tables, procedural information, recommendations, signature-only conclusions and other continuation pages; narrative paragraphs need not appear on every page. Neither approved-name membership nor a particular agency, footer code or pagination style is required. Distinguish underlying operational or investigative records, logs, raw results and separately reproduced exhibits from the court-directed report itself. A title containing 'report', an agency template or a reference to another report is insufficient alone. Recommendations are not judicial action; recognizable qualifying standardized court forms remain CT_form.
 
 CT_form
-Preprinted form with a form ID and Judicial Council approval in the footer.
-   Form ID must be JV-XXX, FL-XXX, or ICWA-XXX.
-   These forms DO show Page X of XX.
+A recognizable standardized statewide or local court form, completed or blank, and its recognizable continuation or ending pages, excluding hearing notices and standalone service proofs. Preprinted legal instructions, labeled fields, checkboxes, numbered sections, a form title/code and adoption information may support recognition; no particular code prefix, footer, pagination or combination of these clues is compulsory. Qualifying request, order, appeal and other non-hearing-notice court forms remain forms. A recognizable Notice of Appeal form qualifies here, not as a hearing notice merely because its title uses 'Notice'. A hearing notice remains CT_notice and a distinct service-proof page remains CT_proof_of_service even when standardized court forms. A cited form code, agency questionnaire/template, table or boxes alone do not establish a court form. A free-form argument attachment is assessed on its own character, not made a form merely by referencing one.
 
 CT_certificate
-Certificate executed by the clerk authenticating transcripts or documents.
+A distinct official authentication or completeness certification concerning the record or copies. Attestation about a true, complete or correct record, covered documents and an official signature or seal often support recognition, without requiring every clue. Include recognizable continuation and concluding authentication pages. Distinguish record authentication from evidence of service or mailing, course-completion certificates and certification blocks integral to another document. A clerk's certificate of mailing ordinarily concerns service and belongs in CT_proof_of_service when distinct; an integral attestation on a continuing minute order does not automatically detach that page. Official authentication sheets do not become CT_form merely because they use a template.
 
 CT_motion
-A party's motion asking the court to act; may include points and authorities.
+A party-authored request or application seeking judicial action, including identifiable supporting argument, points and authorities, declarations and recognizable continuation or signature-only concluding pages. Requested relief, advocacy, factual support and legal reasoning often support recognition without a required heading or format. Distinguish a request from a ruling, neutral court-directed report or a page primarily notifying a party of a hearing. Recognizable qualifying standardized court request forms remain CT_form; free-form argument or a declaration supporting a request is not a form merely because it cites a form code. Separately reproduced exhibits are assessed on their own character rather than automatically becoming motion pages.
 
 CT_notice
-Formal notice of hearing date/time/nature.
+A hearing notice: a document whose primary purpose is notifying a party of a scheduled, continued or rescheduled hearing, including recognizable continuation and ending pages. Use CT_notice even when the hearing notice is a standardized court form. Hearing date/time, location or department, hearing purpose, addressee and notice language often support recognition; not every field must appear or be completed. A hearing-notice page with an integral service block can remain CT_notice; a distinct page devoted to proving service is CT_proof_of_service, even in the same packet. Distinguish announcing a hearing from requesting judicial relief, proving delivery of papers and incidental mentions of hearing dates in reports or orders. A Notice of Appeal or status/address notification form is not a hearing notice merely because it uses 'Notice' or 'Notification'; other qualifying court forms remain CT_form and general procedural communications fitting no other category belong in CT_other.
 
 CT_proof_of_service
-Declaration showing a party was served (mail, personal, electronic).
+A distinct declaration, certificate, return or dedicated proof-of-service page documenting service or attempted service of papers. Use CT_proof_of_service even when it is a standardized court form, whether the served paper is a hearing notice or another document. Method, recipients, identified papers, dates and attestation often support recognition; not all must appear on every page. Include recognizable continuation recipient lists and concluding proof pages. A clerk's certificate of mailing ordinarily proves service, not record authentication. Distinguish proving delivery from notifying a party of a hearing. An incidental service block integral to another visibly continuing document does not automatically change that document's page type; a hearing notice with an integral service block can remain CT_notice. Distinct official record-authentication certificates belong in CT_certificate, not here merely because they use 'certificate'.
 
 CT_other
-Anything else (medical records, drug tests, service logs, letters, exhibits, photos, text messages, emails, case plans, written court order, etc.).
+Remaining records, correspondence, exhibits, raw results, logs, images, standalone written orders fitting neither minute-order nor court-form definitions, and otherwise unidentifiable material. General procedural communications that are not hearing notices and fit no other category also belong here. Include their recognizable continuations and endings. An investigative record titled 'report' is not necessarily a court-directed report; an agency template or table alone is not a court form. Conversely, being an attachment does not by itself determine a category: a separately reproduced document is assessed on its own visible purpose and structure. Do not choose this category merely because an expected heading, code, signature or footer is missing. Preserve the page.
 
 ===== Page image — attached separately =====
 ⟪The actual page image is attached separately to the request.⟫

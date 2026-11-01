@@ -37,10 +37,10 @@ class OwnershipTests(unittest.TestCase):
                     self.assertNotEqual(snapshot.ref, old.ref)
                     self.assertEqual(components(snapshot), components(old))
                     draft = editable_profile(snapshot)
-                    self.assertEqual(draft.resources['classification_tasks'][date], tasks[date])
+                    self.assertNotIn('classification_tasks', draft.resources)
                     self.assertEqual(components(draft.snapshot()), components(snapshot))
                     self.assertEqual(snapshot.files, before)
-                    self.assertEqual(draft.snapshot().resource('classification_tasks')[date], tasks[date])
+                    self.assertEqual(snapshot.resource('classification_tasks')[date], tasks[date])
 
     def test_unknown_active_content_and_custom_report_start_are_never_adapted(self):
         for task in ('rt', 'ct', 'first_hearing', 'first_minute', 'first_form', 'first_report'):
@@ -66,9 +66,9 @@ class OwnershipTests(unittest.TestCase):
                 literal = e.resources['classification_tasks'][task] + ' Unknown active clue α.'
                 e.resources['classification_tasks'][task] = literal
                 changed = e.snapshot()
-                self.assertIn(literal,classifier_prompt(changed,task)[0])
+                self.assertNotIn(literal,classifier_prompt(changed,task)[0])
                 self.assertEqual(changed.resource('classification_tasks')[task],literal)
-                expected = {'basic','corrected'} if task in ('rt','ct') else {'advanced','corrected'}
+                expected = set()
                 self.assertEqual({stage for stage in STAGES if component(changed,stage) != baseline[stage]},expected,(representation,task))
                 for other in ('rt','ct','first_hearing','first_minute','first_form','first_report'):
                     if task != other:
@@ -100,7 +100,7 @@ class OwnershipTests(unittest.TestCase):
             self.assertEqual(prompt, inspect_prompt(resources, side, ROOT/'.pi', template=False, snapshot=snapshot).components[0][1])
         for task in FIRST_TASKS:
             prompt = classifier_prompt(snapshot, task)[0]
-            self.assertIn('recognition clues', [s.identity for s in __import__('recordprep.classifier_prompts', fromlist=['classifier_document']).classifier_document({}, task).sections])
+            self.assertIn('recognition clues', [s.identity for s in __import__('recordprep.classifier_prompts', fromlist=['classifier_document']).classifier_document(task).sections])
             self.assertNotIn('conditions of release', prompt)
             self.assertEqual(prompt, inspect_prompt(resources, task, ROOT/'.pi', template=False, snapshot=snapshot).components[0][1])
 
@@ -111,15 +111,9 @@ class OwnershipTests(unittest.TestCase):
         # Explicitly include naming v1, v2, v3 and v4; all are legal in schemas 1–6.
         naming_values[-1] = {'mode': 'approved_titles', 'report_titles': ['Synthetic report'],
                              'form_titles': ['Synthetic form'], 'guidance': 'Use source evidence.'}
-        for schema in range(1, 9):
-            if schema == 7:
-                e = ProfileEditor(bundle()); e.manifest['schema_version'] = 7
-                e.resources['classification_tasks']['schema_version'] = 2
-                e.resources['classification_tasks']['first_pages'].pop('first_report')
-                original = e.snapshot()
-            else:
-                original = historical_snapshot(bundle(), version=schema)
-            for naming in naming_values if schema <= 6 else [bundle().resource('naming')]:
+        for schema in range(1, 10):
+            original = bundle() if schema == 9 else historical_snapshot(bundle(), version=schema)
+            for naming in naming_values if schema <= 6 or schema == 9 else [bundle().resource('naming')]:
                 editor = ProfileEditor(original); editor.resources['naming'] = copy.deepcopy(naming)
                 snapshot = editor.snapshot(); baseline = components(snapshot)
                 for resource in ('classification', 'case_name', 'hearing_extraction', 'report_extraction',
@@ -133,8 +127,8 @@ class OwnershipTests(unittest.TestCase):
                         for phase in ('extract', 'synthesize'):
                             self.assertEqual(compile_summary(snapshot, kind, phase).component_sha256,
                                              compile_summary(changed, kind, phase).component_sha256)
-                if schema >= 2:
-                    for task, stages in (('RT_body', {'basic','corrected'}), ('first_report', {'advanced','corrected'})):
+                if 2 <= schema <= 8:
+                    for task, stages in (('RT_body', set()), ('first_report', set())):
                         change = ProfileEditor(snapshot)
                         owner = change.resources['classification_tasks']['page_types']['rt'] if task == 'RT_body' else change.resources['classification_tasks']['first_pages']
                         if task not in owner:
@@ -232,7 +226,7 @@ class OwnershipTests(unittest.TestCase):
         self.assertIn(raw,shown.display_text()); self.assertTrue(shown.issues)
         other = inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False,draft=frozen)
         self.assertEqual(other.components[0][1],classifier_prompt(e.snapshot(),'rt')[0])
-        self.assertTrue(other.issues)
+        self.assertFalse(other.issues)
         e.resources['naming']['report_guidance'] += ' Parent later changed.'
         self.assertIn(raw,inspect_prompt(e.resources,'report',ROOT/'.pi',template=False,draft=frozen).display_text())
         repaired = freeze_draft(e,raw_resources={'naming':json.dumps(e.resources['naming'])})

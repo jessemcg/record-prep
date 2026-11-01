@@ -1,5 +1,9 @@
 # Independent report starts and naming-only catalogs
 
+**Historical schema-8 report.** Report-start routing and naming-only catalogs
+continue unchanged; editable recognition and version references below are historical.
+[Application-owned classification/schema 9](application-classification.md) is current.
+
 This authorized follow-up supersedes the earlier shared-CT-catalog/report-run
 behavior. Dependency **1.8.0**, manifest schema **8**, classification resource **3**,
 naming resource **4**, `profile_api: 1`. Focus receives the byte-identical shared

@@ -54,11 +54,9 @@ class PrivateCustomizationTests(unittest.TestCase):
             export_profile(snapshot, root / "personal")
             loaded = checked_folder(root / "personal", "recordprep")
             self.assertNotIn(b"CANARY", b"".join(data for _, data in loaded.files))
+            self.assertNotIn('classification_tasks', loaded.manifest['resources'])
             for task, (key, _) in TASK_KEYS.items():
-                self.assertEqual(config[key], loaded.resource("classification_tasks")[task])
-                for other_task, text in loaded.resource("classification_tasks").items():
-                    if task != other_task:
-                        self.assertNotIn(config[key], text)
+                self.assertNotIn(config[key].encode(), b''.join(data for _, data in loaded.files))
             self.assertEqual(loaded.resource("case_name"), api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft.resource("case_name"))
             self.assertTrue(loaded.resource("naming")["report_guidance"].endswith(config["classify_names_report_prompt"]))
             self.assertIn("- **Detention Report**", loaded.resource("naming")["report_guidance"])
@@ -78,10 +76,8 @@ class PrivateCustomizationTests(unittest.TestCase):
         self.assertEqual(legacy_customization_editor(config).snapshot().ref, base.ref)
         shared = "  Synthetic shared classifier guidance.\n"
         editor = legacy_customization_editor({"classifier_prompt": shared, "classifier_ct_prompt": ""})
-        self.assertEqual(editor.resources["classification_tasks"]["rt"], shared)
-        from recordprep.structured_guidance import _BASE
-        import json
-        self.assertEqual(editor.resources["classification_tasks"]["ct"], json.loads((_BASE/'classification-tasks.json').read_bytes())["ct"])
+        self.assertNotIn('classification_tasks', editor.resources)
+        self.assertEqual(editor.snapshot().files, base.files)
 
     def test_existing_personal_profile_and_completed_initialization_never_overlay(self):
         with tempfile.TemporaryDirectory() as temporary:

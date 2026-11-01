@@ -1,6 +1,11 @@
 # Structured classification and prompt inspection
 
-## Current contract
+> **Historical schemas 7/8 design and adoption notes.** Current schema 9 moves
+> recognition out of profiles. See [application-owned classification](application-classification.md)
+> for current ownership, the standalone reference and notice/service policy.
+> Naming evidence, JSON contracts and historical readers described here remain relevant.
+
+## Historical schema-8 contract
 
 Dependency **1.8.0**, `profile_api: 1`, content schema **8** separates reusable
 application instructions from editable recognition data. Classification has five

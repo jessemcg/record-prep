@@ -1,0 +1,12 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Review a page labeled CT_form in a legal transcript image. Decide whether this is clearly the first page of the form, not a continuation. Answer yes if clearly the start; otherwise answer no.
+
+Identify the beginning of a distinct eligible CT_form from its opening structure and section flow. A title/code, initial identification fields, opening instructions or 'Page 1' can support recognition but are not compulsory; later pages can repeat titles/codes or carry only a running identifier. Continuation sections, recipient lists or signature endings alone do not establish a new form. Hearing notices (CT_notice) and standalone service proofs (CT_proof_of_service) are ineligible for this task even when standardized court forms; a qualifying Notice of Appeal form is not excluded by its title. Consider clues together using this one image.
+
+Return {"first_page": "yes"} or {"first_page": "no"}.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

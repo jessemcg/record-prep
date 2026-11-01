@@ -11,28 +11,19 @@ Example response: {"page_type": "RT_cover"}
 Category Descriptions
 
 RT_cover
-- Purpose: Case-identifying information only.
-- Typical content: case title, case number, parties, attorneys, court name, department, hearing date, reporter name/address.
-- MUST NOT include verbatim dialogue.
-- If there is any spoken dialogue on the page, it is NOT RT_cover.
+Transcript, volume or session identifying front matter, including appearance lists presented as front matter. Case captions, court and reporter identification, dates, volume titles and listed counsel often support recognition; no particular layout is required. Include recognizable continuation front matter. Distinguish listed appearances from transcribed spoken appearances. A caption above actual proceedings does not make a cover.
 
 RT_index
-- Purpose: Index/list of topics, witness names, or sections with page numbers.
-- Typical cues: columns with Page or dotted leaders (e.g., Opening statement ........ 12).
-- No verbatim dialogue.
+A navigational index or table of proceedings, witnesses, examinations, exhibits or subjects, normally giving page or location references. Columns, short entries and repeated headings may support recognition but no heading or dotted-leader format is required. Include continuation indexes and sparse final index pages. Names and quoted entry titles are not themselves dialogue; distinguish navigation from a list spoken during proceedings.
 
 RT_body
-- Purpose: Verbatim transcript of proceedings.
-- Required cue: Spoken dialogue with speaker labels or Q/A format.
-- Can include a case header at the top, but must include dialogue somewhere on the page.
+Verbatim hearing proceedings: calling the matter, spoken appearances, argument, testimony, objections, rulings and other spoken exchanges. Speaker turns and Q/A are strong clues, not requirements on every page. Include uninterrupted speech continuing across pages, concluding remarks and ordinary transcript parentheticals within proceedings, even when a page has no new speaker label. Line numbers, captions and transcript typography can support recognition but do not alone establish spoken proceedings. Distinguish front-matter appearance lists, navigational indexes and distinct transcript attestations from the hearing body.
 
 RT_certificate
-- Purpose: Certificate or attestation about the transcript's accuracy or preparation.
-- Typical cues: CERTIFICATE, I certify, I, [name], do hereby certify, reporter/clerk signature line, date, seal, or notary language.
-- No verbatim dialogue.
+A distinct reporter or clerk attestation about the transcript's accuracy, completeness or preparation. Certification language, identification of the covered proceedings and a signature, seal or date often support recognition; these need not all appear. Recognizable continuation or concluding attestation pages can qualify. Distinguish the attestation's function from substantive proceedings, testimony mentioning a certificate and incidental certification references.
 
 RT_other
-Other reporter-transcript material distinct from case-identifying covers, dialogue, indexes, and certificates of transcript accuracy. Use only when the visible content best supports this description after comparing all categories.
+Reporter-transcript material genuinely outside the cover, index, hearing-body and transcript-attestation functions, or material whose character cannot be identified from the visible evidence. A separately reproduced attachment can qualify according to its own character, including its continuation or ending pages. Missing headings, cropped footers, faint scans or a body continuation without a new speaker label do not by themselves justify this category. Compare all other RT functions before choosing this remaining category; preserve the page.
 
 ===== Page image — attached separately =====
 ⟪The actual page image is attached separately to the request.⟫

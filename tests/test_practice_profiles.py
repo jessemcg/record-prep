@@ -70,9 +70,17 @@ def historical_snapshot(profile, version=3):
         path = old_manifest["resources"][name]
         manifest["resources"][name] = path
         files[path] = synthetic[path]
+    if 2 <= version <= 8 and 'classification_tasks' not in manifest['resources']:
+        baseline = Path(__file__).resolve().parents[1] / 'recordprep/resources/profile_baselines'
+        path = 'classification-tasks.json'
+        source = baseline / ('dependency-1.7.0-initial/classification-v2.json' if version == 7 else
+                             'dependency-1.8.0/classification-v3.json')
+        manifest['resources']['classification_tasks'] = path
+        files[path] = source.read_bytes()
     if version == 1:
         for name in ("classification_tasks", "case_name"):
-            files.pop(manifest["resources"].pop(name), None)
+            path = manifest["resources"].pop(name, None)
+            if path: files.pop(path, None)
     files["profile.json"] = contract.json_bytes(manifest)
     return contract.validate_contents(tuple(files.items()), "recordprep")
 
@@ -415,7 +423,7 @@ class ProfileTests(unittest.TestCase):
         current = self.draft(files, "recordprep")
         self.assertFalse(contract.RETIRED_SUMMARY_RESOURCES.intersection(current.manifest["resources"]))
         for stage in ("classification_basic", "classification_advanced", "classification_dates"):
-            self.assertTrue(contract.compile_stage_profile(current, stage, core_contract=b"core").resources)
+            self.assertFalse(contract.compile_stage_profile(current, stage, core_contract=b"core").resources)
         for name in contract.RETIRED_SUMMARY_RESOURCES:
             bad = current.manifest
             bad["resources"][name] = name + ".md"
@@ -530,7 +538,7 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result.draft.ref.application, api.APPLICATION)
                     for stage in contract.STAGE_RESOURCES[api.APPLICATION]:
                         compiled = contract.compile_stage_profile(result.draft, stage, core_contract=b"synthetic core")
-                        if stage in ("participants", "overview"):
+                        if stage in ("participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
                             self.assertEqual(compiled.resources, ())
                         else:
                             self.assertTrue(compiled.resources)

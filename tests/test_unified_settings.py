@@ -130,8 +130,9 @@ class UnifiedSettingsTests(unittest.TestCase):
             expected_head=None, can_modify=lambda: True, preview=lambda _: None, on_saved=Mock(), candidates=candidates)
         self.addCleanup(dispose, window)
         window.present()
-        for card, _ in window._recognition_cards.values():
-            card.set_expanded(True)
+        for key, card in window._topic_expanders.items():
+            if key.startswith('topic:naming-'):
+                card.set_expanded(True)
         drain()
         return window, store
 
@@ -139,15 +140,15 @@ class UnifiedSettingsTests(unittest.TestCase):
         from recordprep.profile_editor_ui import CLASSIFICATION_PAGES
         w, store = self.profile_window()
         keys = [key for key, _, _ in CLASSIFICATION_PAGES]
-        self.assertEqual(list(w.nav_rows)[:5], keys)
-        self.assertEqual(keys, ['rt', 'ct', 'first-pages', 'report-naming', 'form-naming'])
+        self.assertEqual(list(w.nav_rows)[:2], keys)
+        self.assertEqual(keys, ['report-naming', 'form-naming'])
         self.assertNotIn("classification", w.pages)
         self.assertNotIn("Common guidance", [row.get_title() for row in w.nav_rows.values()])
         chooser_before = list(w._navigation._prompt_keys)
         for key, row in w.nav_rows.items():
             self.assertEqual(row.get_margin_start(), 0, key)
             self.assertEqual(row.get_margin_end(), 0, key)
-        w.nav_groups["Classification"].set_expanded(True)
+        w.nav_groups["Document naming"].set_expanded(True)
         drain()
         for key in keys:
             with self.subTest(key=key):
@@ -166,22 +167,17 @@ class UnifiedSettingsTests(unittest.TestCase):
                 buffer.set_text(literal)
                 if key.endswith("-naming"):
                     self.assertEqual(w.editor.resources['naming'][plural][0]['guidance'], literal)
-                elif key == 'first-pages':
-                    self.assertEqual(w.editor.resources['classification_tasks']['first_pages']['first_hearing'], literal)
-                else:
-                    field = 'RT_cover' if key == 'rt' else 'CT_cover'
-                    self.assertEqual(w.editor.resources['classification_tasks']['page_types'][key][field], literal)
                 self.assertTrue(w._navigation.view.pop())
                 drain()
                 self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "home")
-                self.assertTrue(w.nav_groups["Classification"].get_expanded())
+                self.assertTrue(w.nav_groups["Document naming"].get_expanded())
         self.assertEqual(w._navigation._prompt_keys, chooser_before)
         self.assertFalse(store.registry_path.exists())
 
     def test_outline_rt_ct_buffers_and_undo_survive_navigation_and_save(self):
         w, _ = self.profile_window()
         buffers = {}
-        for key in ("rt", "ct"):
+        for key in ("report-naming", "form-naming"):
             w.nav_rows[key].emit("activated")
             drain()
             buffer = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView)).get_buffer()
@@ -195,7 +191,7 @@ class UnifiedSettingsTests(unittest.TestCase):
             self.assertIs(next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView)).get_buffer(), buffer)
             self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), "Synthetic " + key + " edited")
             self.assertTrue(buffer.get_can_undo())
-        w._navigation.save_buttons["ct"].emit("clicked")
+        w._navigation.save_buttons["form-naming"].emit("clicked")
         self.assertFalse(w._dirty())
         for buffer in buffers.values():
             self.assertTrue(buffer.get_can_undo())
@@ -208,19 +204,29 @@ class UnifiedSettingsTests(unittest.TestCase):
 
     def test_profile_explanations_literal_state_topics_and_revision_rebinding(self):
         w, store = self.profile_window()
-        self.assertEqual(list(w.nav_groups), ["Classification", "Summaries"])
+        self.assertEqual(list(w.nav_groups), ["Document naming", "Summaries"])
         self.assertFalse(any(row.get_expanded() for row in w.nav_groups.values()))
         self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "home")
         self.assertFalse(store.registry_path.exists())
-        w._select_page("rt")
+        w._select_page("report-naming")
         drain()
-        widgets = list(descendants(w.pages["rt"]))
+        widgets = list(descendants(w.pages["report-naming"]))
         explanation = next(x for x in widgets if isinstance(x, Gtk.Expander))
         self.assertFalse(explanation.get_expanded())
         self.assertIsInstance(explanation.get_child(), Gtk.Box)
         self.assertFalse(any(isinstance(x, Gtk.ScrolledWindow) for x in descendants(explanation.get_child())))
         text = "\n".join(x.get_text() for x in descendants(explanation.get_child()) if isinstance(x, Gtk.Label))
         self.assertIn(CLASSIFICATION_EXPLANATION, text)
+        self.assertTrue(CLASSIFICATION_EXPLANATION.startswith("Before classification,"))
+        self.assertNotIn("Page types and all four first-page detectors", text)
+        for key in ("report-naming", "form-naming"):
+            page_widgets = list(descendants(w.pages[key]))
+            page_text = "\n".join(x.get_text() for x in page_widgets if isinstance(x, Gtk.Label))
+            self.assertNotIn("Enter each approved name and optional", page_text)
+            for widget in page_widgets:
+                if isinstance(widget, Gtk.Button):
+                    self.assertNotIn(widget.get_label(), ("Classification reference…", "App-owned Classification"))
+        self.assertFalse(hasattr(w, "_classification_reference"))
         self.assertTrue(text.endswith(CLASSIFICATION_PROGRESSION))
         self.assertFalse(any(isinstance(x, Gtk.Label) and x.get_text().startswith(
             ("Classification ·", "Compare all descriptions")) for x in widgets))
@@ -247,10 +253,10 @@ class UnifiedSettingsTests(unittest.TestCase):
         drain()
         scroll.get_vadjustment().set_value(400)
         buffer.select_range(buffer.get_iter_at_offset(50), buffer.get_iter_at_offset(10))
-        w._select_page("ct")
-        self.assertEqual(w._navigation._selections["rt"][0][1:], (50, 10))
+        w._select_page("form-naming")
+        self.assertEqual(w._navigation._selections["report-naming"][0][1:], (50, 10))
         drain()
-        w._select_page("rt")
+        w._select_page("report-naming")
         drain()
         self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), literal)
         if w.is_active():
@@ -258,22 +264,22 @@ class UnifiedSettingsTests(unittest.TestCase):
         else:
             # Wayland rejects primary-selection ownership for inactive synthetic
             # windows (also reproduced with a lone ordinary Gtk.TextView).
-            self.assertEqual(w._navigation._selections["rt"][0][1:], (50, 10))
+            self.assertEqual(w._navigation._selections["report-naming"][0][1:], (50, 10))
         self.assertAlmostEqual(scroll.get_vadjustment().get_value(), 400, delta=2)
         self.assertTrue(buffer.get_enable_undo())
         before_buffer = buffer
-        w._navigation.save_buttons["rt"].emit("clicked")
+        w._navigation.save_buttons["report-naming"].emit("clicked")
         self.assertEqual(w.message.get_text(), "Profile saved.")
         self.assertTrue(w.get_visible())
         self.assertIs(buffer, before_buffer)
         self.assertFalse(w._dirty())
         base = w.editor.base.ref
         buffer.insert_at_cursor(" second revision ")
-        w._navigation.save_buttons["rt"].emit("clicked")
+        w._navigation.save_buttons["report-naming"].emit("clicked")
         self.assertEqual(w.message.get_text(), "Profile saved.")
         self.assertNotEqual(w.editor.base.ref, base)
-        self.assertIn("second revision", store.load_profile_snapshot(w.editor.base.ref).resource("classification_tasks")["page_types"]["rt"]["RT_cover"])
-        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "rt")
+        self.assertIn("second revision", store.load_profile_snapshot(w.editor.base.ref).resource("naming")["reports"][0]["guidance"])
+        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "report-naming")
         topic = w.editor.resources["hearings"][0]
         key = "topic:hearings:" + topic["id"]
         original = topic["guidance"]
@@ -391,7 +397,7 @@ class UnifiedSettingsTests(unittest.TestCase):
 
     def test_profile_failed_publication_and_post_save_refresh_feedback(self):
         w, store = self.profile_window()
-        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] += " synthetic saved guidance"
+        w.editor.resources["naming"]["reports"][0]["guidance"] += " synthetic saved guidance"
         before = copy.deepcopy(w._saved_state)
         with patch.object(type(w.editor), "managed_save", side_effect=OSError("synthetic write failure")):
             self.assertFalse(w._save())
@@ -410,15 +416,15 @@ class UnifiedSettingsTests(unittest.TestCase):
         from types import SimpleNamespace
         from recordprep.profile_manager_ui import ProfileManagerWindow
         w, _ = self.profile_window()
-        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] += " unsaved retained draft"
+        w.editor.resources["naming"]["reports"][0]["guidance"] += " unsaved retained draft"
         menu = SimpleNamespace(parent_window=self.parent, get_ancestor=lambda _type: None)
         self.assertIs(ProfileManagerWindow._edit(menu), w)
-        self.assertIn("unsaved retained draft", w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"])
+        self.assertIn("unsaved retained draft", w.editor.resources["naming"]["reports"][0]["guidance"])
         self.assertTrue(w._dirty())
 
     def test_profile_close_only_keep_or_discard(self):
         w, _ = self.profile_window()
-        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] += " draft"
+        w.editor.resources["naming"]["reports"][0]["guidance"] += " draft"
         self.assertTrue(w._close_request())
         responses = w.unsaved_dialog
         self.assertTrue(responses.has_response("keep"))

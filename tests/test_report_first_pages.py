@@ -22,12 +22,14 @@ from test_structured_classification import bundle, legacy, ROOT
 
 class ReportContractTests(unittest.TestCase):
     def test_fourth_task_and_stage_local_fingerprints(self):
-        b=bundle();self.assertEqual(b.manifest['schema_version'],8)
-        self.assertEqual(b.resource('classification_tasks')['schema_version'],3)
+        from dataclasses import replace
+        from recordprep.recognition_contract import load_recognition
+        b=bundle();self.assertEqual(b.manifest['schema_version'],9)
+        self.assertNotIn('classification_tasks', b.manifest['resources'])
         before={stage:component(b,stage) for stage in ('basic','advanced','corrected','dates','names')}
-        e=ProfileEditor(b);e.resources['classification_tasks']['first_pages']['first_report']+=' Literal α {x} {{quote:source}}'
-        s=e.snapshot()
-        for stage,value in before.items():self.assertEqual(component(s,stage)!=value,stage in ('advanced','corrected'))
+        frozen=load_recognition()
+        changed=replace(frozen, first_pages=tuple((k,v+' Literal α' if k=='first_report' else v) for k,v in frozen.first_pages))
+        for stage,value in before.items():self.assertEqual(component(b,stage,contract=changed)!=value,stage in ('advanced','corrected'))
         for answer in ('YES','no'):
             self.assertEqual(normalize_classifier({'first_page':answer},'first_report'),{'first_page':answer.lower()})
         for answer in ('','unknown','CT_report_first_page'):
@@ -36,20 +38,21 @@ class ReportContractTests(unittest.TestCase):
             with self.assertRaises(ClassifierResponseError):normalize_classifier({'page_type':answer},'ct')
 
     def test_schema7_and_custom_v2_remain_literal_and_use_fixed_fallback(self):
-        e=ProfileEditor(bundle());e.manifest['schema_version']=7
+        from test_practice_profiles import historical_snapshot
+        e=ProfileEditor(historical_snapshot(bundle(), version=7))
         e.resources['classification_tasks']=json.loads((ROOT/'recordprep/resources/profile_baselines/dependency-1.7.0-shared/classification-v2.json').read_bytes())
         e.resources['classification_tasks']['page_types']['ct']['CT_report']='Custom footer-only recognition α {x} {{quote:source}}'
         old=e.snapshot();before=old.files
-        self.assertIn('Custom footer-only',classifier_prompt(old,'ct')[0])
+        self.assertNotIn('Custom footer-only',classifier_prompt(old,'ct')[0])
         self.assertNotIn('Detention Report',classifier_prompt(old,'ct')[0])
         self.assertIn('Check each page independently',classifier_prompt(old,'first_report')[0])
         draft=editable_profile(old)
-        self.assertEqual(draft.manifest['schema_version'],8)
-        self.assertEqual(draft.resources['classification_tasks']['schema_version'],3)
-        self.assertEqual(draft.resources['classification_tasks']['page_types'],old.resource('classification_tasks')['page_types'])
+        self.assertEqual(draft.manifest['schema_version'],9)
+        self.assertNotIn('classification_tasks', draft.resources)
+        self.assertIn('Custom footer-only', old.resource('classification_tasks')['page_types']['ct']['CT_report'])
         self.assertEqual(old.files,before)
         for mutation in ('missing','extra','blank','boolean','legacy-schema'):
-            bad=ProfileEditor(bundle())
+            bad=ProfileEditor(historical_snapshot(bundle(), version=8))
             if mutation=='missing':del bad.resources['classification_tasks']['first_pages']['first_report']
             if mutation=='extra':bad.resources['classification_tasks']['first_pages']['first_unknown']='No'
             if mutation=='blank':bad.resources['classification_tasks']['first_pages']['first_report']=' '
@@ -62,13 +65,12 @@ class ReportContractTests(unittest.TestCase):
         e.resources['classification_tasks']['ct']+=' Custom whole-task prose {x} α {{quote:source}}'
         e.resources['classification_tasks']['date_hearing']='Literal inert private date guidance.'
         old=e.snapshot();before=old.files
-        draft=editable_profile(old);tasks=draft.resources['classification_tasks']
-        self.assertEqual(tasks['schema_version'],3)
-        for key in LEGACY_CLASSIFICATION_TASKS:self.assertEqual(tasks[key],old.resource('classification_tasks')[key])
-        self.assertIn('first_report',tasks)
-        tasks['first_report']='A custom report opening {literal} α'
+        draft=editable_profile(old)
+        self.assertNotIn('classification_tasks',draft.resources)
+        self.assertEqual(draft.manifest['schema_version'],9)
         saved=draft.snapshot()
-        self.assertIn(tasks['first_report'],classifier_prompt(saved,'first_report')[0])
+        self.assertNotIn('Custom whole-task',classifier_prompt(saved,'ct')[0])
+        self.assertIn('Custom whole-task',old.resource('classification_tasks')['ct'])
         self.assertEqual(classifier_prompt(saved,'ct'),classifier_prompt(old,'ct'))
         self.assertEqual(classifier_prompt(saved,'date_hearing'),classifier_prompt(old,'date_hearing'))
         self.assertEqual(old.files,before)
@@ -193,6 +195,31 @@ class ReportPipelineTests(unittest.TestCase):
         self.assertEqual([(x.start_page,x.end_page) for x in items],[(1,2),(5,5),(6,6)])
         self.assertNotIn('Synthetic source page 3.',item_source_payload(items[0],self.root/'text_pages',{}))
         self.assertEqual(source,{p:(p.read_bytes(),p.stat().st_mtime_ns) for p in source})
+
+    def test_hearing_notices_and_separate_service_proofs_never_enter_form_work(self):
+        self.prepare(['CT_notice','CT_proof_of_service','CT_form'],{3},{3:'Approved Form'})
+        self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced','_run_step_dates')
+        dated=self.rows('dates')
+        for row in dated[:2]:
+            row.update(name='Historical accidental name',form_name='Historical alias')
+        self.write_rows('dates',dated)
+        self.run_steps('_run_step_names','_run_step_six')
+        self.assertEqual([n for task,n in self.calls if task=='first_form'],[3])
+        self.assertEqual([n for task,n in self.calls if task=='form'],[3])
+        self.assertEqual([r['page_type'] for r in self.rows('names')],
+                         ['CT_notice','CT_proof_of_service','CT_form_first_page'])
+        toc=(self.root/'artifacts/toc.txt').read_text()
+        self.assertIn('Approved Form 0003',toc)
+        self.assertNotIn('0001',toc);self.assertNotIn('0002',toc)
+        self.assertNotIn('Historical',toc)
+        # Excluded historical descriptive fields are not silently cleaned up.
+        self.assertEqual(self.rows('names')[0]['name'],'Historical accidental name')
+
+    def test_unassigned_notice_service_exclusions_use_the_same_routing(self):
+        self.prompts[self.settings['form_prompt']]='form'
+        with patch('recordprep.classification_profiles.resolve_case_profile',return_value=None), \
+             patch('recordprep.case_profiles.resolve_case_profile',return_value=None):
+            self.test_hearing_notices_and_separate_service_proofs_never_enter_form_work()
 
     def test_basic_keeps_one_page_form_separator(self):
         self.prepare(['CT_report','CT_form','CT_report'],{1,2,3},{1:'Independent Report',2:'Approved Form',3:'Second Approved Report'})

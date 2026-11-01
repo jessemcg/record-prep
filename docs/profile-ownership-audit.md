@@ -1,5 +1,9 @@
 # Profile/app ownership audit
 
+**Historical schema-8 audit.** Summary/naming ownership and draft-isolation findings
+remain applicable; classification ownership is superseded by
+[application-owned classification/schema 9](application-classification.md).
+
 Targeted follow-up to reviewed `67d22aed8ad97c032b7be1012f68182f7ecffb88`.
 Dependency remains **1.8.0**, profile API **1**, content schema **8**. No bundled
 prose, shared contract file, private configuration, accepted revision or prepared

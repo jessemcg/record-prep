@@ -39,7 +39,7 @@ CLASSIFICATION_EXPLANATION = (
     "performs the first classification step. Here, RT pages and CT pages undergo further classification and information "
     "extraction through an image model that examines their corresponding images and returns results as JSON fields. "
     "First, the image model classifies the RT pages and CT pages into page types.\n\n"
-    "For RT pages, the most important page type is the RT body page type, which contains dialogue from a given hearing. "
+    "For RT pages, the most important page type is the RT body page type, which contains verbatim proceedings, including continuous speech without new speaker labels. "
     "Once RT body pages are identified, the image model re-examines each one to determine whether it is the first page "
     "of a hearing. For CT pages, the most important page types are minute orders, reports, and forms. As with RT body "
     "pages, once these page types are identified, the image model re-examines each page to determine whether it is the "
@@ -53,9 +53,6 @@ CLASSIFICATION_EXPLANATION = (
     "This ensures that only relevant reports and forms are identified."
 )
 CLASSIFICATION_PAGES = (
-    ("rt", "Reporter transcript page types", "Basic"),
-    ("ct", "Clerk transcript page types", "Basic"),
-    ("first-pages", "First pages", "Advanced · hearing, minute order, form, report"),
     ("report-naming", "Report Names", "Names"),
     ("form-naming", "Form Names", "Names"),
 )
@@ -359,7 +356,7 @@ class ProfileEditorWindow(Adw.Window):
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_child(body)
-        self._navigation.add_page(key, title, scroll, prompt=category == "Classification" or key == "minutes")
+        self._navigation.add_page(key, title, scroll, prompt=category == "Document naming" or key == "minutes")
         self.pages[key] = scroll
         self._page_bodies[key] = body
         self._page_body = body
@@ -391,7 +388,7 @@ class ProfileEditorWindow(Adw.Window):
         self._page_body.append(editor)
 
     def _explanation(self, box, category):
-        classification = category == "Classification"
+        classification = category == "Document naming"
         expander = Gtk.Expander(label="About classification" if classification else "About summaries", expanded=False)
         explanation = CLASSIFICATION_EXPLANATION if classification else SUMMARY_EXPLANATION
         explanation += "\n\n" + (CLASSIFICATION_PROGRESSION if classification else SUMMARY_PROGRESSION)
@@ -506,7 +503,7 @@ class ProfileEditorWindow(Adw.Window):
 
     def _fixed_cards(self, owner, keys, *, read_only=False):
         titles = {"first_hearing": "Hearing first page", "first_minute": "Minute-order first page",
-                  "first_form": "Form first page", "first_report": "Report first page", "RT_body": "Hearing dialogue"}
+                  "first_form": "Form first page", "first_report": "Report first page", "RT_body": "Hearing body"}
         for key in keys:
             card = Gtk.Expander()
             title = titles.get(key, friendly(key.removeprefix("RT_").removeprefix("CT_")))
@@ -568,41 +565,22 @@ class ProfileEditorWindow(Adw.Window):
         self._page_body.append(scroll)
 
     def _classification_contents(self, key, title):
-        tasks = self.editor.resources["classification_tasks"]
         naming = self.editor.resources["naming"]
-        self._explanation(self._page_body, "Classification")
-        if key in ("rt", "ct") and "page_types" in tasks:
-            self._fixed_cards(tasks["page_types"][key], CLASSIFICATION_PAGE_TYPES[key])
-        elif key == "first-pages":
-            owner = tasks.get("first_pages", tasks)
-            if owner is tasks:
-                self._page_body.append(wrapped("Legacy compatibility guidance — retained without splitting. Date extraction is application-owned."))
-            self._fixed_cards(owner, (task for task in CLASSIFICATION_FIRST_PAGE_TYPES if task in owner))
-            if "first_report" not in owner:
-                from .classifier_prompts import REPORT_FIRST_CLUES
-                self._page_body.append(wrapped("Report first-page detection uses the application's default clues for this older profile."))
-                self._fixed_cards({"first_report": REPORT_FIRST_CLUES}, ("first_report",), read_only=True)
-        elif key.endswith("-naming") and naming.get("schema_version") == 4:
+        self._explanation(self._page_body, "Document naming")
+        if naming.get("schema_version") == 4:
             plural = key.removesuffix("-naming") + "s"
-            self._page_body.append(wrapped("Enter each approved name and optional recognition description once. "
-                                           "This catalog is used only to name marked first pages, not to classify page types or detect document starts."))
             self._topic_catalog(self._group(title), naming[plural], kind="naming-" + plural)
         else:
-            self._page_body.append(wrapped("Legacy compatibility editor — original prose is preserved. Best-fit application policy overrides any ordering language. Reset to bundled explicitly replaces all guidance with structured settings."))
-            if key in ("rt", "ct"):
-                self._fixed_cards(tasks, (key,))
+            self._page_body.append(wrapped("Legacy naming compatibility editor — original catalog and prose are preserved without a guessed conversion."))
+            field = key.removesuffix("-naming") + "_guidance"
+            if naming.get("schema_version") == 3:
+                self._fixed_cards(naming, (field,))
             else:
-                field = key.removesuffix("-naming") + "_guidance"
-                if naming.get("schema_version") == 3:
-                    self._fixed_cards(naming, (field,))
-                else:
-                    # v1/v2 have authoritative catalogs/rules as well as prose.
-                    # One retained full-resource buffer serves both destinations.
-                    self._legacy_naming(naming)
+                self._legacy_naming(naming)
 
     def _recordprep_form(self):
         for key, title, stage in CLASSIFICATION_PAGES:
-            self._page("Classification", key, title)
+            self._page("Document naming", key, title)
             self.nav_rows[key].set_subtitle(stage)
             self._classification_contents(key, title)
         for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
@@ -654,7 +632,7 @@ class ProfileEditorWindow(Adw.Window):
             if response == "reset" and not self._closing:
                 self._reset_to(target, expected_head, expected_default, use_default)
         self.reset_dialog = confirmation(self, "Reset to bundled prompts?",
-            f'For “{target.manifest["display_name"]}”, replace all Classification and Summaries guidance, '
+            f'For “{target.manifest["display_name"]}”, replace all Document naming and Summaries guidance, '
             'including approved names, topic catalogs, and unsaved profile edits. Saves immediately. '
             'Model settings, case files, and generated output do not change.',
             (("cancel", "Cancel"), ("reset", "Reset and Save")), respond)
@@ -739,8 +717,7 @@ class ProfileEditorWindow(Adw.Window):
         self._navigation._capture(visible)
         resources = self.editor.resources
         rebuild = set()
-        for resource, pages in (("classification_tasks", ("rt", "ct", "first-pages")),
-                                ("naming", ("report-naming", "form-naming"))):
+        for resource, pages in (("naming", ("report-naming", "form-naming")),):
             old, new = resources[resource], snapshot.resource(resource)
             if (old.get("schema_version"), "page_types" in old) != (new.get("schema_version"), "page_types" in new):
                 rebuild.update(pages)
@@ -990,24 +967,8 @@ def editable_profile(snapshot):
         editor.resources["policies"].pop("attendance", None)
         from .minute_summaries import minute_profile_text
         editor.resources["minutes"] = minute_profile_text(snapshot)
-        if snapshot.manifest["schema_version"] == 1:
-            general = api.validate_profile_directory(api.bundled_profile_directory("general")).draft
-            editor.manifest["schema_version"] = 2
-            for name in ("classification_tasks", "case_name"):
-                editor.manifest["resources"][name] = general.manifest["resources"][name]
-                editor.resources[name] = general.resource(name)
-        editor.manifest["schema_version"] = 6
-        from .structured_guidance import structured_resources
-        tasks, naming, structured = structured_resources(editor.resources)
-        editor.resources["classification_tasks"] = tasks
-        editor.resources["naming"] = naming
-        if structured:
-            editor.manifest["schema_version"] = 8
-        editor.manifest["resources"].pop("classification", None)
-        editor.resources.pop("classification", None)
-        for name in RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES | RETIRED_OVERVIEW_RESOURCES:
-            editor.manifest["resources"].pop(name, None)
-            editor.resources.pop(name, None)
-        # Unknown legacy resources retain their exact format and prose. Only the
-        # structured resource pair above becomes a schema-8 draft.
+        from .structured_guidance import effective_resource
+        editor.resources["naming"] = effective_resource(editor.resources["naming"], "naming")
+        editor.use_current_schema()
+        # Naming v1–v4 remain valid under schema 9; unknown prose stays literal.
     return editor

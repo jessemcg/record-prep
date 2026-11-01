@@ -1,6 +1,9 @@
 # Task-only classification
 
-**Current:** [Structured classification schema 8](structured-classification.md)
+**Historical schema-6–8 report.** [Application-owned classification/schema 9](application-classification.md)
+is current; historical profile recognition remains readable but inactive.
+
+The earlier [Structured classification schema 8](structured-classification.md)
 uses five flat card destinations and application-owned dates. Best fit compares
 all descriptions without precedence. Report Names/Form Names supply naming only;
 Basic recognizes structural types and Advanced independently detects report starts,

@@ -4,9 +4,7 @@ Return only the specified JSON object, without commentary or extra keys.
 
 Review a page labeled RT_body in a legal transcript image. Decide whether this is the first page of the hearing for the particular case that is called. Ignore page numbers. If the page shows that hearing starting, answer yes; otherwise answer no.
 
-- The court is calling the case name or docket number.
-- Parties or attorneys announce their appearances.
-- The hearing appears to be starting (opening statements/roll call).
+Affirmative evidence of a fresh hearing or session opening is needed. A call of the case, opening appearances and introductory exchanges often support a start, considered together rather than as compulsory fields. A new witness, topic, printed page number, repeated caption or routine resumption alone is insufficient. Continuous speech, later testimony and concluding remarks are not fresh openings merely because a speaker label appears. Decide from this one image; do not infer unseen neighboring content.
 
 Return {"first_page": "yes"} or {"first_page": "no"}.
 

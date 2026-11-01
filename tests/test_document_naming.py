@@ -40,7 +40,7 @@ def snapshot(name="california_dependency"):
 def with_naming(original, value):
     files = dict(original.files)
     files[original.manifest["resources"]["naming"]] = json_bytes(value)
-    if value.get("schema_version") != 4:
+    if value.get("schema_version") != 4 and original.manifest['schema_version'] < 9:
         files["profile.json"] = json_bytes(original.manifest | {"schema_version": 6})
     return validate_contents(tuple(files.items()), "recordprep")
 
@@ -401,7 +401,7 @@ class NamingPipelineTests(unittest.TestCase):
         image = self.root / "synthetic.png"
         image.write_bytes(b"synthetic image; HTTP is mocked")
         settings = {"api_url": "https://synthetic.invalid", "model_id": "synthetic", "api_key": "",
-                    "prompt": 'Return JSON with keys: command.', "naming_contract": contract}
+                    "prompt": 'Return JSON with keys: command.', "naming_contract": contract, "profile_kind": "form"}
         payload = {"choices": [{"message": {"content": json.dumps({"name": "Notice of Appeal", "command": "x"})}}]}
         with patch.object(self.ui, "_post_json_with_retries", return_value=payload) as request:
             with patch.object(self.ui, "_extract_prompt_keys", side_effect=AssertionError("must not infer schema")):

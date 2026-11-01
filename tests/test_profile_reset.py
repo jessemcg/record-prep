@@ -69,14 +69,14 @@ class ProfileResetTests(unittest.TestCase):
 
     def test_cancel_duplicate_and_default_leave_dirty_draft_and_store_unchanged(self):
         w, store = self.window()
-        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = ""
+        w.editor.resources["naming"]["reports"][0]["guidance"] = ""
         before = w._state(), tree_bytes(self.root)
         dialog = w._reset()
         self.assertIs(w._reset(), dialog)
         self.assertEqual(dialog.get_default_response(), "cancel")
         self.assertEqual(dialog.get_close_response(), "cancel")
         self.assertEqual(dialog.get_response_appearance("reset"), Adw.ResponseAppearance.DESTRUCTIVE)
-        for text in ("Classification and Summaries", "approved names", "topic catalogs", "unsaved profile edits", "Saves immediately", "Model settings, case files, and generated output"):
+        for text in ("Document naming and Summaries", "approved names", "topic catalogs", "unsaved profile edits", "Saves immediately", "Model settings, case files, and generated output"):
             self.assertIn(text, dialog.get_body())
         dialog.response("cancel")
         drain()
@@ -89,7 +89,7 @@ class ProfileResetTests(unittest.TestCase):
         w, store = self.window()
         self.assertTrue(w._save())
         old_ref = w.editor.base.ref
-        w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic prior revision"
+        w.editor.resources["naming"]["reports"][0]["guidance"] = "Synthetic prior revision"
         self.assertTrue(w._save())
         prior = w.editor.base.ref
         prior_files = store.load_profile_snapshot(prior).files
@@ -117,7 +117,7 @@ class ProfileResetTests(unittest.TestCase):
         for selected in (True, False):
             with self.subTest(selected=selected):
                 w, store = self.window()
-                w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic old guidance"
+                w.editor.resources["naming"]["reports"][0]["guidance"] = "Synthetic old guidance"
                 old = w.editor.snapshot()
                 other = ProfileEditor.create(self.bundle, "Other synthetic profile").snapshot()
                 store.managed_save(other, expected_head=None, expected_default=None, use_for_new_cases=True)
@@ -134,8 +134,8 @@ class ProfileResetTests(unittest.TestCase):
 
     def test_retained_topics_buffers_undo_bindings_and_ordinary_save(self):
         w, store = self.window()
-        rt_buffer = next(x for x in descendants(w.pages["rt"]) if isinstance(x, Gtk.TextView)).get_buffer()
-        rt_buffer.set_text("Synthetic dirty RT")
+        rt_buffer = next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView)).get_buffer()
+        rt_buffer.set_text("Synthetic dirty report naming")
         rt_buffer.select_range(rt_buffer.get_iter_at_offset(5), rt_buffer.get_iter_at_offset(2))
         values = w.editor.resources["hearings"]
         surviving = values[0]
@@ -146,8 +146,8 @@ class ProfileResetTests(unittest.TestCase):
         values.append({"id": "personal-only", "title": "Only personal", "guidance": "Synthetic prose"})
         # Render only the synthetic setup. Reset itself must never rebuild.
         w._render()
-        w._recognition_cards['RT_cover'][0].set_expanded(True)
-        rt_buffer = next(x for x in descendants(w.pages["rt"]) if isinstance(x, Gtk.TextView)).get_buffer()
+        w._topic_expanders['topic:naming-reports:' + w.editor.resources['naming']['reports'][0]['id']].set_expanded(True)
+        rt_buffer = next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView)).get_buffer()
         detail = "topic:hearings:" + surviving["id"]
         card = w._topic_expanders[detail]
         card.set_expanded(True)
@@ -174,19 +174,19 @@ class ProfileResetTests(unittest.TestCase):
         self.assertIn("Synthetic dirty topic", values[0]["guidance"])
         self.assertEqual(store.load_profile_snapshot(w.editor.base.ref).files, self.bundle.files)
         rt_buffer.insert_at_cursor(" subsequent synthetic edit")
-        self.assertIn("subsequent synthetic edit", w.editor.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"])
+        self.assertIn("subsequent synthetic edit", w.editor.resources["naming"]["reports"][0]["guidance"])
         self.assertTrue(w._save())
         self.assertFalse(w._dirty())
         saved = store.load_profile_snapshot(w.editor.base.ref)
-        self.assertIn("subsequent synthetic edit", saved.resource("classification_tasks")["page_types"]["rt"]["RT_cover"])
+        self.assertIn("subsequent synthetic edit", saved.resource("naming")["reports"][0]["guidance"])
         reopened = editable_profile(saved)
         self.assertEqual(reopened.snapshot().files, saved.files)
 
     def test_selection_viewport_and_navigation_survive_shorter_replacement(self):
         w, _ = self.window()
-        w._select_page("rt")
+        w._select_page("report-naming")
         drain()
-        view = next(x for x in descendants(w.pages["rt"]) if isinstance(x, Gtk.TextView))
+        view = next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView))
         buffer = view.get_buffer()
         buffer.set_text("Synthetic long unsaved guidance.\n" * 500)
         scroll = view.get_ancestor(Gtk.ScrolledWindow)
@@ -195,9 +195,9 @@ class ProfileResetTests(unittest.TestCase):
         buffer.select_range(buffer.get_iter_at_offset(12000), buffer.get_iter_at_offset(10000))
         self.confirm(w)
         self.assertEqual(w.editor.snapshot().files, self.bundle.files)
-        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "rt")
-        self.assertIs(next(x for x in descendants(w.pages["rt"]) if isinstance(x, Gtk.TextView)), view)
-        selections = w._navigation._selections["rt"]
+        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "report-naming")
+        self.assertIs(next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView)), view)
+        selections = w._navigation._selections["report-naming"]
         self.assertEqual(selections[0][1:], (buffer.get_char_count(), buffer.get_char_count()))
         adjustment = scroll.get_vadjustment()
         self.assertAlmostEqual(adjustment.get_value(), min(200, max(0, adjustment.get_upper() - adjustment.get_page_size())), delta=2)
@@ -210,7 +210,7 @@ class ProfileResetTests(unittest.TestCase):
                 dialog = w._reset()
                 edit = ProfileEditor(self.bundle)
                 if change == "head":
-                    edit.resources["classification_tasks"]["page_types"]["rt"]["RT_cover"] = "Synthetic competing head"
+                    edit.resources["naming"]["reports"][0]["guidance"] = "Synthetic competing head"
                 else:
                     edit = ProfileEditor.create(self.bundle, "Synthetic other default")
                 store.managed_save(edit.snapshot(), expected_head=None, expected_default=None,
@@ -260,7 +260,7 @@ class ProfileResetTests(unittest.TestCase):
 
     def test_validation_and_write_failure_preserve_invalid_draft(self):
         w, store = self.window()
-        w.editor.resources["classification_tasks"]["page_types"]["ct"]["CT_cover"] = ""
+        w.editor.resources["naming"]["forms"][0]["name"] = ""
         for target in ("preview", "write"):
             before = copy.deepcopy(w._state()), w.editor, w.expected_head, w.expected_default
             registry_before = store.read_registry()

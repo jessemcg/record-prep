@@ -81,9 +81,25 @@ private config/case bundles remain untouched.
 
 ## Practice profiles
 
-Current structured settings: read `docs/structured-classification.md` and its
-validation report and `docs/report-first-pages.md`. Dependency 1.8.0 uses content
-schema 8, classification resource v3 and naming v4; schemas 1–7 stay readable.
+Current ownership contract: read `docs/application-classification.md`, its validation
+report and `docs/classification-review.md`. Dependency 1.9.0 uses content schema 9
+(`profile_api: 1`), omitting classification_tasks; schemas 1–8 stay readable and
+immutable. The packaged recognition-v1 resource owns all 15 definitions and four
+start clue sets for every profile and unassigned work. Never select historical
+profile/config classification prose. Display RT_body as Hearing body and CT_notice
+as Hearing notice without changing JSON keys. Standardized hearing notices and
+distinct service proofs remain CT_notice/CT_proof_of_service and never enter form
+start/naming/Forms TOC; qualifying Notice of Appeal forms remain CT_form. Titles are
+presentation-only. Strict loading fails before model work, no fallback. Runtime,
+preview, reference and fingerprints share pure builders and frozen contracts.
+Standalone App-owned Classification works without case/profile/storage/network;
+show complete eight fixed prompts without template/draft controls. Naming, summary
+topics and minute guidance remain profile-owned; dates unchanged. Structural work
+including unassigned work uses honest private checkpoints and guarded publication.
+Never delete canonical output to force regeneration; badges/Resume stay presence-based.
+Explicit create/save produces a new schema-9 revision without rewriting old snapshots
+or naming v1–v4. No automatic reruns or private cleanup. The older structured settings
+and report-start documents below remain historical detail where ownership differs.
 Report Names/Form Names are naming-only catalogs: never inject them into page-type
 or start prompts or restore CT catalog previews. Basic uses structural recognition;
 report footer codes are supporting clues, not approved names or mandatory gates.
@@ -94,19 +110,18 @@ marked first pages only. All starts, including unnamed ones, terminate earlier
 report ranges; orphan bodies/gaps remain source-only, never inferred starts. Keep
 one-page/adjacent/repeated-name reports separate; do not restore report-gap filling.
 Naming evidence/JSON/date/exact-name validation is unchanged. The Detention-only
-date sentence remains deleted. Only Names depends on catalogs; report-start clue
-edits affect Advanced/Corrected. Page-flow/selection identities invalidate old work
+date sentence remains deleted. Only Names depends on catalogs; application report-start
+clue changes affect Advanced/Corrected. Page-flow/selection identities invalidate old work
 checkpoints; Dates and summary model instructions stay unchanged. Actual upstream
-bytes still determine downstream workspaces. Unknown prose stays literal; explicit
-editing adds the fourth task, preserving flat legacy strings and inert dates in
-v3's lossless compatibility representation. Exact public adapters are read-only.
-Classification has five flat destinations (RT page types, CT page
-types, First pages, Report Names, Form Names); fixed-key recognition
-cards and stable-ID naming cards replace monolithic prompts. Date extraction is
+bytes still determine downstream workspaces. Historical classification prose stays
+literal but inactive in accepted snapshots. New drafts omit it; no conversion into
+editable recognition cards. Exact historical adapters remain compatibility-only.
+Document naming has Report Names and Form Names with stable-ID naming cards;
+App-owned Classification supplies read-only definitions and first-page clues. Date extraction is
 entirely application-owned; old date text is byte-preserved but inactive. Best fit
 compares all descriptions, with no precedence, weights or preferred label. Exact
-resource allowlists adapt known baseline prose; unknown custom prose stays in a
-labeled compatibility editor. Only explicit Save upgrades immutable revisions.
+naming-resource allowlists adapt known baseline prose; unknown custom naming prose
+stays in a labeled compatibility editor. Historical recognition prose is never used. Only explicit Save upgrades immutable revisions.
 Classification and report/form naming prompts use plain instructions, not branded
 Application/Naming Contract headings or subordinate-guidance/response-key restatements.
 The inspector's System message heading identifies transport, not extra model text.
@@ -121,7 +136,7 @@ an explicit summary-phase fingerprint (`slash-skill-space-v1`), not private-outp
 migration. Unassigned extraction also hashes its now-delivered skill/system/tools.
 The inspector labels staged skill versus launch-before-expansion; missing/stale
 packaged audits still report incomplete inspection. See docs/summary-skill-delivery.md.
-The schema-8 documentation supersedes older current-schema/RT–CT hierarchy/naming-bullet descriptions below.
+The schema-9 ownership document supersedes older editable-classification descriptions.
 
 See `docs/practice-profiles.md` and `docs/practice-profiles-validation.md` for the
 shipped-specialty/personal-settings workflow, v1 API and supported content schemas,
@@ -182,8 +197,12 @@ Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrapp
 Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
 accepted revisions remain intact as historical data. A deleted application selection
 returns to California Juvenile Dependency; old drafts cannot resurrect it. Historical pins never select guidance.
-Classification has no pinned stage/context summary above About classification. Its collapsed disclosure contains the complete explanation followed by the progression line. Both About classification and About summaries expand to their full natural height in the page's ordinary scroll area, pushing editors below them; never put either explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Preserve flat RT-first, CT-second navigation with stage subtitles, followed by the combined First pages settings and separate report/form naming cards; never restore RT/CT child indentation or date editors. Keep full-width retained editors. Classification has only task-specific prompts; Common guidance is removed from the editor,
-compilation and fingerprints. Schema 6 omits its resource entirely; explicit Profile settings
+App-owned Classification is linked only from the hamburger menu, never from the
+classification explainers. Keep About classification's original pipeline explanation
+and progression; do not restore the extra ownership/notice-policy paragraph or the
+"Enter each approved name and optional description once" catalog-entry hint.
+Document naming has no pinned stage/context summary above About classification. Its collapsed disclosure contains the complete explanation followed by the progression line. Both About classification and About summaries expand to their full natural height in the page's ordinary scroll area, pushing editors below them; never put either explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Keep only Report Names/Form Names under Document naming; never restore editable RT/CT/First pages or date destinations. Keep full-width retained editors. Classification is entirely application-owned; no profile common/task recognition
+guidance enters the editor, compilation or fingerprints. Schema 6 omits its resource entirely; explicit Profile settings
 Save drops the old field and file rather than storing hidden text. Do not migrate private
 snapshots in place. Naming uses separate approved-name instructions.
 Hearing labels are dates; report Names extracts name/date only at independently
@@ -211,7 +230,7 @@ Never auto-replace personal profiles or case pins with updated bundled resources
 or fabricate metadata to reuse incompatible checkpoints.
 Summaries has exactly Hearing digest topics, Report digest topics and Minute orders.
 Content schema 5 additionally removes overview instructions; the overview stage
-compiles no profile resources. Profile settings has only Classification and Summaries.
+compiles no profile resources. Profile settings has only Document naming and Summaries.
 Keep both overview skill paths identical in method: complete summary reads followed
 by selective, short Markdown bullets, not another narrative summary. Include only
 identity, latest posture and initial research leads; one fact in its best section,
@@ -224,7 +243,7 @@ for each section to teach selection, not case facts or fixed section sizes. Omit
 inventories and routine negative checklists; preserve necessary qualifications and
 claim-specific adjudication status, never blanket-label mixed matters unadjudicated.
 Historical overview
-prose is inert; only explicit Save publishes a current schema-6 draft. Preserve private
+prose is inert; only explicit Save publishes a current schema-9 draft. Preserve private
 candidate guards and Focus's nonauthoritative orientation contract.
 Content schema 4 removes role catalogs and participant instructions in addition to
 schema 3's four extra summary instruction resources. Older schemas remain readable;

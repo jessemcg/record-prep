@@ -18,18 +18,18 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class DocumentCatalogTests(unittest.TestCase):
     def test_catalogs_are_naming_only_and_report_recognition_is_structural(self):
-        b=bundle();n=b.resource('naming');t=b.resource('classification_tasks')
-        document=classifier_document(t,'ct')
+        b=bundle();n=b.resource('naming')
+        document=classifier_document('ct')
         sections={s.identity:s.text for s in document.sections}
         for kind,title in (('report','Report Names'),('form','Form Names')):
             self.assertIn(catalog_text(n,kind),naming_document(n,kind).render())
             self.assertNotIn(title,document.render())
         self.assertNotIn('ICWA-020',document.render())
         self.assertNotIn('Detention Report',document.render())
-        self.assertIn('including continuation pages',sections['CT_report'])
-        self.assertIn('need not have an approved output name',sections['CT_report'])
-        self.assertIn('CFS 6.7',sections['CT_report']);self.assertIn('DCFS 4216',sections['CT_report'])
-        self.assertIn('Page X of XX numbering alone',sections['CT_report'])
+        self.assertIn('continuation pages',sections['CT_report'])
+        self.assertIn('Neither approved-name membership',sections['CT_report'])
+        self.assertNotIn('CFS 6.7',sections['CT_report']);self.assertNotIn('DCFS 4216',sections['CT_report'])
+        self.assertIn('pagination style is required',sections['CT_report'])
         self.assertNotIn('CFS 6.7',catalog_text(n,'report'))
         self.assertNotIn('Return an empty name',document.render())
         self.assertNotIn('both that code and the matching heading must',document.render())
@@ -80,7 +80,7 @@ class DocumentCatalogTests(unittest.TestCase):
             c=compile_naming_profile(s,kind)
             self.assertEqual(c.allowed_names,())
             self.assertEqual(c.normalize({'name':'Unapproved','date':''}).name,'')
-        self.assertEqual(classifier_document(s.resource('classification_tasks'),'ct').render(),classifier_prompt(s,'ct')[0])
+        self.assertEqual(classifier_document('ct').render(),classifier_prompt(s,'ct')[0])
 
     def test_historical_catalog_projection_does_not_split_first_page_prose(self):
         old={'schema_version':3,'report_guidance':'- **Legacy Report**\nFIRST_PAGE_REPORT_CANARY',
@@ -96,7 +96,8 @@ class DocumentCatalogTests(unittest.TestCase):
         self.assertEqual(catalog_entries(v1,'form'),[{'name':'Old Form','description':''}])
 
     def test_exact_initial_structured_profiles_adapt_without_writes(self):
-        e=ProfileEditor(bundle());e.manifest['schema_version']=7
+        from test_practice_profiles import historical_snapshot
+        e=ProfileEditor(historical_snapshot(bundle(), version=7))
         base=ROOT/'recordprep/resources/profile_baselines/dependency-1.7.0-initial'
         for resource,file in (('classification_tasks','classification-v2.json'),('naming','naming-v4.json')):
             e.resources[resource]=json.loads((base/file).read_bytes())
@@ -106,8 +107,8 @@ class DocumentCatalogTests(unittest.TestCase):
         self.assertEqual(compile_naming_profile(old,'report').prompt,compile_naming_profile(bundle(),'report').prompt)
         draft=editable_profile(old)
         self.assertEqual(draft.resources['naming']['reports'][0]['guidance'],'')
-        self.assertEqual(draft.manifest['schema_version'],8)
-        self.assertNotIn('Detention Report',draft.resources['classification_tasks']['page_types']['ct']['CT_report'])
+        self.assertEqual(draft.manifest['schema_version'],9)
+        self.assertNotIn('classification_tasks',draft.resources)
         self.assertEqual(old.files,before)
         custom=old.resource('naming');custom['reports'][0]['guidance']+=' Custom literal prose.'
         self.assertEqual(effective_resource(custom,'naming'),custom)

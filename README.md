@@ -80,7 +80,8 @@ existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
 RecordPrep includes a **California Juvenile Dependency** profile that you can
-customize or use as a starting point for other practice areas.
+customize or use as a starting point for other practice areas. Profiles customize
+naming and summaries; **App-owned Classification** shows the app's fixed page rules.
 See the [user guide](docs/workflow.md) for details.
 
 AI preparation may send record text and page images to configured providers.

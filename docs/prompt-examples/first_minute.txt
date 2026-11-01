@@ -1,0 +1,12 @@
+===== System message =====
+Examine the attached page image. Use only visible evidence, preserve uncertainty, and do not invent information.
+Return only the specified JSON object, without commentary or extra keys.
+
+Review a page labeled CT_minute_order in a legal transcript image. Decide whether this is clearly the first page of the minute order, not a continuation. Answer yes if clearly the start; otherwise answer no.
+
+Identify a fresh beginning of a distinct minute order from its opening structure. Identifying hearing fields, initial appearances, introductory proceedings or the opening of the court's action may support recognition; no particular heading, signature or 'Page 1' is mandatory. A one-page order can be a start. Repeated headings, continuing numbered items, later rulings and integral signature/attestation/mailing endings alone do not establish a start. Consider clues together using this one image.
+
+Return {"first_page": "yes"} or {"first_page": "no"}.
+
+===== Page image — attached separately =====
+⟪The actual page image is attached separately to the request.⟫

@@ -11,34 +11,33 @@ There is no profile repository, download, sibling package import or automatic
 cross-app synchronization. Portable profile settings may be explicitly selected
 outside bundles; historical case pins no longer authorize instructions.
 
-## Structured settings (current)
+## Current settings and fixed classification
 
-Dependency **1.8.0**, content schema **8**, provides five flat Classification
-destinations: **Reporter transcript page types**, **Clerk transcript page types**,
-**First pages**, **Report Names**, and **Form Names**. Edit descriptions,
-not fixed page-type/output keys. RT/CT uses best fit across all descriptions, not
-list order. First pages has four cards: hearing, minute order, form and report.
-Hearing/minute dates are fixed application instructions, inspectable but not editable.
-Approved report/form names are retained stable-ID cards with optional recognition
-descriptions and organizational Add/Remove/reorder actions, not Markdown bullet syntax.
-These catalogs supply naming only, not structural page recognition or start checks.
-Advanced checks every report page independently, including adjacent and unnamed
-reports. Names uses marked first pages, and unnamed starts still break earlier
-report ranges. CT catalog previews/links and report-gap filling are removed.
-See [report starts, cost and compatibility](report-first-pages.md).
-There is no Detention-specific date exception; report dates use the general method.
+Dependency **1.9.0**, content schema **9**, retains two expandable Profile settings
+groups: **Document naming** (Report Names/Form Names) and **Summaries** (hearing/report
+digest topics and minute orders). Approved naming cards retain stable IDs and optional
+descriptions; legacy naming v1–v4 stays supported. These catalogs supply naming only,
+not structural recognition or start checks. Save/reset and summary behavior are unchanged.
 
-Both About disclosures offer **View full prompts…**, with a placeholder template
-(default) or a frozen unsaved draft, search and Copy. No case, credentials, Node or
-model request is needed. The separately authorized [summary skill-delivery fix](summary-skill-delivery.md)
-now verifies expansion of all five summary skills through the installed Pi SDK.
-The inspector distinguishes staged skills from launch messages before expansion;
-missing or stale audits remain visible. Invalid compatibility JSON is frozen as literal raw text with an incomplete/invalid-draft warning; the inspector never labels the last valid naming object as the current draft. Valid unrelated tasks remain inspectable, with the limitation visible.
-See the [ownership/dependency inventory and validation](profile-ownership-audit.md) and the [current schema, information review,
-compatibility and delivery verification](structured-classification.md) and
-[validation](structured-classification-validation.md). Historical format details
-below apply to older immutable snapshots where identified; no private migration or
-automatic output regeneration occurs.
+All 15 page-type definitions and four start-task clue sets belong to RecordPrep.
+**App-owned Classification** is a standalone menu action without case/profile/store
+or network requirements, showing the full definitions and eight complete fixed task
+prompts, searchable/selectable/copyable and read-only. It has no draft/template switch.
+RT_body is **Hearing body**, CT_notice is **Hearing notice**, with unchanged JSON keys.
+Standardized hearing notices and separate service proofs are excluded from form-start,
+naming and Forms TOC; qualifying Notice of Appeal forms remain CT_form. Dates are unchanged.
+
+Naming and summary About disclosures still inspect a frozen unsaved draft or template.
+Invalid naming JSON remains literal with an honest warning; it cannot block or alter
+application classification inspection. The [summary delivery audit](summary-skill-delivery.md)
+continues to distinguish staged skills from actual launch/expansion, with unchanged
+summary resources and semantics. Missing/stale audits remain visible.
+
+[Application-owned classification](application-classification.md) is authoritative
+for current ownership, private checkpoints, explicit schema-9 saves, compatibility
+and [validation limits](application-classification-validation.md). The older schema
+and editable-recognition descriptions below are historical, not current settings.
+Accepted revisions and saved output are never migrated or automatically regenerated.
 
 ## Historical bundled Dependency baseline
 
@@ -59,7 +58,7 @@ supported; a later personal edit or bundled update can make them differ again.
 
 The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. At that time the bundle
 again matched the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
-original wording and formatting. Current Dependency is 1.8.0/schema 8 as described above; Reset to bundled restores that current shipped revision. See
+original wording and formatting. Current Dependency is 1.9.0/schema 9 as described above; Reset to bundled restores that current shipped revision. See
 [reset and restoration validation](bundled-reset-validation.md).
 
 ## Choose, edit, save

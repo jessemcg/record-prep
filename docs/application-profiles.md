@@ -12,6 +12,20 @@ An absent historical snapshot, an older profile version, or a malformed historic
 pin cannot make the current profile unavailable. New bundles get no such pin.
 Profile version labels remain internal compatibility metadata, not bundle requirements.
 
+## Classification ownership (content schema 9)
+
+Profiles personalize **Document naming** (Report Names/Form Names) and **Summaries**
+(topics and minute guidance), not structural recognition. RecordPrep's packaged
+neutral definitions and four start detectors apply regardless of profile and to
+unassigned work. **App-owned Classification** works without a case or available
+profile storage and shows all definitions and eight complete fixed prompts.
+Standardized hearing notices and separate service proofs are not forms for start,
+naming or Forms TOC purposes; qualifying Notice of Appeal forms remain forms.
+Explicit profile create/save produces schema 9 without rewriting historical
+snapshots or naming catalogs. Saved output and Resume behavior are unchanged; only
+explicit Basic/downstream work applies the new rules to existing classifications.
+See [application-owned classification](application-classification.md).
+
 ## Save and resume
 
 **Profile settings → Save** saves application guidance. Saving the selected

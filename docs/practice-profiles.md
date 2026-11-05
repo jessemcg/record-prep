@@ -365,7 +365,8 @@ the application. Unsafe paths, corrupt registries, unavailable snapshots and
 explicitly configured missing defaults are errors, never reasons to reset or
 silently substitute another profile. Neither browsing old output nor new work
 needs the old output's instruction snapshot. New work needs the current selected
-guidance. **Profile storage…** can explicitly save/select a portable folder;
+guidance. There is no profile-storage folder chooser in the menu. Previously
+selected portable folders and launch overrides remain supported;
 see [storage safeguards](application-profiles.md#portable-profile-settings).
 
 Save validates the complete draft with production compilers, checks the active

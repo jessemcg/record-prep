@@ -9,7 +9,7 @@ from gi.repository import Adw, GLib, Gtk, Gio, Pango
 
 from . import practice_profiles as api
 from .profile_contract import ProfileError
-from .profile_editor_ui import ProfileEditorWindow, ProfileSelector, button, wrapped, editable_profile, confirmation
+from .profile_editor_ui import ProfileEditorWindow, ProfileSelector, button, wrapped, editable_profile
 
 
 _menu_style_provider = None
@@ -63,7 +63,7 @@ class ProfileManagerWindow(Gtk.Box):
     """Embedded controls: historical adapter name, no separate chooser window."""
     def __init__(self, parent, *, can_modify, preview, on_select, context_text="", allow_legacy=True,
                  selected_ref=None, customization=None, can_select=None, settings=False, case_ref=None, case_confirmed=True,
-                 has_case=True, on_deleted=lambda _ref: None, on_storage_changed=lambda: None):
+                 has_case=True, on_deleted=lambda _ref: None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.parent_window = parent
         self.store = api.profile_store()
@@ -73,7 +73,6 @@ class ProfileManagerWindow(Gtk.Box):
         self.case_confirmed = case_confirmed
         self.has_case = has_case
         self.on_deleted = on_deleted
-        self.on_storage_changed = on_storage_changed
         self.children_windows = []
         self._guard_id = 0
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -94,10 +93,6 @@ class ProfileManagerWindow(Gtk.Box):
             self.new_profile_button.add_css_class("profile-menu-item")
             self.new_profile_button.set_child(menu_label("Create profiles"))
             self.body.append(self.new_profile_button)
-        self.storage_button = button("", self._storage)
-        self.storage_button.add_css_class("profile-menu-item")
-        self.storage_button.set_child(menu_label("Profile storage…"))
-        self.body.append(self.storage_button)
         self._refresh(selected_ref)
         self.connect("map", self._mapped)
         self.connect("unmap", self._closed)
@@ -121,7 +116,6 @@ class ProfileManagerWindow(Gtk.Box):
         self.selector.set_sensitive(allowed and self.can_select())
         if self.new_profile_button is not None:
             self.new_profile_button.set_sensitive(allowed)
-        self.storage_button.set_sensitive(allowed)
         blocked = "Profile changes are unavailable while work is active or the case has changed."
         if not allowed:
             self.message.set_text(blocked)
@@ -246,44 +240,6 @@ class ProfileManagerWindow(Gtk.Box):
             return editor
         except (ValueError, OSError):
             self.message.set_text("Profile settings are unavailable. Existing output remains readable.")
-
-    def _storage(self):
-        if not self.can_modify():
-            return
-        import os
-        if os.environ.get("RECORDPREP_PROFILE_DIR"):
-            self.message.set_text("Profile storage is set by RECORDPREP_PROFILE_DIR. Remove that launch override to choose a folder here.")
-            return
-        def choose(action):
-            if action not in {"save", "use"}:
-                return
-            dialog = Gtk.FileDialog(title=("Choose parent folder for portable profiles" if action == "save"
-                                           else "Choose existing portable profile folder"))
-            def selected(dialog, result):
-                try:
-                    folder = dialog.select_folder_finish(result)
-                    if folder is None or folder.get_path() is None:
-                        return
-                    from pathlib import Path
-                    from .profile_portability import save_portable_profiles, use_directory
-                    root = Path(folder.get_path())
-                    if action == "save":
-                        root /= "RecordPrep profiles"
-                        save_portable_profiles(self.store, root, can_modify=self.can_modify)
-                    use_directory(root, can_modify=self.can_modify)
-                    self.on_storage_changed()
-                    self.message.set_text("Profile storage selected. Reopen the menu; existing bundles are unchanged.")
-                except GLib.Error:
-                    return  # File chooser cancellation.
-                except (ValueError, OSError) as exc:
-                    code = exc.issue.code if isinstance(exc, ProfileError) else "storage_error"
-                    self.message.set_text("Profile storage was not selected (" + code + "). Existing settings are retained.")
-            dialog.select_folder(self.parent_window, None, selected)
-        return confirmation(self.parent_window, "Profile storage",
-                            "Profiles are separate from case bundles. Save current profiles to a new ‘RecordPrep profiles’ folder, "
-                            "or use an existing portable folder. Originals are kept. For a synchronized folder, close RecordPrep "
-                            "and let synchronization finish before using it on another computer. Never edit on two computers at once.",
-                            (("save", "Save to new folder…"), ("use", "Use existing folder…"), ("cancel", "Cancel")), choose)
 
     def _new(self):
         if not self.can_modify():

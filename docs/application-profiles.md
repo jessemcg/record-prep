@@ -86,15 +86,10 @@ not accepted by runtime compatibility, and no historical markers are rewritten.
 
 ## Portable profile settings
 
-Use **Profile storage…** in the hamburger menu:
-
-- **Save to new folder…**: choose a parent folder. RecordPrep writes a new
-  `RecordPrep profiles` directory and selects it for subsequent use. An existing
-  destination is never overwritten or merged. Current profiles, personal edits,
-  and the selected instructions are saved; original private stores remain intact.
-- **Use existing folder…**: choose an already prepared portable directory.
-  RecordPrep validates it before selecting it. It does not copy it into a local
-  snapshot store, alter case bundles, or reset unavailable settings.
+Profiles use the standard machine-local XDG directories by default. The hamburger
+menu has no profile-storage folder chooser. Removing that control does not move
+profiles or change an existing storage selection. Portable-store support remains
+for compatibility with previously selected folders and launch overrides.
 
 The portable directory contains `registry.json` and immutable, content-verified
 `snapshots/`. It contains no credentials, model/runtime settings, recent-case
@@ -115,10 +110,9 @@ The folder choice is machine-local at
 `$XDG_STATE_HOME/recordprep/profile-storage.json` (default
 `~/.local/state/recordprep/profile-storage.json`). Locks also live in that local
 state directory. An optional absolute `RECORDPREP_PROFILE_DIR` launch override
-selects an **existing** portable store and takes precedence; while set, change
-that override rather than using the folder chooser. A missing configured folder
+selects an **existing** portable store and takes precedence. A missing configured folder
 is an error, not permission to fall back silently to different instructions.
-Existing private stores remain the default until an explicit storage action;
+Existing private stores remain the default when no locator or override is set;
 there is no launch-time migration or relocation of personal instructions.
 
 ## Validation boundary
@@ -129,7 +123,8 @@ no-overwrite, unsafe paths, sync conflicts, incomplete snapshots and private-sto
 permission isolation. The current profile generation/classification/minute/native
 suites exercise actual runners and checkpoint reuse with synthetic models.
 `tests/acceptance_application_profiles.py` exercises real GTK selection, Save,
-case independence, storage switching and stale-editor protection.
+case independence, absence of the storage menu item, and backend storage switching
+with stale-editor protection.
 
 Frozen unassigned-generation fixtures explicitly inject their legacy resolver
 only inside tests (`tests/legacy_profile_fixtures.py`); production has no hidden

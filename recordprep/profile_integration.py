@@ -113,12 +113,6 @@ def open_manager(owner, project_dir: Path, parent=None):
         if root is not None and root.exists():
             owner._refresh_step_statuses_from_artifacts()
         update_indicator(owner)
-    def storage_changed():
-        # Invalidate outstanding drafts without changing the case or model settings.
-        owner._case_generation = getattr(owner, "_case_generation", 0) + 1
-        update_indicator(owner)
-        if root is not None and root.exists():
-            owner._refresh_step_statuses_from_artifacts()
     proposed = previous
     if root is None or not root.exists():
         try:
@@ -131,7 +125,7 @@ def open_manager(owner, project_dir: Path, parent=None):
                                       allow_legacy=False, selected_ref=proposed,
                                       case_ref=proposed if root is None or not root.exists() else previous,
                                       has_case=root is not None and root.exists(), settings=parent is not None,
-                                      on_deleted=deleted, on_storage_changed=storage_changed)
+                                      on_deleted=deleted)
     except (ValueError, OSError):
         unavailable(parent or owner)
         return None

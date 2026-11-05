@@ -268,7 +268,8 @@ Header Clear current case is selection-only: preserve all case/PDF artifacts and
 unrelated configuration, invalidate stale dialogs and reset pending case state.
 Profile settings works with or without a case; every explicit dropdown choice
 atomically updates the application selection and survives restart. Clear preserves
-it. Profile storage offers explicit save-to-new-folder/use-existing-folder flows;
+it. The hamburger menu has no Profile storage folder chooser. Preserve default
+XDG storage and compatibility with existing portable locators/launch overrides;
 portable registry/snapshots can synchronize, but the locator and locks stay local.
 No startup migration. Keep originals and refuse overwrites, conflicts, unsafe paths
 or partial synchronization. Require single-writer synchronization, never contact peers. Case metadata tolerates synchronized 0755/0775 and 0644/0664

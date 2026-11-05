@@ -17,7 +17,7 @@ os.environ.pop('RECORDPREP_PROFILE_DIR', None)
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import GLib
+from gi.repository import GLib, Gtk
 from recordprep.ui.main_window import RecordPrepApp
 from recordprep import practice_profiles as api, profile_integration as integration
 from recordprep.profile_portability import save_portable_profiles, use_directory
@@ -80,7 +80,14 @@ def run():
         window._resolve_case_root = lambda: bundle
         manager = integration.open_manager(window, HERE / '.pi')
         assert manager.store.config_root == destination
-        assert manager.storage_button.get_child().get_text() == 'Profile storage…'
+        assert not hasattr(manager, 'storage_button')
+        buttons = []
+        child = manager.body.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child.get_child().get_text())
+            child = child.get_next_sibling()
+        assert buttons == ['Profile settings', 'Create profiles'], buttons
         editor = manager._edit()
         drain()
         assert editor.case_notice.get_visible()

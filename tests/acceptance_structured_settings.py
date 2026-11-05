@@ -62,7 +62,9 @@ def run(*_):
         preview=lambda s:preview(s,Path(__file__).resolve().parents[1]/'.pi'),on_saved=Mock(),candidates=candidates)
     windows.append(w);w.set_title('Synthetic RecordPrep — Document naming and Summaries')
     if '--interactive' in sys.argv:
-        w.present();reference.present();return
+        w._select_page('report-naming')
+        w._topic_expanders['topic:naming-reports:report-17'].set_expanded(True)
+        w.present();return
     def check():
         assert list(w.nav_groups)==['Document naming','Summaries']
         assert list(w.nav_rows)==['report-naming','form-naming','hearings-topics','reports-topics','minutes']
@@ -102,7 +104,15 @@ def run(*_):
         with patch.object(type(inspector),'get_clipboard',return_value=clipboard):inspector._copy()
         clipboard.set.assert_called_once_with(textbuffer.get_text(*textbuffer.get_bounds(),True))
         inspector.destroy()
-        value=w.editor.resources['naming']['reports'][0];detail='topic:naming-reports:'+value['id']
+        reports=w.editor.resources['naming']['reports']
+        assert len(reports)==17 and reports[4]['id']=='report-17'
+        assert reports[4]['name']=='Jurisdiction/Disposition Report'
+        for card in reports:
+            view=w._topic_editors['topic:naming-reports:'+card['id']].get_child()
+            assert view.get_wrap_mode()==Gtk.WrapMode.WORD_CHAR
+            assert view.get_buffer().get_text(*view.get_buffer().get_bounds(),True)==card['guidance']
+            assert card['guidance'].startswith('Court-directed child-welfare agency report.')
+        value=reports[0];detail='topic:naming-reports:'+value['id']
         editor=w._topic_editors[detail];buffer=editor.get_child().get_buffer()
         buffer.insert_at_cursor(' Authored fictional naming clue.')
         assert w._save(),w.message.get_text()
@@ -113,6 +123,13 @@ def run(*_):
             w._select_page(page);w._inspect_prompts(category)
             current=w.prompt_inspector;current.mode.set_selected(1)
             assert current.get_modal() and not current.status.get_text(),current.status.get_text()
+            if category=='Document naming':
+                from recordprep.document_naming import compile_naming_profile
+                current.selector.set_selected(0);current._refresh()
+                text=current.text.get_buffer().get_text(*current.text.get_buffer().get_bounds(),True)
+                assert compile_naming_profile(w.editor.snapshot(),'report').prompt in text
+                assert 'opening structure and court/report identification' in text
+                assert 'Jurisdiction/Disposition Report' in text
             current.destroy()
         ref=w.editor.base.ref;value['name']='';assert not w._save();assert w.editor.base.ref==ref
         # Invalid naming cannot contaminate standalone fixed inspection.
@@ -135,6 +152,8 @@ def run(*_):
                ('naming-home',w,'home',850,760,False,11),
                ('report-names',w,'report-naming',480,760,False,11),
                ('report-names-about',w,'report-naming',480,1000,False,11),
+               ('report-combined',w,'report-naming',700,1000,False,11),
+               ('report-prompts',w,'report-prompts',700,760,False,11),
                ('form-names',w,'form-naming',480,760,False,11),
                ('summary-topics',w,'hearings-topics',850,760,False,11),
                ('fixed-prompts',reference,'prompts',700,760,False,11)]
@@ -152,13 +171,17 @@ def run(*_):
             Gtk.Settings.get_default().set_property('gtk-font-name',f'Sans {font}')
             if page=='home':w._navigation.view.pop_to_tag('home');w.nav_groups['Document naming'].set_expanded(True)
             elif page=='prompts':reference._prompts();target=reference.prompt_inspector
+            elif page=='report-prompts':
+                w._inspect_prompts('Document naming');target=w.prompt_inspector
+                target.mode.set_selected(1);target.selector.set_selected(0);target._refresh()
             elif page:
                 w._select_page(page)
                 if page in ('report-naming','form-naming'):
                     next(x for x in descendants(w.pages[page]) if isinstance(x,Gtk.Expander)
                          and x.get_label()=='About classification').set_expanded(name.endswith('-about'))
                 for key,card in w._topic_expanders.items():
-                    if key.startswith('topic:naming-') or key.startswith('topic:hearings:'):card.set_expanded(True)
+                    if key.startswith('topic:naming-') or key.startswith('topic:hearings:'):
+                        card.set_expanded(key=='topic:naming-reports:report-17' if name=='report-combined' else True)
             target.set_default_size(width,height);target.present()
             # Observe a full frame before snapshotting; a just-created paintable
             # can otherwise have no node for a stable already-mapped widget.
@@ -170,7 +193,7 @@ def run(*_):
                 if node is None:raise RuntimeError('No rendered GTK frame; visual acceptance incomplete.')
                 target.get_renderer().render_texture(node,None).save_to_png(str(destination/(name+'.png')))
                 print(name,target.get_width(),target.get_height(),flush=True)
-                if page=='prompts' or fresh_reference:target.destroy()
+                if page in ('prompts','report-prompts') or fresh_reference:target.destroy()
                 schedule(350,next_step);return GLib.SOURCE_REMOVE
             schedule(500,capture);return GLib.SOURCE_REMOVE
         schedule(350,next_step);return GLib.SOURCE_REMOVE

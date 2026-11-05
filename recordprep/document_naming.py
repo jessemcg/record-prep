@@ -1,8 +1,8 @@
 """GTK-independent naming composition and conservative result handling.
 
 Only callers with an explicitly selected, frozen profile use this contract.
-Legacy prompt settings are not read, exported, or changed here. Heading/code
-visibility is a model interpretation rule, not proven by catalog membership.
+Legacy prompt settings are not read, exported, or changed here. Report identity
+and form heading/code visibility are model interpretations, not proven by membership.
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ class NamingContract:
         """Bound model output without inventing a title or echoing private text.
 
         This checks response types, exact catalog membership and calendar dates.
-        It cannot verify that the model really saw a prominent heading or code.
+        It cannot verify visible report identity or form heading/code evidence.
         A malformed/unknown name never cancels a detected document's range.
         """
         flags = []
@@ -128,7 +128,7 @@ def naming_document(naming: dict, kind: str):
     naming = effective_resource(naming, "naming")
     if naming.get("schema_version") != 4 or kind not in ("report", "form"):
         raise ValueError("Structured naming resource required")
-    mechanics = ("""The report title must appear as a prominent heading on this page. If multiple report titles appear, choose the most prominent and specific title. Do not infer its name from headers, footers or page numbers alone.
+    mechanics = ("""Identify the report from its own visible title or identifying wording, interpreted with the catalog descriptions. A prominent heading is strong evidence, not a requirement. The report’s own header or footer may identify its family when supported by the opening structure and court/report identification on this same supplied image. A running title, code, or page number alone is insufficient. Consider conflicting heading and footer evidence together with explicitly described variants; if the conflict remains unresolved, return an empty name. Distinguish the document’s own identity from names merely mentioned in narrative, an attachment list, a hearing-type field, or a request to prepare another report.
 Use the date tied to the report itself or to its hearing, such as a field labeled Hearing Date near the report title. Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.
 """ if kind == "report" else """The form title must appear as a prominent heading. Use the canonical output name as the required heading unless the description identifies another heading. When a description identifies a form code, both that code and the matching heading must be visible on this same first page. A code alone is not a match. If required evidence is missing or unclear, return an empty name. Return the exact approved name, not a shorter heading/code.
 """)

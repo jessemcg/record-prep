@@ -63,15 +63,15 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertNotIn('apply in order', json.dumps(t))
 
     def test_names_and_form_evidence(self):
-        from test_document_naming import REPORT_TITLES, FORM_RULES
+        from test_document_naming import BUNDLED_REPORT_TITLES, FORM_RULES
         b = bundle(); n = b.resource('naming')
-        self.assertEqual(tuple(e['name'] for e in n['reports']), REPORT_TITLES)
+        self.assertEqual(tuple(e['name'] for e in n['reports']), BUNDLED_REPORT_TITLES)
         self.assertEqual(len(n['forms']), 6)
         for card, (name,heading,code) in zip(n['forms'], FORM_RULES):
             self.assertEqual(card['name'],name)
             self.assertIn(heading,card['guidance']); self.assertIn(code,card['guidance'])
         self.assertNotIn('Parential', json.dumps(n))
-        self.assertTrue(all(not card['guidance'] for card in n['reports']))
+        self.assertTrue(all(card['guidance'].startswith('Court-directed child-welfare agency report.') for card in n['reports']))
         self.assertNotIn('Hearing Date near the DETENTION REPORT heading',compile_naming_profile(b,'report').prompt)
         for kind in ('report','form'):
             c=compile_naming_profile(b,kind)
@@ -107,7 +107,7 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_exact_adapters_preserve_original_reference(self):
         old=legacy(); before=old.files
         for kind,_ in CLASSIFICATION_TASKS:
-            self.assertEqual(classifier_prompt(old,kind),classifier_prompt(bundle(),kind))
+            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind != 'report')
         self.assertEqual(old.files,before)
         e=ProfileEditor(old); e.resources['classification_tasks']['rt']+=' Custom prose.'
         value=effective_resource(e.resources['classification_tasks'],'classification_tasks')
@@ -121,7 +121,9 @@ class StructuredClassificationTests(unittest.TestCase):
         e=ProfileEditor(legacy()); e.resources['classification_tasks']['rt']+=' literal {json} α'
         changed=e.snapshot()
         for stage in baseline:
-            self.assertEqual(component(changed,stage),baseline[stage])
+            self.assertEqual(component(changed,stage) == baseline[stage], stage != 'names')
+        # Historical adapters preserve their old empty-description naming catalog.
+        self.assertEqual(component(changed,'names'),component(legacy(),'names'))
         old=legacy(); e=ProfileEditor(old)
         e.resources['classification_tasks']['date_hearing']='PRIVATE LEGACY DATE OVERRIDE'
         self.assertEqual(component(old,'dates'),component(e.snapshot(),'dates'))

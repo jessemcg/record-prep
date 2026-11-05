@@ -82,7 +82,7 @@ private config/case bundles remain untouched.
 ## Practice profiles
 
 Current ownership contract: read `docs/application-classification.md`, its validation
-report and `docs/classification-review.md`. Dependency 1.9.0 uses content schema 9
+report and `docs/classification-review.md`. Dependency 1.10.0 uses content schema 9
 (`profile_api: 1`), omitting classification_tasks; schemas 1–8 stay readable and
 immutable. The packaged recognition-v1 resource owns all 15 definitions and four
 start clue sets for every profile and unassigned work. Never select historical
@@ -109,8 +109,16 @@ stored for every checked report page. Names requires complete checks and names
 marked first pages only. All starts, including unnamed ones, terminate earlier
 report ranges; orphan bodies/gaps remain source-only, never inferred starts. Keep
 one-page/adjacent/repeated-name reports separate; do not restore report-gap filling.
-Naming evidence/JSON/date/exact-name validation is unchanged. The Detention-only
-date sentence remains deleted. Only Names depends on catalogs; application report-start
+Report naming uses the document's own visible title/identifying wording with catalog
+descriptions; contextual same-image header/footer evidence is permitted, not required.
+Repeated footers/codes/page numbers alone never prove identity or first-page status.
+Unresolved heading/footer conflicts yield an empty name; only explicitly described
+variants apply. Dependency's 17 agency-report cards include report-17 Jurisdiction/Disposition
+Report; unmatched CASA titles stay unnamed. See docs/dependency-report-naming.md for
+matching scope, historical preservation, isolated validation limits and explicit adoption.
+JSON/date/exact-name validation and form prompts remain unchanged; do not bump the
+shared naming contract version or update historical adapters to the latest catalog.
+The report-date sentence stays byte-identical; the Detention-only date sentence remains deleted. Only Names depends on catalogs; application report-start
 clue changes affect Advanced/Corrected. Page-flow/selection identities invalidate old work
 checkpoints; Dates and summary model instructions stay unchanged. Actual upstream
 bytes still determine downstream workspaces. Historical classification prose stays

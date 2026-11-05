@@ -1,4 +1,4 @@
-"""Public schema-8 release preserves frozen pre-editorial 1.6.0 fixtures."""
+"""Current bundle preserves frozen historical naming and unrelated resource bytes."""
 import hashlib
 import json
 from pathlib import Path
@@ -23,9 +23,16 @@ class DependencyBundledGuidanceTests(unittest.TestCase):
         self.assertEqual(json.loads((BASE/'profile.json').read_bytes())['version'],'1.6.0')
         self.assertEqual(hashlib.sha256((BASE/'classification-tasks.json').read_bytes()).hexdigest(),'ff5f02032aa081923badf4c40c5df19cb137af8be0c8a4512536fe0dbc97c189')
         b=api.bundled_profile_for_identity(api.APPLICATION,api.DEFAULT_PROFILE_ID)
-        self.assertEqual(b.manifest['version'],'1.9.0')
+        self.assertEqual(b.manifest['version'],'1.10.0')
         self.assertNotIn('classification_tasks', b.manifest['resources'])
-        self.assertEqual(effective_resource(json.loads((BASE/'naming.json').read_bytes()),'naming'),b.resource('naming'))
+        old = effective_resource(json.loads((BASE/'naming.json').read_bytes()), 'naming')
+        frozen = json.loads((api.bundled_profile_directory('california_dependency').parents[1] /
+                             'profile_baselines/dependency-1.6.0/naming-v4.json').read_bytes())
+        self.assertEqual(old, frozen)
+        self.assertEqual(len(old['reports']), 16)
+        self.assertTrue(all(not card['guidance'] for card in old['reports']))
+        self.assertNotEqual(old, b.resource('naming'))
+        self.assertEqual(old['forms'], b.resource('naming')['forms'])
 
     def test_bundle_already_matches_current_editor_resources(self):
         b=api.bundled_profile_for_identity(api.APPLICATION,api.DEFAULT_PROFILE_ID)

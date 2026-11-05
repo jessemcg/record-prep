@@ -1,6 +1,6 @@
 # Application-owned classification
 
-This is the current contract (Dependency **1.9.0**, content schema **9**, unchanged
+This is the current contract (Dependency **1.10.0**, content schema **9**, unchanged
 `profile_api: 1`). It supersedes the editable-classification portions of
 [structured classification](structured-classification.md), older settings reports
 and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
@@ -57,8 +57,13 @@ a page type. Each model request sees **one image**, not unseen adjacent pages.
 No Basic key or first-page marker was added, removed or renamed. Advanced still
 uses `first_page: yes/no` and the four existing `*_first_page` markers. It checks
 all eligible report pages independently; unnamed and adjacent report starts still
-end earlier ranges. JSON validation, naming evidence/exact-name rules, stage order
-and the fixed hearing/minute date wording and date normalization are unchanged.
+end earlier ranges. JSON validation, exact-name rules, stage order and the fixed
+hearing/minute date wording and date normalization are unchanged. Report naming
+now permits contextual same-image header/footer identity evidence, without making
+footers mandatory or allowing them to establish a start. Dependency's seventeen
+agency-report cards include the combined Jurisdiction/Disposition Report and
+literal descriptions. See [report naming](dependency-report-naming.md); these
+catalog changes never enter Basic or first-page prompts.
 
 ### Hearing notices, service proofs and other forms
 
@@ -129,3 +134,12 @@ must explicitly run Basic and the desired downstream stages; this incurs new ima
 model work. Merely opening the reference, selecting/saving a profile, updating the
 application, or resuming does not reclassify, remove historical named forms or
 rebuild a TOC. No automatic regeneration or saved-output cleanup is performed.
+
+That Basic adoption advice concerns changed **structural definitions**, not report
+catalog edits. For the 1.10.0 report-card update, saved personal profiles explicitly
+adopt desired cards in Profile settings and Save; updating the bundle never replaces
+them. Reset to bundled resets **all** profile guidance, including custom summary
+topics. With complete report-start checks, explicitly run Names and desired downstream
+TOC/boundary/summary stages. Without them, run Advanced → Corrected → Dates → Names
+first. Basic is only for deliberate upstream reclassification. Model reruns can
+incur charges; presence-based badges/Resume do not automatically rerun anything.

@@ -196,6 +196,64 @@ class ReportPipelineTests(unittest.TestCase):
         self.assertNotIn('Synthetic source page 3.',item_source_payload(items[0],self.root/'text_pages',{}))
         self.assertEqual(source,{p:(p.read_bytes(),p.stat().st_mtime_ns) for p in source})
 
+    def test_dependency_fictional_reports_with_current_catalog_and_real_synthetic_images(self):
+        """Scripted answers prove routing/publication, never visual recognition accuracy."""
+        import pymupdf
+        self.profile = bundle()
+        self.store.accept_profile(self.profile, expected_previous_digest=None)
+        self.store.set_default(self.profile.ref)
+        self.prompts = {classifier_prompt(self.profile, kind)[0]: kind for kind in KINDS}
+        for kind in ('report', 'form'):
+            self.prompts[compile_naming_profile(self.profile, kind).prompt] = kind
+        cases = json.loads((ROOT/'tests/fixtures/dependency-report-naming-fictional.json').read_bytes())
+        self.assertEqual(len(cases), 21)
+        self.assertEqual(len({c['id'] for c in cases}), 21)
+        self.prepare([c['type'] for c in cases], {i for i,c in enumerate(cases,1) if c['start']},
+                     {i:c['reply'] for i,c in enumerate(cases,1)})
+        images = {}
+        for i, case in enumerate(cases, 1):
+            (self.root/f'text_pages/{i:04d}.txt').write_text(case['text'])
+            with pymupdf.open() as document:
+                page = document.new_page()
+                self.assertGreaterEqual(page.insert_textbox(pymupdf.Rect(40,40,550,750), case['text'], fontsize=14), 0)
+                image = page.get_pixmap().tobytes('png')
+            (self.root/f'image_pages/{i:04d}.png').write_bytes(image)
+            images[image] = i
+        apply_manual_override(self.root, mode='ct_only')
+        source = {p:(p.read_bytes(),p.stat().st_mtime_ns) for folder in ('image_pages','text_pages')
+                  for p in (self.root/folder).iterdir()}
+        def scripted_response(request, **kwargs):
+            payload = json.loads(request.data)
+            task = self.prompts[payload['messages'][0]['content']]
+            attachment = payload['messages'][1]['content'][0]
+            self.assertEqual(attachment['type'], 'image_url')
+            number = images[base64.b64decode(attachment['image_url']['url'].split(',',1)[1])]
+            self.calls.append((task,number))
+            case = cases[number-1]
+            if task == 'ct': answer = {'page_type':case['type']}
+            elif task.startswith('first_'): answer = {'first_page':'yes' if case['start'] else 'no'}
+            elif task == 'report': answer = {'name':case['reply'], 'date':'January 02, 2026'}
+            elif task == 'form': answer = {'name':case['reply']}
+            else: answer = {'date':'January 2, 2026'}
+            return json.dumps(answer)
+        with patch.object(self.ui, '_post_json_with_retries', side_effect=scripted_response):
+            self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced',
+                           '_run_step_dates','_run_step_names','_run_step_six','_run_step_seven',
+                           '_run_step_correct_boundaries')
+        report_starts = [i for i,c in enumerate(cases,1) if c['type']=='CT_report' and c['start']]
+        self.assertEqual([i for task,i in self.calls if task=='report'],report_starts)
+        self.assertEqual([i for task,i in self.calls if task=='first_report'],
+                         [i for i,c in enumerate(cases,1) if c['type']=='CT_report'])
+        for row, case in zip(self.rows('names'), cases):
+            with self.subTest(scenario=case['id']):
+                self.assertEqual(row.get('name',''),case['name'])
+                if case['type']=='CT_report' and case['start']:
+                    self.assertEqual(row['date'],'January 2, 2026')
+        bounds = json.loads((self.root/'artifacts/report_boundaries.json').read_text())
+        self.assertEqual([(int(r['start_page']),int(r['end_page'])) for r in bounds],
+                         [(i,2 if i==1 else i) for i in report_starts if cases[i-1]['name']])
+        self.assertEqual(source,{p:(p.read_bytes(),p.stat().st_mtime_ns) for p in source})
+
     def test_hearing_notices_and_separate_service_proofs_never_enter_form_work(self):
         self.prepare(['CT_notice','CT_proof_of_service','CT_form'],{3},{3:'Approved Form'})
         self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced','_run_step_dates')

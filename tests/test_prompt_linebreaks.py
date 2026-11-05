@@ -39,7 +39,7 @@ class PromptLinebreakTests(unittest.TestCase):
                 catalog = document.sections[2].text
                 self.assertIn('[\n  {\n', catalog)
                 self.assertEqual(json.loads(catalog)[0]['name'], naming[kind + 's'][0]['name'])
-        self.assertIn('If multiple report titles appear', naming_document(naming, 'report').render())
+        self.assertIn('Consider conflicting heading and footer evidence together', naming_document(naming, 'report').render())
         self.assertIn('both that code and the matching heading must be visible', naming_document(naming, 'form').render())
 
     def test_exact_public_adapter_preserves_frozen_input_and_unknown_prose(self):

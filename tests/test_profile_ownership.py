@@ -167,7 +167,10 @@ class OwnershipTests(unittest.TestCase):
                 if custom:
                     self.assertEqual(effective_resource(tasks,'classification_tasks'),tasks)
                 else:
-                    self.assertEqual(components(baseline),components(bundle()))
+                    for stage in STAGES:
+                        self.assertEqual(component(baseline, stage) == component(bundle(), stage), stage != 'names')
+                    # Recognition equality must not inject the latest naming cards.
+                    self.assertEqual(baseline.resource('naming'), legacy().resource('naming'))
                 if 'page_types' not in tasks:
                     wrapped = copy.deepcopy(tasks); wrapped.update(schema_version=3,first_report=REPORT_FIRST_CLUES)
                     self.assertEqual(effective_resource(wrapped,'classification_tasks'),effective_resource(tasks,'classification_tasks') if not custom else wrapped)

@@ -19,6 +19,8 @@ REPORT_TITLES = (
     "Review Report", "Addendum Report", "Petition Report", "366.26 WIC Report", "Permanent Plan Review Report",
     "RPP Report", "Selection and Implementation Report", "Additional Information for Court",
 )
+# Historical catalogs remain sixteen entries; only the current bundle adds this name.
+BUNDLED_REPORT_TITLES = REPORT_TITLES[:4] + ("Jurisdiction/Disposition Report",) + REPORT_TITLES[4:]
 FORM_RULES = (
     ("Parental Notification of Indian Status", "Parental Notification of Indian Status", "ICWA-020"),
     ("Juvenile Dependency Petition", "Juvenile Dependency Petition", "JV-100"),
@@ -203,7 +205,7 @@ class PromptNamingTests(unittest.TestCase):
         resource = draft.resource("naming")
         self.assertEqual(set(resource), {"schema_version", "reports", "forms"})
         self.assertEqual(resource["schema_version"], 4)
-        for kind, expected in (("report", REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
+        for kind, expected in (("report", BUNDLED_REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
             contract = naming.compile_naming_profile(draft, kind)
             self.assertEqual(contract.allowed_names, expected)
             self.assertEqual(contract.mode, "approved_titles")

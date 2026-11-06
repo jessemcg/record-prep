@@ -3627,12 +3627,16 @@ class TocEditorWindow(Adw.ApplicationWindow):
         app: Adw.Application,
         toc_path: Path,
         on_saved: Callable[[Path], None] | None = None,
+        can_save: Callable[[], bool] | None = None,
+        on_conflict: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(application=app, title="Edit TOC")
         self.set_default_size(800, 600)
         self.set_resizable(True)
         self._toc_path = toc_path
         self._on_saved = on_saved
+        self._can_save = can_save
+        self._on_conflict = on_conflict
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -3643,6 +3647,7 @@ class TocEditorWindow(Adw.ApplicationWindow):
         save_button = Gtk.Button(label="Save")
         save_button.add_css_class("flat")
         save_button.connect("clicked", self._on_save_clicked)
+        self._save_button = save_button
         header.pack_end(save_button)
         view.add_top_bar(header)
 
@@ -3657,10 +3662,8 @@ class TocEditorWindow(Adw.ApplicationWindow):
         text_view.set_vexpand(True)
         text_view.set_hexpand(True)
         buffer = text_view.get_buffer()
-        initial_text = ""
-        if self._toc_path.exists():
-            initial_text = self._toc_path.read_text(encoding="utf-8", errors="ignore")
-        buffer.set_text(initial_text)
+        self._saved_bytes = self._toc_path.read_bytes() if self._toc_path.exists() else b""
+        buffer.set_text(self._saved_bytes.decode("utf-8", errors="ignore"))
         scroller.set_child(text_view)
         view.set_content(scroller)
         self.set_content(view)
@@ -3668,11 +3671,21 @@ class TocEditorWindow(Adw.ApplicationWindow):
         self._text_view = text_view
 
     def _on_save_clicked(self, _button: Gtk.Button) -> None:
+        if self._can_save is not None and not self._can_save():
+            return
+        # An editor opened before Build/Correct TOC must not later overwrite
+        # their new output with an older buffer, even after the step finishes.
+        if not self._toc_path.exists() or self._toc_path.read_bytes() != self._saved_bytes:
+            if self._on_conflict is not None:
+                self._on_conflict()
+            return
         buffer = self._text_view.get_buffer()
         start = buffer.get_start_iter()
         end = buffer.get_end_iter()
         content = buffer.get_text(start, end, True)
-        self._toc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        saved_bytes = (content.rstrip() + "\n").encode("utf-8")
+        self._toc_path.write_bytes(saved_bytes)
+        self._saved_bytes = saved_bytes
         if self._on_saved:
             self._on_saved(self._toc_path)
 
@@ -4253,6 +4266,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._settings_window.trigger_save()
 
     def on_edit_toc_clicked(self, *_args: object) -> None:
+        if not self._toc_editing_allowed():
+            self.show_toast("TOC editing is paused while this step uses the TOC file.")
+            return
         toc_path = self._toc_path()
         if not toc_path or not toc_path.exists():
             self.show_toast("Run Build TOC to generate artifacts/toc.txt first.")
@@ -4265,6 +4281,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.get_application(),
             toc_path,
             on_saved=self._on_toc_editor_saved,
+            can_save=self._toc_editing_allowed,
+            on_conflict=lambda: self.show_toast(
+                "The TOC changed since this editor opened. Copy any edits you want to keep, "
+                "then close and reopen Modify TOC before saving."
+            ),
         )
         editor.connect("close-request", self._on_toc_editor_close_request)
         self._toc_editor_window = editor
@@ -4388,11 +4409,22 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return None
         return root_dir / "artifacts" / "toc.txt"
 
+    def _toc_editing_allowed(self) -> bool:
+        # Boundaries and summaries do not consume TOC text. Only its writers
+        # and the source-map publisher (which fingerprints it) need exclusion.
+        return not (
+            self._pipeline_running
+            and self._active_step_id in {"build_toc", "correct_toc", "build_source_map"}
+            and self._step_status_values.get(self._active_step_id) == "Running"
+        )
+
     def _update_toc_button(self) -> None:
         toc_path = self._toc_path()
-        enabled = bool(toc_path and toc_path.exists())
+        enabled = bool(toc_path and toc_path.exists()) and self._toc_editing_allowed()
         if self._edit_toc_button is not None:
-            self._edit_toc_button.set_sensitive(enabled and not self._pipeline_running)
+            self._edit_toc_button.set_sensitive(enabled)
+        if self._toc_editor_window is not None:
+            self._toc_editor_window._save_button.set_sensitive(enabled)
 
     def _set_status(self, message: str, active: bool) -> None:
         self.status_label.set_text(message)
@@ -4522,6 +4554,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if step_id:
             self._step_status_values[step_id] = status
         self._refresh_phase_summaries()
+        self._update_toc_button()
 
     def _report_step_progress(
         self,

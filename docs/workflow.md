@@ -198,6 +198,13 @@ already-prepared bundle with complete source pages.
 7. Build/correct the TOC.
 8. Find/correct hearing, report, and minute-order boundaries.
 
+**Modify TOC**, beside Correct TOC, becomes available once the TOC is built;
+you can edit and save it while boundaries, numbering, and summaries run. Editing
+pauses only while Build/Correct TOC or the final source-map publisher uses the file.
+TOC edits change navigation text, not classifications, boundaries, or summaries.
+If the pipeline rebuilds the file while its editor is open, copy any draft edits
+you want to keep, then close and reopen the editor before saving.
+
 Basic classification retries malformed or unsupported profile-model page types up
 to three attempts per page, using the same strict RT/CT taxonomy each time. A
 persistent failure identifies the page and a content-free reason, preserves prior

@@ -68,23 +68,59 @@ class MainWindowUiStateTests(unittest.TestCase):
     def test_modify_toc_availability_keeps_inline_button_visible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             toc = Path(temporary) / "toc.txt"
-            for present, running, expected in (
-                (False, False, False), (True, False, True), (True, True, False),
+            for present, running, active, status, expected in (
+                (False, False, None, None, False),
+                (False, True, "create_report_summaries", "Running", False),
+                (True, False, None, None, True),
+                (True, True, None, None, True),
+                (True, True, "build_toc", "Running", False),
+                (True, True, "build_toc", "Done", True),
+                (True, True, "correct_toc", "Running", False),
+                (True, True, "correct_toc", "Done", True),
+                (True, True, "correct_toc", "Pending", True),
+                (True, True, "find_boundaries", "Running", True),
+                (True, True, "create_report_summaries", "Running", True),
+                (True, True, "build_source_map", "Running", False),
+                (True, True, "build_source_map", "Done", True),
             ):
-                with self.subTest(present=present, running=running):
+                with self.subTest(present=present, running=running, active=active, status=status):
                     if present:
                         toc.write_text("Synthetic TOC\n")
                     harness = mock.Mock()
                     harness._toc_path.return_value = toc
                     harness._pipeline_running = running
+                    harness._active_step_id = active
+                    harness._step_status_values = {active: status}
+                    harness._toc_editing_allowed = lambda: RecordPrepWindow._toc_editing_allowed(harness)
                     RecordPrepWindow._update_toc_button(harness)
                     harness._edit_toc_button.set_sensitive.assert_called_once_with(expected)
                     harness._edit_toc_button.set_visible.assert_not_called()
+                    harness._toc_editor_window._save_button.set_sensitive.assert_called_once_with(expected)
             harness._toc_path.return_value = None
             harness._edit_toc_button.reset_mock()
             RecordPrepWindow._update_toc_button(harness)
             harness._edit_toc_button.set_sensitive.assert_called_once_with(False)
             harness._edit_toc_button.set_visible.assert_not_called()
+
+    def test_toc_action_refuses_programmatic_open_during_toc_use(self) -> None:
+        harness = mock.Mock()
+        harness._toc_editing_allowed.return_value = False
+        with mock.patch("recordprep.ui.main_window.TocEditorWindow") as editor:
+            RecordPrepWindow.on_edit_toc_clicked(harness)
+        editor.assert_not_called()
+        harness.show_toast.assert_called_once()
+
+    def test_step_status_refreshes_toc_availability(self) -> None:
+        harness = mock.Mock()
+        row = mock.Mock()
+        harness._step_status_labels = {}
+        harness._step_ids_by_row = {row: "correct_toc"}
+        harness._step_status_values = {}
+        for status in ("Running", "Done", "Pending"):
+            harness._update_toc_button.reset_mock()
+            RecordPrepWindow._set_step_status(harness, row, status)
+            self.assertEqual(harness._step_status_values["correct_toc"], status)
+            harness._update_toc_button.assert_called_once_with()
 
     def test_resume_uses_selected_run_through_target(self) -> None:
         root = Path("/tmp/recordprep-resume-test")

@@ -179,7 +179,7 @@ already-prepared bundle with complete source pages.
 ### Classify and organize
 
 5. Classify RT/CT pages.
-6. Add advanced first/last markers, dates, report/form names, and corrections.
+6. Run Advanced → Dates → Names → **Correct classification with agent**. The earlier deterministic correction stage is removed. The agent reviews consequential boundaries using the shared Pi agent, preserves Names inputs, publishes separate `*_dates_names_corrected.jsonl` finals (including zero-change reviews), and records applied changes/unresolved findings. Legacy filenames remain readable without renaming; a failed or stopped new review blocks stale-final fallback. See [classification agent correction](classification-agent-correction.md).
 7. Build/correct the TOC.
 8. Find/correct hearing, report, and minute-order boundaries.
 

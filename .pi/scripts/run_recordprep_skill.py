@@ -28,6 +28,7 @@ MINUTE_EXTENSION_NAME = "recordprep-minute-tools.ts"
 PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
 PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
 CASE_NAME_EXTENSION_NAME = "recordprep-case-name-tools.ts"
+CLASSIFICATION_REVIEW_EXTENSION_NAME = "recordprep-classification-review-tools.ts"
 MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
 MINUTE_STEP_ID = "create_minute_order_summaries"
 
@@ -82,6 +83,7 @@ STAGES = {
     stage.step_id: stage
     for stage in (
         SkillStage("infer_case", "Infer case", "recordprep-infer-case", "read,write,edit"),
+        SkillStage("correct_classification_agent", "Correct classification with agent", "recordprep-correct-classification", "read,write,edit"),
         SkillStage(
             "detect_transcript_layout",
             "Detect transcript layout",
@@ -212,7 +214,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
     if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
         issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
-    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME):
+    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME):
         if not (project_dir / "extensions" / name).is_file():
             issues.append(f"extensions/{name} is missing.")
     for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-participants.md", "profile-overview.md"):
@@ -226,7 +228,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -1699,6 +1701,11 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
 def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
 
+    if stage.step_id == "correct_classification_agent":
+        review_started_at = time.monotonic()
+        from recordprep.classification_files import require_review
+        require_review(root)
+
     if stage.step_id == "build_participant_index":
         # CT-only exemption: resolve applicability from the validated layout
         # artifact before any resource, executable, version, or workspace
@@ -1768,7 +1775,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir, "overview"),
                 "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
             native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
-    pi_command = _resolve_pi_command() if stage.step_id == "infer_case" else _pi_command()
+    pi_command = _resolve_pi_command() if stage.step_id in {"infer_case", "correct_classification_agent"} else _pi_command()
     _check_pi_version(pi_command)
     cache_root = Path(
         os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
@@ -1777,6 +1784,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     workspace_parent.mkdir(parents=True, exist_ok=True)
     workspace = Path(tempfile.mkdtemp(prefix="skill.", dir=workspace_parent))
     try:
+        review_guard = None
+        if stage.step_id == "correct_classification_agent":
+            from recordprep import classification_review as review
+            review_before_staging = review.capture(root, project_dir)[2]
         if stage.step_id == "infer_case":
             from recordprep import case_name_stage as caption
             caption_before_staging = caption.capture(root, project_dir)[1]
@@ -1794,7 +1805,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         (workspace / "tmp").mkdir()
         (workspace / "sessions").mkdir()
         env = os.environ.copy()
-        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC"):
+        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC", "RECORDPREP_CLASSIFICATION_REVIEW_ACCESS_SPEC"):
             env.pop(key, None)
         if stage.step_id == "build_participant_index":
             # The staged schema-4 helper uses the shared reader even for an
@@ -1805,6 +1816,14 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         native_extension_args = []
         native_tools = stage.tools
         caption_guard = None
+        if stage.step_id == "correct_classification_agent":
+            review_guard, review_ref, candidate_path, access_spec, stage_prompt = review.stage_inputs(root, project_dir, workspace)
+            if review_guard != review_before_staging:
+                raise ValueError("Review inputs changed during staging; no model work started.")
+            env["RECORDPREP_CLASSIFICATION_REVIEW_ACCESS_SPEC"] = str(access_spec)
+            guard_extension = staged_pi / "extensions" / CLASSIFICATION_REVIEW_EXTENSION_NAME
+            shutil.copy2(project_dir / "extensions" / CLASSIFICATION_REVIEW_EXTENSION_NAME, guard_extension)
+            native_extension_args = ["--extension", str(guard_extension)]
         if stage.step_id == "infer_case":
             from recordprep import case_name_stage as caption
             caption_guard, caption_ref, candidate_path, access_spec, stage_prompt = caption.stage_inputs(root, project_dir, workspace)
@@ -1924,6 +1943,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 pass  # Recheck explicit selection after staging, before paid work.
         if caption_guard is not None and caption.capture(root, project_dir)[1] != caption_guard:
             raise ValueError("Case or inputs changed before inference; no model work started.")
+        if review_guard is not None:
+            if review.capture(root, project_dir)[2] != review_guard:
+                raise ValueError("Review inputs changed before launch; no model work started.")
+            review_agent_started_at = time.monotonic()
         _active_process = subprocess.Popen(
             command,
             cwd=workspace,
@@ -2004,6 +2027,14 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         if return_code != 0:
             _line(f"\033[31mPI exited with code {return_code}.\033[0m")
             return return_code
+        if review_guard is not None:
+            def check_review_stop():
+                if _stopped:
+                    raise ValueError("Classification review stopped; prior output preserved.")
+            changed, unresolved = review.publish(root, project_dir, review_guard, review_ref, candidate_path,
+                check_stop=check_review_stop, started_at=review_started_at,
+                agent_elapsed_seconds=time.monotonic()-review_agent_started_at)
+            _line(f"Classification review: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Use View review or classification/agent-review.json.")
         if caption_guard is not None:
             def check_caption_stop():
                 if _stopped:

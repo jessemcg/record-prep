@@ -14,7 +14,7 @@ from recordprep.profile_editor_ui import editable_profile
 from recordprep.profile_customization import legacy_customization_editor
 from recordprep.summary_profiles import compile_summary
 
-STAGES = ('basic', 'advanced', 'corrected', 'dates', 'names')
+STAGES = ('basic', 'advanced', 'dates', 'names')
 
 
 def components(snapshot):

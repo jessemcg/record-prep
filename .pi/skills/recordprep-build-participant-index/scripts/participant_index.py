@@ -118,13 +118,9 @@ def canonical_citation_text(value: Any) -> str:
 
 
 def classification_rows(root: Path) -> list[dict[str, Any]]:
-    candidates = [
-        root / "classification" / "RT_basic_advanced_corrected_dates_names.jsonl",
-        root / "classification" / "CT_basic_advanced_corrected_dates_names.jsonl",
-        root / "classification" / "final.jsonl",
-        root / "classification" / "final_classification.jsonl",
-        root / "classification" / "combined.jsonl",
-    ]
+    _application_root()
+    from recordprep.classification_files import navigation_paths
+    candidates = navigation_paths(root)
     rows: list[dict[str, Any]] = []
     for path in candidates:
         if not path.is_file():

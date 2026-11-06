@@ -92,9 +92,8 @@ def participant_input_paths(root: Path) -> list[Path]:
     # Worklist index scoping reads the first nonempty recognized classifier file.
     # Include each examined candidate so changing this navigation input cannot
     # reuse an old participant result merely because boundary bytes stayed equal.
-    for name in ("RT_basic_advanced_corrected_dates_names.jsonl", "CT_basic_advanced_corrected_dates_names.jsonl",
-                 "final.jsonl", "final_classification.jsonl", "combined.jsonl"):
-        path = root / "classification" / name
+    from .classification_files import navigation_paths
+    for path in navigation_paths(root):
         if not path.is_file():
             continue
         paths.append(path)

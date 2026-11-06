@@ -84,7 +84,6 @@ class DependencyReportNamingTests(unittest.TestCase):
         for stage,digest in {
             'basic':'916b2bb8188cb85a02a97f8cb5ad3b7f7f472a646e531ff2170ee38361e37d97',
             'advanced':'522e2d3f2a5e747c94a652dc327da284fa68a565f938ea3765657f6b91869851',
-            'corrected':'cd39e70e79c1ba4cc55a60d9e8e3c38a2db01af4a91d9914b3f2bef86f522da3',
             'dates':'3c78456f54d23abaf5acafc9031b48b9158cc74c4a3e9ef7843b7db4afb75531',
         }.items():
             self.assertEqual(component(b,stage),digest,stage)

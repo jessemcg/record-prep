@@ -21,7 +21,7 @@ def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
     # Old markers and filesystem timestamps never authorize or block a new run.
     from .classification_profiles import prepared_classification_digest
     return {"contract_version": 4,
-            "classification_sha256": prepared_classification_digest(root, "names"),
+            "classification_sha256": prepared_classification_digest(root, "final"),
             "classification_component": component(profile, "basic"),
             "naming_component": component(profile, "names")}
 

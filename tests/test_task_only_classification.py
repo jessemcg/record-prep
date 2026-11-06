@@ -38,7 +38,7 @@ class TaskOnlyClassificationTests(unittest.TestCase):
             for task in KINDS:
                 self.assertEqual(classifier_prompt(old, task), classifier_prompt(revised, task))
                 self.assertNotIn('RETIRED_COMMON_CANARY', classifier_prompt(revised, task)[0])
-            for stage in ('basic', 'advanced', 'corrected', 'dates', 'names'):
+            for stage in ('basic', 'advanced', 'dates', 'names'):
                 self.assertEqual(component(old, stage), component(revised, stage))
             self.assertNotIn('classification', dict(compile_stage_profile(revised, 'classification', core_contract=b'core').resources))
 

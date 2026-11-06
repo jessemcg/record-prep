@@ -117,7 +117,7 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertEqual(c.profile_ref,old.ref)
 
     def test_stage_local_inputs_and_inactive_dates(self):
-        b=bundle(); baseline={s:component(b,s) for s in ('basic','advanced','corrected','dates','names')}
+        b=bundle(); baseline={s:component(b,s) for s in ('basic','advanced','dates','names')}
         e=ProfileEditor(legacy()); e.resources['classification_tasks']['rt']+=' literal {json} α'
         changed=e.snapshot()
         for stage in baseline:

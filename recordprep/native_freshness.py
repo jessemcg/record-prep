@@ -133,6 +133,7 @@ def stage_code_digest(project_dir: Path, stage: str) -> str:
         "boundaries": projected_code((package / "boundary_profiles.py").read_text(), stage,
                                      ("require_current_boundaries",)),
         "participant_normalizer": _resource_sha256(package / "participant_candidates.py") if stage == "participants" else None,
+        "classification_files": _resource_sha256(package / "classification_files.py") if stage == "participants" else None,
     })
 
 

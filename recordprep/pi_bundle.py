@@ -24,6 +24,7 @@ PREPARE_BUNDLE_MANIFEST_KEYS = {
 PI_STEP_IDS = (
     "detect_transcript_layout",
     "infer_case",
+    "correct_classification_agent",
     "number_transcript_pages",
     "build_participant_index",
     "create_case_overview",
@@ -613,6 +614,9 @@ def prepare_bundle_complete(root: Path) -> bool:
 
 
 def validate_pi_step_outputs(step_id: str, root: Path, *, project_dir: Path | None = None) -> list[str]:
+    if step_id == "correct_classification_agent":
+        from recordprep.classification_review import output_issues
+        return output_issues(root)
     if step_id == "infer_case":
         from recordprep.case_name_stage import is_current
         project_dir = project_dir or Path(__file__).resolve().parents[1] / ".pi"

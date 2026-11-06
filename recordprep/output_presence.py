@@ -13,6 +13,7 @@ from recordprep.text_processing_completion import RECEIPT
 _FILES = {
     "detect_transcript_layout": ("artifacts/transcript_layout.json",),
     "infer_case": ("case_name.txt",),
+    "correct_classification_agent": ("classification/agent-review.json",),
     "build_toc": ("artifacts/toc.txt",),
     "correct_toc": ("artifacts/toc.txt",),
     "find_boundaries": ("artifacts/hearing_boundaries.json", "artifacts/report_boundaries.json", "artifacts/minutes_boundaries.json"),
@@ -25,9 +26,8 @@ _FILES = {
 _CLASSIFICATION = {
     "classify_basic": "basic",
     "classify_advanced": "basic_advanced",
-    "correct_classify_advanced": "basic_advanced_corrected",
-    "classify_dates": "basic_advanced_corrected_dates",
-    "classify_names": "basic_advanced_corrected_dates_names",
+    "classify_dates": "basic_advanced_dates",
+    "classify_names": "basic_advanced_dates_names",
 }
 _SUMMARIES = {
     "create_hearing_summaries": "hearings",
@@ -47,6 +47,16 @@ def step_outputs_present(step_id: str, root: Path) -> bool:
             return _has_file(root / "text_pages", "*.txt") and _has_file(root / "image_pages", "*.png")
         if step_id == "strip_characters":
             return (root / RECEIPT).is_file() and _has_file(root / "text_pages", "*.txt")
+        if step_id == "correct_classification_agent":
+            from .classification_files import new_workflow, final_paths, RECEIPT as REVIEW_RECEIPT
+            if not (root / REVIEW_RECEIPT).is_file():
+                return False
+            if new_workflow(root):
+                try:
+                    final_paths(root)
+                except ValueError:
+                    return False
+            return True
         if step_id in _FILES:
             return all((root / name).is_file() for name in _FILES[step_id])
         if step_id in _CLASSIFICATION:
@@ -55,6 +65,10 @@ def step_outputs_present(step_id: str, root: Path) -> bool:
             # require the stage output for each side with a basic output file.
             sides = [side for side in ("RT", "CT") if (directory / f"{side}_basic.jsonl").is_file()]
             suffix = _CLASSIFICATION[step_id]
+            from .classification_files import stage_paths
+            stage = step_id.removeprefix("classify_")
+            paths = stage_paths(root, stage)
+            suffix = paths[0].name.removeprefix("RT_").removesuffix(".jsonl")
             if sides:
                 return all((directory / f"{side}_{suffix}.jsonl").is_file() for side in sides)
             return any((directory / f"{side}_{suffix}.jsonl").is_file() for side in ("RT", "CT"))

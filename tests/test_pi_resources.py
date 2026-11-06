@@ -352,6 +352,7 @@ class PiResourceTests(unittest.TestCase):
             [
                 "recordprep-auto-exit.ts",
                 "recordprep-case-name-tools.ts",
+                "recordprep-classification-review-tools.ts",
                 "recordprep-minute-tools.ts",
                 "recordprep-profile-minute-tools.ts",
                 "recordprep-profile-native-tools.ts",
@@ -381,6 +382,7 @@ class PiResourceTests(unittest.TestCase):
             [
                 "recordprep-build-participant-index",
                 "recordprep-build-source-map",
+                "recordprep-correct-classification",
                 "recordprep-create-case-overview",
                 "recordprep-detect-transcript-layout",
                 "recordprep-extract-hearing",

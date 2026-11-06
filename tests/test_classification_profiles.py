@@ -126,14 +126,17 @@ class ClassificationProfileTests(unittest.TestCase):
                 patch.object(ui, "load_advanced_classify_settings", return_value=self.settings), \
                 patch.object(ui, "load_classify_dates_settings", return_value=self.settings), \
                 patch.object(ui, "load_classify_names_settings", return_value=self.settings):
-            for method in ("_run_step_two", "_run_step_advanced", "_run_step_correct_advanced", "_run_step_dates", "_run_step_names",
+            for method in ("_run_step_two", "_run_step_advanced", "_run_step_dates", "_run_step_names",
                            "_run_step_six", "_run_step_correct_toc", "_run_step_seven", "_run_step_correct_boundaries"):
+                if method in {"_run_step_six", "_run_step_seven"}:
+                    from classification_review_fixture import complete_review
+                    complete_review(self.root)
                 self.assertTrue(getattr(ui.RecordPrepWindow, method)(worker), method)
                 if method == "_run_step_six" and kind == "minutes" and date_value:
                     self.assertFalse(ui.RecordPrepWindow._step_artifact_complete(worker, "correct_toc", self.root))
         self.assertEqual(len(prompts), {"report": 3, "minutes": 6, "CT_form": 3}.get(kind, 1))
         self.assertTrue(all("SETTINGS_CANARY" not in prompt for prompt in prompts))
-        entries = [json.loads(line) for line in (self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl").read_text().splitlines()]
+        entries = [json.loads(line) for line in (self.root / "classification/CT_basic_advanced_dates_names.jsonl").read_text().splitlines()]
         if kind == "report":
             self.assertEqual(entries[0]["name"], "Independent Report")
         self.assertEqual(stage_issues(self.root, "names", self.profile, self.settings), [])

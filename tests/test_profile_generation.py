@@ -58,6 +58,8 @@ def seed_profile_preparation(root, profile, project_dir):
             if rows:
                 (run.directory / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
         run.publish(settings)
+    from classification_review_fixture import complete_review
+    complete_review(root)
     expected = boundary_inputs(root, profile, settings)
     publish_boundaries(root, profile, expected, settings, payloads)
 

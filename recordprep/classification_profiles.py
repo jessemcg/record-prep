@@ -30,8 +30,8 @@ KINDS = {"rt": ("page_type",), "ct": ("page_type",),
          "date_hearing": ("date",), "date_minute": ("date",)}
 from .classifier_prompts import INSTRUCTIONS as CORE, classifier_document
 from .recognition_contract import RecognitionContract, load_recognition
-STAGES = ("basic", "advanced", "corrected", "dates", "names")
-SUFFIXES = ("basic", "basic_advanced", "basic_advanced_corrected", "basic_advanced_corrected_dates", "basic_advanced_corrected_dates_names")
+from . import classification_files as files
+STAGES = ("basic", "advanced", "dates", "names")
 
 
 def classifier_prompt(profile: ProfileSnapshot | None, kind: str, *, contract=None) -> tuple[str, tuple[str, ...]]:
@@ -75,7 +75,6 @@ def component(profile: ProfileSnapshot | None, stage: str, *, contract=None) -> 
                                                         for kind in ("report", "form")}})
     kinds = {"basic": ("rt", "ct"),
              "advanced": tuple(CLASSIFICATION_FIRST_PAGE_TYPES),
-             "corrected": ("rt", "ct", *CLASSIFICATION_FIRST_PAGE_TYPES),
              "dates": ("date_hearing", "date_minute")}[stage]
     contract = contract if contract is not None else load_recognition()
     prompts = {kind: classifier_prompt(profile, kind, contract=contract)[0] for kind in kinds}
@@ -118,8 +117,7 @@ def model_identity(settings: dict) -> dict:
 
 
 def output_names(stage: str) -> tuple[str, str]:
-    suffix = SUFFIXES[STAGES.index(stage)]
-    return tuple(f"{kind}_{suffix}.jsonl" for kind in ("RT", "CT"))
+    return files.names(stage)
 
 
 def _digest(path: Path) -> str:
@@ -172,15 +170,14 @@ def upstream_digest(root, stage):
 
 def prepared_classification_digest(root: Path, stage: str) -> str:
     """Fingerprint the saved input files without requiring historical settings."""
-    directory = root / "classification"
-    for name, basic in zip(output_names(stage), output_names("basic")):
-        if (directory / basic).is_file() and not (directory / name).is_file():
-            raise ValueError(f"Classification {stage} input {name} is missing.")
-    files = {name: _digest(directory / name)
-             for name in output_names(stage) if (directory / name).is_file()}
-    if not files:
+    paths = files.final_paths(root) if stage == "final" else files.stage_paths(root, stage)
+    for path, basic in zip(paths, output_names("basic")):
+        if (root / "classification" / basic).is_file() and not path.is_file():
+            raise ValueError(f"Classification {stage} input {path.name} is missing.")
+    digests = {path.name: _digest(path) for path in paths if path.is_file()}
+    if not digests:
         raise ValueError(f"Classification {stage} output files are missing.")
-    return sha256_json(files)
+    return sha256_json(digests)
 
 
 def stage_issues(root: Path, stage: str, profile: ProfileSnapshot | None, settings: dict, *, contract=None) -> list[str]:
@@ -247,6 +244,7 @@ class ClassificationRun:
     @classmethod
     def begin(cls, root: Path, stage: str, settings: dict):
         profile = resolve_case_profile(root)
+        files.require_review(root)
         canonical = root / "classification"
         if profile is None and stage == "names":
             # Historical unassigned naming remains its own literal contract;
@@ -258,14 +256,13 @@ class ClassificationRun:
         index = STAGES.index(stage)
         sources, _stats = stable_source_inventory(root)
         upstream = prepared_classification_digest(root, STAGES[index - 1]) if index else None
-        inputs = {"input_contract": 2, "component": component(profile, stage, contract=contract), "model": model_identity(settings),
+        inputs = {"input_contract": 2, "filename_contract": 2, "component": component(profile, stage, contract=contract), "model": model_identity(settings),
                   "sources": sources, "upstream": upstream}
         directory = _work_directory(root, stage, sha256_json(inputs))
         if any(path.is_symlink() or not path.is_file() for path in directory.iterdir()):
             raise ValueError("Classifier work files must be regular, unlinked files.")
         if index:
-            for name in output_names(STAGES[index - 1]):
-                source = canonical / name
+            for source, name in zip(files.stage_paths(root, STAGES[index - 1]), output_names(STAGES[index - 1])):
                 if source.is_file():
                     target = directory / name
                     if not target.exists() or _digest(target) != _digest(source):

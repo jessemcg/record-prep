@@ -301,6 +301,42 @@ into neutral core contracts or remove existing unassigned-case support. Run isol
 resource validation after changes. Keep package-data declarations covering every
 bundled profile resource; source deployments must retain their own `.pi/` tree.
 
+## Classification agent correction
+
+`correct_classification_agent` is the final Classify process after Names. See
+`docs/classification-agent-correction.md`. Use the shared native Pi model/reasoning,
+not classifier API workers. Exact source/rule reads, private patch candidate only;
+Python validates image-read evidence, before-values, taxonomy, naming and coverage,
+archives Names inputs/prior finals and publishes separate `*_dates_names_corrected.jsonl`
+finals, even on zero-change success. `classification_files.py` owns new/legacy
+resolution. No deterministic correction stage: Basic → Advanced → Dates → Names →
+Agent correction. Explicit generation marks review required before work; failed or
+stopped review never silently falls back to old finals. No automatic bundle renaming.
+RT cover/index transitions and consecutive starts are evidence-only agent hints;
+recover hearing dates when adding missed starts after Dates. Preserve current
+report-start checks and purpose-based notice/service rules. Review consequential
+boundaries and selected-document completeness, not cosmetic classification parity.
+Uncertain findings remain unresolved; no blanket report-gap filling. Original Names
+provenance stays untouched, review has separate audit/provenance and presence receipt.
+Crash marker blocks UI pipeline work pending deliberate recovery; never auto-repair
+private bundles. Source/config/profile/manifest/downstream outputs are untouched.
+Tests use fictional data and offline providers only, not private reviewed files.
+Metadata-only priority hints put selected-report boundaries/hearing/minute starts
+before potential unnamed eligible starts; still scan every block. Suppress proposed
+edits with no selected name/date/start/extent effect using counterfactual comparison
+against the jointly corrected rows; preserve them in review.not_applied. Keep
+cooperating gap repairs and unnamed starts that bound selected reports. This is a
+structural effect check, not semantic classification. Confident type corrections
+and removal of inapplicable metadata must not wait for unrelated date uncertainty.
+Do not generate unresolved findings just to normalize unused attachments.
+Saved counts and View review are read-only presentation, separate from presence
+badges/Resume. Support old receipts without rewriting them. Show unresolved first,
+plain text only, never model-authored markup; no save/apply action. New telemetry
+counts successful input reads and unique source pages; measures child duration and
+stage elapsed through publication preparation, with final elapsed in terminal.
+Keep configured model preferences distinct from provider-confirmed effective
+settings. No stage-specific reasoning overrides or full-session retention.
+
 ## Transcript Page Breakdown
 
 Keep Number transcript pages' Markdown a footnote-writing aid: fixed Quick reference
@@ -460,7 +496,7 @@ copies, never forging freshness metadata or rewriting the user's configuration.
 2. Detect transcript layout (PI).
 3. Strip characters.
 4. Infer case (PI; first three pages, private candidate, Python-only publication).
-5. Basic/advanced/corrected/date/name classification.
+5. Basic/advanced/date/name classification, then impact-focused agent correction into separate final files.
 6. Build/correct TOC.
 7. Find/correct hearing, report, and minute boundaries.
 8. Number transcript pages with PI. Python then normalizes every

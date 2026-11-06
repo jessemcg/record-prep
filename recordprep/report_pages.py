@@ -45,7 +45,7 @@ def report_detection_mode(entries: Iterable[dict], *, required: bool = False) ->
             expected = 'yes' if _page_type(entry) == 'ct_report_first_page' else 'no'
             if entry.get(REPORT_FIRST_FIELD) != expected:
                 raise ValueError('Report first-page checks are missing or inconsistent. Run Advanced classification, '
-                                 'Correct classification, and Dates before Names; prior output is preserved.')
+                                 'and Dates before Names; prior output is preserved.')
     return modern
 
 

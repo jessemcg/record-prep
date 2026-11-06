@@ -53,7 +53,7 @@ class DocumentCatalogTests(unittest.TestCase):
             self.assertEqual(classifier_prompt(e.snapshot(),'ct'),ct)
 
     def test_catalog_edits_invalidate_names_only(self):
-        b=bundle();stages=('basic','advanced','corrected','dates','names')
+        b=bundle();stages=('basic','advanced','dates','names')
         before={stage:component(b,stage) for stage in stages}
         for kind in ('reports','forms'):
             for field in ('name','guidance'):
@@ -67,7 +67,7 @@ class DocumentCatalogTests(unittest.TestCase):
     def test_naming_instruction_wording_changes_names_not_ct_recognition(self):
         from unittest.mock import patch
         from recordprep import document_naming
-        b=bundle();stages=('basic','advanced','corrected','dates','names')
+        b=bundle();stages=('basic','advanced','dates','names')
         before={stage:component(b,stage) for stage in stages}
         with patch.object(document_naming,'_CORE',document_naming._CORE+'\nSynthetic naming wording change.\n'):
             for stage in stages:

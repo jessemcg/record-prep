@@ -84,17 +84,17 @@ class ResourceTests(unittest.TestCase):
 
     def test_prompt_content_is_stage_local_and_display_titles_are_not_inputs(self):
         original = recognition.load_recognition()
-        stages = ('basic','advanced','corrected','dates','names')
+        stages = ('basic','advanced','dates','names')
         baseline = {stage: component(bundle(),stage,contract=original) for stage in stages}
         for side in ('rt','ct'):
             changed = replace(original, page_types=tuple((s, tuple((k, v+' Synthetic rule.' if s==side and k.endswith('_other') else v)
                               for k,v in entries)) for s,entries in original.page_types))
             for stage in stages:
-                self.assertEqual(component(bundle(),stage,contract=changed) != baseline[stage], stage in ('basic','corrected'))
+                self.assertEqual(component(bundle(),stage,contract=changed) != baseline[stage], stage == 'basic')
         for task in CLASSIFICATION_FIRST_PAGE_TYPES:
             changed = replace(original, first_pages=tuple((k,v+' Synthetic clue.' if k==task else v) for k,v in original.first_pages))
             for stage in stages:
-                self.assertEqual(component(bundle(),stage,contract=changed) != baseline[stage], stage in ('advanced','corrected'))
+                self.assertEqual(component(bundle(),stage,contract=changed) != baseline[stage], stage == 'advanced')
         with patch.dict(recognition.TITLES, {'RT_body':'Cosmetic title'}):
             self.assertEqual(component(bundle(),'basic'),baseline['basic'])
         self.assertEqual(component(None,'dates'),component(bundle(),'dates'))
@@ -169,7 +169,7 @@ class UnassignedRunTests(unittest.TestCase):
         (run.directory/output_names(run.stage)[1]).write_text(json.dumps({'file_name':'0001.txt','page_type':kind})+'\n')
 
     def inventory(self):
-        return {p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in (self.root/'classification').iterdir()}
+        return {p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in (self.root/'classification').iterdir() if p.name not in {'review-required','workflow-v2.json'}}
 
     def test_all_structural_stages_private_current_reusable_and_nullable_metadata(self):
         from recordprep.ui import main_window as ui
@@ -177,8 +177,8 @@ class UnassignedRunTests(unittest.TestCase):
         worker=SimpleNamespace(_expected_classification_file_names=lambda root:(set(),{'0001.txt'},False,True))
         worker._jsonl_complete_for_expected=lambda *args:ui.RecordPrepWindow._jsonl_complete_for_expected(worker,*args)
         steps={'basic':'classify_basic','advanced':'classify_advanced',
-               'corrected':'correct_classify_advanced','dates':'classify_dates'}
-        for stage in ('basic','advanced','corrected','dates'):
+               'dates':'classify_dates'}
+        for stage in ('basic','advanced','dates'):
             run=ClassificationRun.begin(self.root,stage,self.settings)
             self.assertNotEqual(run.directory,self.root/'classification')
             self.assertIsNotNone(run.contract)

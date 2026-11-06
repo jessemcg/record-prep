@@ -84,6 +84,15 @@ customize or use as a starting point for other practice areas. Profiles customiz
 naming and summaries; **App-owned Classification** shows the app's fixed page rules.
 See the [user guide](docs/workflow.md) for details.
 
+**Correct classification with agent** is the last Classify process, immediately
+following Classification names. It uses the shared Agent model to review consequential
+boundaries, preserves Names inputs, and publishes separate `*_dates_names_corrected.jsonl`
+finals with corrections and unresolved findings. The pipeline is now Basic → Advanced
+→ Dates → Names → Agent correction; there is no earlier deterministic correction stage.
+Legacy bundles remain readable without renaming. Use **View review** on that row to inspect its saved results.
+See [classification agent correction](docs/classification-agent-correction.md) for
+running it on existing results and inspecting its audit.
+
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify
 generated work against the original record.

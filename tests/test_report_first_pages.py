@@ -26,10 +26,10 @@ class ReportContractTests(unittest.TestCase):
         from recordprep.recognition_contract import load_recognition
         b=bundle();self.assertEqual(b.manifest['schema_version'],9)
         self.assertNotIn('classification_tasks', b.manifest['resources'])
-        before={stage:component(b,stage) for stage in ('basic','advanced','corrected','dates','names')}
+        before={stage:component(b,stage) for stage in ('basic','advanced','dates','names')}
         frozen=load_recognition()
         changed=replace(frozen, first_pages=tuple((k,v+' Literal α' if k=='first_report' else v) for k,v in frozen.first_pages))
-        for stage,value in before.items():self.assertEqual(component(b,stage,contract=changed)!=value,stage in ('advanced','corrected'))
+        for stage,value in before.items():self.assertEqual(component(b,stage,contract=changed)!=value,stage == 'advanced')
         for answer in ('YES','no'):
             self.assertEqual(normalize_classifier({'first_page':answer},'first_report'),{'first_page':answer.lower()})
         for answer in ('','unknown','CT_report_first_page'):
@@ -119,7 +119,7 @@ class ReportPipelineTests(unittest.TestCase):
             _validate_vision_settings=lambda s:None,_classifier_worker_count=lambda s:1,selected_pdfs=[],
             _safe_update_manifest=Mock(),show_toast=Mock(),_finish_step=Mock(),_stop_status_if_idle=Mock(),
             _stop_button_if_idle=Mock(),_update_toc_button=Mock(),_extract_response_text=lambda p:p,_extract_json_payload=lambda p:p)
-        for name in ('step_two_row','step_advanced_row','step_correct_advanced_row','step_dates_row','step_names_row',
+        for name in ('step_two_row','step_advanced_row','step_dates_row','step_names_row',
                      'step_six_row','step_seven_row','step_correct_boundaries_row'):
             setattr(self.worker,name,Mock())
         self.worker._append_boundary_entry=lambda *a:ui.RecordPrepWindow._append_boundary_entry(self.worker,*a)
@@ -155,6 +155,9 @@ class ReportPipelineTests(unittest.TestCase):
 
     def run_steps(self,*steps):
         for step in steps:
+            if step in {'_run_step_six','_run_step_seven'}:
+                from classification_review_fixture import complete_review
+                complete_review(self.root)
             self.assertTrue(getattr(self.ui.RecordPrepWindow,step)(self.worker),self.worker.show_toast.call_args_list)
 
     def rows(self,stage):
@@ -172,7 +175,7 @@ class ReportPipelineTests(unittest.TestCase):
                      {1:'Independent Report',3:'Not approved',5:'Independent Report',6:'Second Approved Report',
                       7:'Approved Form',8:'Also unapproved'})
         source={p:(p.read_bytes(),p.stat().st_mtime_ns) for folder in ('image_pages','text_pages') for p in (self.root/folder).iterdir()}
-        self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced','_run_step_dates')
+        self.run_steps('_run_step_two','_run_step_advanced','_run_step_dates')
         dated=self.rows('dates')
         for row in dated:
             if row['page_type'].lower() in REPORT_TYPES:
@@ -237,7 +240,7 @@ class ReportPipelineTests(unittest.TestCase):
             else: answer = {'date':'January 2, 2026'}
             return json.dumps(answer)
         with patch.object(self.ui, '_post_json_with_retries', side_effect=scripted_response):
-            self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced',
+            self.run_steps('_run_step_two','_run_step_advanced',
                            '_run_step_dates','_run_step_names','_run_step_six','_run_step_seven',
                            '_run_step_correct_boundaries')
         report_starts = [i for i,c in enumerate(cases,1) if c['type']=='CT_report' and c['start']]
@@ -256,7 +259,7 @@ class ReportPipelineTests(unittest.TestCase):
 
     def test_hearing_notices_and_separate_service_proofs_never_enter_form_work(self):
         self.prepare(['CT_notice','CT_proof_of_service','CT_form'],{3},{3:'Approved Form'})
-        self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced','_run_step_dates')
+        self.run_steps('_run_step_two','_run_step_advanced','_run_step_dates')
         dated=self.rows('dates')
         for row in dated[:2]:
             row.update(name='Historical accidental name',form_name='Historical alias')
@@ -283,13 +286,13 @@ class ReportPipelineTests(unittest.TestCase):
         self.prepare(['CT_report','CT_form','CT_report'],{1,2,3},{1:'Independent Report',2:'Approved Form',3:'Second Approved Report'})
         self.run_steps('_run_step_two')
         self.assertEqual([row['page_type'] for row in self.rows('basic')],['CT_report','CT_form','CT_report'])
-        self.run_steps('_run_step_advanced','_run_step_correct_advanced','_run_step_dates','_run_step_names','_run_step_seven')
+        self.run_steps('_run_step_advanced','_run_step_dates','_run_step_names','_run_step_seven')
         bounds=json.loads((self.root/'artifacts/report_boundaries.json').read_text())
         self.assertEqual([(r['start_page'],r['end_page']) for r in bounds],[('0001','0001'),('0003','0003')])
 
     def test_missed_start_is_not_inferred_and_consecutive_positive_starts_are_not_collapsed(self):
         self.prepare(['CT_report']*3,{2,3},{1:'Independent Report',2:'Independent Report',3:'Independent Report'})
-        self.run_steps('_run_step_two','_run_step_advanced','_run_step_correct_advanced','_run_step_dates','_run_step_names','_run_step_six','_run_step_seven','_run_step_correct_boundaries')
+        self.run_steps('_run_step_two','_run_step_advanced','_run_step_dates','_run_step_names','_run_step_six','_run_step_seven','_run_step_correct_boundaries')
         self.assertEqual([n for task,n in self.calls if task=='report'],[2,3])
         bounds=json.loads((self.root/'artifacts/report_boundaries.json').read_text())
         self.assertEqual([(r['start_page'],r['end_page']) for r in bounds],[('0002','0002'),('0003','0003')])
@@ -308,7 +311,9 @@ class ReportPipelineTests(unittest.TestCase):
         artifacts=[self.root/'artifacts'/name for name in ('toc.txt','report_boundaries.json','hearing_boundaries.json','minutes_boundaries.json')]
         before={p:(p.read_bytes(),p.stat().st_mtime_ns) for p in artifacts}
         partial=copy.deepcopy(old);partial[0].update(page_type='CT_report_first_page',report_first_page='yes')
-        self.write_rows('names',partial)
+        # Validate manual edits to the published final, not untouched Names inputs.
+        from recordprep.classification_files import final_paths
+        final_paths(self.root)[1].write_text(''.join(json.dumps(r)+'\n' for r in partial))
         self.assertFalse(self.ui.RecordPrepWindow._run_step_six(self.worker))
         self.assertFalse(self.ui.RecordPrepWindow._run_step_seven(self.worker))
         self.assertEqual(before,{p:(p.read_bytes(),p.stat().st_mtime_ns) for p in before})
@@ -330,7 +335,7 @@ class ReportPipelineTests(unittest.TestCase):
             {'file_name':filename,**({'first_page':'yes' if int(Path(filename).stem) in self.starts else 'no'}
              if settings.get('profile_kind')=='first_report' else
              {'name':self.names.get(int(Path(filename).stem),''),'date':'January 2, 2026'})})
-        self.run_steps('_run_step_advanced','_run_step_correct_advanced','_run_step_dates','_run_step_names','_run_step_seven')
+        self.run_steps('_run_step_advanced','_run_step_dates','_run_step_names','_run_step_seven')
         self.assertEqual([row['report_first_page'] for row in self.rows('advanced')],['yes','no','yes'])
         first_calls=[c for c in self.worker._classify_image.call_args_list if c.args[0].get('profile_kind')=='first_report']
         self.assertEqual(len(first_calls),3)

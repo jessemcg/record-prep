@@ -38,8 +38,8 @@ class MinuteSelectionTests(unittest.TestCase):
     def test_shared_skill_selects_result_without_specialty_or_field_inventory(self):
         text = self.skill.read_text()
         self.assertIn('Select the result, not an inventory', text)
-        self.assertIn('not a miniature hearing narrative', text)
-        self.assertIn('one or two decisive findings or orders', text)
+        self.assertIn('not a miniature hearing narrative', ' '.join(text.split()))
+        self.assertIn('one or two headline outcomes', text)
         self.assertIn('qualification needed to state a selected outcome accurately', text)
         self.assertIn('Fictional examples', text)
         self.assertNotIn("juvenile court's actual orders", text)
@@ -47,23 +47,23 @@ class MinuteSelectionTests(unittest.TestCase):
         for name in ('general', 'california_dependency'):
             profile = bundled(name)
             config = minutes.stage_config(self.project, profile=profile)[1]
-            self.assertEqual(config['contract_version'], 8)
+            self.assertEqual(config['contract_version'], 9)
             self.assertEqual(config['presentation'], minutes.COMPACT_PRESENTATION)
             self.assertIn('Fields are containers', config['guidance'])
-            self.assertIn('profile supplies specialty focus', ' '.join(config['guidance'].split()))
+            self.assertIn('fixed, practice-neutral method', config['guidance'])
             self.assertIn('Do not supply a separate positions narrative', config['guidance'])
             self.assertIn('MINUTE CONTRACT', config['guidance'])
-            self.assertEqual(minutes.minute_profile_text(profile), profile.resource('minutes'))
-        self.assertNotIn('juvenile', minutes.PROFILE_MINUTE_CORE.lower())
-        self.assertNotIn('parent', minutes.PROFILE_MINUTE_CORE.lower())
+            self.assertEqual(config['guidance'], minutes.application_guidance())
+        self.assertNotIn('juvenile', minutes.APPLICATION_MINUTE_CORE.lower())
+        self.assertNotIn('parent', minutes.APPLICATION_MINUTE_CORE.lower())
 
     def test_custom_profile_bytes_preserved_but_shared_method_has_priority(self):
         profile = changed(bundled('general'), 'minutes',
                           '  Synthetic specialty focus: contractual relief.\n')
         before = profile.files
         guidance = minutes.profile_guidance(profile)
-        self.assertTrue(guidance.endswith(profile.resource('minutes')))
-        self.assertIn('specialty focus subordinate to that shared method', guidance)
+        self.assertNotIn(profile.resource('minutes'), guidance)
+        self.assertEqual(guidance, minutes.application_guidance())
         self.assertEqual(profile.files, before)
         # Fixed complete-order attendance is not replaced by the legacy parent rule.
         self.assertIn('use explicit evidence from any page', guidance)
@@ -101,7 +101,8 @@ class MinuteSelectionTests(unittest.TestCase):
                     self.assertEqual(staged.read_bytes(), (project / 'skills' / minutes.SKILL_NAME / 'SKILL.md').read_bytes())
                     command = child.command
                     self.assertEqual(command[command.index('--tools') + 1], minutes.TOOLS)
-                    self.assertIn(profile.resource('minutes'), command[-1])
+                    self.assertIn(minutes.application_guidance(), command[-1])
+                    self.assertNotIn('PRACTICE GUIDANCE', command[-1])
                     self.assertIn('Fields are containers', command[-1])
                     self.assertEqual([p.name for p in (child.workspace / '.pi/extensions').iterdir()],
                                      ['recordprep-profile-minute-tools.ts'])
@@ -132,7 +133,7 @@ class MinuteSelectionTests(unittest.TestCase):
         with patch('recordprep.case_profiles.profile_store', return_value=store):
             seed_profile_preparation(self.root, profile, self.project)
             # A synthetic former application method, not rewritten private guidance.
-            with patch.object(minutes, 'PROFILE_MINUTE_CORE', 'Historical synthetic method'):
+            with patch.object(minutes, 'APPLICATION_MINUTE_CORE', 'Historical synthetic method'):
                 minutes.run_stage(self.root, self.project, Mock(return_value=self.candidate()))
                 self.assertTrue(minutes.stage_complete(self.root, self.project))
             # Application-owned constants are loaded at process startup, so a

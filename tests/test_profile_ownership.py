@@ -112,7 +112,7 @@ class OwnershipTests(unittest.TestCase):
         naming_values[-1] = {'mode': 'approved_titles', 'report_titles': ['Synthetic report'],
                              'form_titles': ['Synthetic form'], 'guidance': 'Use source evidence.'}
         for schema in range(1, 10):
-            original = bundle() if schema == 9 else historical_snapshot(bundle(), version=schema)
+            original = historical_snapshot(bundle(), version=schema)
             for naming in naming_values if schema <= 6 or schema == 9 else [bundle().resource('naming')]:
                 editor = ProfileEditor(original); editor.resources['naming'] = copy.deepcopy(naming)
                 snapshot = editor.snapshot(); baseline = components(snapshot)
@@ -192,7 +192,7 @@ class OwnershipTests(unittest.TestCase):
             for kind in ('hearings','reports'):
                 for phase in ('extract','synthesize'):
                     self.assertEqual(compile_summary(old,kind,phase).component_sha256,compile_summary(changed,kind,phase).component_sha256)
-            self.assertEqual(profile_guidance(old) == profile_guidance(changed),resource != 'minutes')
+            self.assertEqual(profile_guidance(old), profile_guidance(changed))
 
     def test_read_inspect_and_edit_leave_snapshot_bytes_and_mtimes_unchanged(self):
         import tempfile

@@ -3,15 +3,15 @@
   "sources": {
     ".pi/extensions/recordprep-summary-tools.ts": "dceb964290ed0680dbe6f34f5e44a2002ddebeafd00f45d52eb5cbcde8ddbe8e",
     ".pi/extensions/recordprep-summary-synthesis-tools.ts": "a63e513a0f997616de3e888d9e7375ad1f2604b63066a7f94da2bf42d722fcd8",
-    ".pi/extensions/recordprep-profile-minute-tools.ts": "2d4e4b199457ce31812310fe0e403995e7dbfd4d591bba36471754b0d5c39428",
+    ".pi/extensions/recordprep-profile-minute-tools.ts": "755775e5589586d380db4eb2df97ad713061e6a92807810db1346125893178f3",
     ".pi/extensions/recordprep-minute-tools.ts": "9abbd80a5b77ae32e932122fb78baef078aae6304249401ac19172c936778e05",
     ".pi/skills/recordprep-extract-hearing/SKILL.md": "b38d7d214e5949b0d53296d8aacf038f85ae2fefc5a9f925258c8f6a07cf16db",
     ".pi/skills/recordprep-extract-report/SKILL.md": "f0fdf69dceb1d56206974fcc64b41aeb4d635538dccdbd65db6e7a2b8fa06db9",
     ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "d460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee",
     ".pi/skills/recordprep-synthesize-reports/SKILL.md": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a",
-    ".pi/skills/recordprep-summarize-minutes/SKILL.md": "345dadc6265e896546bb2f1d2a7fe31c56395141e1d80fa8823b5833ba4b5416",
-    ".pi/scripts/run_recordprep_skill.py": "61031809e655fcba52de38bafb84debce9233693bd1638e7453862b42f335dd1",
-    "recordprep/summary_prompts.py": "06587b5e293b80161f45baaf2c6a6104242efe574aa7cb404a81dc2c90eec5fb",
+    ".pi/skills/recordprep-summarize-minutes/SKILL.md": "3fca61977d02a755544bc3fb977cfd3a91b51f93a980175278fa1392059647ba",
+    ".pi/scripts/run_recordprep_skill.py": "25280dff74a977d0877d86d14985d6d869d81a7dc87324c58640c71ab60e9a92",
+    "recordprep/summary_prompts.py": "fc1deeca80b4cc739ede9f1e0c2948a3aaed00c2312c9b77c1eafa474f0e07fb",
     "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
     ".pi/SYSTEM.md": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",
     ".pi/resources/profile-summary-extract.md": "80f4d6287976b4540228935828851f00d5422d952fa164ca1457da915c9c2a4c",
@@ -292,7 +292,7 @@
                   "role_label": {
                     "type": "string",
                     "maxLength": 512,
-                    "description": "Short role or relationship of a person relevant under the profile, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog."
+                    "description": "Short role or relationship of a relevant party or participant supported by this order, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog."
                   },
                   "status": {
                     "anyOf": [

@@ -11,9 +11,11 @@ No other hearing, digest, participant index, web content or file is evidence her
 
 ## Select the result, not an inventory
 
-This is a quick navigation aid, not a miniature hearing narrative. Select normally
-**one or two decisive findings or orders**. Ask what changed or was decided at this
-hearing. Group related results; do not summarize every finding, checked box, service,
+Summarize each complete minute order using only that order. Prioritize the hearing's
+decisive disposition, relief granted or denied, or another ruling that materially
+changes the parties' rights, obligations, or position. These are alternatives to
+guide selection, not a checklist. This is a quick navigation aid, not a miniature
+hearing narrative. Normally select **one or two headline outcomes**. Group related results; do not summarize every finding, checked box, service,
 condition or direction. Add another outcome only if omission would mislead about the
 disposition. Keep the qualification needed to state a selected outcome accurately,
 not every detail of implementing it. Never mechanically truncate submitted content.
@@ -28,7 +30,7 @@ what relief was decided, and an essential condition or substantive deadline.
 Do not turn a no-contest plea into a guilty plea, a delay into a dismissal,
 or a hearing granted into relief granted. Plain language must not change the result.
 
-Omit statutory strings, evidentiary-standard recitals, repeated status/placement
+Omit statutory strings, evidentiary-standard recitals, repeated status
 findings and stock language that earlier orders remain in effect, unless a genuine
 change is itself the selected outcome. Do not repeat the outcome as request,
 finding and order. Give a continuance's reason only when consequential; put the
@@ -53,9 +55,9 @@ nothing happened or that the source is missing. Do not invent a ruling or pad th
 entry with report/calendar details. If the substantive result cannot be read or
 is genuinely unclear, state that uncertainty instead.
 
-## Compact entry — profiles supply specialty focus, not more fields
+## Compact entry — RecordPrep's fixed, practice-neutral method
 
-For profile-bound cases Python publishes:
+For every new minute summary Python publishes:
 
 Date — Hearing type
 Appearances: Relevant parties, compactly.
@@ -65,19 +67,22 @@ Next: Only the next substantive hearing type and date.
 There are no leading dashes/bullets. Focus displays the three labels in bold;
 Python supplies the labels and formatting, not the model. Submit only the short
 hearing type (no date/caption), attendance entries, selected orders and next setting
-in the tool's fields. Do not restate hearing identity in other fields. Profiles
-identify relevant roles and specialty priorities; assume no particular area of law.
+in the tool's fields. Do not restate hearing identity in other fields.
 
-Use only explicit attendance evidence under the runtime rules. Representation is
-not personal attendance. Do not invent an “Unknown” person or list every attorney,
-clerk or judicial officer. With no relevant attendance established, use an empty
-array rather than a fabricated person. Next gives only the next substantive hearing
+Appearances identify relevant parties and which personally appeared, were expressly
+absent, or have unclear attendance. Use names or short roles supported by this order;
+distinguish different people with the same role. Include another participant only
+when relevant to the order's purpose. Do not assume a practice area or family
+relationship, expand counsel listings into client attendance, or add court staff.
+Use explicit personal-attendance evidence from any page, including expressly recorded
+remote attendance. Representation alone establishes neither presence nor absence;
+an omitted name is not proof of absence. Keep uncertainty explicit. Do not invent an
+“Unknown” person. With no relevant attendance established, use an empty array rather
+than a fabricated person. Next gives only the next substantive hearing
 and its date. Exclude report-only hearings, report filing/due dates and other future
 report dates, even when scheduled earlier. Do not move that report calendar into
 Orders. Omit later settings, times and scheduling mechanics.
 Say “Not stated.” or “Unclear.” as appropriate; never import dates from other orders.
-Unassigned compatibility cases retain their runtime-specific output/attendance
-rules; the same narrow selection and plain-English principles still apply.
 
 ## Fictional examples — intended selection and language, not a length validator
 
@@ -87,9 +92,8 @@ Orders: No substantive orders recorded.
 Next: Review May 7.
 
 May 7, 2030 — Motion to compel
-Appearances: Applicant present; respondent's appearance unclear.
-Orders: Respondent must provide the records by May 21 under the confidentiality
-order. The court denied permission to disclose them without restrictions.
+Appearances: Applicant present; respondent’s appearance unclear.
+Orders: Respondent must provide the records by May 21 under the confidentiality order. The court denied permission to disclose them without restrictions.
 Next: Review June 4.
 
 Plain-English translations, only when supported by the current order:

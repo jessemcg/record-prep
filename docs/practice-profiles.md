@@ -13,9 +13,12 @@ outside bundles; historical case pins no longer authorize instructions.
 
 ## Current settings and fixed classification
 
-Dependency **1.9.0**, content schema **9**, retains two expandable Profile settings
+Dependency **1.11.0**, content schema **10**, retains two expandable Profile settings
 groups: **Document naming** (Report Names/Form Names) and **Summaries** (hearing/report
-digest topics and minute orders). Approved naming cards retain stable IDs and optional
+digest topics only). Minute summaries use the [fixed application method](application-minutes.md),
+regardless of profile or historical custom guidance. Inspect **Minute-order summary**
+through either topic page's **About summaries → View full prompts…**, with no draft
+selector. No minute editor or extra menu/reference window is added. Approved naming cards retain stable IDs and optional
 descriptions; legacy naming v1–v4 stays supported. These catalogs supply naming only,
 not structural recognition or start checks. Save/reset and summary behavior are unchanged.
 
@@ -34,7 +37,7 @@ continues to distinguish staged skills from actual launch/expansion, with unchan
 summary resources and semantics. Missing/stale audits remain visible.
 
 [Application-owned classification](application-classification.md) is authoritative
-for current ownership, private checkpoints, explicit schema-9 saves, compatibility
+for classification ownership, private checkpoints, compatibility
 and [validation limits](application-classification-validation.md). The older schema
 and editable-recognition descriptions below are historical, not current settings.
 Accepted revisions and saved output are never migrated or automatically regenerated.
@@ -58,7 +61,7 @@ supported; a later personal edit or bundled update can make them differ again.
 
 The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. At that time the bundle
 again matched the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
-original wording and formatting. Current Dependency is 1.9.0/schema 9 as described above; Reset to bundled restores that current shipped revision. See
+original wording and formatting. Current Dependency is 1.11.0/schema 10; Reset to bundled explicitly creates a new draft of that shipped revision. See
 [reset and restoration validation](bundled-reset-validation.md).
 
 ## Choose, edit, save
@@ -157,7 +160,7 @@ revisions and case data remain byte-preserved and readable; an internal compatib
 archive supports historical minute defaults and schema-1 readers/editing only.
 No private profile is migrated or deleted, and no prepared output is regenerated.
 
-Summaries has a naturally expanding **About summaries** disclosure on each of exactly three pages: **Hearing digest topics**, **Report digest topics**, and **Minute orders**. There is no pinned breadcrumb or internal title; the explanation ends with the linear overview **Each hearing /
+Summaries has a naturally expanding **About summaries** disclosure on each of exactly two pages: **Hearing digest topics** and **Report digest topics**. Fixed minute instructions remain in their existing full-prompts selector, not an editable page. There is no pinned breadcrumb or internal title; the explanation ends with the linear overview **Each hearing /
 report → Topic digest + quotes → Narrative section → Hearing / report summary**.
 Stage 1 reads each complete hearing or report across all its pages; after the digests
 are ready, Stage 2 synthesizes hearing by hearing or report by report, producing
@@ -394,7 +397,7 @@ profile wins and is never repeatedly overlaid.
 Empty overrides inherit public guidance. Genuine prose is retained without
 unnecessary stripping. Historical built-ins are recognized so retired output
 instructions are not reattached as personal guidance. RecordPrep preserves
-active classification by task, report/form guidance, hearing/report topics and minute guidance. Retired date/caption, extra-summary and attendance inputs are not imported into fresh candidates; already accepted historical resource bytes remain readable and unchanged. Ambiguous naming prose is retained with a
+report/form guidance and hearing/report topics. Classification and minute prose are app-owned and are not imported. Retired date/caption, extra-summary and attendance inputs are not imported into fresh candidates; already accepted historical resource bytes remain readable and unchanged. Ambiguous naming prose is retained with a
 focused review notice: prose does not invent approved-title/catalog rules.
 Focus does not load historical profile/legacy prompt guidance into new research;
 old private stores and saved answers remain untouched. No credentials, endpoints, paths, commands or

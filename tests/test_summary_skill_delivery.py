@@ -42,6 +42,7 @@ class SummarySkillDeliveryTests(unittest.TestCase):
         return json.loads(capture.read_bytes())
 
     def test_actual_production_launches_expand_complete_skills_in_both_modes(self):
+        minute_plans = []
         for profile in (None, bundle()):
             for task, _label in SUMMARY_TASKS:
                 with self.subTest(profile=profile is not None, task=task), tempfile.TemporaryDirectory() as temporary:
@@ -63,6 +64,10 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                                 'skill': str(staged), 'extension': command[command.index('--extension') + 1],
                                 'tools': command[command.index('--tools') + 1].split(','), 'launch': command[-1]}
                         skill_name = staged.parent.name
+                        if phase == 'minutes':
+                            self.assertEqual(Path(plan['extension']).name, 'recordprep-profile-minute-tools.ts')
+                            minute_plans.append((plan['system'], staged.read_text(), plan['launch'],
+                                                 Path(plan['extension']).read_text(), plan['tools']))
                         self.assertTrue(plan['launch'].startswith('/skill:' + skill_name + ' '))
                         self.assertEqual(set(plan['tools']), set(TOOLS[phase]))
                         if profile is not None:
@@ -102,6 +107,8 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                                     runner._run_minute_stage(root, project)
                     self.assertEqual(len(observed), 1)
                     self.assertFalse(observed[0].exists())
+        self.assertEqual(len(minute_plans), 2)
+        self.assertEqual(minute_plans[0], minute_plans[1])
 
     def test_prior_newline_command_reproduces_the_failure_offline(self):
         with tempfile.TemporaryDirectory() as temporary:

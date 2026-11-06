@@ -1,5 +1,18 @@
 # Application profiles, independent case bundles
 
+## Minute ownership (content schema 10)
+
+Dependency1.11.0/schema10 retires minute guidance from new profiles. Every new minute
+run, including custom/historical/unassigned contexts, uses RecordPrep's fixed neutral
+method. Profile/config minute prose is inert; schemas1–9 and saved summaries remain
+unchanged/readable. Explicit Save/Create publishes schema10, never migrates old bytes.
+Profiles still own naming and hearing/report topics. Full-selection publication guards
+remain, but minute fingerprints do not depend on profile identity or retired prose.
+Inspect fixed minutes only through the existing **View full prompts…** task selector.
+No profile reset/save is required to adopt: explicitly generate minutes when desired,
+with new per-order model work, then refresh dependent artifacts normally. See
+[ownership and adoption](application-minutes.md), superseding earlier minute statements.
+
 RecordPrep uses the profile selected in its hamburger menu for **new preparation
 and explicit regeneration**, whether a bundle is new or already exists. The name
 beneath the app title identifies that application-wide choice. Changing or saving
@@ -21,7 +34,7 @@ unassigned work. **App-owned Classification** works without a case or available
 profile storage and shows all definitions and eight complete fixed prompts.
 Standardized hearing notices and separate service proofs are not forms for start,
 naming or Forms TOC purposes; qualifying Notice of Appeal forms remain forms.
-Explicit profile create/save produces schema 9 without rewriting historical
+Explicit profile create/save now produces schema 10 (also omitting minutes), without rewriting historical
 snapshots or naming catalogs. Saved output and Resume behavior are unchanged; only
 explicit Basic/downstream work applies the new rules to existing classifications.
 See [application-owned classification](application-classification.md).

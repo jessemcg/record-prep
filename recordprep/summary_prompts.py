@@ -38,7 +38,5 @@ def synthesis_document(skill_name, total_rows, config, candidate_path):
 
 def minute_document(config):
     return PromptDocument((S("launch", skill_launch("recordprep-summarize-minutes", "Summarize the current minute order directly from its complete source pages.\nMINUTE-ORDER CONTRACT\n")),
-                           S("minute contract and practice guidance", config["guidance"], "profile"),
-                           S("additional heading", "\nADDITIONAL USER GUIDANCE (subordinate)\n"),
-                           S("additional guidance", config["additional_guidance"], "profile"),
+                           S("application-owned minute contract", config["guidance"]),
                            S("source instruction", "\nRead the source tool, then submit the structured summary.")), "")

@@ -26,9 +26,9 @@ class PlainMinuteTests(unittest.TestCase):
             for specialty in ('general', 'california_dependency'):
                 profile = bundled(specialty)
                 config = minutes.stage_config(project, profile=profile)[1]
-                self.assertEqual(config['contract_version'], 8)
+                self.assertEqual(config['contract_version'], 9)
                 self.assertEqual(config['presentation'], 'recordprep-minute-compact-labels-2')
-                for text in (skill, minutes.PROFILE_MINUTE_CORE, tool, profile.resource('minutes')):
+                for text in (skill, minutes.APPLICATION_MINUTE_CORE, tool):
                     with self.subTest(specialty=specialty, text=text[:60]):
                         self.assertIn('plain English', text)
                         self.assertIn('No substantive orders recorded.', text)
@@ -36,9 +36,9 @@ class PlainMinuteTests(unittest.TestCase):
                         self.assertIn('filing', text)
                 self.assertIn('Appearances / Orders / Next', config['guidance'])
                 self.assertNotIn('Main rulings', config['guidance'])
-                self.assertNotIn('- Appearances:', profile.resource('minutes'))
-                self.assertNotIn('juvenile', minutes.PROFILE_MINUTE_CORE.lower())
-                self.assertNotIn('parent', minutes.PROFILE_MINUTE_CORE.lower())
+                self.assertNotIn('- Appearances:', config['guidance'])
+                self.assertNotIn('juvenile', minutes.APPLICATION_MINUTE_CORE.lower())
+                self.assertNotIn('parent', minutes.APPLICATION_MINUTE_CORE.lower())
 
     def test_candidate_text_is_not_mechanically_deleted_or_translated(self):
         # Instructions select/translate. Python must not silently censor a real
@@ -84,7 +84,7 @@ class PlainMinuteTests(unittest.TestCase):
                     unrelated = root / 'summaries/reports_sum_Fictional.txt'
                     unrelated.write_text('Unrelated report artifact stays unchanged.\n')
                     stable = [*sources, unrelated, store.registry_path, project.parent / 'config.json',
-                              store.data_root / 'snapshots' / profile.ref.content_sha256 / 'minutes.md']
+                              store.data_root / 'snapshots' / profile.ref.content_sha256 / profile.manifest['resources']['minutes']]
                     protected = [final, minutes.checkpoint_path(root), minutes.meta_path(root), *stable]
                     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                     self.assertTrue(minutes.freshness_issues(root, project))

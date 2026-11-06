@@ -1,5 +1,9 @@
 # Brief minute-order summaries — 2026-10-16 (first attempt)
 
+**Historical ownership/generation record.** All new minutes now use the fixed,
+practice-neutral [application method, contract9/schema5](application-minutes.md),
+not profile minute focus or unassigned parental compatibility instructions.
+
 **Historical report:** this initial contract5 change passed protocol tests but did
 not achieve the user's intended brevity on subsequent minute-summary review. It is
 superseded by [compact minute entries, contract6](minute-compact.md): normally one

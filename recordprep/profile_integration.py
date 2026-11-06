@@ -30,7 +30,7 @@ def preview(snapshot, project_dir: Path):
     from .document_naming import compile_naming_profile
     from .summary_profiles import compile_summary
     from .native_profiles import compile_native
-    from .minute_summaries import profile_guidance
+    from .minute_summaries import application_guidance
     from .case_name_profiles import compile_case_name
     sections = {}
     for kind in KINDS:
@@ -40,7 +40,7 @@ def preview(snapshot, project_dir: Path):
     for kind in ("hearings", "reports"):
         for phase in ("extract", "synthesize"):
             sections[f"{kind}: {phase}"] = compile_summary(snapshot, kind, phase).prompt
-    sections["Minutes"] = profile_guidance(snapshot)
+    sections["Minutes"] = application_guidance()
     for stage in ("participants", "overview"):
         sections[stage] = compile_native(snapshot, stage, project_dir)[0]
     name = compile_case_name(snapshot)

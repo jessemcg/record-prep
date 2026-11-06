@@ -21,7 +21,7 @@ def provenance(profile, root, project_dir):
     for kind in ("hearings", "reports"):
         for phase in ("extract", "synthesize"):
             components.update(compile_summary(profile, kind, phase).provenance["components"])
-    components.update(minutes._profile_provenance(profile)["components"])
+    components["minutes"] = minutes.application_contract(project_dir)["component_sha256"]
     components.update(compile_native(profile, "overview", project_dir)[1]["components"])
     if not is_ct_only(root):
         components.update(compile_native(profile, "participants", project_dir)[1]["components"])

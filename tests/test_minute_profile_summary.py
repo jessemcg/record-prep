@@ -45,8 +45,7 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             revised = changed(self.profile, "policies", {"attendance": policy})
             self.assertEqual(self.row(profile=revised), self.row())
             self.assertEqual(minutes.profile_guidance(revised), minutes.profile_guidance(self.profile))
-            self.assertEqual(minutes._profile_provenance(revised)["components"],
-                             minutes._profile_provenance(self.profile)["components"])
+            self.assertEqual(minutes.application_contract(), minutes.application_contract())
         self.assertEqual(self.row()["appearances"][1]["status"], "not_present")
 
     def test_unverified_present_and_absent_remain_unclear(self):
@@ -80,12 +79,12 @@ class MinuteProfileSummaryTests(unittest.TestCase):
         original = historical.files
         guidance = minutes.profile_guidance(historical)
         self.assertNotIn("selected legacy policy", guidance)
-        self.assertIn("alternatives to guide selection", guidance)
+        self.assertEqual(guidance, minutes.application_guidance())
         self.assertIn("short type only", guidance)
         self.assertEqual(historical.files, original)
         self.assertEqual(historical.resource("minutes"), legacy_text)
         custom = changed(self.profile, "minutes", "Synthetic personal minute guidance.\n")
-        self.assertEqual(minutes.minute_profile_text(custom), custom.resource("minutes"))
+        self.assertNotIn(custom.resource("minutes"), minutes.profile_guidance(custom))
 
     def test_new_checkpoint_roundtrip_and_old_reader_compatibility(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -94,7 +93,7 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             row = self.row()
             minutes.publish_rows(root, [row], profile=self.profile)
             payload = json.loads(minutes.checkpoint_path(root).read_text())
-            self.assertEqual(payload["schema_version"], 4)
+            self.assertEqual(payload["schema_version"], 5)
             self.assertNotIn("attendance_policy", payload)
             self.assertNotIn("role_catalog", payload)
             self.assertEqual(minutes.load_rows(root), [row])
@@ -103,6 +102,10 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             roles = [{"id": label.lower(), "label": label} for label in ("Mother", "Father", "Unknown", "Other")]
             for person in old["appearances"]:
                 person["role_id"] = person.pop("role_label").lower()
+            payload.pop('application_contract')
+            from dataclasses import asdict
+            payload['profile_provenance'] = {'schema_version': 1, 'profile_ref': asdict(self.profile.ref),
+                                             'components': {'minutes': 'a'*64}}
             payload["role_catalog"] = {"counsel": roles, "participants": roles}
             # Schema 3 is still read as written, too.
             payload.update(schema_version=3, rows=[old], rows_sha256=sa.sha256_json([old]),
@@ -119,8 +122,8 @@ class MinuteProfileSummaryTests(unittest.TestCase):
             self.assertEqual(minutes.load_rows(root), [old])
             self.assertIn("Reported.", minutes.render_paragraph(old))
             self.assertEqual(minutes.checkpoint_path(root).read_text(), source)
-            with self.assertRaises(ValueError):
-                minutes.publish_rows(root, [row])
+            minutes.publish_rows(root, [row])
+            self.assertEqual(minutes.load_rows(root), [row])
 
     def test_new_checkpoint_requires_positions_next_hearing_and_fixed_policy(self):
         with tempfile.TemporaryDirectory() as temporary:

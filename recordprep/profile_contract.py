@@ -52,7 +52,7 @@ STAGE_RESOURCES = {
         "report_extraction": ("reports",),
         "hearing_synthesis": ("hearings",),
         "report_synthesis": ("reports",),
-        "minutes": ("minutes",),
+        "minutes": (),  # Fixed application method for every supported content schema.
         "overview": (),  # Orientation method is fixed; summaries are runtime inputs.
     },
 }
@@ -396,7 +396,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5, 6, 7, 8, 9) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -425,6 +425,8 @@ def _manifest(data: bytes, application: str) -> dict:
             types.pop("classification")
         if value["schema_version"] >= 9:
             types.pop("classification_tasks")
+        if value["schema_version"] >= 10:
+            types.pop("minutes")
     resources = _object(value["resources"], set(types), "resources")
     paths = set()
     for name, suffix in types.items():

@@ -74,11 +74,12 @@ class PromptInspector(Adw.Window):
         self._refresh()
 
     def _refresh(self, *_args):
-        fixed = self.tasks[self.selector.get_selected()][0] in dict(FIXED_TASKS)
+        task = self.tasks[self.selector.get_selected()][0]
+        fixed = task in dict(FIXED_TASKS) or task == "minutes"
         self.mode.set_visible(not fixed)
         self.mode_note.set_visible(not fixed and self.mode.get_selected() == 1)
         try:
-            if fixed and self.recognition_error:
+            if task in dict(FIXED_TASKS) and self.recognition_error:
                 raise ValueError(self.recognition_error)
             result = inspect_prompt(self.resources, self.tasks[self.selector.get_selected()][0], resource_root(),
                                     template=self.mode.get_selected() == 0, draft=self.draft, contract=self.recognition)

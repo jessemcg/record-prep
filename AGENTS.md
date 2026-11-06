@@ -1,5 +1,29 @@
 # RecordPrep Agent Notes
 
+## Application-owned minute instructions (current)
+
+Read docs/application-minutes.md and its validation report. Every new minute run,
+including unassigned/custom/historical profiles, uses the canonical neutral SKILL,
+application_guidance/application_contract builders and unconditional complete-order
+recordprep-profile-minute-tools.ts. No profile minutes/config prose/default substitution,
+participant index or role catalog supplies instructions. Content contract9/schema5
+envelopes record application_contract, retain schema4 rows and historical1–4 readers.
+Old rows never become current by relabeling. Keep compact-labels-2, attendance safeguards,
+plain-English selection/examples, no word/item cap, prose filter, extra pass or quality gate.
+Profiles own Report Names/Form Names and hearing/report topics only. Dependency1.11.0,
+content schema10/profile_api1 omits minutes; every supported schema compiles no minute
+resources. Explicit Create/Save/Reset only; preserve historical/private bytes and legacy
+config values/absence. Summaries has two topic pages, no minute editor. Fixed minutes
+appear only in existing View full prompts selector, no draft controls/invalid-draft
+contamination or new menu/reference window. Safety selection/publication guards remain;
+profile identity/unrelated resources never invalidate identical current minute checkpoints.
+Focus mirrors profile_contract.py only, with tests/docs; profile_artifacts.py stays unchanged.
+No restart, generation, private migration or reruns triggered by updating/settings. Adoption
+requires explicit Create minute-order summaries with new affected-order model work, then
+optional dependent edition/overview/map refresh, not upstream classification/boundary/
+participant/hearing/report reruns. Badges/Resume stay presence-based. This section supersedes
+historical minute-ownership/unassigned-generation statements elsewhere in these notes.
+
 ## Application-owned model maintenance
 
 `model-settings --stdin` precedes GUI/OCR/pipeline/Pi imports. Resolve only the
@@ -93,8 +117,8 @@ private config/case bundles remain untouched.
 ## Practice profiles
 
 Current ownership contract: read `docs/application-classification.md`, its validation
-report and `docs/classification-review.md`. Dependency 1.10.0 uses content schema 9
-(`profile_api: 1`), omitting classification_tasks; schemas 1–8 stay readable and
+report and `docs/classification-review.md`. Dependency 1.11.0 uses content schema 10
+(`profile_api: 1`), omitting classification_tasks and minutes; schemas 1–9 stay readable and
 immutable. The packaged recognition-v1 resource owns all 15 definitions and four
 start clue sets for every profile and unassigned work. Never select historical
 profile/config classification prose. Display RT_body as Hearing body and CT_notice
@@ -104,11 +128,11 @@ start/naming/Forms TOC; qualifying Notice of Appeal forms remain CT_form. Titles
 presentation-only. Strict loading fails before model work, no fallback. Runtime,
 preview, reference and fingerprints share pure builders and frozen contracts.
 Standalone App-owned Classification works without case/profile/storage/network;
-show complete eight fixed prompts without template/draft controls. Naming, summary
-topics and minute guidance remain profile-owned; dates unchanged. Structural work
+show complete eight fixed prompts without template/draft controls. Naming and hearing/report summary
+topics remain profile-owned; minutes and dates are fixed application methods. Structural work
 including unassigned work uses honest private checkpoints and guarded publication.
 Never delete canonical output to force regeneration; badges/Resume stay presence-based.
-Explicit create/save produces a new schema-9 revision without rewriting old snapshots
+Explicit create/save produces a new schema-10 revision without rewriting old snapshots
 or naming v1–v4. No automatic reruns or private cleanup. The older structured settings
 and report-start documents below remain historical detail where ownership differs.
 Report Names/Form Names are naming-only catalogs: never inject them into page-type
@@ -180,7 +204,7 @@ read bounded inputs and edit private candidates only; Python owns publication an
 the deterministic v3 source map. Profiles cannot add tools or weaken validators.
 
 Keep frozen dependency fixtures and legacy readers intact. Participant schema 4
-(2/3 readable), schema-3 maps, digest format 2/row 3/metadata 5 and minute checkpoint 4 (1–3 readable) carry descriptive
+(2/3 readable), schema-3 maps, digest format 2/row 3/metadata 5 and minute checkpoint 5 (1–4 readable) carry descriptive
 provenance/catalogs, never instruction authority. Unknown names/dates must not
 erase short documents. Custom category IDs may include hyphens and digits; quote
 serialization must preserve their canonical IDs. Forms TOC lists only named forms:
@@ -247,7 +271,7 @@ The resources/legacy_practice_profiles/general archive is compatibility-only for
 old minute defaults and schema-1 editing, never a selectable public specialty.
 Never auto-replace personal profiles or case pins with updated bundled resources. Contract changes participate in freshness; never migrate private guidance
 or fabricate metadata to reuse incompatible checkpoints.
-Summaries has exactly Hearing digest topics, Report digest topics and Minute orders.
+Summaries has exactly Hearing digest topics and Report digest topics; fixed minutes stay in the existing full-prompts inspector.
 Content schema 5 additionally removes overview instructions; the overview stage
 compiles no profile resources. Profile settings has only Document naming and Summaries.
 Keep both overview skill paths identical in method: complete summary reads followed
@@ -262,7 +286,7 @@ for each section to teach selection, not case facts or fixed section sizes. Omit
 inventories and routine negative checklists; preserve necessary qualifications and
 claim-specific adjudication status, never blanket-label mixed matters unadjudicated.
 Historical overview
-prose is inert; only explicit Save publishes a current schema-9 draft. Preserve private
+prose is inert; only explicit Save publishes a current schema-10 draft. Preserve private
 candidate guards and Focus's nonauthoritative orientation contract.
 Content schema 4 removes role catalogs and participant instructions in addition to
 schema 3's four extra summary instruction resources. Older schemas remain readable;
@@ -303,11 +327,11 @@ Model settings has one OCR page: embedded-text/local-OCR selection above local O
 settings. Left-hand categories are direct ActionRow destinations, not expanders
 with single nested pages. Keep existing persistence keys; do not restore separate Prepare pages.
 
-Legacy category guidance and first-page parental-attendance rules apply to
-unassigned compatibility contexts. Bound profiles use accepted topic catalogs and
-minute guidance with fixed attendance rules; identification is general for every
-case. Historical specialty text remains for exact built-in recognition and supported
-readers, not an active formal-proposal detector. Do not reintroduce Dependency rules
+Historical schema-1 minute artifacts retain their original first-page parental
+attendance semantics when read. New minutes use the same fixed complete-order
+attendance and general identification method for every profile and unassigned case.
+Hearing/report topic catalogs retain their separate profile authority. Historical
+specialty minute text remains inactive, not an active formal-proposal detector. Do not reintroduce Dependency rules
 into neutral core contracts or remove existing unassigned-case support. Run isolated unit/GTK/pipeline tests, native guard and
 resource validation after changes. Keep package-data declarations covering every
 bundled profile resource; source deployments must retain their own `.pi/` tree.
@@ -388,7 +412,7 @@ RecordPrep converts OCR-readable legal-record PDFs into direct-source, citation-
 - `recordprep/manifest.py`: manifest import surface.
 - `recordprep/summaries.py`: summary path/link import surface.
 - `recordprep/summary_editions.py`: page-matched Letter PDF editions and Focus page maps.
-- `recordprep/minute_summaries.py`: single-stage direct-source PI minute summaries. Profile contract8 publishes Date — Hearing type and unbulleted Appearances / Orders / Next labels (bold in Focus), normally one or two plain-English headline outcomes; no separate party-position submission. Schema4 retains compatibility positions and complete-order evidence; old readers and unassigned first-page/reporting path stay separate.
+- `recordprep/minute_summaries.py`: single-stage direct-source PI minute summaries. Application contract9/schema5 publishes Date — Hearing type and unbulleted Appearances / Orders / Next labels (bold in Focus), normally one or two plain-English headline outcomes. No separate party-position submission. Compatibility positions and complete-order evidence remain; historical paragraph/bulleted readers never govern new generation.
 - `recordprep/summary_agents.py`: two-stage PI summary pipeline — work items, fingerprints, canonical Markdown digest/meta publication with per-kind locks, quote span resolution, recurrence analysis, synthesis validation, and deterministic rendering.
 - `recordprep/summary_categories.py`: strict loader for the tracked category-guidance resources; code-owned category ids/titles/order live here, editable guidance prose lives in `recordprep/resources/summary_categories/`.
 - `recordprep/documents.py`: PDF merge, extraction, rendering, and OCR import surface.
@@ -589,15 +613,12 @@ Next contains only the next substantive
 hearing type/date; exclude report-only hearings and future report filing/due dates,
 even if earlier. Do not move the report calendar into Orders. No hard item/word quota, truncation,
 blocking quality gate, extra pass or private-output migration.
-Profiles supply specialty terminology, relevant participants and emphasis, subordinate
-to shared selection/safety; never hard-code juvenile/parent rules into the neutral
-method. PROFILE_MINUTE_CORE defines the structured response and complete-order
-attendance evidence; counsel alone and missing names establish neither presence nor
-absence. There is no policy selector; old policy fields are inert and exact former
-bundled prose resolves to the new default without private writes (including the
-preceding broad paragraph and compact-with-report-date defaults; never fuzzy-match
-custom prose). Contract8 and
-recordprep-minute-compact-labels-2 honestly stale former minute generation. Preserve
+Application guidance defines the structured response and complete-order attendance
+for every new run; profiles supply no minute terminology, relevant people or emphasis.
+Counsel alone and missing names establish neither presence nor absence. Policy fields
+and old/custom profile/config minute prose are inert, with no default substitution.
+Contract9 honestly stales former generation while recordprep-minute-compact-labels-2
+preserves presentation. Preserve
 explicit compact-list-1 rendering and historical paragraph callers; do not silently
 reformat saved summaries. See docs/minute-plain.md for current language/presentation
 and the narrow Focus consumer dependency.
@@ -606,7 +627,8 @@ per-order work, then reuse current rows. See docs/minute-compact.md (current) an
 docs/minute-selection.md (first attempt). Checkpoint/final metadata4 retains positions and
 next_hearing instead of reporting status, source-described appearance roles and no
 catalog/policy metadata; historical1/2/3 readers preserve old output.
-The following legacy minute prompt applies only to unassigned compatibility work.
+The following paragraph is historical only: it describes retired unassigned generation.
+It must never be selected for any new minute run.
 
 Minute orders run one fresh, restricted PI child per complete boundary-scoped order using the shared **PI model** and reasoning preferences. There is no digest stage, no direct API credential dependency, and no source windowing. Preserve the immutable minute prompt: hearing name, reported/not reported, each parent's personal appearance from the FIRST PAGE only (attorney-only listings mean not present), and concise actual orders. Custom `summarize_minutes_prompt` guidance stays intact and is subordinate. The dedicated `.pi/skills/recordprep-summarize-minutes/` skill and `.pi/extensions/recordprep-minute-tools.ts` expose only source-read and candidate-submit tools; Python validates affirmative first-page quote locations, marks unverified attendance unclear with sanitized warnings, and renders the paragraph. Location verification is not semantic proof of attendance. Ambiguous evidence stays unclear. Unusable/missing candidates preserve the prior final rather than inventing a summary. Python owns `minutes_sum_<case>.rows.json` checkpoints and `.meta.json`, uses the per-kind lock and atomic writes, and fingerprints source, boundaries, labels/citations, guidance, model/reasoning and dedicated resources. Resume regenerates only missing/stale orders; completed checkpoints need no Pi call. Legacy direct-API text remains untouched but pending until regenerated. UI completion/Resume use output presence; overview/source-map prerequisites use saved text, not current minute metadata. Only changed minute text invalidates its edition. Stop/stall, private workspace cleanup, model capacity preflight, and content-free logs reuse the summary runner. Do not alter the hearing/report extension merely to add minute tools, since its hash is a hearing/report synthesis dependency.
 
@@ -624,7 +646,7 @@ JSONL conversion remains guarded and supported, not a current fact-inventory pat
 
 Canonical digest rows carry trusted Python-injected metadata (profile-bound row schema 3, legacy unassigned row schema 2, kind, stable item id by kind and start page, ordinal, label, page range, source and generation fingerprints, sanitized `quality_flags`) and categories in exact configured order. Bound profiles use their accepted topics; legacy unassigned hearings use `parent_appearances`, `evidence_considered`, `testimony`, `disputed_legal_issues`, `party_positions_and_reasons`, `court_orders_and_reasons`; reports use the expanded twelve-category schema ending in `placement_and_caregiver_adoption_approval`. The canonical store for those rows is the versioned Markdown document `summaries/<kind>_digests_<case>.md` (profile-bound format 2, legacy unassigned format 1, independent of the row schema): a document title with a generated-artifact notice, one level-two heading per document (label, item id, source-page range), one level-three heading per category (readable name, category id), digest prose, an explicit `No material content.` null marker, a `#### Direct quotes` subsection carrying each quote's id, file page, and verified status, and a `No direct quotes.` marker for a non-null digest with an empty evidence bank. Reserved `recordprep:digest-*` HTML comments carry fingerprints, ordinals, quality flags, source offsets/hashes, and schema identifiers — never digest or quote text; content is reversibly escaped so source text cannot create headings, comments, links, or delimiters; parsing accepts only the generated grammar, validates reconstructed rows against canonical re-serialization, and rejects duplicates, malformed structure, metadata disagreement, unsupported versions, and truncation with sanitized location-based errors. The Markdown file is for inspection, not manual editing. Each category canonicalizes to exactly one `digest`: `null` when the source has no material orientation-worthy content, or `{text, evidence}` holding one concise salience-based synthesis (representative examples, not an inventory; a development lives in its best category once) plus a small bank of short verbatim quotes — continuous two-to-five-word source phrases, preferably distinctive three-to-five-word anchors, chosen for important points with no fixed count. Quotes are checked against the declared page after Unicode/whitespace normalization, with Python recording the original offsets, canonical quote id, and page hash when the quote is found. Ambiguous matches keep the first occurrence, and unmatched quotes are flagged `verified: false` and kept: quote fidelity is never a pipeline failure. Stage one records developments described as current/recent by a report; stage two determines what is genuinely new. Recurrence analysis is retained for diagnostics and prompt tuning only. All agent-output handling is nonfatal: only source/model execution failures, generated-store corruption, rendering integrity failures, or atomic publication failures may stop a run rather than publish corrupt data, and they preserve the prior final summary. All-null documents keep their required document heading with no sentinel paragraph; unusable extraction is distinguished from genuinely empty categories through private warnings only.
 
-One effective-guidance contract governs both summary phases (`resolve_phase_guidance`): the immutable relevance, scope, schema, quote, and safety contract is always the main guidance; previously shipped built-ins — including the retired digest built-ins with length and six-quote guidance — are recognized by exact historical text reconstructed from tracked history and advance to the current contract without reattaching retired text, while custom prompts remain byte-for-byte unchanged in configuration and are composed as lower-priority additional guidance that cannot override the immutable contract. Per-category guidance prose is loaded and frozen per stage from the tracked resources under `recordprep/resources/summary_categories/` (ids, display titles, ordering, and null semantics stay code-owned; the strict loader rejects missing, duplicated, unknown, reordered, or empty sections with actionable errors before any paid work), and the effective description text is part of each row's extraction fingerprint, so editing one kind's file stales only that kind's rows. Do not reinterpret the retired paragraph-count setting as a page count. Profile settings uses digest topic cards and minute-order guidance, never separate hearing/report review or writing instruction fields. Save writes a private customization, never the tracked bundled/category files; legacy prose stays available to compatibility loaders without duplicate ordinary-settings editors. The hearing source payload includes validated participant-index context privately under `PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY` — counsel, participants, and the witness/testimony picture (verified witnesses with mapped, cited examinations, or explicit `Testimony: None.`) — as attribution context only; every submitted fact still requires evidence from original hearing pages. Summaries are nonauthoritative; source pages remain the factual authority.
+One effective-guidance contract governs both summary phases (`resolve_phase_guidance`): the immutable relevance, scope, schema, quote, and safety contract is always the main guidance; previously shipped built-ins — including the retired digest built-ins with length and six-quote guidance — are recognized by exact historical text reconstructed from tracked history and advance to the current contract without reattaching retired text, while custom prompts remain byte-for-byte unchanged in configuration and are composed as lower-priority additional guidance that cannot override the immutable contract. Per-category guidance prose is loaded and frozen per stage from the tracked resources under `recordprep/resources/summary_categories/` (ids, display titles, ordering, and null semantics stay code-owned; the strict loader rejects missing, duplicated, unknown, reordered, or empty sections with actionable errors before any paid work), and the effective description text is part of each row's extraction fingerprint, so editing one kind's file stales only that kind's rows. Do not reinterpret the retired paragraph-count setting as a page count. Profile settings uses digest topic cards, never minute-order guidance or separate hearing/report review or writing instruction fields. Save writes a private customization, never the tracked bundled/category files; legacy prose stays available to compatibility loaders without duplicate ordinary-settings editors. The hearing source payload includes validated participant-index context privately under `PARTICIPANT INDEX CONTEXT — FOR ATTRIBUTION ONLY` — counsel, participants, and the witness/testimony picture (verified witnesses with mapped, cited examinations, or explicit `Testimony: None.`) — as attribution context only; every submitted fact still requires evidence from original hearing pages. Summaries are nonauthoritative; source pages remain the factual authority.
 
 The case overview is a schema-versioned orientation aid derived from source summaries and, when participant indexing applies to the resolved layout, participant metadata; a CT-only overview uses the report/minute summaries and the valid empty hearing summary and identifies the absence of reporter-transcript attribution in Record Scope. It is never authoritative evidence. An explicit overview rerun uses current input text, participant data and layout; their historical generation settings do not block downstream reuse.
 

@@ -29,8 +29,8 @@ SUMMARY_EXPLANATION = (
     "In the second stage, the agent separately analyzes all digests for the hearings and the reports. For each, the "
     "agent synthesizes the digests into a cohesive narrative with short direct quotes mixed in. "
     "The short direct quotes become links when displayed in the Focus app.\n\n"
-    "Minute order summaries are also created by an agent. However, the manner in which these summaries are created "
-    "is completely up to the user."
+    "Minute summaries use RecordPrep’s fixed, practice-neutral compact method: hearing, appearances, orders, "
+    "and next substantive hearing. View full prompts below to inspect the method and examples."
 )
 CLASSIFICATION_PROGRESSION = "Page types → First pages → Dates & names → Table of contents → Boundaries"
 CLASSIFICATION_EXPLANATION = (
@@ -356,7 +356,7 @@ class ProfileEditorWindow(Adw.Window):
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_child(body)
-        self._navigation.add_page(key, title, scroll, prompt=category == "Document naming" or key == "minutes")
+        self._navigation.add_page(key, title, scroll, prompt=category == "Document naming")
         self.pages[key] = scroll
         self._page_bodies[key] = body
         self._page_body = body
@@ -372,20 +372,6 @@ class ProfileEditorWindow(Adw.Window):
         group = Adw.PreferencesGroup(title=title, description=description)
         self._page_body.append(group)
         return group
-
-    def _guidance(self, group, resource, label):
-        """Retained minute-guidance editor; classification uses recognition cards."""
-        owner = self.editor.resources
-        self._page_body.remove(group)
-        self._explanation(self._page_body, "Summaries")
-        def change(text):
-            if not self._installing:
-                owner[resource] = text
-        editor = text_editor(owner[resource], change, label=label, tall=True)
-        self._guidance_bindings.append((owner, resource, editor.get_child().get_buffer(), lambda _text: None))
-        # The complete disclosure pushes this editor down in the page scroll.
-        editor.set_min_content_height(240)
-        self._page_body.append(editor)
 
     def _explanation(self, box, category):
         classification = category == "Document naming"
@@ -588,9 +574,6 @@ class ProfileEditorWindow(Adw.Window):
             self._explanation(self._page_body, "Summaries")
             self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind])
             self.nav_rows[kind + "-topics"].set_subtitle("1 · Build digest")
-        self._page("Summaries", "minutes", "Minute orders")
-        group = self._group("Minute orders")
-        self._guidance(group, "minutes", "Writing minute-order summaries")
 
     def _bundled_action(self):
         try:
@@ -965,10 +948,8 @@ def editable_profile(snapshot):
     if snapshot.ref.application == "recordprep":
         editor.resources["policies"].pop("report_scope", None)
         editor.resources["policies"].pop("attendance", None)
-        from .minute_summaries import minute_profile_text
-        editor.resources["minutes"] = minute_profile_text(snapshot)
         from .structured_guidance import effective_resource
         editor.resources["naming"] = effective_resource(editor.resources["naming"], "naming")
         editor.use_current_schema()
-        # Naming v1–v4 remain valid under schema 9; unknown prose stays literal.
+        # Naming v1–v4 remain valid under schema 10; unknown prose stays literal.
     return editor

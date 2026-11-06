@@ -59,7 +59,9 @@ def historical_snapshot(profile, version=3):
     manifest["schema_version"] = version
     synthetic = synthetic_files("recordprep")
     old_manifest = json.loads(synthetic["profile.json"])
-    retired = {"classification"} if version < 6 else set()
+    retired = {"minutes"} if version < 10 and "minutes" not in manifest["resources"] else set()
+    if version < 6:
+        retired.add("classification")
     if version < 5:
         retired.update(contract.RETIRED_OVERVIEW_RESOURCES)
     if version < 4:
@@ -538,7 +540,7 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result.draft.ref.application, api.APPLICATION)
                     for stage in contract.STAGE_RESOURCES[api.APPLICATION]:
                         compiled = contract.compile_stage_profile(result.draft, stage, core_contract=b"synthetic core")
-                        if stage in ("participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
+                        if stage in ("minutes", "participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
                             self.assertEqual(compiled.resources, ())
                         else:
                             self.assertTrue(compiled.resources)

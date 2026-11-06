@@ -1638,13 +1638,12 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
             capacity = _stage_capacity("synthesize", "minutes", settings, project_dir, models)
             _report_capacity(capacity, "minutes synthesize")
         workspace_parent.mkdir(parents=True, exist_ok=True)
-        extension_name = PROFILE_MINUTE_EXTENSION_NAME if "profile_component" in config else MINUTE_EXTENSION_NAME
+        extension_name = PROFILE_MINUTE_EXTENSION_NAME
         workspace, staged_pi, staged_skill = _staged_workspace(
             project_dir, MINUTE_SKILL_NAME, workspace_parent, extension_name
         )
         try:
-            # Both modes use the tracked neutral SKILL unchanged; the runtime
-            # supplies profile focus and the applicable compatibility schema.
+            # Every new run uses the fixed neutral skill and complete-order tools.
             candidate_path = workspace / "candidate.json"
             spec_path = workspace / "work_spec.json"
             spec_path.write_text(json.dumps({

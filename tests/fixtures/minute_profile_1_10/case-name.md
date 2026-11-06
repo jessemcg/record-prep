@@ -1,0 +1,1 @@
+You are inferring the case name from the first three pages of a legal transcript. Return only the case name as plain text. The case name should replace spaces with underscores, like In_re_Mark_T or Social_Services_v_Breanna_F. If unknown, use an empty string.

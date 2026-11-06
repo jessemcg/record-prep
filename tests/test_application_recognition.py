@@ -126,7 +126,7 @@ class ResourceTests(unittest.TestCase):
                 ref=editor.managed_save(store,expected_head=old.ref.content_sha256,expected_default=None,
                     validate=lambda snapshot:classifier_document('ct'),can_modify=lambda:True)
                 saved=store.load_profile_snapshot(ref)
-                self.assertEqual(saved.manifest['schema_version'],9)
+                self.assertEqual(saved.manifest['schema_version'],10)
                 self.assertEqual(saved.manifest['profile_api'],1)
                 self.assertNotIn('classification_tasks',saved.manifest['resources'])
                 self.assertEqual(saved.resource('naming'),old.resource('naming'))
@@ -135,7 +135,7 @@ class ResourceTests(unittest.TestCase):
                 for path,content in before.items():
                     if 'snapshots' in path.parts:self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),content)
                 created=ProfileEditor.create(old,'Fictional neutral practice').snapshot()
-                self.assertEqual(created.manifest['schema_version'],9)
+                self.assertEqual(created.manifest['schema_version'],10)
                 self.assertEqual(created.resource('naming'),old.resource('naming'))
 
     def test_retired_configuration_is_inert_and_ordinary_saves_do_not_create_keys(self):

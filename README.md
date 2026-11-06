@@ -82,7 +82,9 @@ work without resetting it. Open the resulting bundle in Focus.
 
 RecordPrep includes a **California Juvenile Dependency** profile that you can
 customize or use as a starting point for other practice areas. Profiles customize
-naming and summaries; **App-owned Classification** shows the app's fixed page rules.
+naming and hearing/report topics. Minute summaries use a fixed, practice-neutral method,
+inspectable through **View full prompts…**. Existing output changes only on explicit
+generation; **App-owned Classification** shows the app's fixed page rules.
 See the [user guide](docs/workflow.md) for details.
 
 **Correct classification with agent** is the last Classify process, immediately

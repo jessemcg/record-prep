@@ -1,5 +1,9 @@
 # Plain-English minute entries and unbulleted labels — 2026-10-16
 
+**Historical contract8 ownership/generation record.** [Application-owned minutes,
+contract9/schema5](application-minutes.md) now governs every new run, with no profile
+minute guidance or parental unassigned path. Compatible compact formatting remains.
+
 Current **minute contract8**, superseding the contract6/7 presentation described in
 [minute-compact.md](minute-compact.md). Approved after editorial review of the latest
 supplied summary TXT, not an original-source factual audit or private profile audit.

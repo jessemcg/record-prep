@@ -31,6 +31,9 @@ def bundled(name):
 
 
 def changed(snapshot, resource, value):
+    if resource == "minutes" and resource not in snapshot.manifest["resources"]:
+        from test_practice_profiles import historical_snapshot
+        snapshot = historical_snapshot(snapshot, version=9)
     files = dict(snapshot.files)
     files[snapshot.manifest["resources"][resource]] = value.encode() if isinstance(value, str) else json_bytes(value)
     return validate_contents(tuple(files.items()), "recordprep")
@@ -318,7 +321,7 @@ class ProfileGenerationTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(minutes.freshness_issues(self.root, project / ".pi"), [])
             self.assertNotIn("Parent", sa.summary_final_path(self.root, "minutes").read_text())
-            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 4)
+            self.assertEqual(json.loads(minutes.checkpoint_path(self.root).read_text())["schema_version"], 5)
             output = sa.summary_final_path(self.root, "minutes").read_text()
             self.assertIn("Minute Order 1 — Review\nAppearances: Plaintiff present.\n"
                           "Orders: Motion denied. Plaintiff requested relief.\n", output)

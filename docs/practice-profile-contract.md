@@ -1,5 +1,20 @@
 # Practice-profile maintainer contract
 
+## Current schema 10 ownership
+
+[Application-owned minutes](application-minutes.md) supersedes historical minute
+ownership/generation statements below. Dependency 1.11.0 uses content schema 10,
+`profile_api: 1`; schemas 1–9 remain readable without writes. Schema 10 omits and
+rejects `minutes`; every schema compiles an empty minute resource list. Explicit
+Create/Save/Reset publishes a new revision, never rewrites old snapshots. Profiles
+own Report Names, Form Names and hearing/report topics only. Naming v1–v4 stays valid.
+Fixed minute inspection in View full prompts requires no valid draft and has no draft
+selector. Summaries has two topic pages, no minute editor. Minute contract9 publishes
+schema5 envelopes with application_contract (method_id, contract_version, component_sha256),
+retaining schema4 row shape and historical1–4 readers. Source-map preparation records
+the fixed minute component descriptively, in the existing format. Focus mirrors only
+profile_contract.py; profile_artifacts.py stays unchanged.
+
 See [the ordinary profile workflow](practice-profiles.md) and
 [validation/limits](practice-profiles-validation.md). This reference describes the
 independently vendored API, not additional end-user management steps.
@@ -35,7 +50,7 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 | roles (historical schemas 1–3 only; inert) | JSON |
 | hearing_extraction, report_extraction (historical schemas 1/2 only; inert) | Markdown |
 | hearing_synthesis, report_synthesis (historical schemas 1/2 only; inert) | Markdown |
-| minutes | Markdown |
+| minutes (historical schemas 1–9 only; inert) | Markdown |
 | overview (historical schemas 1–4 only; inert) | Markdown |
 | participants (historical schemas 1–3 only; inert) | Markdown |
 | classification_tasks (content schemas 2–8) | JSON |
@@ -160,8 +175,8 @@ snapshots cause verification failure, not automatic revision acceptance.
 resource dependencies. Markdown remains exact; structured content is canonical
 JSON. Component hashes include application, stage and caller-supplied core bytes,
 not unrelated display metadata or the whole-profile digest. Classification task groups are stage-local; Dates and caption use fixed application methods, not historical profile text. Report extraction selects topics, not
-retired extra instructions or policies; minutes selects only minute guidance,
-never historical roles or policies. Participants selects no profile resources;
+retired extra instructions or policies; minutes selects no profile resources,
+including historical minute prose, roles or policies. Participants selects no profile resources;
 its component hashes the fixed application contract. Hearing extraction and overview
 also omit historical role catalogs. Overview selects no profile resources, including
 no topic catalogs: actual summaries are source dependencies, not profile instructions.
@@ -178,7 +193,7 @@ See [the ownership inventory](profile-ownership-audit.md) for editable surfaces,
 
 ## Editor and publication boundary
 
-The retained destination home has only Classification (RT types, CT types, First pages, Report Names, Form Names) and Summaries (Hearing digest topics, Report digest topics, Minute orders). No General/date/caption/participant/overview settings or in-window profile switching. Both About disclosures expand naturally in the ordinary page scroller. Save validates all draft pages without closing or changing destination; failure never advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Confirmed Reset to bundled → Reset and Save is the explicit immediate-publication exception, using the exact validated bundle and original CAS expectations.
+The retained destination home has only Document naming (Report Names, Form Names) and Summaries (Hearing digest topics, Report digest topics). Fixed minutes remain available in the existing full-prompts inspector only. No General/date/caption/participant/overview settings or in-window profile switching. Both About disclosures expand naturally in the ordinary page scroller. Save validates all draft pages without closing or changing destination; failure never advances the baseline. Close offers Keep Editing / Discard Unsaved Changes, never Save-and-close. Confirmed Reset to bundled → Reset and Save is the explicit immediate-publication exception, using the exact validated bundle and original CAS expectations.
 
 ## Private storage and managed Save
 

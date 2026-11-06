@@ -13,10 +13,11 @@ from tests.test_pi_resources import _load_runner_module, PI_DIR
 def candidate(**changes):
     return {
         "artifact": "recordprep-minute-candidate", "hearing": "Review Hearing",
-        "reporting": "reported", "parents": [
-            {"parent": "Mother", "status": "present", "first_page_evidence": "Mother present in person."},
-            {"parent": "Father", "status": "not_present", "first_page_evidence": "Counsel for father present."},
-        ], "orders": "The court continued the hearing.", **changes,
+        "appearances": [
+            {"person": "Alex", "role_label": "Applicant", "status": "present",
+             "evidence": [{"file_page": 1, "text": "Mother present in person."}]},
+            {"person": "Sam", "role_label": "Respondent", "status": "unclear", "evidence": []},
+        ], "orders": "The court continued the hearing.", "next_hearing": "Not stated.", **changes,
     }
 
 
@@ -70,7 +71,7 @@ class MinuteSummaryTests(unittest.TestCase):
             self.assertEqual(generate.call_count, 1)
             self.assertEqual(generate.call_args.args[0].item_id, "minute:0002")
             self.assertEqual(minutes.freshness_issues(root, project), [])
-            self.assertIn("Mother appeared. Father did not appear.", final.read_text())
+            self.assertIn("Applicant present; Respondent's appearance unclear.", final.read_text())
             self.assertEqual(hearings.read_text(), "OLD HEARINGS")
             self.assertEqual(reports.read_text(), "OLD REPORTS")
             self.assertEqual((project.parent / "config.json").read_bytes(), config_before)
@@ -81,33 +82,33 @@ class MinuteSummaryTests(unittest.TestCase):
                 remove.assert_not_called()
             generate.assert_not_called()
 
-    def test_first_page_evidence_and_unknowns(self):
+    def test_unverified_evidence_and_unknowns(self):
         with tempfile.TemporaryDirectory() as temp:
             root, project = fixture(Path(temp), 1)
             _, config = minutes.stage_config(project)
             item = minutes.build_items(root, config)[0]
-            for evidence in ("Father present on later page.", ""):
-                row = minutes.normalize_candidate(candidate(parents=[{
-                    "parent": "Father", "status": "present", "first_page_evidence": evidence,
+            for evidence in ("Applicant present on later page.", ""):
+                row = minutes.normalize_candidate(candidate(appearances=[{
+                    "person": "Alex", "role_label": "Applicant", "status": "present",
+                    "evidence": [{"file_page": 1, "text": evidence}],
                 }]), item)
-                self.assertIn("Father appearance unclear.", minutes.render_paragraph(row))
-                self.assertIn("first_page_appearance_unverified", row["quality_flags"])
-            row = minutes.normalize_candidate(candidate(parents=[], reporting="invalid"), item)
-            self.assertIn("Parent appearances unclear.", minutes.render_paragraph(row))
-            self.assertIn("Reporting status unclear.", minutes.render_paragraph(row))
-            self.assertIn("If only a parent's attorney is listed", config["guidance"])
-            self.assertIn("first page of the minute order", config["guidance"])
+                self.assertEqual(row['appearances'][0]['status'], 'unclear')
+                self.assertIn("appearance_evidence_unverified", row["quality_flags"])
+            row = minutes.normalize_candidate(candidate(appearances=[]), item)
+            self.assertIn("Appearances unclear.", minutes.render_paragraph(row))
+            self.assertNotIn("reporting", row)
+            self.assertIn("use explicit evidence from any page", config["guidance"])
 
-    def test_complete_source_not_windowed_and_later_page_cannot_prove_presence(self):
+    def test_complete_source_not_windowed_and_later_page_can_prove_presence(self):
         with tempfile.TemporaryDirectory() as temp:
             root, project = fixture(Path(temp))
             (root / "artifacts/minutes_boundaries.json").write_text(json.dumps([{"start_page": "0001", "end_page": "0002"}]))
             (root / "text_pages/0002.txt").write_text("Father present on later page. " + "x" * 20000)
             item = minutes.build_items(root, minutes.stage_config(project)[1])[0]
             self.assertGreater(len(item.source), 20000)
-            self.assertEqual(item.source.count("FIRST PAGE:"), 1)
-            row = minutes.normalize_candidate(candidate(parents=[{"parent": "Father", "status": "present", "first_page_evidence": "Father present on later page."}]), item)
-            self.assertEqual(row["parents"][0]["status"], "unclear")
+            self.assertEqual(item.source.count("FIRST PAGE"), 1)
+            row = minutes.normalize_candidate(candidate(appearances=[{"person": "Father", "role_label": "Father", "status": "present", "evidence": [{"file_page": 2, "text": "Father present on later page."}]}]), item)
+            self.assertEqual(row["appearances"][0]["status"], "present")
 
     def test_fingerprints_and_ui_cache_follow_inputs(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -195,7 +196,8 @@ class MinuteSummaryTests(unittest.TestCase):
             settings, config = minutes.stage_config(project)
             self.assertEqual(config["model"], "project-model")
             self.assertEqual(config["thinking"], "high")
-            self.assertEqual(config["additional_guidance"], "  Custom guidance\n")
+            self.assertNotIn("Custom guidance", json.dumps(config))
+            self.assertNotIn("additional_guidance", config)
             before = minutes.build_items(root, config)[0].fingerprint
             with (project / "skills" / minutes.SKILL_NAME / "SKILL.md").open("a") as f:
                 f.write("\nChanged contract.\n")

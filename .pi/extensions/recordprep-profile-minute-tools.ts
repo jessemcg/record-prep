@@ -1,4 +1,4 @@
-/** Profile-era minute tools. Exactly the legacy two capabilities, no arbitrary paths. */
+/** Application-owned complete-order minute tools. Two capabilities, no arbitrary paths. */
 import { Type } from "typebox";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -29,7 +29,7 @@ export default function minuteTools(pi: ExtensionAPI) {
       hearing: Type.String({ description: "Short hearing type only; no date, case caption, birth date, courthouse or department. Python puts this beside the date." }),
       appearances: Type.Array(Type.Object({
         person: Type.String(),
-        role_label: Type.String({ maxLength: 512, description: "Short role or relationship of a person relevant under the profile, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog." }),
+        role_label: Type.String({ maxLength: 512, description: "Short role or relationship of a relevant party or participant supported by this order, not a roster of every named attorney or court employee; Unknown if unresolved. Use only this order, not a participant index or predefined role catalog." }),
         status: Type.Union([Type.Literal("present"), Type.Literal("not_present"), Type.Literal("unclear")]),
         evidence: Type.Array(Type.Object({ file_page: Type.Integer({ minimum: 1 }), text: Type.String() }), { maxItems: 128 }),
       }), { maxItems: 128 }),

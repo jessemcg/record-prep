@@ -74,7 +74,7 @@ class ExternalSettingsTests(unittest.TestCase):
         changed_contracts = {
             'extraction': '13b7cc7fb8e042404848aa5be3a23465dda8a5def9a7ef8b59cb82d49f7979c9',
             'synthesis': '4f8bb1a7cbdb6314058f4f2f8ad87833e8c57bd5178141608148dd3a57bf3a56',
-            'minutes': '11b5a941b0d370a71c9893d413a3d839c5fe51ffb7c1715a9b185da02e2597a0',
+            'minutes': 'ff09c96e96446e82e4096ef4332b3eef0a14f63a28335b46641c3a5aa26f6943',
         }
         for key, value in current.items():
             with self.subTest(identity=key): self.assertEqual(sa.sha256_json(value), changed_contracts.get(key, BASELINE[key + '_sha256']))

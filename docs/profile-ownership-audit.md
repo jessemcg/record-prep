@@ -1,5 +1,18 @@
 # Profile/app ownership audit
 
+## Current minute ownership inventory (schema 10)
+
+[Application-owned minutes](application-minutes.md) supersedes the historical minute
+rows below. `minutes` and legacy `summarize_minutes_prompt` have no editable surface,
+loader projection, runtime authority or fingerprint dependency. Historical schemas1–9
+retain literal prose; schema10 Create/Save omits it. `application_guidance` and
+`application_contract` own fixed runtime/preview instructions, canonical skill/examples,
+system, active complete-order tools and delivery/presentation/attendance identity.
+Only the existing summary inspector displays them; invalid unrelated drafts do not
+contaminate minutes. Profile-owned Report Names/Form Names and hearing/report topic
+methods/components remain unchanged. Full selection/publication guards remain safety
+checks, never instruction authority. The older audit below is historical.
+
 **Historical schema-8 audit.** Summary/naming ownership and draft-isolation findings
 remain applicable; classification ownership is superseded by
 [application-owned classification/schema 9](application-classification.md).
@@ -27,7 +40,7 @@ when an inert edit changes provenance but not an effective stage component.
 | Unknown naming v1/v2 | Shared full-resource JSON compatibility editor on both destinations | Preserve catalogs/modes/global prose/v2 heading+code rules, no speculative conversion | Same compiler and validator | Names only; required compatibility |
 | Naming v3 | Literal report/form instruction editors | Original approved-name parser; no split/rewrite of custom prose | Same compiler and validator | Names only; required compatibility |
 | `hearings`, `reports` | Stable-ID ordered topic cards | Strict catalog validator | `summary_profiles.compile_summary`, phase builders/preflight/runner | Matching kind's extraction+synthesis only; active |
-| `minutes` | Minute orders guidance | `minute_profile_text` exact historical-default resolver | Shared minute skill + `profile_guidance`; complete-order evidence | Minutes only; active |
+| `minutes` / legacy minute config | None; fixed inspector only | Historical schemas 1–9 preserve bytes; no substitution/composition | None; application builders own new minutes | Inert compatibility; no effective dependency |
 | `classification` (Common) | None | Historical schemas 1–5 reader; omitted on explicit modern Save | None | Inert, required historical reader |
 | Four extra summary resources | None | Schemas 1/2 reader; omitted on modern Save | None; never import legacy extra-summary config | Inert compatibility |
 | `roles`, `participants` | None | Schemas 1–3 readers; omitted on modern Save | Fixed participant method; descriptive artifact roles remain readable | No instruction dependency; historical-only |

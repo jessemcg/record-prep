@@ -31,7 +31,7 @@ class ProfileDeletionTests(unittest.TestCase):
 
     def test_delete_hides_catalog_but_preserves_all_snapshot_bytes_and_refs(self):
         revised = workflow.ProfileEditor(self.custom)
-        key = "research" if PACKAGE == "focus" else "minutes"
+        key = "research" if PACKAGE == "focus" else "case_name"
         revised.resources[key] += "\nSynthetic revision.\n"
         revision = revised.snapshot()
         self.store.managed_save(revision, expected_head=self.custom.ref.content_sha256, expected_default=None)
@@ -73,7 +73,7 @@ class ProfileDeletionTests(unittest.TestCase):
             with self.subTest(change=change):
                 if change == "head":
                     editor = workflow.ProfileEditor(self.custom)
-                    editor.resources["research" if PACKAGE == "focus" else "minutes"] += "\nNew head.\n"
+                    editor.resources["research" if PACKAGE == "focus" else "case_name"] += "\nNew head.\n"
                     self.store.managed_save(editor.snapshot(), expected_head=self.custom.ref.content_sha256, expected_default=None)
                 else:
                     self.store.set_default(self.custom.ref)

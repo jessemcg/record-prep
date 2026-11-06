@@ -19,6 +19,7 @@ DEFAULT_PROFILE_ID = "california-juvenile-dependency"
 RETIRED_PROFILE_IDS = frozenset({"general-court-record"})
 # Reviewed, exact prior bundled snapshots; ordinary acceptance is not ownership.
 KNOWN_BASELINES = (
+    "975fc7ddea124a0aa43cb83b77aef2cf0128f0af4e6c858fdf002dcbd80ee6c8",
     "8b451694685162200a99c342c501b770fba61c976721322bec2c416a13f366d8",
     "32da44dd71053b9abef31cf991550bf28803ec05b90e27fcc8b37c54e37dee51",
     "a215bd81feb4aacf6aa1bbc16e30fb952e52fa5028a141afa0cfb2530be168ef",

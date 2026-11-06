@@ -106,6 +106,9 @@ def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=Tr
     if task in dict(FIXED_TASKS):
         # Application rules remain inspectable even when a draft/store is invalid.
         return Inspection((("System message", classifier_document(task, contract).render()), PAGE_IMAGE_COMPONENT))
+    if task == "minutes":
+        # Fixed inspection never depends on unrelated draft validity or resources.
+        return _inspect_prompt({}, task, project_dir)
     if draft is not None:
         resources, snapshot = draft.resources, draft.snapshot
         raw = dict(draft.raw_resources)
@@ -140,12 +143,10 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
     from .summary_profiles import profile_skill_text, draft_summary_guidance
     from .summary_prompts import extraction_document, synthesis_document, minute_document
     if task == "minutes":
-        from .minute_summaries import CORE, PROFILE_MINUTE_CORE, profile_guidance
+        from .minute_summaries import application_guidance
         skill = "recordprep-summarize-minutes"
         skill_text = (project_dir / "skills" / skill / "SKILL.md").read_text()
-        guidance = (profile_guidance(snapshot) if snapshot is not None and not template else
-                    CORE + PROFILE_MINUTE_CORE + "\nPRACTICE GUIDANCE (subordinate):\n" + ("⟪minute-order practice guidance⟫" if template else resources["minutes"]))
-        launch = minute_document({"guidance": guidance, "additional_guidance": ""}).render()
+        launch = minute_document({"guidance": application_guidance()}).render()
         phase = "minutes"
         runtime = "⟪complete boundary-scoped minute order source pages, source labels and document metadata⟫\n⟪private candidate path⟫"
     else:

@@ -47,7 +47,7 @@ class SharedPiSelectionTests(unittest.TestCase):
                                 [sa.effective_synthesis_config(project, k) for k in ('hearings', 'reports')],
                                 minutes.stage_config(project)[1])
                     before = effective()
-                    self.assertEqual(before[2]['additional_guidance'], guidance)
+                    self.assertNotIn(guidance, json.dumps(before[2]))
                     cases = [(kind, phase, f'recordprep-{phase if phase == "synthesize" else "extract"}-{kind if phase == "synthesize" else kind[:-1]}')
                              for kind in ('hearings', 'reports') for phase in ('extract', 'synthesize')]
                     cases.append(('minutes', 'synthesize', minutes.SKILL_NAME))

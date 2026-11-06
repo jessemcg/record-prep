@@ -66,12 +66,12 @@ class CompactMinuteTests(unittest.TestCase):
             for specialty in ("general", "california_dependency"):
                 profile = bundled(specialty)
                 config = minutes.stage_config(project, profile=profile)[1]
-                self.assertEqual(config["contract_version"], 8)
+                self.assertEqual(config["contract_version"], 9)
                 self.assertIn("give only the next substantive hearing type/date", config["guidance"])
                 self.assertIn("Exclude report-only hearings", config["guidance"])
                 self.assertIn("Do not move that report calendar into orders", config["guidance"])
-                self.assertNotIn("useful report date", profile.resource("minutes"))
-                self.assertNotIn("report due August", profile.resource("minutes"))
+                self.assertNotIn("useful report date", config['guidance'])
+                self.assertNotIn("report due August", config['guidance'])
 
     def test_contract6_report_calendar_stays_readonly_until_explicit_regeneration(self):
         with TemporaryDirectory() as td:
@@ -150,18 +150,18 @@ class CompactMinuteTests(unittest.TestCase):
             with self.subTest(specialty=specialty, prefix=text[:60]):
                 profile = changed(bundled(specialty), "minutes", text)
                 original = deepcopy(profile.files)
-                self.assertEqual(minutes.minute_profile_text(profile), bundled(specialty).resource("minutes"))
+                self.assertEqual(minutes.profile_guidance(profile), minutes.application_guidance())
                 self.assertEqual(profile.files, original)
                 self.assertEqual(profile.resource("minutes"), text)
         custom = "Custom specialty priorities. Keep my own prose, punctuation and spacing.\n"
         profile = changed(bundled("general"), "minutes", custom)
         original = deepcopy(profile.files)
-        self.assertEqual(minutes.minute_profile_text(profile), custom)
+        self.assertNotIn(custom, minutes.profile_guidance(profile))
         self.assertEqual(profile.files, original)
         old = next(text for text, specialty in minutes._HISTORICAL_MINUTE_GUIDANCE.items()
                    if specialty == "general" and text.startswith("Summarize each"))
         near = changed(bundled("general"), "minutes", old + " Custom emphasis.")
-        self.assertEqual(minutes.minute_profile_text(near), old + " Custom emphasis.")
+        self.assertNotIn(old + " Custom emphasis.", minutes.profile_guidance(near))
 
     def test_cached_status_watches_resolved_public_focus_without_private_writes(self):
         from recordprep.practice_profiles import bundled_profile_directory
@@ -188,8 +188,8 @@ class CompactMinuteTests(unittest.TestCase):
                 before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected}
                 focus = defaults / "minutes.md"
                 focus.write_text(focus.read_text() + "\nFictional additional specialty emphasis.\n")
-                self.assertFalse(minutes.stage_complete(root, project))  # No manual cache clearing.
-                self.assertTrue(minutes.freshness_issues(root, project))
+                self.assertTrue(minutes.stage_complete(root, project))  # Retired prose has no authority.
+                self.assertEqual(minutes.freshness_issues(root, project), [])
                 self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in protected})
 
     def test_bundled_resource_changes_are_minute_only(self):
@@ -204,7 +204,7 @@ class CompactMinuteTests(unittest.TestCase):
                     a = compile_stage_profile(old, stage, core_contract=b"unchanged")
                     b = compile_stage_profile(current, stage, core_contract=b"unchanged")
                     self.assertEqual(a.component_sha256, b.component_sha256)
-            self.assertNotEqual(compile_stage_profile(old, "minutes", core_contract=b"unchanged").component_sha256,
+            self.assertEqual(compile_stage_profile(old, "minutes", core_contract=b"unchanged").component_sha256,
                                 compile_stage_profile(current, "minutes", core_contract=b"unchanged").component_sha256)
 
     def test_old_prose_stays_readonly_until_explicit_compact_generation_and_pdf(self):
@@ -252,7 +252,7 @@ class CompactMinuteTests(unittest.TestCase):
                     self.assertEqual(text.count("May 7, 2030 — Motion to compel"), 2)
                     for label in ("Appearances:", "Orders:", "Next:"):
                         self.assertEqual(text.count(label), 2)
-                    self.assertEqual(json.loads(minutes.meta_path(root).read_text())["schema_version"], 4)
+                    self.assertEqual(json.loads(minutes.meta_path(root).read_text())["schema_version"], 5)
                     self.assertEqual(minutes.freshness_issues(root, project), [])
                     generator.reset_mock()
                     minutes.run_stage(root, project, generator)

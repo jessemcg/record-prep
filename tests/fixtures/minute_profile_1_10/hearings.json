@@ -1,0 +1,32 @@
+[
+  {
+    "id": "parent_appearances",
+    "title": "Parent Appearances",
+    "guidance": "Which parents personally appeared and how (in person or remotely). An\nappearance by counsel only is not a parent appearance; if no parent\npersonally appeared, the category is null."
+  },
+  {
+    "id": "evidence_considered",
+    "title": "Evidence Considered",
+    "guidance": "Testimony, reports, exhibits, records, and stipulations the court\nconsidered, plus evidentiary objections and rulings on evidence. Do not\ninclude argument or orders here."
+  },
+  {
+    "id": "testimony",
+    "title": "Testimony",
+    "guidance": "Witnesses who were verified as sworn and the material substance of their\nsworn testimony. Q/A formatting alone does not establish testimony; unsworn\ncolloquy belongs in evidence, not here. If no sworn testimony occurred, the\ncategory is null."
+  },
+  {
+    "id": "disputed_legal_issues",
+    "title": "Disputed Legal Issues",
+    "guidance": "Contested legal or procedural questions argued or decided at the hearing.\nUndisputed matters and routine calendar rulings do not belong here; if\nnothing was disputed, the category is null."
+  },
+  {
+    "id": "party_positions_and_reasons",
+    "title": "Party Positions and Reasons",
+    "guidance": "Each party's position and the stated reasoning, with distinct attribution\nby role. A party without a stated position is omitted; if no positions were\nstated, the category is null."
+  },
+  {
+    "id": "court_orders_and_reasons",
+    "title": "Court Orders and Reasons",
+    "guidance": "Major findings and orders the court actually made and the court's stated\nreasons, emphasizing rulings on contested matters. Never include proposed\nor recommended findings or orders as if made."
+  }
+]

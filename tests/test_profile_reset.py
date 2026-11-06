@@ -228,7 +228,7 @@ class ProfileResetTests(unittest.TestCase):
         w, store = self.window()
         dialog = w._reset()
         edit = ProfileEditor(self.bundle)
-        edit.resources["minutes"] += " Synthetic bundle update"
+        edit.resources["case_name"] += " Synthetic bundle update"
         changed = edit.snapshot()
         before = w._state(), tree_bytes(self.root)
         with patch.object(api, "bundled_profile_for_identity", return_value=changed):

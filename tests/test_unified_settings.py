@@ -411,7 +411,8 @@ class UnifiedSettingsTests(unittest.TestCase):
                 self.assertGreaterEqual(editor.get_min_content_height(), 120)
             self.assertFalse(any(isinstance(x, Gtk.Button) and x.get_label() == "Edit instructions"
                                  for x in descendants(w.pages[page])))
-        for page in ("hearings-topics", "reports-topics", "minutes"):
+        self.assertNotIn('minutes', w.pages)
+        for page in ("hearings-topics", "reports-topics"):
             disclosure = next(x for x in descendants(w.pages[page])
                               if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
             text = disclosure.get_child().get_last_child().get_text()
@@ -427,9 +428,9 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertTrue(w._save())
         saved = store.load_profile_snapshot(w.editor.base.ref)
         self.assertEqual(saved.resource("hearings")[0]["guidance"], literal)
-        w._select_page("minutes")
-        self.assertIsInstance(w.pages["minutes"], Gtk.ScrolledWindow)
-        disclosure = next(x for x in descendants(w.pages["minutes"]) if isinstance(x, Gtk.Expander))
+        w._select_page("hearings-topics")
+        self.assertIsInstance(w.pages["hearings-topics"], Gtk.ScrolledWindow)
+        disclosure = next(x for x in descendants(w.pages["hearings-topics"]) if isinstance(x, Gtk.Expander))
         self.assertIsInstance(disclosure.get_child(), Gtk.Box)
         disclosure.set_expanded(True)
         self.assertIn(SUMMARY_EXPLANATION, '\n'.join(x.get_text() for x in descendants(disclosure.get_child()) if isinstance(x, Gtk.Label)))

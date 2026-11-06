@@ -12,13 +12,14 @@ from typing import Any, Callable
 
 from recordprep import pi_runtime, summary_agents as sa, summary_prompts
 from recordprep.profile_artifacts import preparation_provenance, validate_role_descriptor
-from recordprep.profile_contract import ProfileSnapshot, compile_stage_profile
+from recordprep.profile_contract import ProfileSnapshot
 from recordprep.summary_profiles import CORE
-from dataclasses import asdict
 
 PROJECT_PI_DIR = Path(__file__).resolve().parent.parent / ".pi"
 SKILL_NAME = "recordprep-summarize-minutes"
-EXTENSION_NAME = "recordprep-minute-tools.ts"
+EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
+METHOD_ID = "recordprep-minute-compact"
+CONTRACT_VERSION = 9
 TOOLS = "recordprep_get_minute_source,recordprep_submit_minute_summary"
 COMPACT_PRESENTATION = "recordprep-minute-compact-labels-2"
 LEGACY_COMPACT_PRESENTATION = "recordprep-minute-compact-list-1"
@@ -58,26 +59,21 @@ def _global_settings_path() -> Path:
 
 
 def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -> tuple[dict[str, str], dict[str, Any]]:
-    """Inherit shared PI preferences; retired summary/API selections are inert."""
-    try:
-        raw = json.loads(application_config_path(project_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        raw = {}
-    raw = raw if isinstance(raw, dict) else {}
+    """Shared PI preferences and fixed application instructions; profile is inert."""
     settings = {
         f"synthesize_{key}": ""
         for key in ("provider", "model", "thinking")
     }
-    prompt = str(raw.get("summarize_minutes_prompt") or "")
-    custom = "" if prompt.strip() == DEFAULT_MINUTES_PROMPT else prompt
     identity = pi_runtime.resolve_stage_model_identity(
         settings, "synthesize", pi_settings_path(project_dir)
     )
     config = {
-        "contract_version": 1,
+        "contract_version": CONTRACT_VERSION,
         "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
-        "guidance": CONTRACT,
-        "additional_guidance": custom,
+        "guidance": application_guidance(),
+        "attendance_policy": "explicit_complete_order",
+        "presentation": COMPACT_PRESENTATION,
+        "application_contract": application_contract(project_dir),
         "provider": identity.provider,
         "model": identity.model_id,
         "thinking": identity.thinking,
@@ -97,24 +93,15 @@ def stage_config(project_dir: Path, *, profile: ProfileSnapshot | None = None) -
             )
         },
     }
-    if profile is not None:
-        compiled = compile_stage_profile(profile, "minutes", core_contract=(CORE + PROFILE_MINUTE_CORE).encode())
-        guidance = profile_guidance(profile)
-        config.update(contract_version=8, guidance=guidance, additional_guidance="",
-                      attendance_policy="explicit_complete_order", presentation=COMPACT_PRESENTATION,
-                      profile_component=compiled.component_sha256)
-        config["resources"] = {str(path.relative_to(project_dir)): sa._resource_sha256(path) for path in (
-            project_dir / "SYSTEM.md", project_dir / "skills" / SKILL_NAME / "SKILL.md",
-            project_dir / "extensions/recordprep-profile-minute-tools.ts")}
     return settings, config
 
 
-PROFILE_MINUTE_CORE = """\nMINUTE CONTRACT — COMPACT ENTRY
+APPLICATION_MINUTE_CORE = """\nMINUTE CONTRACT — COMPACT ENTRY
 Read the complete current order, not other hearings. Follow the shared minute SKILL:
 select normally one or two headline outcomes, not every material detail. Preserve
 only qualifications needed to state those outcomes accurately. Add another outcome
 only if omission would mislead about the disposition. No mechanical truncation.
-The profile supplies specialty focus subordinate to that shared method and safety.
+RecordPrep owns this fixed, practice-neutral method for every new minute summary.
 
 Submit hearing (short type only, no date/caption), appearances, orders (the selected
 outcomes) and next_hearing. Python puts hearing beside the runner-owned date,
@@ -140,7 +127,7 @@ invent a substantive result, imply no court action occurred, or pad with logisti
 These are selection/writing instructions, not a text-deletion filter or word cap.
 
 Attendance has one fixed rule: use explicit evidence from any page of the order.
-Record present, not_present or unclear for people relevant under the profile, with
+Record present, not_present or unclear for relevant parties, with
 person, a short source-supported role_label (Unknown if unresolved), and evidence
 [{file_page, text}]. No role catalog or participant index. Do not create placeholder
 people or a roster of staff/counsel; an empty array means attendance not established.
@@ -162,8 +149,8 @@ No reporting-status sentence, digest or quote placeholders. Only Python renders
 and publishes. Preserve uncertainty rather than filling fields with guesses.
 """
 
-# Exact shipped predecessors only: old private bytes remain untouched. Custom prose
-# is not rewritten; fixed attendance/output rules take priority over it.
+# Historical public literals for compatibility fixtures/readers only. Never
+# consulted or substituted by new generation; all private prose stays untouched.
 _HISTORICAL_MINUTE_GUIDANCE = {
     "Identify the hearing and reporting status, first-page parental appearances under the selected legacy policy, and concise actual juvenile court orders. Counsel-only listings do not establish a parent's personal appearance. Preserve unclear evidence rather than guessing.": "california_dependency",
     "Identify the hearing and reporting status, parties' appearances supported by the complete order, and concise actual orders. Counsel representation alone establishes neither a party's presence nor absence.": "general",
@@ -225,23 +212,30 @@ Follow the shared compact-entry method: normally one or two headline outcomes, r
 }
 
 
-def minute_profile_text(profile: ProfileSnapshot) -> str:
-    text = profile.resource("minutes")
-    builtin = _HISTORICAL_MINUTE_GUIDANCE.get(text.strip())
-    if builtin is None:
-        return text
-    from .practice_profiles import bundled_profile_directory, validate_profile_directory
-    result = validate_profile_directory(bundled_profile_directory(builtin))
-    if result.draft is None:
-        raise ValueError("Minute-order default guidance is unavailable.")
-    return result.draft.resource("minutes")
+def application_guidance() -> str:
+    """Pure fixed instructions shared by runtime and read-only inspection."""
+    return CORE + APPLICATION_MINUTE_CORE
 
 
-def profile_guidance(profile: ProfileSnapshot) -> str:
-    """The exact runtime instructions, also used by read-only GUI preview."""
-    guidance = CORE + PROFILE_MINUTE_CORE
-    guidance += "\nPRACTICE GUIDANCE (subordinate):\n" + minute_profile_text(profile)
-    return guidance
+def application_contract(project_dir: Path = PROJECT_PI_DIR) -> dict:
+    """Instruction identity only: no profile, private config, source or model."""
+    return {"method_id": METHOD_ID, "contract_version": CONTRACT_VERSION,
+            "component_sha256": sa.sha256_json({
+                "guidance": application_guidance(),
+                "launch": summary_prompts.minute_document({"guidance": application_guidance()}).render(),
+                "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
+                "tools": TOOLS,
+                "presentation": COMPACT_PRESENTATION,
+                "attendance_policy": "explicit_complete_order",
+                "contract_version": CONTRACT_VERSION,
+                "resources": {name: sa._resource_sha256(project_dir / name) for name in (
+                    "SYSTEM.md", f"skills/{SKILL_NAME}/SKILL.md", f"extensions/{EXTENSION_NAME}")},
+            })}
+
+
+def profile_guidance(profile: ProfileSnapshot | None = None) -> str:
+    """Compatibility import; profile data has no minute instruction authority."""
+    return application_guidance()
 
 
 @dataclass(frozen=True)
@@ -290,8 +284,7 @@ def build_items(root: Path, config: dict[str, Any]) -> list[MinuteItem]:
             if number == start:
                 first_page = text
             source_pages.append((number, text))
-            first_only = config.get("attendance_policy", "legacy_first_page_parents") == "legacy_first_page_parents"
-            marker = (" — FIRST PAGE: appearance evidence must come from here" if first_only else " — FIRST PAGE") if number == start else ""
+            marker = " — FIRST PAGE" if number == start else ""
             pages.append(f"FILE PAGE {number} ({citations.get(number, '')}){marker}\n{text}")
         label = " ".join(str(boundary.get("date") or f"Minute Order {ordinal}").split())
         source = "\n\n".join(pages)
@@ -307,9 +300,12 @@ def _text(value: Any) -> str:
 
 
 def normalize_candidate(candidate: Any, item: MinuteItem, *, profile: ProfileSnapshot | None = None) -> dict[str, Any]:
-    """Require usable output; profile-bound work always uses the complete order."""
-    if profile is not None:
-        return _normalize_profile_candidate(candidate, item, profile)
+    """All new work uses complete-order, source-described appearances."""
+    return _normalize_application_candidate(candidate, item)
+
+
+def normalize_legacy_candidate(candidate: Any, item: MinuteItem) -> dict[str, Any]:
+    """Historical first-page callers only; never selected by generation."""
     if not isinstance(candidate, dict) or candidate.get("artifact") != "recordprep-minute-candidate":
         raise ValueError("Minute-order candidate is missing or invalid; prior output preserved.")
     hearing, orders = _text(candidate.get("hearing")), _text(candidate.get("orders"))
@@ -347,7 +343,7 @@ def normalize_candidate(candidate: Any, item: MinuteItem, *, profile: ProfileSna
     }
 
 
-def _normalize_profile_candidate(candidate: Any, item: MinuteItem, profile: ProfileSnapshot) -> dict:
+def _normalize_application_candidate(candidate: Any, item: MinuteItem) -> dict:
     if (not isinstance(candidate, dict) or candidate.get("artifact") != "recordprep-minute-candidate"
             or not _text(candidate.get("hearing")) or not _text(candidate.get("orders"))):
         raise ValueError("Minute candidate lacks usable hearing/orders; prior output preserved.")
@@ -416,7 +412,7 @@ def render_paragraph(row: dict[str, Any]) -> str:
 
 
 def render_compact_entry(item: MinuteItem, row: dict[str, Any], *, legacy: bool = False) -> list[str]:
-    """Format current profile output; selection belongs to the model, not slicing."""
+    """Format current output; selection belongs to the model, not slicing."""
     people = row["appearances"]
     roles = [_text(p.get("role_label")) for p in people]
     role_counts = {role.casefold(): sum(r.casefold() == role.casefold() for r in roles) for role in roles}
@@ -466,7 +462,7 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
     payload = _read_json(path)
     rows = payload.get("rows")
     version = payload.get("schema_version")
-    if (type(version) is not int or version not in (1, 2, 3, 4) or payload.get("artifact") != "recordprep-minute-rows"
+    if (type(version) is not int or version not in (1, 2, 3, 4, 5) or payload.get("artifact") != "recordprep-minute-rows"
             or not isinstance(rows, list) or payload.get("rows_sha256") != sa.sha256_json(rows)):
         raise ValueError("Minute-order checkpoint is corrupt; prior output preserved.")
     catalog = None
@@ -486,6 +482,10 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
             raise ValueError("Minute-order checkpoint metadata is invalid.")
         if "minutes" not in preparation_provenance(payload["profile_provenance"])["components"]:
             raise ValueError("Minute-order checkpoint lacks its guidance component.")
+    elif version == 5:
+        if set(payload) != {"schema_version", "artifact", "rows", "rows_sha256", "application_contract"}:
+            raise ValueError("Minute-order checkpoint metadata is invalid.")
+        _validate_application_contract(payload["application_contract"])
     elif {"attendance_policy", "role_catalog", "profile_provenance"}.intersection(payload):
         raise ValueError("Legacy minute checkpoints cannot carry profile metadata.")
     ids = set()
@@ -493,7 +493,7 @@ def load_rows(root: Path) -> list[dict[str, Any]]:
         if not isinstance(row, dict) or not isinstance(row.get("item_id"), str) or row["item_id"] in ids:
             raise ValueError("Minute-order checkpoint contains invalid or duplicate rows.")
         ids.add(row["item_id"])
-        if version in (2, 3, 4):
+        if version in (2, 3, 4, 5):
             _validate_appearance_row(row, catalog, version=version)
         elif "appearances" in row:
             raise ValueError("Legacy minute checkpoints cannot carry generic appearances.")
@@ -517,12 +517,12 @@ def _validate_appearance_row(row: dict, catalog: dict | None = None, *, version:
     appearances = row["appearances"]
     if not isinstance(appearances, list) or len(appearances) > 128:
         raise ValueError("Minute-order appearances must be a bounded list.")
-    role_key = "role_label" if version == 4 else "role_id"
+    role_key = "role_label" if version >= 4 else "role_id"
     for entry in appearances:
         if (not isinstance(entry, dict) or set(entry) != {"person", role_key, "status", "evidence"}
                 or not _text(entry["person"]) or not isinstance(entry[role_key], str)
                 or (version < 4 and entry[role_key] not in catalog)
-                or (version == 4 and (not _text(entry[role_key]) or len(entry[role_key]) > 512))
+                or (version >= 4 and (not _text(entry[role_key]) or len(entry[role_key]) > 512))
                 or entry["status"] not in ("present", "not_present", "unclear")):
             raise ValueError("Minute-order appearance is invalid.")
         evidence = entry["evidence"]
@@ -538,24 +538,25 @@ def _validate_appearance_row(row: dict, catalog: dict | None = None, *, version:
         raise ValueError("Minute-order quality flags are invalid.")
 
 
-def _profile_provenance(profile: ProfileSnapshot) -> dict:
-    compiled = compile_stage_profile(profile, "minutes", core_contract=(CORE + PROFILE_MINUTE_CORE).encode())
-    return {"schema_version": 1, "profile_ref": asdict(profile.ref), "components": {"minutes": compiled.component_sha256}}
+def _validate_application_contract(value: Any) -> None:
+    if (not isinstance(value, dict)
+            or set(value) != {"method_id", "contract_version", "component_sha256"}
+            or value["method_id"] != METHOD_ID
+            or type(value["contract_version"]) is not int or value["contract_version"] != CONTRACT_VERSION
+            or not isinstance(value["component_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", value["component_sha256"]) is None):
+        raise ValueError("Minute-order application contract is invalid.")
 
 
-def publish_rows(root: Path, rows: list[dict[str, Any]], *, profile: ProfileSnapshot | None = None) -> None:
-    existing = checkpoint_path(root)
-    if profile is None and (any("appearances" in row for row in rows)
-            or (existing.exists() and _read_json(existing).get("schema_version") in (2, 3, 4))):
-        raise ValueError("Generic appearances require a profile-aware publisher; prior output preserved.")
-    metadata = {}
-    if profile is not None:
-        for row in rows:
-            _validate_appearance_row(row)
-        metadata = {"profile_provenance": _profile_provenance(profile)}
+def publish_rows(root: Path, rows: list[dict[str, Any]], *, profile: ProfileSnapshot | None = None,
+                 contract: dict | None = None) -> None:
+    descriptor = application_contract() if contract is None else contract
+    _validate_application_contract(descriptor)
+    for row in rows:
+        _validate_appearance_row(row, version=5)
     sa._atomic_write(checkpoint_path(root), json.dumps({
-        "artifact": "recordprep-minute-rows", "schema_version": 4 if profile is not None else 1,
-        "rows": rows, "rows_sha256": sa.sha256_json(rows), **metadata,
+        "artifact": "recordprep-minute-rows", "schema_version": 5,
+        "rows": rows, "rows_sha256": sa.sha256_json(rows), "application_contract": descriptor,
     }, ensure_ascii=True, indent=2) + "\n")
 
 
@@ -590,14 +591,17 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
 
     def publish_current_rows():
         with case_profile_publication(root, expected_ref):
-            publish_rows(root, rows, profile=profile) if profile is not None else publish_rows(root, rows)
+            publish_rows(root, rows, contract=config["application_contract"])
 
     with sa.SummaryKindLock(root, "minutes"):
-        if profile is None and checkpoint_path(root).exists() and _read_json(checkpoint_path(root)).get("schema_version") in (2, 3, 4):
-            raise ValueError("Profile-era minute work requires explicit profile-aware generation; prior output preserved.")
-        settings, config = stage_config(project_dir, profile=profile) if profile is not None else stage_config(project_dir)
+        settings, config = stage_config(project_dir)
         items = build_items(root, config)
-        by_id = {row["item_id"]: row for row in load_rows(root)}
+        stored_rows = load_rows(root)
+        # Old rows remain readable, never relabeled/reused as current semantics.
+        current_checkpoint = (checkpoint_path(root).exists()
+            and _read_json(checkpoint_path(root)).get("schema_version") == 5
+            and _read_json(checkpoint_path(root)).get("application_contract") == config["application_contract"])
+        by_id = {row["item_id"]: row for row in stored_rows} if current_checkpoint else {}
         rows = [by_id[item.item_id] for item in items if item.item_id in by_id and by_id[item.item_id]["fingerprint"] == item.fingerprint]
         current = {row["item_id"] for row in rows}
         for item in items:
@@ -608,7 +612,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
             candidate = generate(item, settings, config)
             check_stop()
             check_selection()
-            row = normalize_candidate(candidate, item, profile=profile) if profile is not None else normalize_candidate(candidate, item)
+            row = normalize_candidate(candidate, item)
             rows.append(row)
             order = {entry.item_id: entry.ordinal for entry in items}
             rows.sort(key=lambda entry: order[entry["item_id"]])
@@ -618,7 +622,7 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
         check_stop()
         # Do not publish a final against inputs changed while the model ran.
         check_selection()
-        current_config = stage_config(project_dir, profile=profile)[1] if profile is not None else stage_config(project_dir)[1]
+        current_config = stage_config(project_dir)[1]
         if current_config != config or build_items(root, config) != items:
             raise ValueError("Minute-order inputs changed during generation; resume to refresh affected orders.")
         publish_current_rows()
@@ -628,13 +632,13 @@ def run_stage(root: Path, project_dir: Path, generate: Callable, *, check_stop: 
         with case_profile_publication(root, expected_ref):
             sa._atomic_write(final, text)
             sa._atomic_write(meta_path(root), json.dumps({
-                "artifact": "recordprep-minute-summary", "schema_version": 4 if profile is not None else 1,
-                **({"profile_provenance": _profile_provenance(profile)} if profile is not None else {}),
+                "artifact": "recordprep-minute-summary", "schema_version": 5,
+                "application_contract": config["application_contract"],
                 "final_sha256": sa.sha256_text(text), "rows_sha256": sa.sha256_json(rows),
                 "inputs": {item.item_id: item.fingerprint for item in items},
                 "config_sha256": sa.sha256_json(config),
             }, indent=2) + "\n")
-        if old != text and profile is None:
+        if old != text:
             try:
                 from recordprep.summary_editions import remove_summary_edition
             except ImportError:
@@ -653,14 +657,14 @@ def freshness_issues(root: Path, project_dir: Path | None = None) -> list[str]:
         profile = resolve_case_profile(root)
         from .boundary_profiles import require_current_boundaries
         require_current_boundaries(root, profile, project_dir)
-        version = 4 if profile is not None else 1
-        if meta.get("artifact") != "recordprep-minute-summary" or meta.get("schema_version") != version:
-            raise ValueError("Minute-order final metadata is invalid or requires explicit profile selection.")
-        if profile is not None:
-            recorded = preparation_provenance(meta.get("profile_provenance"))
-            if recorded["components"] != _profile_provenance(profile)["components"]:
-                raise ValueError("Minute-order profile components changed.")
-        _, config = stage_config(project_dir, profile=profile) if profile is not None else stage_config(project_dir)
+        if meta.get("artifact") != "recordprep-minute-summary" or meta.get("schema_version") != 5:
+            raise ValueError("Minute-order historical metadata requires explicit regeneration.")
+        _, config = stage_config(project_dir)
+        if meta.get("application_contract") != config["application_contract"]:
+            raise ValueError("Minute-order application method changed.")
+        checkpoint = _read_json(checkpoint_path(root))
+        if checkpoint.get("schema_version") != 5 or checkpoint.get("application_contract") != config["application_contract"]:
+            raise ValueError("Minute-order checkpoint method changed.")
         items = build_items(root, config)
         rows = load_rows(root)
         expected = render_final(root, items, rows, presentation=config.get("presentation", ""))
@@ -697,13 +701,6 @@ def stage_complete(root: Path, project_dir: Path | None = None) -> bool:
         if profile is not None:
             snapshot_root = profile_store().data_root / "snapshots" / profile.ref.content_sha256
             paths.extend(snapshot_root / name for name, _contents in profile.files)
-            builtin = _HISTORICAL_MINUTE_GUIDANCE.get(profile.resource("minutes").strip())
-            if builtin is not None:
-                # Effective focus resolves read-only from these public defaults;
-                # watch them too without rescanning their contents on cached checks.
-                from .practice_profiles import bundled_profile_directory
-                defaults = bundled_profile_directory(builtin)
-                paths.extend((defaults / "profile.json", defaults / "minutes.md"))
             from .boundary_profiles import preparation_watch_paths
             paths.extend(preparation_watch_paths(root))
     except (ValueError, OSError):

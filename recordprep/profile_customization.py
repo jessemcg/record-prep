@@ -23,7 +23,6 @@ TASK_KEYS = {
 
 def legacy_customization_editor(config: Mapping[str, object], *, categories=None, base=None) -> ProfileEditor:
     from .ui import main_window as defaults
-    from .minute_summaries import DEFAULT_MINUTES_PROMPT
     base = base or validate_profile_directory(bundled_profile_directory("california_dependency")).draft
     if base is None:
         raise ProfileError("invalid_bundled_profile", "initialization")
@@ -42,9 +41,7 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
     editor.use_current_schema()
     # Retired date/caption inputs are not user-controlled initialization data.
     # Existing accepted resources remain readable; never mutate the source config.
-    value = custom("summarize_minutes_prompt", DEFAULT_MINUTES_PROMPT)
-    if value is not None:
-        editor.resources["minutes"] = value
+    # Historical minute/config prose is preserved at rest, never imported.
     for kind, field, default_name in (
         ("report", "report_guidance", "DEFAULT_CLASSIFY_REPORT_NAMES_PROMPT"),
         ("form", "form_guidance", "DEFAULT_CLASSIFY_FORM_NAMES_PROMPT"),
@@ -57,7 +54,7 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
                 from .structured_guidance import _BASE
                 naming = json.loads((_BASE / "naming.json").read_bytes())
                 editor.resources["naming"] = naming
-                editor.manifest["schema_version"] = 9
+                editor.manifest["schema_version"] = 10
             if naming.get("schema_version") == 3:
                 # Preserve previous prose verbatim, without pretending arbitrary
                 # prose supplies a machine-verifiable list of approved names.

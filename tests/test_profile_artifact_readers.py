@@ -119,9 +119,10 @@ class ProfileArtifactReaderTests(unittest.TestCase):
             self.assertIn("Appearances unclear.", minutes.render_paragraph(value | {"appearances": []}))
             with self.assertRaises(ValueError):
                 minutes.run_stage(root, root / ".pi", lambda *args: self.fail("No model call"))
-            with self.assertRaises(ValueError):
-                minutes.publish_rows(root, [])
             self.assertEqual(path.read_bytes(), before)
+            # Explicit new publication permits schema 5 without profile context.
+            minutes.publish_rows(root, [])
+            self.assertEqual(json.loads(path.read_bytes())['schema_version'], 5)
             value["appearances"][0]["evidence"] = []
             payload["rows_sha256"] = sa.sha256_json([value])
             path.write_text(json.dumps(payload))

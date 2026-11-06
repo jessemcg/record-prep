@@ -83,7 +83,7 @@ class PrivateCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store = api.ProfileStore("recordprep", config_root=Path(temporary) / "config", data_root=Path(temporary) / "data")
             def resolve(base):
-                return initial_candidate(base, config={"summarize_minutes_prompt": "Synthetic previous minute guidance."}, categories={})
+                return initial_candidate(base, config={}, categories={"hearings": {base.resource('hearings')[0]['id']: 'Synthetic previous hearing focus.'}})
             first = api.profile_catalog(store=store, customization=resolve)[0]
             self.assertIn("previous", first.notice)
             ref = store.managed_save(first.snapshot, expected_head=None, expected_default=None, personal=True)

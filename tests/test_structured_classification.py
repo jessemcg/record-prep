@@ -26,8 +26,8 @@ def bundle():
 
 
 def legacy():
-    e = ProfileEditor(bundle())
-    e.manifest['schema_version'] = 6
+    from test_practice_profiles import historical_snapshot
+    e = ProfileEditor(historical_snapshot(bundle(), version=6))
     e.manifest['resources']['classification_tasks'] = 'classification-tasks.json'
     for name, path in [('classification_tasks','classification-tasks.json'),('naming','naming.json')]:
         e.resources[name] = json.loads((BASE/path).read_bytes())
@@ -57,7 +57,7 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertEqual(len(t['first_pages']), 4)
         self.assertNotIn('CFS 6.7', json.dumps(t))
         self.assertNotIn('DCFS 4216', json.dumps(t))
-        for path in ('hearings.json','reports.json','minutes.md'):
+        for path in ('hearings.json','reports.json'):
             self.assertEqual(dict(bundle().files)[path], (BASE/path).read_bytes())
         self.assertNotIn('date_hearing', t)
         self.assertNotIn('apply in order', json.dumps(t))
@@ -257,10 +257,11 @@ class StructuredClassificationTests(unittest.TestCase):
                 skill=('recordprep-extract-'+('hearing' if kind=='hearings' else 'report')) if phase=='extract' else 'recordprep-synthesize-'+kind
                 self.assertEqual(hashlib.sha256(profile_skill_text(ROOT/'.pi',skill,phase).encode()).hexdigest(),golden[kind+'-'+phase]['staged_skill_sha256'])
         from recordprep.minute_summaries import profile_guidance
-        self.assertEqual(hashlib.sha256(profile_guidance(b).encode()).hexdigest(),golden['minutes']['prompt_sha256'])
+        self.assertEqual(hashlib.sha256(profile_guidance(b).encode()).hexdigest(),
+                         'd4ab8bd022954ccd6f556552e03ea6e31b99c3070f03894c0001bff6ed159d23')
         item=NS(item_id='id',ordinal=1,label='label',start_page=1,end_page=2)
         c=NS(guidance='literal {{quote:x}}',additional_guidance='additional {x}',definitions=[NS(identifier='topic',guidance='guidance')])
         expected='/skill:skill Run the loaded extraction skill now for the current document.\nitem_id: id\nordinal: 1\nlabel: label\npage range: 1-2\ncandidate_path: /private/candidate\ncategory ids in order: topic\n\nEXTRACTION GUIDANCE — DIGEST CONTRACT\nliteral {{quote:x}}\n\nPER-CATEGORY GUIDANCE\n- topic: guidance\n\nADDITIONAL USER GUIDANCE — lower priority than the built-in contracts above:\nadditional {x}\n\nThe work specification file is available to your tools; read the complete document source, then submit once.'
         self.assertEqual(extraction_document('skill',item,c,'/private/candidate').render(),expected)
         self.assertEqual(synthesis_document('skill',2,{'guidance':'g','additional_guidance':'a'},'/private').render(),'/skill:skill Run the loaded synthesis skill now for the complete digest dataset.\ntotal rows: 2\ncandidate_path: /private\n\ng\n\nADDITIONAL USER GUIDANCE — lower priority than the built-in contracts above:\na')
-        self.assertEqual(minute_document({'guidance':'g','additional_guidance':'a'}).render(),'/skill:recordprep-summarize-minutes Summarize the current minute order directly from its complete source pages.\nMINUTE-ORDER CONTRACT\ng\nADDITIONAL USER GUIDANCE (subordinate)\na\nRead the source tool, then submit the structured summary.')
+        self.assertEqual(minute_document({'guidance':'g','additional_guidance':'a'}).render(),'/skill:recordprep-summarize-minutes Summarize the current minute order directly from its complete source pages.\nMINUTE-ORDER CONTRACT\ng\nRead the source tool, then submit the structured summary.')

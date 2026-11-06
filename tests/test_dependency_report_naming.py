@@ -28,7 +28,7 @@ def previous_bundle():
     No historical fixture, adapter or private snapshot is upgraded to current cards.
     The digest assertion below guards this reconstruction against later drift.
     """
-    files = dict(bundle().files)
+    files = {p.name:p.read_bytes() for p in (ROOT/'tests/fixtures/minute_profile_1_10').iterdir()}
     files['naming.json'] = (ROOT/'recordprep/resources/profile_baselines/dependency-1.6.0/naming-v4.json').read_bytes()
     files['profile.json'] = files['profile.json'].replace(b'"1.10.0"', b'"1.9.0"')
     return validate_contents(tuple(files.items()), api.APPLICATION)
@@ -39,7 +39,7 @@ class DependencyReportNamingTests(unittest.TestCase):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.10.0',9,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.11.0',10,1))
         n = b.resource('naming'); historical = old.resource('naming')
         self.assertEqual(n['schema_version'],4)
         self.assertEqual(tuple(c['name'] for c in n['reports']),BUNDLED_REPORT_TITLES)
@@ -54,7 +54,6 @@ class DependencyReportNamingTests(unittest.TestCase):
             'case-name.md':'ac60cda00e130e635e15cb7be406317b18a24c0416b7abf2a904b8792dfa016a',
             'hearings.json':'b58714f8d33a0117663de58de7d9b083ccf86ca1153cc897409ef05628c7ed8a',
             'reports.json':'f0ee91c592bcd555ba3b8e3f36f9835a9664b194a46195bdb8a02615c2d81c37',
-            'minutes.md':'2919c322d806445f27c05025e62da35eb9c15c18a843c791da3b56a12fb34062',
             'policies.json':'ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356',
         }.items():
             self.assertEqual(hashlib.sha256(dict(b.files)[name]).hexdigest(),digest,name)

@@ -1,5 +1,9 @@
 # Compact minute entries — 2026-10-16
 
+**Historical profile-ownership/generation record.** [Application-owned minutes,
+contract9/schema5](application-minutes.md) supersedes profile focus, default substitution
+and unassigned generation statements here. Old saved prose is never reformatted.
+
 Historical contract6/7 implementation and validation. The later
 [plain-English / unbulleted-label follow-up](minute-plain.md) is current contract8;
 its Orders label, bold Focus presentation and administrative exclusions supersede

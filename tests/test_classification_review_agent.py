@@ -12,6 +12,7 @@ from unittest.mock import patch, Mock
 
 from recordprep import classification_review as review
 from recordprep.output_presence import step_outputs_present
+from recordprep.document_naming import NamingContract
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -331,7 +332,7 @@ class ReviewTests(unittest.TestCase):
         _,_,candidate,spec,_=self.prepared([change])
         rows={r["file_name"]:r for r in self.rows}
         corrected,audit=review.validate_candidate(candidate.read_bytes(),rows,
-            {"report":SimpleNamespace(allowed_names=["New Report"])},
+            {"report":NamingContract('report', 'approved_titles', ('New Report',), '', None, '', '')},
             set(json.loads(spec.read_text())["reads"]),self.workspace,self.root)
         corrected,audit=review.retain_effective_changes(rows,corrected,audit)
         self.assertEqual(len(audit["changes"]),1)

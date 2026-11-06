@@ -12,15 +12,18 @@ def catalog_entries(naming: dict, kind: str) -> list[dict[str, str]]:
 
     Historical prose is not heuristically split into per-name descriptions. Its
     explicitly declared names remain usable; the original prose stays in naming.
-    Internal stable IDs are editor/storage identities, not model output names.
+    Stable IDs identify matched rules in source-title responses, never display names.
     """
     if kind not in ("report", "form"):
         raise ValueError("Unsupported catalog kind")
     naming = effective_resource(naming, "naming")
     version = naming.get("schema_version", 1)
-    if version == 4:
-        return [{"name": entry["name"], "description": entry["guidance"]}
-                for entry in naming[kind + "s"]]
+    if version in (4, 5):
+        entries = naming[kind + "s"]
+        dynamic = any(entry.get("naming_mode") == "source_title" for entry in entries)
+        return [{"name": entry["name"], "description": entry["guidance"],
+                 **({"rule_id": entry["id"], "naming_mode": entry.get("naming_mode", "fixed")}
+                    if dynamic else {})} for entry in entries]
     if version == 3:
         return [{"name": name, "description": ""}
                 for name in naming_prompt_titles(naming[kind + "_guidance"])]

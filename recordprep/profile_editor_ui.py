@@ -47,8 +47,9 @@ CLASSIFICATION_EXPLANATION = (
     "minute order, report, and form.\n\n"
     "The image model also re-examines the first page of each hearing, minute order, report, and form to extract "
     "information. For each hearing and minute order, only the date is extracted. For each report, the name and date "
-    "are extracted; for each form, only the name is extracted. Report and form names must match an approved name in "
-    "the profile’s user-editable Report Names or Form Names list. Reports and forms without an accepted name are omitted from "
+    "are extracted; for each form, only the name is extracted. Reports and forms must match a rule in "
+    "the profile’s user-editable Report Names or Form Names list. Fixed-name rules return the catalog name; "
+    "source-title rules return the document’s own first-page title, using the catalog name only when no title is discernible. Reports and forms without an accepted name are omitted from "
     "the table of contents, and unnamed reports are excluded from standalone report summaries. "
     "This ensures that only relevant reports and forms are identified."
 )
@@ -429,6 +430,21 @@ class ProfileEditorWindow(Adw.Window):
                             name.set_text(value[title_key] or noun + " instructions")
                     entry.connect("changed", rename)
                     inner.append(entry)
+                    mode = None
+                    if naming:
+                        inner.append(wrapped("Naming approach"))
+                        mode = Gtk.DropDown.new_from_strings(["Fixed name", "Source title (name above is fallback)"])
+                        mode.set_selected(1 if value.get("naming_mode") == "source_title" else 0)
+                        mode.update_property([Gtk.AccessibleProperty.LABEL], [noun + " naming approach"])
+                        def change_mode(widget, _pspec, value=value):
+                            if not self._installing:
+                                if widget.get_selected() == 1:
+                                    self.editor.resources["naming"]["schema_version"] = 5
+                                    value["naming_mode"] = "source_title"
+                                else:
+                                    value.pop("naming_mode", None)
+                        mode.connect("notify::selected", change_mode)
+                        inner.append(mode)
                     def change_topic(text, value=value):
                         if not self._installing:
                             value["guidance"] = text
@@ -459,11 +475,13 @@ class ProfileEditorWindow(Adw.Window):
                         self._topic_expanders.pop(detail)
                         render()
                     tools.append(button("Remove", remove))
-                    cards[identity] = (card, up, down, entry, editor, name)
-                card, up, down, entry, editor, name = cards[identity]
+                    cards[identity] = (card, up, down, entry, editor, name, mode)
+                card, up, down, entry, editor, name, mode = cards[identity]
                 if refresh:
                     entry.set_text(value[title_key])
                     name.set_text(value[title_key])
+                    if mode is not None:
+                        mode.set_selected(1 if value.get("naming_mode") == "source_title" else 0)
                     self._replace_buffer(editor.get_child().get_buffer(), topic_editor_text(value["guidance"]))
                 up.set_sensitive(value is not values[0])
                 down.set_sensitive(value is not values[-1])
@@ -553,7 +571,7 @@ class ProfileEditorWindow(Adw.Window):
     def _classification_contents(self, key, title):
         naming = self.editor.resources["naming"]
         self._explanation(self._page_body, "Document naming")
-        if naming.get("schema_version") == 4:
+        if naming.get("schema_version") in (4, 5):
             plural = key.removesuffix("-naming") + "s"
             self._topic_catalog(self._group(title), naming[plural], kind="naming-" + plural)
         else:

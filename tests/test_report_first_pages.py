@@ -235,7 +235,8 @@ class ReportPipelineTests(unittest.TestCase):
             case = cases[number-1]
             if task == 'ct': answer = {'page_type':case['type']}
             elif task.startswith('first_'): answer = {'first_page':'yes' if case['start'] else 'no'}
-            elif task == 'report': answer = {'name':case['reply'], 'date':'January 02, 2026'}
+            elif task == 'report': answer = {'name':case['reply'], 'date':'January 02, 2026',
+                                             **({'rule_id':case['rule_id']} if 'rule_id' in case else {})}
             elif task == 'form': answer = {'name':case['reply']}
             else: answer = {'date':'January 2, 2026'}
             return json.dumps(answer)
@@ -252,9 +253,14 @@ class ReportPipelineTests(unittest.TestCase):
                 self.assertEqual(row.get('name',''),case['name'])
                 if case['type']=='CT_report' and case['start']:
                     self.assertEqual(row['date'],'January 2, 2026')
+                    self.assertEqual(row.get('naming_rule_id', ''), 'report-agency' if case['name'] else '')
         bounds = json.loads((self.root/'artifacts/report_boundaries.json').read_text())
         self.assertEqual([(int(r['start_page']),int(r['end_page'])) for r in bounds],
                          [(i,2 if i==1 else i) for i in report_starts if cases[i-1]['name']])
+        self.assertEqual([r['report_name'] for r in bounds], [cases[i-1]['name'] for i in report_starts if cases[i-1]['name']])
+        toc = (self.root/'artifacts/toc.txt').read_text()
+        for title in ('MEMORANDUM', 'Update for Judicial Consideration', 'Child Welfare Agency Report'):
+            self.assertIn(title, toc)
         self.assertEqual(source,{p:(p.read_bytes(),p.stat().st_mtime_ns) for p in source})
 
     def test_hearing_notices_and_separate_service_proofs_never_enter_form_work(self):

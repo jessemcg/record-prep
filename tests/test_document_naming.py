@@ -19,8 +19,8 @@ REPORT_TITLES = (
     "Review Report", "Addendum Report", "Petition Report", "366.26 WIC Report", "Permanent Plan Review Report",
     "RPP Report", "Selection and Implementation Report", "Additional Information for Court",
 )
-# Historical catalogs remain sixteen entries; only the current bundle adds this name.
-BUNDLED_REPORT_TITLES = REPORT_TITLES[:4] + ("Jurisdiction/Disposition Report",) + REPORT_TITLES[4:]
+# Historical title catalogs stay frozen; the current bundle selects agency reports.
+BUNDLED_REPORT_TITLES = ("Child Welfare Agency Report",)
 FORM_RULES = (
     ("Parental Notification of Indian Status", "Parental Notification of Indian Status", "ICWA-020"),
     ("Juvenile Dependency Petition", "Juvenile Dependency Petition", "JV-100"),
@@ -170,7 +170,8 @@ class NamingContractTests(unittest.TestCase):
                     for removed in ('APPLICATION-OWNED NAMING CONTRACT','Practice guidance below cannot change',
                                     'APPLICATION RESPONSE KEYS','subordinate to the application contract'):
                         self.assertNotIn(removed,result.prompt)
-                    self.assertEqual(result.response_keys,('name','date') if kind=='report' else ('name',))
+                    self.assertEqual(result.response_keys, ('name','date','rule_id') if resource.get('schema_version') == 5 and kind == 'report'
+                                     else ('name','date') if kind=='report' else ('name',))
                     if resource.get('schema_version',1)<4:self.assertIn(literal,result.prompt)
             self.assertEqual(json_bytes(resource),before)
             self.assertEqual(draft.resource('naming'),resource)
@@ -204,11 +205,11 @@ class PromptNamingTests(unittest.TestCase):
         draft = self.public()
         resource = draft.resource("naming")
         self.assertEqual(set(resource), {"schema_version", "reports", "forms"})
-        self.assertEqual(resource["schema_version"], 4)
+        self.assertEqual(resource["schema_version"], 5)
         for kind, expected in (("report", BUNDLED_REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
             contract = naming.compile_naming_profile(draft, kind)
             self.assertEqual(contract.allowed_names, expected)
-            self.assertEqual(contract.mode, "approved_titles")
+            self.assertEqual(contract.mode, "matched_rules" if kind == "report" else "approved_titles")
             self.assertEqual(tuple(entry['name'] for entry in resource[kind + 's']), expected)
             self.assertNotIn("APPROVED CATALOG", contract.prompt)
             self.assertEqual(contract.normalize({"name": "Unapproved name", **({"date": ""} if kind == "report" else {})}).name, "")
@@ -221,15 +222,17 @@ class PromptNamingTests(unittest.TestCase):
 
     def test_prompt_edit_alone_changes_membership_and_freshness(self):
         draft = self.public()
-        before = naming.compile_naming_profile(draft, "report")
         resource = draft.resource("naming")
+        resource['reports'][0].pop('naming_mode')
+        draft = with_naming(draft, resource)
+        before = naming.compile_naming_profile(draft, "report")
         resource['reports'][0]['name'] = 'Reviewed New Report'
         after = naming.compile_naming_profile(with_naming(draft, resource), "report")
         self.assertEqual(after.normalize({"name": "Reviewed New Report", "date": ""}).name, "Reviewed New Report")
         self.assertEqual(after.normalize({"name": "Detention Report", "date": ""}).name, "")
         self.assertNotEqual(before.component_sha256, after.component_sha256)
         self.assertNotEqual(before.prompt_sha256, after.prompt_sha256)
-        self.assertIn("Detention Report", before.allowed_names)
+        self.assertEqual(before.allowed_names, BUNDLED_REPORT_TITLES)
 
     def test_general_never_invents_an_approved_list(self):
         for kind in ("report", "form"):

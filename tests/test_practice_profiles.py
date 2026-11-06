@@ -79,6 +79,9 @@ def historical_snapshot(profile, version=3):
                              'dependency-1.8.0/classification-v3.json')
         manifest['resources']['classification_tasks'] = path
         files[path] = source.read_bytes()
+    if version in (7, 8):
+        # These schemas predate source-title rule cards; retain a true v4 fixture.
+        files[manifest['resources']['naming']] = (Path(__file__).parent / 'fixtures/minute_profile_1_10/naming.json').read_bytes()
     if version == 1:
         for name in ("classification_tasks", "case_name"):
             path = manifest["resources"].pop(name, None)

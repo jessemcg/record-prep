@@ -48,9 +48,15 @@ verification if the selected agent cannot read an image: leave it unresolved.
    image under the supplied hearing-date rules: Dates already ran before this review.
    Leave genuinely unreadable dates unresolved; do not invent one.
 4. Recover missed document starts when supported by source evidence. Only propose
-   a report/form name supported by its own first-page image and the supplied exact
-   naming catalog. Neighboring pages help boundaries, not invention of first-page
-   naming evidence. Follow supplied date rules. Leave unsupported fields empty.
+   a report/form name supported by its own first-page image and the supplied
+   naming rules. Fixed rules use the exact catalog name. Source-title rules first
+   require a clear description match, then use the document's own first-page title;
+   use the rule's catalog name only when eligible but no title is discernible.
+   For a catalog using rule_id responses, include naming_rule_id with the matched
+   rule's exact ID whenever adding/changing a name. An arbitrary title without a
+   matching rule is not eligible. Neighboring pages help boundaries, not invention
+   of first-page naming evidence. Follow supplied date rules. Leave unsupported
+   fields empty.
 5. Decide structural type/start independently from dates/names. When an image
    clearly establishes a form rather than a minute order, correct the type and
    remove the inapplicable minute date even if the form's own date is uncertain.
@@ -129,7 +135,7 @@ Each change has exactly these keys:
 This is a fictional format example, not an instruction to change these pages.
 Allowed impact codes: report_continuity, false_start, missed_document,
 document_identity, date_or_name. Allowed changed fields: page_type,
-report_first_page, name, date. before/after must have the same keys; null means
+report_first_page, name, date, naming_rule_id. before/after must have the same keys; null means
 missing in before or remove in after. Preserve every other field. At most one
 change per page; combine related field changes. Use exact existing before values.
 Evidence lists source page filenames whose PNGs you successfully opened, including

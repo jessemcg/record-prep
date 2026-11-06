@@ -28,7 +28,8 @@ class PromptLinebreakTests(unittest.TestCase):
         self.assertIn('uninterrupted speech', rt)
 
     def test_naming_wraps_removed_without_collapsing_sections_or_json(self):
-        naming = bundle().resource('naming')
+        from test_dependency_report_naming import title_catalog_bundle
+        naming = title_catalog_bundle().resource('naming')
         for kind in ('report', 'form'):
             with self.subTest(kind=kind):
                 document = naming_document(naming, kind)

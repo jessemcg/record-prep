@@ -1,4 +1,4 @@
-"""Current schema-9 GTK acceptance, synthetic store, no network or real settings.
+"""Current schema-10 GTK acceptance, synthetic store, no network or real settings.
 
 Run from a disposable source/HOME/XDG. --interactive leaves the reference and
 settings available for native desktop checks. --screenshots PATH captures only
@@ -63,11 +63,11 @@ def run(*_):
     windows.append(w);w.set_title('Synthetic RecordPrep — Document naming and Summaries')
     if '--interactive' in sys.argv:
         w._select_page('report-naming')
-        w._topic_expanders['topic:naming-reports:report-17'].set_expanded(True)
+        w._topic_expanders['topic:naming-reports:report-agency'].set_expanded(True)
         w.present();return
     def check():
         assert list(w.nav_groups)==['Document naming','Summaries']
-        assert list(w.nav_rows)==['report-naming','form-naming','hearings-topics','reports-topics','minutes']
+        assert list(w.nav_rows)==['report-naming','form-naming','hearings-topics','reports-topics']
         assert not w._recognition_cards and 'classification_tasks' not in w.editor.resources
         assert not hasattr(w,'_classification_reference')
         for key in ('report-naming','form-naming'):
@@ -105,13 +105,23 @@ def run(*_):
         clipboard.set.assert_called_once_with(textbuffer.get_text(*textbuffer.get_bounds(),True))
         inspector.destroy()
         reports=w.editor.resources['naming']['reports']
-        assert len(reports)==17 and reports[4]['id']=='report-17'
-        assert reports[4]['name']=='Jurisdiction/Disposition Report'
+        assert len(reports)==1 and reports[0]['id']=='report-agency'
+        assert reports[0]['name']=='Child Welfare Agency Report'
         for card in reports:
             view=w._topic_editors['topic:naming-reports:'+card['id']].get_child()
             assert view.get_wrap_mode()==Gtk.WrapMode.WORD_CHAR
             assert view.get_buffer().get_text(*view.get_buffer().get_bounds(),True)==card['guidance']
-            assert card['guidance'].startswith('Court-directed child-welfare agency report.')
+            assert 'only the fallback when the document clearly qualifies' in card['guidance']
+        mode = next(x for x in descendants(w._topic_expanders['topic:naming-reports:report-agency'].get_child()) if isinstance(x, Gtk.DropDown))
+        assert mode.get_selected() == 1
+        mode.set_selected(0); assert reports[0].get('naming_mode', 'fixed') == 'fixed'
+        mode.set_selected(1); assert reports[0]['naming_mode'] == 'source_title'
+        form_mode = next(x for x in descendants(w._topic_expanders['topic:naming-forms:form-01'].get_child()) if isinstance(x, Gtk.DropDown))
+        assert form_mode.get_selected() == 0
+        form_mode.set_selected(1)
+        assert w.editor.resources['naming']['forms'][0]['naming_mode'] == 'source_title'
+        form_mode.set_selected(0)
+        assert 'naming_mode' not in w.editor.resources['naming']['forms'][0]
         value=reports[0];detail='topic:naming-reports:'+value['id']
         editor=w._topic_editors[detail];buffer=editor.get_child().get_buffer()
         buffer.insert_at_cursor(' Authored fictional naming clue.')
@@ -128,8 +138,9 @@ def run(*_):
                 current.selector.set_selected(0);current._refresh()
                 text=current.text.get_buffer().get_text(*current.text.get_buffer().get_bounds(),True)
                 assert compile_naming_profile(w.editor.snapshot(),'report').prompt in text
-                assert 'opening structure and court/report identification' in text
-                assert 'Jurisdiction/Disposition Report' in text
+                assert 'document\'s own title on its cover/first page' in text
+                assert 'Child Welfare Agency Report' in text
+                assert 'Memoranda, letters, addenda, supplemental information' in text
             current.destroy()
         ref=w.editor.base.ref;value['name']='';assert not w._save();assert w.editor.base.ref==ref
         # Invalid naming cannot contaminate standalone fixed inspection.
@@ -137,7 +148,9 @@ def run(*_):
         other=parent._classification_reference;other._prompts()
         assert not other.prompt_inspector.status.get_text()
         other.prompt_inspector.destroy();other.destroy()
+        mode.set_selected(0)
         w._reset().response('reset')
+        assert mode.get_selected() == 1
         assert w.editor.snapshot().files==b.files,w.message.get_text()
         assert w._topic_editors[detail] is editor and not w._dirty()
         print('Application recognition / naming / summaries GTK acceptance PASS',flush=True)
@@ -152,7 +165,7 @@ def run(*_):
                ('naming-home',w,'home',850,760,False,11),
                ('report-names',w,'report-naming',480,760,False,11),
                ('report-names-about',w,'report-naming',480,1000,False,11),
-               ('report-combined',w,'report-naming',700,1000,False,11),
+               ('report-agency',w,'report-naming',700,1000,False,11),
                ('report-prompts',w,'report-prompts',700,760,False,11),
                ('form-names',w,'form-naming',480,760,False,11),
                ('summary-topics',w,'hearings-topics',850,760,False,11),
@@ -181,7 +194,7 @@ def run(*_):
                          and x.get_label()=='About classification').set_expanded(name.endswith('-about'))
                 for key,card in w._topic_expanders.items():
                     if key.startswith('topic:naming-') or key.startswith('topic:hearings:'):
-                        card.set_expanded(key=='topic:naming-reports:report-17' if name=='report-combined' else True)
+                        card.set_expanded(key=='topic:naming-reports:report-agency' if name=='report-agency' else True)
             target.set_default_size(width,height);target.present()
             # Observe a full frame before snapshotting; a just-created paintable
             # can otherwise have no node for a stable already-mapped widget.

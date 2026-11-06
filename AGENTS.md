@@ -10,7 +10,7 @@ participant index or role catalog supplies instructions. Content contract9/schem
 envelopes record application_contract, retain schema4 rows and historical1–4 readers.
 Old rows never become current by relabeling. Keep compact-labels-2, attendance safeguards,
 plain-English selection/examples, no word/item cap, prose filter, extra pass or quality gate.
-Profiles own Report Names/Form Names and hearing/report topics only. Dependency1.11.0,
+Profiles own Report Names/Form Names and hearing/report topics only. Dependency1.13.0,
 content schema10/profile_api1 omits minutes; every supported schema compiles no minute
 resources. Explicit Create/Save/Reset only; preserve historical/private bytes and legacy
 config values/absence. Summaries has two topic pages, no minute editor. Fixed minutes
@@ -117,7 +117,7 @@ private config/case bundles remain untouched.
 ## Practice profiles
 
 Current ownership contract: read `docs/application-classification.md`, its validation
-report and `docs/classification-review.md`. Dependency 1.11.0 uses content schema 10
+report and `docs/classification-review.md`. Dependency 1.13.0 uses content schema 10
 (`profile_api: 1`), omitting classification_tasks and minutes; schemas 1–9 stay readable and
 immutable. The packaged recognition-v1 resource owns all 15 definitions and four
 start clue sets for every profile and unassigned work. Never select historical
@@ -147,12 +147,22 @@ one-page/adjacent/repeated-name reports separate; do not restore report-gap fill
 Report naming uses the document's own visible title/identifying wording with catalog
 descriptions; contextual same-image header/footer evidence is permitted, not required.
 Repeated footers/codes/page numbers alone never prove identity or first-page status.
-Unresolved heading/footer conflicts yield an empty name; only explicitly described
-variants apply. Dependency's 17 agency-report cards include report-17 Jurisdiction/Disposition
-Report; unmatched CASA titles stay unnamed. See docs/dependency-report-naming.md for
-matching scope, historical preservation, isolated validation limits and explicit adoption.
-JSON/date/exact-name validation and form prompts remain unchanged; do not bump the
-shared naming contract version or update historical adapters to the latest catalog.
+Unresolved identity conflicts yield an empty name; descriptions determine matching scope.
+Dependency 1.13.0 has one report-agency card, Child Welfare Agency Report: agency
+attribution and court-directed purpose determine eligibility; Source title returns
+the actual first-page title, with the category name only a missing-title fallback. Include
+short agency memoranda/updates; filing or attaching an independent document alone
+never makes it the agency's report. Unmatched CASA reports stay unnamed. Keep six
+form cards and frozen historical title catalogs unchanged. See docs/dependency-report-naming.md
+for matching scope, historical preservation, isolated validation limits and explicit adoption.
+Naming5 offers fixed/source_title per card for every practice and both report/form
+kinds; absent mode is fixed. All-fixed prompts/results and bundled form prompts stay
+unchanged. Dynamic catalogs require a matching rule_id; preserve it as naming_rule_id
+in Names/corrections and propagate actual titles downstream. Mixed fixed rules retain
+exact-name checking. Empty title with a valid source rule uses its configured name
+as fallback; unknown eligibility never does. No extra model pass or global review gate.
+See docs/source-title-naming.md. Preserve historical adapters and shared contract version2;
+rendered prompts/rules determine Names freshness. Mirror profile_contract.py with Focus.
 The report-date sentence stays byte-identical; the Detention-only date sentence remains deleted. Only Names depends on catalogs; application report-start
 clue changes affect Advanced/Corrected. Page-flow/selection identities invalidate old work
 checkpoints; Dates and summary model instructions stay unchanged. Actual upstream

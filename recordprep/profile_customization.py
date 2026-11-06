@@ -49,7 +49,7 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
         value = custom(f"classify_names_{kind}_prompt", getattr(defaults, default_name))
         if value is not None:
             naming = editor.resources["naming"]
-            if naming.get("schema_version") == 4:
+            if naming.get("schema_version") in (4, 5):
                 import json
                 from .structured_guidance import _BASE
                 naming = json.loads((_BASE / "naming.json").read_bytes())

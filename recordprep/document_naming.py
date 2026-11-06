@@ -73,6 +73,7 @@ class NamingResult:
     name: str
     date: str
     quality_flags: tuple[str, ...]
+    rule_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,10 +85,12 @@ class NamingContract:
     profile_ref: ProfileRef
     component_sha256: str
     prompt_sha256: str
+    rules: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def response_keys(self) -> tuple[str, ...]:
-        return ("name", "date") if self.kind == "report" else ("name",)
+        keys = ("name", "date") if self.kind == "report" else ("name",)
+        return (*keys, "rule_id") if self.mode == "matched_rules" else keys
 
     def normalize(self, payload: Any) -> NamingResult:
         """Bound model output without inventing a title or echoing private text.
@@ -106,6 +109,22 @@ class NamingContract:
         if name is None:
             name = ""
             flags.append("invalid_name")
+        rule_id = ""
+        if self.mode == "matched_rules":
+            supplied_id = _response_text(payload.get("rule_id"), 160)
+            rule = next((r for r in self.rules if r[0] == supplied_id), None)
+            if rule is None:
+                name = ""
+                flags.append("rule_unresolved")
+            elif "invalid_name" not in flags:
+                rule_id, mode, fallback = rule
+                if mode == "fixed" and name != fallback:
+                    name = ""
+                    rule_id = ""
+                    flags.append("unrecognized_title")
+                elif mode == "source_title" and not name:
+                    name = fallback
+                    flags.append("source_title_missing")
         if name and self.mode == "approved_titles" and name not in self.allowed_names:
             name = ""
             flags.append("unrecognized_title")
@@ -118,7 +137,7 @@ class NamingContract:
                 date_text = _date_value(raw_date) or ""
             if raw_date is None or (raw_date and not date_text):
                 flags.append("invalid_report_date")
-        return NamingResult(name, date_text, tuple(flags))
+        return NamingResult(name, date_text, tuple(flags), rule_id)
 
 
 def naming_document(naming: dict, kind: str):
@@ -126,8 +145,10 @@ def naming_document(naming: dict, kind: str):
     from .prompt_document import PromptDocument, PromptSection
     from .structured_guidance import effective_resource
     naming = effective_resource(naming, "naming")
-    if naming.get("schema_version") != 4 or kind not in ("report", "form"):
+    if naming.get("schema_version") not in (4, 5) or kind not in ("report", "form"):
         raise ValueError("Structured naming resource required")
+    if any(entry.get("naming_mode") == "source_title" for entry in naming[kind + "s"]):
+        return source_title_document(naming, kind)
     mechanics = ("""Identify the report from its own visible title or identifying wording, interpreted with the catalog descriptions. A prominent heading is strong evidence, not a requirement. The report’s own header or footer may identify its family when supported by the opening structure and court/report identification on this same supplied image. A running title, code, or page number alone is insufficient. Consider conflicting heading and footer evidence together with explicitly described variants; if the conflict remains unresolved, return an empty name. Distinguish the document’s own identity from names merely mentioned in narrative, an attachment list, a hearing-type field, or a request to prepare another report.
 Use the date tied to the report itself or to its hearing, such as a field labeled Hearing Date near the report title. Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.
 """ if kind == "report" else """The form title must appear as a prominent heading. Use the canonical output name as the required heading unless the description identifies another heading. When a description identifies a form code, both that code and the matching heading must be visible on this same first page. A code alone is not a match. If required evidence is missing or unclear, return an empty name. Return the exact approved name, not a shorter heading/code.
@@ -137,6 +158,29 @@ Use the date tied to the report itself or to its hearing, such as a field labele
                 PromptSection("approved catalog", catalog_text(naming, kind), "profile"),
                 PromptSection("JSON", 'Valid JSON example: {"name": "", "date": ""}' if kind == "report" else 'Valid JSON example: {"name": ""}')]
     return PromptDocument(tuple(sections))
+
+
+def source_title_document(naming: dict, kind: str):
+    """Eligibility is profile-owned; title extraction is practice-neutral."""
+    from .prompt_document import PromptDocument, PromptSection
+    keys = '"name", "date", and "rule_id"' if kind == "report" else '"name" and "rule_id"'
+    instructions = _CORE.replace(
+        'An empty name means naming is unresolved, not that no document exists.\n',
+        'An empty rule_id means eligibility is unresolved, not that no document exists.\n',
+    ) + f'Return JSON with only {keys}, all strings.\n'
+    mechanics = """First decide whether the document matches a catalog rule's description using visible evidence on this supplied first-page image. Compare all rules for the best-supported match, not list order. A title alone does not establish eligibility. If no rule clearly matches, return empty name and rule_id; do not name every document or guess eligibility.
+For a matching rule, return its exact rule_id. A fixed rule requires its exact catalog name. A source_title rule uses the document's own title on its cover/first page, not the catalog category name. Preserve the title's wording and meaningful qualifiers; join wrapped title lines with spaces. Do not substitute a hearing type, party/case caption, agency name, narrative reference, attachment listing, or a title mentioned for another document. A contextual first-page header/footer can support identity, but running text alone is insufficient. Differences between title variants need not defeat clearly established eligibility. If the document clearly matches a source_title rule but its own title is absent or unreadable, return an empty name with that rule_id; the application will use that rule's catalog name as the fallback. Do not invent a title.
+For forms, follow the description's required heading/code evidence on this same first page; source-title mode does not waive those requirements. Keep separate documents separate even when titles and dates match.
+"""
+    if kind == "report":
+        mechanics += ('Use the date tied to the report itself or to its hearing, such as a field labeled Hearing Date near the report title. '
+                      'Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.\n'
+                      'Use a long-form U.S. date such as November 30, 2022. If unresolved, use an empty string. Extract the date even when eligibility or title is unresolved.\n')
+    example = {"name": "", **({"date": ""} if kind == "report" else {}), "rule_id": ""}
+    return PromptDocument((PromptSection("instructions", instructions),
+                           PromptSection("evidence and uncertainty", mechanics),
+                           PromptSection("matching rules", catalog_text(naming, kind), "profile"),
+                           PromptSection("JSON", "Valid JSON example: " + json.dumps(example))))
 
 
 def editable_naming(naming: dict) -> dict:
@@ -174,14 +218,17 @@ def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContra
     from .structured_guidance import effective_resource
     naming = effective_resource(snapshot.resource("naming"), "naming")
     version = naming.get("schema_version", 1)
-    if version == 4:
+    if version in (4, 5):
         prompt = naming_document(naming, kind).render()
         names = tuple(entry["name"] for entry in catalog_entries(naming, kind))
         # Both catalogs determine Names stage freshness, never unrelated topics.
         component = hashlib.sha256((str(NAMING_CONTRACT_VERSION) + naming_document(naming, "report").render()
                                     + naming_document(naming, "form").render()).encode()).hexdigest()
-        return NamingContract(kind, "approved_titles", names, prompt, snapshot.ref, component,
-                              hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+        dynamic = any(entry.get("naming_mode") == "source_title" for entry in naming[kind + "s"])
+        rules = tuple((entry["id"], entry.get("naming_mode", "fixed"), entry["name"])
+                      for entry in naming[kind + "s"]) if dynamic else ()
+        return NamingContract(kind, "matched_rules" if dynamic else "approved_titles", names, prompt,
+                              snapshot.ref, component, hashlib.sha256(prompt.encode("utf-8")).hexdigest(), rules)
     if version == 3:
         core_bytes += ("prompt-naming-v3\n" + _PROMPT_CATALOG + _PROMPT_FORM).encode()
     compiled = compile_stage_profile(snapshot, "naming", core_contract=core_bytes)

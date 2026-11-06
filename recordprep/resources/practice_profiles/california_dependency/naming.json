@@ -1,90 +1,11 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "reports": [
     {
-      "id": "report-01",
-      "name": "Detention Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Detention Report title, which may appear in the heading and footer. Opening court, hearing, and case-identification fields support recognition; discussion of detention in another document does not establish this report name."
-    },
-    {
-      "id": "report-02",
-      "name": "Initial Hearing Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Initial Hearing Report title. A reference to an initial hearing, or a document prepared for that hearing, is not sufficient by itself."
-    },
-    {
-      "id": "report-03",
-      "name": "Jurisdiction Report",
-      "guidance": "Court-directed child-welfare agency report. Identify a separately titled Jurisdiction Report. A document explicitly titled Jurisdiction/Disposition Report belongs to the combined entry, not this standalone name."
-    },
-    {
-      "id": "report-04",
-      "name": "Disposition Report",
-      "guidance": "Court-directed child-welfare agency report. Identify a separately titled Disposition Report. A document explicitly titled Jurisdiction/Disposition Report belongs to the combined entry, not this standalone name."
-    },
-    {
-      "id": "report-17",
-      "name": "Jurisdiction/Disposition Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the combined Jurisdiction/Disposition Report from its own title in the heading or footer, supported by the opening report identification. Spacing around the slash may vary; return this combined name rather than either standalone name."
-    },
-    {
-      "id": "report-05",
-      "name": "Last Minute Information",
-      "guidance": "Court-directed child-welfare agency report. Recognize the heading Last Minute Information for the Court. Child, court, department, hearing, and worker fields, Information only / Change in Recommendation boxes, and a DCFS 4216 footer are supporting clues, not required features. An incidental reference to last-minute information is not a match."
-    },
-    {
-      "id": "report-06",
-      "name": "Non-Detained Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Non-Detained Report title; ordinary hyphenation or spacing may vary. A statement that a child is not detained does not establish this report name."
-    },
-    {
-      "id": "report-07",
-      "name": "Status Review Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Status Review Report title, often repeated in the footer. Opening hearing and case-identification fields support recognition. References to review hearings or recommendations for a later hearing do not change the report’s own identity."
-    },
-    {
-      "id": "report-08",
-      "name": "Interim Review Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Interim Review Report title. A Progress Report heading may match when the report’s own footer identifies it as Interim Review Report and the opening report context supports that identity. Progress Report or Special/Interim hearing wording alone is insufficient."
-    },
-    {
-      "id": "report-09",
-      "name": "Review Report",
-      "guidance": "Court-directed child-welfare agency report. Identify an agency report with its own Review Report or 15 Day Review Report title. This is not a catch-all for titles containing the words review report; separately named Status Review, Interim Review, and Permanent Plan Review reports retain their own identities. Do not use this entry for CASA Review Hearing Reports."
-    },
-    {
-      "id": "report-10",
-      "name": "Addendum Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Addendum Report title and fresh report-identification opening. An Additional Information section or a reference to an addendum within another document is not itself an Addendum Report."
-    },
-    {
-      "id": "report-11",
-      "name": "Petition Report",
-      "guidance": "Court-directed child-welfare agency report. Identify an agency report explicitly titled Petition Report. Do not use this name for a Juvenile Dependency Petition, its allegation pages, or a report that merely discusses a petition."
-    },
-    {
-      "id": "report-12",
-      "name": "366.26 WIC Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own 366.26 WIC Report title; the observed title Continued WIC 366.26 is also a matching variant. A section 366.26 citation, hearing-type field, or recommendation to schedule that hearing does not establish this report name."
-    },
-    {
-      "id": "report-13",
-      "name": "Permanent Plan Review Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Permanent Plan Review Report title. References to a permanent plan, a future review hearing, or a direction to prepare another report are insufficient."
-    },
-    {
-      "id": "report-14",
-      "name": "RPP Report",
-      "guidance": "Court-directed child-welfare agency report. Identify RPP Report as the document’s own report title or identifying footer, supported by an opening report context. An RPP hearing label or an order directing preparation of an RPP Report is not the report itself."
-    },
-    {
-      "id": "report-15",
-      "name": "Selection and Implementation Report",
-      "guidance": "Court-directed child-welfare agency report. Identify the document by its own Selection and Implementation Report title. Do not infer this name solely from a selection-and-implementation hearing field or treat a report explicitly titled 366.26 WIC Report as this differently named entry."
-    },
-    {
-      "id": "report-16",
-      "name": "Additional Information for Court",
-      "guidance": "Court-directed child-welfare agency report. Recognize the agency update titled Additional Information for Court or Additional Information to the Court. Initial child/hearing tables, an Information for the Court area, and a CFS 6.7 footer are supporting clues, not requirements. Do not match an internal Additional Information section or a differently titled CASA Additional Information Report."
+      "id": "report-agency",
+      "name": "Child Welfare Agency Report",
+      "naming_mode": "source_title",
+      "guidance": "Select a distinct report or written update prepared by, or expressly presented as the report of, the child welfare agency responsible for the dependency case, for the juvenile court's consideration. Use the document's own title on its cover/first page as the name. Child Welfare Agency Report is only the fallback when the document clearly qualifies but no title is discernible; it is not a required literal heading. The document's title need not contain report. Memoranda, letters, addenda, supplemental information, and other agency updates qualify when they serve this function, including short memoranda explaining or supplying omitted material; substantial narrative or a recommendation is not required. Determine agency identity and report purpose from the visible evidence on the supplied first page: agency letterhead or department identification; attribution to a child welfare social worker, supervisor, or authorized agency representative; an addressee or introductory statement directing the document to the juvenile court; and case-specific information, assessments, recommendations, or explanations submitted to inform the court. These are supporting clues, not mandatory fields or an exhaustive checklist. Agency names and report titles vary by jurisdiction; no particular agency name, worker abbreviation, title, or form code is required. Do not select a document merely because it mentions the agency, bears a filing stamp, was transmitted or filed by the agency, or appears among its attachments. Distinguish the agency's report from independently authored CASA, medical, psychological, school, service-provider, or law-enforcement records, and from petitions, motions, notices, proofs of service, and court orders. An independent attachment does not become the agency's own report merely through submission. Keep each distinct qualifying report's own title; do not merge separate reports because their names or dates match. If agency identity or court-directed report purpose is unclear, leave the name empty rather than guessing."
     }
   ],
   "forms": [

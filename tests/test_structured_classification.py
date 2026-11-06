@@ -71,12 +71,13 @@ class StructuredClassificationTests(unittest.TestCase):
             self.assertEqual(card['name'],name)
             self.assertIn(heading,card['guidance']); self.assertIn(code,card['guidance'])
         self.assertNotIn('Parential', json.dumps(n))
-        self.assertTrue(all(card['guidance'].startswith('Court-directed child-welfare agency report.') for card in n['reports']))
+        self.assertEqual(len(n['reports']), 1)
+        self.assertIn('only the fallback when the document clearly qualifies', n['reports'][0]['guidance'])
         self.assertNotIn('Hearing Date near the DETENTION REPORT heading',compile_naming_profile(b,'report').prompt)
         for kind in ('report','form'):
             c=compile_naming_profile(b,kind)
             for name in c.allowed_names:
-                self.assertEqual(c.normalize({'name':name,'date':''} if kind=='report' else {'name':name}).name,name)
+                self.assertEqual(c.normalize({'name':name,'date':'', 'rule_id':'report-agency'} if kind=='report' else {'name':name}).name,name)
             self.assertEqual(c.normalize({'name':'unapproved','date':'January 1, 2026'}).name,'')
         self.assertNotIn('CFS 6.7',compile_naming_profile(b,'report').allowed_names)
 
@@ -206,7 +207,8 @@ class StructuredClassificationTests(unittest.TestCase):
                         self.assertNotIn('Practice guidance below',prompt)
                         self.assertEqual(prompt.count('without commentary or extra keys'),1)
                         self.assertIn('do not guess',prompt)
-                        self.assertIn('An empty name means naming is unresolved',prompt)
+                        self.assertIn('An empty rule_id means eligibility is unresolved' if task == 'report'
+                                      else 'An empty name means naming is unresolved',prompt)
         # Even unvalidated legacy naming uses the explicit image attachment label.
         resources['naming']=legacy().resource('naming')
         resources['naming']['report_guidance']+=' Unrecognized literal custom guidance.'

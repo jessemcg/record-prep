@@ -1,5 +1,6 @@
 """Evidence-informed naming contracts; offline checks are not model-quality results."""
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from test_document_naming import BUNDLED_REPORT_TITLES
 
 ROOT = Path(__file__).resolve().parents[1]
 PREVIOUS = 'f67e0a93bb226ea682988f54b9555c5705f3d42a952631a3327091aa5561a620'
+PRIOR_AGENCY_BASELINE = '26f5ff0c018868b85966f4a54190ac4f6e6c8abc5f8351acfc348d9b5bbd79a4'
 DATE_RULE = ('Use the date tied to the report itself or to its hearing, such as a field labeled Hearing Date near the report title. '
              'Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.\n')
 
@@ -34,21 +36,37 @@ def previous_bundle():
     return validate_contents(tuple(files.items()), api.APPLICATION)
 
 
+def title_catalog_bundle():
+    """Exact former 1.11.0 bundle, reconstructed from immutable 1.10.0 resources."""
+    files = {p.name: p.read_bytes() for p in (ROOT/'tests/fixtures/minute_profile_1_10').iterdir()}
+    del files['minutes.md']
+    manifest = json.loads(files['profile.json'])
+    manifest['schema_version'] = 10
+    manifest['version'] = '1.11.0'
+    del manifest['resources']['minutes']
+    files['profile.json'] = (json.dumps(manifest, ensure_ascii=False, indent=2) + '\n').encode()
+    return validate_contents(tuple(files.items()), api.APPLICATION)
+
+
 class DependencyReportNamingTests(unittest.TestCase):
     def test_release_catalog_ids_forms_and_unrelated_bytes(self):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.11.0',10,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.13.0',10,1))
         n = b.resource('naming'); historical = old.resource('naming')
-        self.assertEqual(n['schema_version'],4)
+        self.assertEqual(n['schema_version'],5)
+        self.assertEqual(n['reports'][0]['naming_mode'], 'source_title')
         self.assertEqual(tuple(c['name'] for c in n['reports']),BUNDLED_REPORT_TITLES)
-        self.assertEqual(len({c['id'] for c in n['reports']}),17)
-        self.assertEqual(len({c['name'] for c in n['reports']}),17)
-        self.assertEqual([(c['id'],c['name']) for c in n['reports'] if c['id']!='report-17'],
-                         [(c['id'],c['name']) for c in historical['reports']])
-        self.assertEqual(n['reports'][4]['id'],'report-17')
-        self.assertTrue(all(c['guidance'].startswith('Court-directed child-welfare agency report. ') for c in n['reports']))
+        self.assertEqual(len(n['reports']), 1)
+        self.assertEqual(n['reports'][0]['id'], 'report-agency')
+        prior = title_catalog_bundle()
+        self.assertEqual(prior.ref.content_sha256, PRIOR_AGENCY_BASELINE)
+        self.assertIn(PRIOR_AGENCY_BASELINE, api.KNOWN_BASELINES)
+        self.assertEqual(len(prior.resource('naming')['reports']), 17)
+        for filename, content in prior.files:
+            if filename not in ('profile.json', 'naming.json'):
+                self.assertEqual(dict(b.files)[filename], content, filename)
         self.assertEqual(n['forms'],historical['forms']); self.assertEqual(len(n['forms']),6)
         for name,digest in {
             'case-name.md':'ac60cda00e130e635e15cb7be406317b18a24c0416b7abf2a904b8792dfa016a',
@@ -60,8 +78,29 @@ class DependencyReportNamingTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256((ROOT/'recordprep/resources/classification/recognition-v1.json').read_bytes()).hexdigest(),
                          '4c564fc3a40fc01fecadce36cc01f91ea8b8732d6d0d07a214a033d73543fb8e')
 
+    def test_category_guidance_selects_authorship_and_purpose_not_literal_title(self):
+        prompt = compile_naming_profile(bundle(), 'report').prompt
+        for text in (
+            'only the fallback when the document clearly qualifies',
+            'Memoranda, letters, addenda, supplemental information',
+            'including short memoranda explaining or supplying omitted material',
+            'substantial narrative or a recommendation is not required',
+            'visible evidence on the supplied first page',
+            'agency letterhead or department identification',
+            'social worker, supervisor, or authorized agency representative',
+            'supporting clues, not mandatory fields or an exhaustive checklist',
+            'Agency names and report titles vary by jurisdiction',
+            'transmitted or filed by the agency',
+            'independently authored CASA, medical, psychological, school, service-provider, or law-enforcement records',
+            'petitions, motions, notices, proofs of service, and court orders',
+            'do not merge separate reports because their names or dates match',
+            'leave the name empty rather than guessing',
+        ):
+            self.assertIn(text, prompt)
+        self.assertNotIn('Identify a separately titled', prompt)
+
     def test_footer_evidence_rule_date_bytes_and_form_prompt_preserved(self):
-        b = bundle(); prompt = compile_naming_profile(b,'report').prompt
+        b = bundle(); prompt = compile_naming_profile(title_catalog_bundle(),'report').prompt
         for text in ('own visible title or identifying wording', 'interpreted with the catalog descriptions',
                      'strong evidence, not a requirement', 'opening structure and court/report identification',
                      'same supplied image', 'running title, code, or page number alone is insufficient',
@@ -98,21 +137,22 @@ class DependencyReportNamingTests(unittest.TestCase):
             if task not in ('report','form'):
                 self.assertEqual(prompt,classifier_prompt(b,task)[0])
 
-    def test_canonical_names_not_aliases_and_dates_survive_unresolved_names(self):
+    def test_source_titles_require_rule_match_and_preserve_unresolved_dates(self):
         contract = compile_naming_profile(bundle(),'report')
-        self.assertEqual(contract.response_keys,('name','date'))
-        for name in BUNDLED_REPORT_TITLES:
-            self.assertEqual(contract.normalize({'name':name,'date':'January 02, 2026'}).name,name)
-        for alias in ('Progress Report','Continued WIC 366.26','15 Day Review Report',
-                      'Jurisdiction / Disposition Report','Additional Information to the Court',
-                      'CASA Review Hearing Report','CASA Additional Information Report',''):
-            with self.subTest(alias=alias):
-                result = contract.normalize({'name':alias,'date':'January 02, 2026'})
-                self.assertEqual((result.name,result.date),('','January 2, 2026'))
-                self.assertIn('name_unresolved',result.quality_flags)
+        self.assertEqual(contract.response_keys,('name','date','rule_id'))
+        for title in ('Memorandum', 'Detention Report', 'Status Review Report', 'Progress Report'):
+            result = contract.normalize({'name':title, 'date':'January 02, 2026', 'rule_id':'report-agency'})
+            self.assertEqual((result.name,result.date,result.rule_id),(title,'January 2, 2026','report-agency'))
+        for rule_id in ('', 'unknown', None):
+            result = contract.normalize({'name':'Independent report','date':'January 02, 2026','rule_id':rule_id})
+            self.assertEqual((result.name,result.date),('','January 2, 2026'))
+            self.assertIn('name_unresolved',result.quality_flags)
+        fallback = contract.normalize({'name':'','date':'','rule_id':'report-agency'})
+        self.assertEqual(fallback.name, 'Child Welfare Agency Report')
+        self.assertIn('source_title_missing', fallback.quality_flags)
 
     def test_old_acceptance_is_not_personal_and_personal_profiles_are_not_replaced(self):
-        old = previous_bundle(); before = old.files
+        old = title_catalog_bundle(); before = old.files
         for personal in (False,True):
             with self.subTest(personal=personal), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -134,5 +174,5 @@ class DependencyReportNamingTests(unittest.TestCase):
                 self.assertEqual(store.load_profile_snapshot(saved.ref).files,saved.files)
                 self.assertEqual(inventory(),stored)
         self.assertEqual(old.files,before)
-        self.assertEqual(len(old.resource('naming')['reports']),16)
-        self.assertTrue(all(not c['guidance'] for c in old.resource('naming')['reports']))
+        self.assertEqual(len(old.resource('naming')['reports']),17)
+        self.assertEqual(old.resource('naming')['reports'][0]['name'], 'Detention Report')

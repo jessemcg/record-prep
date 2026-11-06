@@ -7649,6 +7649,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     name_value = _extract_entry_value(response, *name_keys)
                     if name_value:
                         entry["name"] = name_value
+                        rule_id = _extract_entry_value(response, "naming_rule_id")
+                        if rule_id:
+                            entry["naming_rule_id"] = rule_id
                         updates += 1
                     if capture_report_date:
                         report_date = _extract_entry_value(response, "date", "report_date")
@@ -8415,6 +8418,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if naming_contract is not None:
             named = naming_contract.normalize(parsed)
             result = {"file_name": filename, "name": named.name}
+            if named.rule_id:
+                result["naming_rule_id"] = named.rule_id
             if naming_contract.kind == "report":
                 result["date"] = named.date
             return result

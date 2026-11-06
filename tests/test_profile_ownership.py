@@ -108,12 +108,14 @@ class OwnershipTests(unittest.TestCase):
         naming_values = [json.loads((ROOT/'tests/fixtures/naming-v2/general.json').read_bytes()),
                          legacy().resource('naming'), bundle().resource('naming'),
                          synthetic_files('recordprep')]
-        # Explicitly include naming v1, v2, v3 and v4; all are legal in schemas 1–6.
+        # Include v1–v5; schemas7/8 deliberately retain the original v4 restriction.
         naming_values[-1] = {'mode': 'approved_titles', 'report_titles': ['Synthetic report'],
                              'form_titles': ['Synthetic form'], 'guidance': 'Use source evidence.'}
-        for schema in range(1, 10):
+        naming4 = json.loads((ROOT/'tests/fixtures/minute_profile_1_10/naming.json').read_bytes())
+        naming_values.append(naming4)
+        for schema in range(1, 11):
             original = historical_snapshot(bundle(), version=schema)
-            for naming in naming_values if schema <= 6 or schema == 9 else [bundle().resource('naming')]:
+            for naming in naming_values if schema <= 6 or schema >= 9 else [naming4]:
                 editor = ProfileEditor(original); editor.resources['naming'] = copy.deepcopy(naming)
                 snapshot = editor.snapshot(); baseline = components(snapshot)
                 for resource in ('classification', 'case_name', 'hearing_extraction', 'report_extraction',

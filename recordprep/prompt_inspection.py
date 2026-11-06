@@ -125,9 +125,13 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
     if task in dict(CLASSIFICATION_TASKS):
         if task in ("report", "form"):
             naming = effective_resource(resources["naming"], "naming")
-            if naming.get("schema_version") == 4:
+            if naming.get("schema_version") in (4, 5):
                 if template:
-                    naming[task + "s"] = [{"id": "⟪stable internal ID⟫", "name": "⟪approved name⟫", "guidance": "⟪optional recognition description⟫"}]
+                    modes = list(dict.fromkeys(e.get("naming_mode", "fixed") for e in naming[task + "s"])) or ["fixed"]
+                    naming[task + "s"] = [{"id": "⟪stable internal ID⟫", "name": "⟪approved name or fallback⟫",
+                                           "guidance": "⟪eligibility description⟫",
+                                           **({"naming_mode": mode} if mode == "source_title" else {})}
+                                          for mode in modes]
                 prompt = naming_document(naming, task).render()
             elif snapshot is not None and not template:
                 from .document_naming import compile_naming_profile

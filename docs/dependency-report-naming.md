@@ -1,5 +1,91 @@
 # Dependency report naming
 
+## Current: source titles for selected agency reports (1.13.0)
+
+The single agency-report description remains the eligibility rule, but qualifying
+reports now retain their actual cover/first-page title. **Child Welfare Agency
+Report** is only the fallback when eligible but no title is discernible. Dependency
+uses the general profile **Source title** naming approach; six form cards remain
+fixed-name. See [source-title naming](source-title-naming.md) for the naming-v5
+contract, UI, historical preservation and explicit adoption.
+
+## Historical: single fixed category name (1.12.0, superseded)
+
+The following records the initial implementation before source-title support.
+
+California Juvenile Dependency **1.12.0** retains content schema **10**, naming
+schema **4**, `profile_api: 1`, and existing artifact formats. Its Report Names
+catalog now contains one card: `report-agency`, **Child Welfare Agency Report**.
+The six Form Names cards, hearing/report summary topics, application recognition,
+first-page detection, date rules and naming runtime are unchanged.
+
+The category selects a distinct report or written update prepared by, or expressly
+presented as the report of, the responsible child welfare agency for the juvenile
+court's consideration. The canonical name need not appear literally on the page.
+Memoranda, letters, addenda and supplemental information qualify by agency identity
+and court-directed purpose, including short memoranda supplying omitted material.
+No substantial narrative, recommendation, county name, title or code is mandatory.
+
+Agency letterhead/department identification, worker or representative attribution,
+court addressee/purpose, and case-specific information are supporting clues, not
+mandatory fields. Evidence remains limited to the supplied first-page image. Filing,
+transmitting, mentioning or attaching a document alone is insufficient. Independent
+CASA, medical, psychological, school, provider and police records do not become the
+agency's report through submission. Petitions, motions, notices, service proofs and
+court orders keep their separate identities. Unclear attribution/purpose stays
+unnamed; each distinct qualifying start retains its own range even with identical
+names/dates. No extra validation gate, model pass or title-alias list was added.
+
+The existing naming builder already permits identifying wording interpreted with
+catalog descriptions rather than a mandatory prominent heading. The new description
+explicitly distinguishes this canonical category from the document's literal title;
+no global prompt or historical adapter change is needed. Exact output membership,
+JSON normalization and the report-date sentence remain unchanged. Only the Names
+component changes directly; actual changed output bytes affect downstream work.
+
+The exact former 1.11.0 digest
+`26f5ff0c018868b85966f4a54190ac4f6e6c8abc5f8351acfc348d9b5bbd79a4`
+is a known bundled baseline. Accepted historical snapshots remain byte-preserved;
+personal catalogs are never replaced automatically. No private settings or case
+outputs are migrated. A selected personal profile requires explicit editing or
+**Reset to bundled… → Reset and Save** to adopt the bundle; reset replaces all profile
+guidance, including customized naming and summary topics, not only Report Names.
+To preserve other guidance, replace only the report cards manually and Save.
+
+Adoption never runs processing automatically. With complete report-start checks,
+explicit **Names → Correct classification with agent**, then desired TOC/boundary/
+summary work applies the new selection. If start checks are absent, run Advanced
+and Dates before Names; Basic is needed only when deliberately repairing page-type
+recognition. Existing completion badges and Resume remain presence-based.
+
+Validation uses public resources, fictional data and offline providers only.
+Contract and GTK checks demonstrate delivery, preservation and pipeline mechanics,
+not live-model recognition accuracy. The motivating text survey was targeted, not
+a prevalence study; no private case text is included in source or tests.
+
+### Implementation validation (2026-11-06)
+
+On the current Work computer, a disposable tracked-source checkout and separate
+locked Python environment ran **923 tests: 915 passed, 8 skipped**. Coverage includes
+21 fictional image/pipeline scenarios with scripted responses (agency memorandum,
+short transmittal, unfamiliar title, letter, independent medical/provider/CASA
+material, notices/service proofs, unknown attribution, adjacent same-name/date
+reports and noncanonical model output). These establish routing and publication,
+not image-model judgment. Historical 1.11.0 digest reconstruction, personal-profile
+preservation, unchanged form-prompt/date bytes and unrelated stage identities pass.
+
+Fatal-critical GTK acceptance passed editing/save/undo/reset in a synthetic store
+and compared the full naming inspector with runtime composition. Native Computer
+Use confirmed one expanded agency-report card and its description in that separate
+synthetic window. The maintained app was not restarted or edited. Resource validation,
+Python compilation and diff checks passed. No real profile/config/case data was
+modified, and no paid model, OCR or production pipeline work was performed.
+
+## Historical: title catalog in 1.10.0 (superseded)
+
+The following records the prior implementation and its validation, not the current
+catalog or adoption instructions.
+
 California Juvenile Dependency **1.10.0** retains content schema **9**, naming
 schema **4**, `profile_api: 1`, and the existing artifact formats. The seventeen
 Report Names cards in `recordprep/resources/practice_profiles/california_dependency/naming.json`

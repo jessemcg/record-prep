@@ -60,10 +60,11 @@ all eligible report pages independently; unnamed and adjacent report starts stil
 end earlier ranges. JSON validation, exact-name rules, stage order and the fixed
 hearing/minute date wording and date normalization are unchanged. Report naming
 now permits contextual same-image header/footer identity evidence, without making
-footers mandatory or allowing them to establish a start. Dependency's seventeen
-agency-report cards include the combined Jurisdiction/Disposition Report and
-literal descriptions. See [report naming](dependency-report-naming.md); these
-catalog changes never enter Basic or first-page prompts.
+footers mandatory or allowing them to establish a start. Dependency 1.13.0 selects
+agency-authored court-directed reports under one Child Welfare Agency Report card,
+then extracts their own first-page titles using the practice-neutral Source title
+naming approach. The category name is only the missing-title fallback. See [report naming](dependency-report-naming.md);
+this catalog change never enters Basic or first-page prompts.
 
 ### Hearing notices, service proofs and other forms
 

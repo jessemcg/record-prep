@@ -261,7 +261,7 @@ def _structured(name: str, value: Any) -> None:
                      "unsupported_policy", name)
     elif name == "naming":
         _require(isinstance(value, dict), "invalid_fields", name)
-        if value.get("schema_version") == 4:
+        if value.get("schema_version") in (4, 5):
             _object(value, {"schema_version", "reports", "forms"}, name)
             _require(type(value["schema_version"]) is int, "unsupported_version", name)
             for kind in ("reports", "forms"):
@@ -269,7 +269,11 @@ def _structured(name: str, value: Any) -> None:
                 _require(isinstance(entries, list) and len(entries) <= 256, "invalid_catalog", kind)
                 ids, names = set(), []
                 for entry in entries:
-                    _object(entry, {"id", "name", "guidance"}, kind)
+                    fields = {"id", "name", "guidance"}
+                    if value["schema_version"] == 5 and isinstance(entry, dict) and "naming_mode" in entry:
+                        fields.add("naming_mode")
+                        _require(entry["naming_mode"] in ("fixed", "source_title"), "unsupported_policy", kind)
+                    _object(entry, fields, kind)
                     identity = _identifier(entry["id"], kind)
                     _require(identity not in ids, "duplicate_id", kind)
                     ids.add(identity)

@@ -33,7 +33,7 @@ EXTENSION = "recordprep-classification-review-tools.ts"
 RECEIPT = "classification/agent-review.json"
 PENDING = ".recordprep/classification-review-pending.json"
 IMPACTS = {"report_continuity", "false_start", "missed_document", "document_identity", "date_or_name"}
-FIELDS = {"page_type", "report_first_page", "name", "date"}
+FIELDS = {"page_type", "report_first_page", "name", "date", "naming_rule_id"}
 STARTS = {"RT_body_first_page", "CT_report_first_page", "CT_form_first_page", "CT_minute_order_first_page"}
 
 
@@ -271,14 +271,19 @@ def _proposal_row(change, rows, contracts):
     if row.get("date") and ("date" in after or "page_type" in after):
         if kind not in {"CT_report_first_page", "CT_minute_order_first_page", "RT_body_first_page"} or _date_value(row["date"]) != row["date"]:
             raise ValueError("Proposed correction leaves an unusable date or a date on a non-start; original retained.")
-    if row.get("name") and ("name" in after or "page_type" in after):
+    if row.get("name") and ("name" in after or "page_type" in after or "naming_rule_id" in after):
         naming_kind = {"CT_report_first_page": "report", "CT_form_first_page": "form"}.get(kind)
         if not naming_kind:
             raise ValueError("Proposed correction leaves a name on an ineligible page; original retained.")
-        if row.get("name") != rows[name].get("name"):
+        if row.get("name") != rows[name].get("name") or "naming_rule_id" in after:
             contract = contracts.get(naming_kind)
-            if contract is None or row["name"] not in contract.allowed_names:
-                raise ValueError("Proposed name is not in the selected catalog; original retained.")
+            payload = {"name": row["name"], **({"date": row.get("date", "")} if naming_kind == "report" else {})}
+            if contract is not None and contract.mode == "matched_rules":
+                payload["rule_id"] = row.get("naming_rule_id", "")
+            if contract is None or contract.normalize(payload).name != row["name"]:
+                raise ValueError("Proposed name does not satisfy the selected naming rule; original retained.")
+    if not row.get("name") or kind not in {"CT_report_first_page", "CT_form_first_page"}:
+        row.pop("naming_rule_id", None)
     # A bad report marker must not invalidate unrelated corrections on other pages.
     original_reports = [r for r in rows.values() if r["page_type"] in {"CT_report", "CT_report_first_page"}]
     modern = report_detection_mode(original_reports) or not original_reports
@@ -369,6 +374,11 @@ def validate_candidate(data, rows, contracts, successful_reads, workspace, root)
             continue
         seen.add(name)
         change = {key: copy.deepcopy(proposal[key]) for key in ("file_name", "before", "after")}
+        # Include automatic removal of now-inapplicable eligibility metadata in
+        # the audit, not only the model-authored fields.
+        if rows[name].get("naming_rule_id") != row.get("naming_rule_id"):
+            change["before"]["naming_rule_id"] = rows[name].get("naming_rule_id")
+            change["after"]["naming_rule_id"] = row.get("naming_rule_id")
         reason = proposal.get("reason")
         change["reason"] = reason[:2000] if isinstance(reason, str) and reason.strip() else "Agent-proposed classification correction; inspect the source when reviewing."
         impact = proposal.get("impact")

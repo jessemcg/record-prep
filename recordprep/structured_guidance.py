@@ -92,7 +92,7 @@ def structured_resources(resources: dict) -> tuple[dict, dict, bool]:
         # remains literal. Runtime uses the same fixed fallback without writes.
         tasks = tasks | {"schema_version": 3,
                          "first_pages": tasks["first_pages"] | {"first_report": REPORT_FIRST_CLUES}}
-    return tasks, naming, tasks.get("schema_version") == 3 and naming.get("schema_version") == 4
+    return tasks, naming, tasks.get("schema_version") == 3 and naming.get("schema_version") in (4, 5)
 
 
 def legacy_policy_warning(text: str) -> str:

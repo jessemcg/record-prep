@@ -4,7 +4,12 @@
 
 `model-settings --stdin` precedes GUI/OCR/pipeline/Pi imports. Resolve only the
 owner-selected absolute config location, shared Pi setting and classifier request
-connection; a local-server management switch is not a different model/URL slot.
+connection. Classification is API-only and requires a credential; retired
+`classifier_local_vision_enabled` / `classifier_local_vision_start_command` are
+unknown inert data, never consulted for slots, compatibility or credential checks.
+Preserve existing unknown values on ordinary saves; never recreate absent keys.
+Do not migrate private settings or classification artifacts, or require reruns just
+for this removal. OCR is the only app-owned local-model lifecycle.
 Vendored schema/store stay app-owned. Ordinary writes share CAS/locks and propagate
 stale-store failures even without `raise_errors`; failed drafts never become saved
 baselines. Reconcile/Retain are receipt-only, not later-edit rollback authority.
@@ -34,6 +39,12 @@ publication, or refresh stale expectations to force it through. Retain personal
 ownership/history, topic-ID objects/buffers/navigation and source bytes; suppress
 edit callbacks during display installation. Undo is a new unsaved edit, not storage
 rollback. See docs/bundled-reset-validation.md. Retain topic IDs, buffers/undo/selection/viewport and guarded revision/default publication. Details and validation: `docs/unified-settings-validation.md`.
+Model settings retains OCR / Classify / Agent. Classify exposes API URL, vision
+model ID, API key, worker count and disable reasoning only. Command navigation is
+`home` / `ocr-command`; retain OCR's editor, shared readiness/server helpers and
+Stop lifecycle. Never restore classification launch/probe/stop behavior or a
+missing-key exemption. Keep Basic → Advanced → Dates → Names → Agent correction
+and useful-results/advisory review unchanged.
 
 ## README style
 

@@ -173,7 +173,6 @@ DEFAULT_LOCAL_OCR_WORKERS = 4
 DEFAULT_LOCAL_OCR_SLOTS = 4
 LOCAL_OCR_MAX_TOKENS = 4096
 DEFAULT_CLASSIFIER_WORKERS = 1
-LOCAL_VISION_SERVER_STARTUP_SECONDS = 2.0
 LOCAL_SERVER_READY_TIMEOUT_SECONDS = 120.0
 LOCAL_SERVER_READY_POLL_SECONDS = 1.0
 VISION_CLASSIFICATION_STEP_IDS = {
@@ -503,8 +502,6 @@ CONFIG_KEY_CLASSIFIER_CT_PROMPT = "classifier_ct_prompt"
 CONFIG_KEY_CLASSIFIER_THINKING_ENABLED = "classifier_thinking_enabled"
 CONFIG_KEY_CLASSIFIER_DISABLE_REASONING = "classifier_disable_reasoning"
 CONFIG_KEY_CLASSIFIER_WORKERS = "classifier_workers"
-CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED = "classifier_local_vision_enabled"
-CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND = "classifier_local_vision_start_command"
 CONFIG_KEY_CLASSIFY_DATES_HEARING_PROMPT = "classify_dates_hearing_prompt"
 CONFIG_KEY_CLASSIFY_DATES_MINUTE_PROMPT = "classify_dates_minute_prompt"
 CONFIG_KEY_CLASSIFY_NAMES_REPORT_PROMPT = "classify_names_report_prompt"
@@ -563,7 +560,6 @@ CONFIG_KEY_RUN_UNTIL_STEP = "run_until_step"
 TEXT_SOURCE_EMBEDDED = "embedded"
 TEXT_SOURCE_LOCAL_OCR = "local_ocr"
 DEFAULT_TEXT_SOURCE = TEXT_SOURCE_EMBEDDED
-DEFAULT_LOCAL_VISION_START_COMMAND = ""
 DEFAULT_CLASSIFIER_PROMPT = (
     "You are labeling a single page of a legal transcript. "
     "Return JSON with keys: \"page_type\". "
@@ -1866,14 +1862,6 @@ def load_classifier_settings() -> dict[str, Any]:
         CONFIG_KEY_CLASSIFIER_WORKERS,
         DEFAULT_CLASSIFIER_WORKERS,
     )
-    local_vision_enabled = _read_config_bool(config, CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED, False)
-    local_vision_start_command = str(
-        config.get(
-            CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND,
-            DEFAULT_LOCAL_VISION_START_COMMAND,
-        )
-        or ""
-    ).strip()
     rt_prompt = classifier_document("rt").render()
     ct_prompt = classifier_document("ct").render()
     return {
@@ -1885,8 +1873,6 @@ def load_classifier_settings() -> dict[str, Any]:
         "ct_prompt": ct_prompt,
         "disable_reasoning": disable_reasoning,
         "workers": workers,
-        "local_vision_enabled": local_vision_enabled,
-        "local_vision_start_command": local_vision_start_command,
     }
 
 
@@ -1898,8 +1884,6 @@ def save_classifier_settings(
     ct_prompt: str,
     disable_reasoning: bool,
     workers: str | int,
-    local_vision_enabled: bool,
-    local_vision_start_command: str,
 ) -> None:
     config = _read_config()
     config[CONFIG_KEY_CLASSIFIER_API_URL] = api_url
@@ -1912,8 +1896,6 @@ def save_classifier_settings(
         CONFIG_KEY_CLASSIFIER_WORKERS,
         DEFAULT_CLASSIFIER_WORKERS,
     )
-    config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED] = bool(local_vision_enabled)
-    config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND] = local_vision_start_command.strip()
     _write_config(config)
 
 
@@ -1938,10 +1920,6 @@ def load_advanced_classify_settings() -> dict[str, Any]:
         "report_first_prompt": classifier_document("first_report").render(),
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
-        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
-        "local_vision_start_command": str(
-            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
-        ).strip(),
     }
 
 
@@ -1971,10 +1949,6 @@ def load_classify_dates_settings() -> dict[str, Any]:
         "minute_prompt": minute_prompt,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
-        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
-        "local_vision_start_command": str(
-            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
-        ).strip(),
     }
 
 
@@ -2013,10 +1987,6 @@ def load_classify_names_settings() -> dict[str, Any]:
         "form_prompt": form_prompt or DEFAULT_CLASSIFY_FORM_NAMES_PROMPT,
         "disable_reasoning": bool(shared.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
         "workers": int(shared.get("workers", DEFAULT_CLASSIFIER_WORKERS) or DEFAULT_CLASSIFIER_WORKERS),
-        "local_vision_enabled": bool(shared.get("local_vision_enabled", False)),
-        "local_vision_start_command": str(
-            shared.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND) or ""
-        ).strip(),
     }
 
 
@@ -2648,8 +2618,6 @@ class ClassifySettingsWidgets:
     api_key_row: Adw.EntryRow
     disable_reasoning_switch: Gtk.Switch | None = None
     workers_row: Adw.EntryRow | None = None
-    local_server_switch: Gtk.Switch | None = None
-    local_start_command_buffer: Gtk.TextBuffer | None = None
     disable_reasoning_row: Adw.SwitchRow | None = None
 
 
@@ -3148,8 +3116,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         credentials_group.add(api_key_row)
         disable_reasoning_switch: Gtk.Switch | None = None
         workers_row: Adw.EntryRow | None = None
-        local_server_switch: Gtk.Switch | None = None
-        local_start_command_buffer: Gtk.TextBuffer | None = None
         disable_reasoning_row: Adw.SwitchRow | None = None
         if is_classify_basic:
             workers_row = Adw.EntryRow(title="Classification Workers")
@@ -3174,29 +3140,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             disable_reasoning_row.set_activatable_widget(disable_reasoning_switch)
             credentials_group.add(disable_reasoning_row)
 
-            local_server_row = Adw.ActionRow(
-                title="Use local llama.cpp vision server",
-                subtitle="Start local server automatically and stop it after classification tasks.",
-            )
-            local_server_switch = Gtk.Switch()
-            local_server_switch.set_valign(Gtk.Align.CENTER)
-            local_server_switch.set_active(bool(settings.get("local_vision_enabled", False)))
-            local_server_row.add_suffix(local_server_switch)
-            local_server_row.set_activatable_widget(local_server_switch)
-            credentials_group.add(local_server_row)
-
-        if is_classify_basic:
-            command_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            command_section.set_hexpand(True)
-            command_section.set_vexpand(True)
-
-            command_scroller, local_start_command_buffer = self._build_prompt_editor(
-                settings.get("local_vision_start_command", DEFAULT_LOCAL_VISION_START_COMMAND)
-            )
-            self._command_destination("classify", "vision-command", "Local vision start command", command_scroller,
-                "Used by local vision classification. Editing or Save does not start the server.")
-
-
         page = Gtk.ScrolledWindow()
         page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         page.set_hexpand(True)
@@ -3209,8 +3152,6 @@ class SettingsWindow(Adw.ApplicationWindow):
             api_key_row=api_key_row,
             disable_reasoning_switch=disable_reasoning_switch,
             workers_row=workers_row,
-            local_server_switch=local_server_switch,
-            local_start_command_buffer=local_start_command_buffer,
             disable_reasoning_row=disable_reasoning_row,
         )
         return page
@@ -3620,8 +3561,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 widgets.workers_row.set_title("Classification Workers — enter a positive number")
                 return
             runtime_config[CONFIG_KEY_CLASSIFIER_WORKERS] = workers
-            runtime_config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_ENABLED] = bool(widgets.local_server_switch.get_active())
-            runtime_config[CONFIG_KEY_CLASSIFIER_LOCAL_VISION_START_COMMAND] = self._prompt_text(widgets.local_start_command_buffer).strip()
         _write_config(runtime_config)
         if local_ocr_widgets:
             save_local_ocr_settings(
@@ -3812,11 +3751,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_pause_message: str | None = None
         self._local_ocr_server_process: subprocess.Popen[str] | None = None
         self._local_ocr_server_lock = threading.Lock()
-        self._local_vision_server_process: subprocess.Popen[str] | None = None
-        self._local_vision_server_owned = False
-        self._local_vision_server_log_thread: threading.Thread | None = None
-        self._local_vision_server_recent_output: deque[str] = deque(maxlen=40)
-        self._local_vision_server_log_lock = threading.Lock()
         self._css_provider = _install_recordprep_css()
         self.connect("close-request", self._on_main_close_request)
 
@@ -4437,26 +4371,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._activity_status_label.set_label(summary)
             if level_normalized == "ERROR":
                 self._open_phase_for_step(self._active_step_id)
-        if self._log_view is not None:
-            end_iter = self._log_buffer.get_end_iter()
-            self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
-        return False
-
-    def _append_raw_log_message(self, message: str, level: str = "INFO") -> bool:
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        text = _sanitize_terminal_log_text(message, preserve_newlines=True)
-        level_normalized = str(level or "INFO").upper()
-        if self._activity_terminal is not None:
-            self._feed_activity_terminal(_terminal_log_line(text, level_normalized))
-        elif self._log_buffer is not None:
-            end_iter = self._log_buffer.get_end_iter()
-            self._log_buffer.insert(
-                end_iter,
-                f"[{timestamp}] [{level_normalized}] {text}\n",
-            )
-        if self._activity_status_label is not None and text:
-            summary = text if len(text) <= 120 else f"{text[:117]}…"
-            self._activity_status_label.set_label(summary)
         if self._log_view is not None:
             end_iter = self._log_buffer.get_end_iter()
             self._log_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
@@ -5400,18 +5314,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         model_id = str(settings.get("model_id", "") or "").strip()
         if not api_url or not model_id:
             raise ValueError("Configure vision API URL and model ID in Model settings.")
-        local_vision_enabled = bool(settings.get("local_vision_enabled", False))
         api_key = str(settings.get("api_key", "") or "").strip()
-        if not local_vision_enabled and not api_key:
-            raise ValueError(
-                "Configure vision API key in Model settings, or enable local llama.cpp vision server."
-            )
-        if local_vision_enabled:
-            start_command = str(settings.get("local_vision_start_command", "") or "").strip()
-            if not start_command:
-                raise ValueError(
-                    "Configure local vision start command in Classification basic settings."
-                )
+        if not api_key:
+            raise ValueError("Configure vision API key in Model settings.")
 
     def _classifier_worker_count(self, settings: dict[str, Any]) -> int:
         try:
@@ -5463,84 +5368,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             stop_check=self._raise_if_stop_requested,
         )
 
-    def _ensure_local_vision_server_running(self) -> bool:
-        settings = load_classifier_settings()
-        if not bool(settings.get("local_vision_enabled", False)):
-            return False
-        self._validate_vision_settings(settings)
-
-        process = self._local_vision_server_process
-        if process is not None and process.poll() is None and self._local_vision_server_owned:
-            return True
-        if process is not None and process.poll() is not None:
-            self._local_vision_server_process = None
-            self._local_vision_server_owned = False
-
-        api_url = str(settings.get("api_url", "") or "").strip()
-        if _endpoint_responding(api_url, timeout=1.0):
-            return False
-
-        start_command = str(settings.get("local_vision_start_command", "") or "").strip()
-        process = _start_server(start_command)
-        self._local_vision_server_process = process
-        self._local_vision_server_owned = True
-        self._start_local_vision_server_log_reader(process)
-        if LOCAL_VISION_SERVER_STARTUP_SECONDS > 0:
-            time.sleep(LOCAL_VISION_SERVER_STARTUP_SECONDS)
-        try:
-            _wait_for_endpoint_ready(
-                api_url,
-                process=process,
-                recent_output=self._local_vision_server_recent_output_text,
-                stop_check=self._raise_if_stop_requested,
-            )
-        except Exception:
-            self._stop_local_vision_server()
-            raise
-        return True
-
-    def _start_local_vision_server_log_reader(self, process: subprocess.Popen[str]) -> None:
-        with self._local_vision_server_log_lock:
-            self._local_vision_server_recent_output.clear()
-        if process.stdout is None:
-            return
-
-        def read_server_output() -> None:
-            try:
-                assert process.stdout is not None
-                for line in process.stdout:
-                    text = line.rstrip("\r\n")
-                    with self._local_vision_server_log_lock:
-                        self._local_vision_server_recent_output.append(text)
-                    GLib.idle_add(self._append_raw_log_message, text, "SERVER")
-            except Exception as exc:
-                GLib.idle_add(
-                    self._append_log_message,
-                    f"Stopped reading llama.cpp server output: {exc}",
-                    "WARN",
-                )
-
-        thread = threading.Thread(
-            target=read_server_output,
-            name="recordprep-llama-server-log-reader",
-            daemon=True,
-        )
-        self._local_vision_server_log_thread = thread
-        thread.start()
-
-    def _local_vision_server_recent_output_text(self) -> str:
-        with self._local_vision_server_log_lock:
-            return "\n".join(self._local_vision_server_recent_output)
-
-    def _stop_local_vision_server(self) -> None:
-        process = self._local_vision_server_process
-        owned = self._local_vision_server_owned
-        self._local_vision_server_process = None
-        self._local_vision_server_owned = False
-        if process is None or not owned:
-            return
-        _stop_server(process)
-
     def _set_local_ocr_server_process(
         self,
         process: subprocess.Popen[str] | None,
@@ -5563,7 +5390,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._sync_pipeline_controls()
         self.show_toast("Stop requested.")
         self._stop_local_ocr_server()
-        self._stop_local_vision_server()
         if self._pi_terminal_active:
             self._terminate_pi_terminal()
 
@@ -5572,7 +5398,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return True
         self._stop_event.set()
         self._stop_local_ocr_server()
-        self._stop_local_vision_server()
         self._terminate_pi_terminal()
         return False
 
@@ -6174,7 +5999,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         row: Adw.ActionRow,
         step_id: str | None,
     ) -> None:
-        local_server_started = False
         try:
             if step_id in VISION_CLASSIFICATION_STEP_IDS:
                 root_dir = self._resolve_case_root()
@@ -6183,7 +6007,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 diagnostic = diagnose_layout(root_dir)
                 if diagnostic.code != "resolved":
                     raise ValueError(diagnostic.message)
-                local_server_started = self._ensure_local_vision_server_running()
             handler()
         except Exception as exc:
             title = row.get_title() or "Step"
@@ -6191,8 +6014,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             GLib.idle_add(row.set_sensitive, True)
             GLib.idle_add(self._finish_step, row, False)
         finally:
-            if local_server_started:
-                self._stop_local_vision_server()
             GLib.idle_add(self._finish_single_step)
 
     def _finish_single_step(self) -> None:
@@ -6686,26 +6507,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if end_index < start_index:
                 raise ValueError("End step must not come before the start step.")
         steps_to_run = steps[start_index : end_index + 1]
-        classification_offsets = [
-            offset
-            for offset, (step_id, _row, _handler) in enumerate(steps_to_run)
-            if step_id in VISION_CLASSIFICATION_STEP_IDS
-            and not (
-                skip_completed_steps
-                and root_dir is not None
-                and self._resume_step_complete(step_id, root_dir)
-            )
-        ]
-        manage_local_vision = (
-            bool(load_classifier_settings().get("local_vision_enabled", False))
-            and bool(classification_offsets)
-        )
-        first_classify_offset = classification_offsets[0] if classification_offsets else -1
-        last_classify_offset = classification_offsets[-1] if classification_offsets else -1
-        local_server_started = False
         success = True
         try:
-            for offset, (step_id, row, handler) in enumerate(steps_to_run):
+            for step_id, row, handler in steps_to_run:
                 self._raise_if_stop_requested()
                 if (
                     skip_completed_steps
@@ -6714,20 +6518,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 ):
                     GLib.idle_add(self._finish_step, row, "Already complete")
                     continue
-                if manage_local_vision and offset == first_classify_offset:
+                if step_id in VISION_CLASSIFICATION_STEP_IDS:
                     if root_dir is None:
                         raise ValueError("Choose PDF files or a case bundle first.")
                     diagnostic = diagnose_layout(root_dir)
                     if diagnostic.code != "resolved":
                         raise ValueError(diagnostic.message)
-                    local_server_started = self._ensure_local_vision_server_running()
                 GLib.idle_add(self._start_step, row)
                 if not handler():
                     success = False
                     break
-                if manage_local_vision and local_server_started and offset == last_classify_offset:
-                    self._stop_local_vision_server()
-                    local_server_started = False
             if success and end_step_id and end_index < len(steps) - 1:
                 label = self._run_until_label(end_step_id)
                 self._run_completion_message = f"Pipeline complete through {label}."
@@ -6740,8 +6540,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._run_completion_message = None
             GLib.idle_add(self.show_toast, f"Pipeline failed: {exc}")
         finally:
-            if local_server_started:
-                self._stop_local_vision_server()
             GLib.idle_add(self._finish_run_all, success)
 
     def _finish_run_all(self, success: bool) -> None:
@@ -7137,7 +6935,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)
                 ),
             }
-            local_vision_enabled = bool(shared_settings.get("local_vision_enabled", False))
             workers = self._classifier_worker_count(shared_settings)
             pending_pages: list[tuple[bool, str]] = []
             jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]] = []

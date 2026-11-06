@@ -16,6 +16,6 @@ def resolve():
     profile={k:str(data.get('classifier_'+k) or '').strip() for k in ('api_url','model_id','api_key')}
     profile['disable_reasoning']=(boolean(data['classifier_disable_reasoning']) if 'classifier_disable_reasoning' in data else not boolean(data.get('classifier_thinking_enabled'),True))
     def replace(raw,target): raw['classifier_model_id']=target['model']
-    return paths,[pi_slot(paths),direct_slot('classification','config',profile,replace,image=True,local=boolean(data.get('classifier_local_vision_enabled')))]
+    return paths,[pi_slot(paths),direct_slot('classification','config',profile,replace,image=True)]
 
 def main(): return serve('recordprep',resolve)

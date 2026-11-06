@@ -70,7 +70,13 @@ class UnifiedSettingsTests(unittest.TestCase):
     def test_model_inline_categories_commands_save_failure_and_hidden_validation(self):
         w = self.model_window()
         self.assertEqual([w._navigation.home_list.get_row_at_index(i).get_title() for i in range(3)], ["OCR", "Classify", "Agent"])
-        self.assertEqual(set(w._navigation.pages), {"home", "ocr-command", "vision-command"})
+        self.assertEqual(set(w._navigation.pages), {"home", "ocr-command"})
+        classify = w._prompt_editors["classify-basic"]
+        self.assertFalse(hasattr(classify, "local_server_switch"))
+        self.assertFalse(hasattr(classify, "local_start_command_buffer"))
+        for field in (classify.api_url_row, classify.model_row, classify.api_key_row,
+                      classify.workers_row, classify.disable_reasoning_switch):
+            self.assertIsNotNone(field)
         self.assertTrue(all(row.get_margin_start() == 0 and row.get_margin_end() == 0
                             for row in descendants(w._navigation.home_list)
                             if isinstance(row, Adw.ActionRow)))
@@ -100,6 +106,42 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertTrue(w._on_pi_settings_close_request())
         self.assertFalse(w._pi_model_closed)
         w._session.dialog.response("keep")
+
+    def test_api_fields_save_reopen_without_server_and_preserve_legacy(self):
+        w = self.model_window()
+        self.config.update(classifier_local_vision_enabled="true",
+                           classifier_local_vision_start_command="NEVER EXECUTE legacy")
+        fields = w._prompt_editors["classify-basic"]
+        fields.api_url_row.set_text("https://synthetic.invalid/v1/chat/completions")
+        fields.model_row.set_text("synthetic-vision")
+        fields.api_key_row.set_text("synthetic-key")
+        fields.workers_row.set_text("4")
+        fields.disable_reasoning_switch.set_active(True)
+        with patch.object(ui, "_start_server") as start, \
+             patch.object(ui, "_endpoint_responding") as probe, \
+             patch.object(ui, "_stop_server") as stop, \
+             patch.object(ui, "resolve_pi_agent_argv", return_value=["synthetic-pi"]):
+            w.trigger_save()
+            self.assertTrue(w.get_visible())
+            self.assertEqual(self.config["classifier_local_vision_enabled"], "true")
+            self.assertEqual(self.config["classifier_local_vision_start_command"], "NEVER EXECUTE legacy")
+            w.close()
+            drain()
+            with patch.object(ui.SettingsWindow, "_load_pi_models"):
+                reopened = ui.SettingsWindow(self.app)
+            self.addCleanup(dispose, reopened)
+            reopened.present()
+            drain()
+            loaded = reopened._prompt_editors["classify-basic"]
+            self.assertEqual(loaded.api_url_row.get_text(), fields.api_url_row.get_text())
+            self.assertEqual(loaded.model_row.get_text(), "synthetic-vision")
+            self.assertEqual(loaded.api_key_row.get_text(), "synthetic-key")
+            self.assertEqual(loaded.workers_row.get_text(), "4")
+            self.assertTrue(loaded.disable_reasoning_switch.get_active())
+            self.assertEqual(set(reopened._navigation.pages), {"home", "ocr-command"})
+            start.assert_not_called()
+            probe.assert_not_called()
+            stop.assert_not_called()
 
     def test_model_refresh_retains_unsaved_unavailable_identity_and_ignores_late_results(self):
         w = self.model_window()

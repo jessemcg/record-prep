@@ -58,7 +58,7 @@ def boolean(value,default=False,*,number_values=False):
     if number_values and isinstance(value,(int,float,Decimal)): return bool(value)
     return default
 
-def direct_slot(id,role,profile,replace,*,model_key='model_id',url_key='api_url',key_key='api_key',image=False,creation=False,local=False):
+def direct_slot(id,role,profile,replace,*,model_key='model_id',url_key='api_url',key_key='api_key',image=False,creation=False):
     model=profile.get(model_key); endpoint=profile.get(url_key)
     if model is None or isinstance(model,str) and not model.strip():
         return dict(role=role,inactive=True,public=dict(slot_id=id,status='unconfigured',reason='no_named_model_selection'))
@@ -75,4 +75,4 @@ def direct_slot(id,role,profile,replace,*,model_key='model_id',url_key='api_url'
                 dict(requested='disabled' if profile.get('disable_reasoning') else 'provider-default',
                      priority_service_tier=bool(profile.get('priority_service_tier',False))),replace,
                 kind='direct-ai',credential=credential,image=image,creation=creation,
-                blocker='incompatible_direct_transport' if not canonical else ('missing_direct_credential' if not credential and not local else None))
+                blocker='incompatible_direct_transport' if not canonical else ('missing_direct_credential' if not credential else None))

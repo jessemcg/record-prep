@@ -4,6 +4,21 @@
 
 This is the detailed preparation reference. Historical adoption notes describe explicit reruns, never startup migrations. Installation/settings storage alone does not require regenerating prepared work.
 
+## Model connections
+
+Classification uses the configurable vision API URL, model ID and required API key
+in **Model settings → Classify**, with worker count and disable-reasoning controls.
+RecordPrep does not launch, discover or manage a classification server. OCR is the
+only app-owned optional local model; its command editor remains under OCR. Shared
+Pi model selection and Basic → Advanced → Dates → Names → Agent correction are unchanged.
+
+Legacy `classifier_local_vision_enabled` and `classifier_local_vision_start_command`
+values are inert unknown data: existing values survive ordinary saves unchanged,
+and fresh settings never create them. Former local-mode users must explicitly enter
+their intended API connection; RecordPrep does not guess or replace an endpoint.
+Existing classification outputs remain usable; this removal alone does not require
+rerunning classification or rewriting bundles/checkpoints.
+
 ## Practice profiles
 
 RecordPrep includes **California Juvenile Dependency** as its default preparation

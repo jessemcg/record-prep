@@ -97,6 +97,34 @@ class Contract(unittest.TestCase):
         kept=self.call('retain',dict(operation_id=plan['plan_id'],plan_binding=plan['plan_binding'],expected_revision=status['current_revision']))
         self.assertEqual(kept['status'],'retained');self.assertEqual(self.recovery(plan,ok=False),'rollback_conflict')
         for p,original in before.items(): self.assertEqual(p.read_bytes(),original)
+    def test_recordprep_legacy_local_flags_never_change_inventory_or_credential_blockers(self):
+        if self.package != 'recordprep': self.skipTest('RecordPrep API-only classification policy')
+        original=json.loads(self.config.read_bytes())
+        for credential in (SECRET, ''):
+            baseline=None
+            for legacy in (None, False, True, 'true'):
+                with self.subTest(credential_present=bool(credential),legacy=legacy):
+                    data=copy.deepcopy(original);data['classifier_api_key']=credential
+                    if legacy is not None:
+                        data.update(classifier_local_vision_enabled=legacy,
+                                    classifier_local_vision_start_command='NEVER EXECUTE')
+                    self.put(self.config,data)
+                    before=(self.config.read_bytes(),self.config.stat().st_mtime_ns)
+                    response=self.call('inspect')
+                    slots=response['slots']
+                    direct=next(s for s in slots if s['slot_id']=='classification')
+                    self.assertEqual(direct['identity'],OLD)
+                    self.assertEqual(direct['credential_present'],bool(credential))
+                    self.assertEqual(direct['compatibility_requirements'],dict(image_input=True))
+                    self.assertEqual(direct['connection_kind'],'chat-completions')
+                    if baseline is None: baseline=slots
+                    self.assertEqual(slots,baseline)
+                    if credential:
+                        self.preview()
+                    else:
+                        self.assertEqual(self.call('preview',dict(source=OLD,target=NEW),ok=False),'missing_direct_credential')
+                    self.assertEqual((self.config.read_bytes(),self.config.stat().st_mtime_ns),before)
+
     def test_capabilities_inspect_and_preview_are_settings_read_only(self):
         self.call('capabilities'); result=self.call('inspect')
         self.assertTrue(result['slots'])

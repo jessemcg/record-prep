@@ -166,7 +166,7 @@ Publication: the user subsequently authorized a separate local commit of these c
 
 ## Two independent sessions
 
-**Model settings** keeps OCR/Classify/Agent inline in one expandable boxed list. Local OCR and vision start commands open retained, full-width rounded editors with Back and a compact chooser. Profile settings is explicitly a separate transaction. Hidden worker/slot counts and the Pi command are validated before the first write. Failed independent writes retain drafts and report possible partial persistence; Save never closes.
+**Model settings** keeps OCR/Classify/Agent inline in one expandable boxed list. Historically, local OCR and vision start commands both opened retained, full-width rounded editors with Back and a compact chooser. Current behavior retains only the OCR command editor (`home` / `ocr-command`); classification uses API URL, vision model ID, required API key, workers and disable reasoning, without a local switch or server lifecycle. OCR is the only app-owned local-model option. Profile settings is explicitly a separate transaction. Hidden worker/slot counts and the Pi command are validated before the first write. Failed independent writes retain drafts and report possible partial persistence; Save never closes.
 
 **Profile settings** keeps Classification/Summaries and RT-first/CT-second stage subtitles. A short pinned context summary precedes a collapsed, bounded About classification/About summaries disclosure containing the full existing explanation and task guidance. Guidance and topic instructions have retained full-height rounded, labelled, undo-enabled editors. Topic catalogs retain naming/reordering/removal, addressed by stable IDs rather than positions or names.
 

@@ -147,7 +147,7 @@ class ResourceTests(unittest.TestCase):
             with patch.object(ui,'_read_config',side_effect=lambda:copy.deepcopy(config)), patch.object(ui,'_write_config') as save:
                 basic=ui.load_classifier_settings(); advanced=ui.load_advanced_classify_settings()
                 self.assertNotIn('RETIRED_CANARY',str((basic,advanced)))
-                ui.save_classifier_settings('https://synthetic.invalid','fake','','INACTIVE','INACTIVE',False,1,False,'')
+                ui.save_classifier_settings('https://synthetic.invalid','fake','','INACTIVE','INACTIVE',False,1)
                 saved=save.call_args.args[0]
                 for key in retired:
                     self.assertEqual(key in saved,key in before)

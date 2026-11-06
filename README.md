@@ -34,7 +34,8 @@ open Pi and use `/login` to enter an API key or sign in. Then select an availabl
 model in RecordPrep’s **Model settings**. AI usage may incur provider charges.
 
 Pi authentication does not configure the separate classification endpoint: supply
-its endpoint, model, and authentication when required in **Model settings**.
+its vision API URL, model, and API key in **Model settings**. Classification uses
+that API; OCR is the only app-owned optional local model.
 Embedded PDF text is the default extraction route; local OCR setup is optional
 and is not installed by this command.
 

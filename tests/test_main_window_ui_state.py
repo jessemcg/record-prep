@@ -262,7 +262,7 @@ class MainWindowUiStateTests(unittest.TestCase):
 
         with mock.patch(
             "recordprep.ui.main_window.load_classifier_settings",
-            return_value={"local_vision_enabled": False},
+            return_value={},
         ), mock.patch(
             "recordprep.ui.main_window.GLib.idle_add", side_effect=idle_now
         ):
@@ -271,6 +271,60 @@ class MainWindowUiStateTests(unittest.TestCase):
         first_handler.assert_called_once_with()
         second_handler.assert_not_called()
         harness._finish_run_all.assert_called_once_with(False)
+
+    def test_classification_workers_never_manage_servers(self) -> None:
+        from recordprep.ui import main_window as ui
+        from contextlib import ExitStack
+        ids = list(VISION_CLASSIFICATION_STEP_IDS)
+        for legacy in (None, False, True, "true"):
+            for outcome in (True, False, RuntimeError("synthetic"), StopRequested()):
+                for mode in ("single", "run", "from-here", "resume"):
+                    with self.subTest(legacy=legacy, outcome=outcome, mode=mode), ExitStack() as stack:
+                        settings = {} if legacy is None else {"local_vision_enabled": legacy,
+                            "local_vision_start_command": "NEVER EXECUTE"}
+                        stack.enter_context(mock.patch.object(ui, "load_classifier_settings", return_value=settings))
+                        stack.enter_context(mock.patch.object(ui, "diagnose_layout", return_value=mock.Mock(code="resolved")))
+                        stack.enter_context(mock.patch.object(ui.GLib, "idle_add", side_effect=lambda f, *a: f(*a)))
+                        servers = [stack.enter_context(mock.patch.object(ui, name)) for name in
+                                   ("_start_server", "_stop_server", "_endpoint_responding", "_wait_for_endpoint_ready")]
+                        harness = mock.Mock()
+                        harness._resolve_case_root.return_value = Path("/tmp/synthetic-bundle")
+                        handlers = [mock.Mock(return_value=True) for _ in ids]
+                        if isinstance(outcome, Exception):
+                            handlers[1].side_effect = outcome
+                        else:
+                            handlers[1].return_value = outcome
+                        rows = [mock.Mock() for _ in ids]
+                        harness._pipeline_steps.return_value = list(zip(ids, rows, handlers))
+                        harness._resume_step_complete.side_effect = lambda step, root: step == ids[0]
+                        if mode == "single":
+                            RecordPrepWindow._run_single_step_thread(harness, handlers[1], rows[1], ids[1])
+                            handlers[1].assert_called_once()
+                            harness._finish_single_step.assert_called_once()
+                        else:
+                            RecordPrepWindow._run_steps_from_index(harness, 1 if mode == "from-here" else 0,
+                                Path("/tmp/synthetic-bundle"), skip_completed_steps=mode == "resume")
+                            if mode in ("from-here", "resume"):
+                                handlers[0].assert_not_called()
+                            if outcome is not True:
+                                handlers[2].assert_not_called()
+                            harness._finish_run_all.assert_called_once_with(outcome is True)
+                        for server in servers:
+                            server.assert_not_called()
+
+    def test_stop_and_close_keep_ocr_cleanup_without_classification_lifecycle(self):
+        from recordprep.ui import main_window as ui
+        for method in (RecordPrepWindow.on_stop_clicked, RecordPrepWindow._on_main_close_request):
+            harness = mock.Mock()
+            harness._stop_event.is_set.return_value = False
+            with mock.patch.object(ui, "close_settings_before_parent", return_value=False), \
+                 mock.patch.object(ui, "_start_server") as start, \
+                 mock.patch.object(ui, "_endpoint_responding") as probe:
+                method(harness, mock.Mock())
+            harness._stop_local_ocr_server.assert_called_once()
+            self.assertFalse(any("vision" in str(call) for call in harness.mock_calls))
+            start.assert_not_called()
+            probe.assert_not_called()
 
     def test_stop_completion_clears_working_state_and_reports_stopped(self) -> None:
         harness = mock.Mock()
@@ -719,7 +773,7 @@ class FreshPdfStartupTests(unittest.TestCase):
             self.assertFalse(finish_success)
             harness._safe_update_manifest.assert_not_called()
 
-    def test_stale_layout_blocks_local_server_start_in_worker_preflight(self) -> None:
+    def test_stale_layout_blocks_handler_in_worker_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "case_bundle"
             (root / "text_pages").mkdir(parents=True)
@@ -742,7 +796,6 @@ class FreshPdfStartupTests(unittest.TestCase):
                     harness, handler, row, "classify_basic"
                 )
 
-            harness._ensure_local_vision_server_running.assert_not_called()
             handler.assert_not_called()
             self.assertIn(
                 "is stale", harness.show_toast.call_args_list[0].args[0]

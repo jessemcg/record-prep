@@ -306,10 +306,18 @@ bundled profile resource; source deployments must retain their own `.pi/` tree.
 `correct_classification_agent` is the final Classify process after Names. See
 `docs/classification-agent-correction.md`. Use the shared native Pi model/reasoning,
 not classifier API workers. Exact source/rule reads, private patch candidate only;
-Python validates image-read evidence, before-values, taxonomy, naming and coverage,
-archives Names inputs/prior finals and publishes separate `*_dates_names_corrected.jsonl`
-finals, even on zero-change success. `classification_files.py` owns new/legacy
-resolution. No deterministic correction stage: Basic → Advanced → Dates → Names →
+Python considers patches independently: usable before-values/taxonomy/naming/date
+mappings protect the output; inapplicable proposals retain their original rows and
+remain visible for review without cancelling other corrections. Image-read evidence,
+adjacency, block coverage and model formatting are advisory review notes, never
+all-or-nothing gates. Archive raw candidates/read bookkeeping as well as Names
+inputs/prior finals and publish separate `*_dates_names_corrected.jsonl` finals,
+even on partial/zero-change success. Label incomplete/unconfirmed coverage honestly.
+Keep useful saved candidates after abnormal agent exit; Stop/input changes/unsafe
+publication still prevent replacement. On hard failure retain only safe minimal
+candidate/read diagnostics locally, not full sessions or a misleading resume claim.
+Do not add mandatory model validation/repair passes to knowledge-work review.
+`classification_files.py` owns new/legacy resolution. No deterministic correction stage: Basic → Advanced → Dates → Names →
 Agent correction. Explicit generation marks review required before work; failed or
 stopped review never silently falls back to old finals. No automatic bundle renaming.
 RT cover/index transitions and consecutive starts are evidence-only agent hints;

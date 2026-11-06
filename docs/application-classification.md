@@ -115,6 +115,11 @@ is never deleted to force new work. Publication verifies complete page retention
 current selection (including null), current resource/prompt/model identity, source
 inventory and actual upstream bytes, using the existing serialized publication
 boundary. Stop/error leaves old canonical output and private resumable work intact.
+Checkpoint directories are case-local, not private XDG profile storage: existing
+owner-controlled 0755/0775 synchronized modes are accepted without changing modes
+or saved checkpoints. New directories still start at 0700. Ownership, no-symlink
+ancestor traversal and no-world-write checks remain enforced at every checkpoint
+level; machine-local profile stores retain their stricter owner-only policy.
 Unassigned legacy naming remains its separate compatibility path.
 
 ## Historical data and explicit work

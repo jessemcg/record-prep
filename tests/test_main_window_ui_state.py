@@ -65,6 +65,27 @@ class MainWindowUiStateTests(unittest.TestCase):
         )
         self.assertNotIn("detect_transcript_layout", VISION_CLASSIFICATION_STEP_IDS)
 
+    def test_modify_toc_availability_keeps_inline_button_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            toc = Path(temporary) / "toc.txt"
+            for present, running, expected in (
+                (False, False, False), (True, False, True), (True, True, False),
+            ):
+                with self.subTest(present=present, running=running):
+                    if present:
+                        toc.write_text("Synthetic TOC\n")
+                    harness = mock.Mock()
+                    harness._toc_path.return_value = toc
+                    harness._pipeline_running = running
+                    RecordPrepWindow._update_toc_button(harness)
+                    harness._edit_toc_button.set_sensitive.assert_called_once_with(expected)
+                    harness._edit_toc_button.set_visible.assert_not_called()
+            harness._toc_path.return_value = None
+            harness._edit_toc_button.reset_mock()
+            RecordPrepWindow._update_toc_button(harness)
+            harness._edit_toc_button.set_sensitive.assert_called_once_with(False)
+            harness._edit_toc_button.set_visible.assert_not_called()
+
     def test_resume_uses_selected_run_through_target(self) -> None:
         root = Path("/tmp/recordprep-resume-test")
         row = mock.Mock()

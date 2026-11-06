@@ -217,6 +217,13 @@ class ClassificationProfileTests(unittest.TestCase):
     def test_actual_gui_worker_classification_pipeline_uses_frozen_contracts(self):
         self._run_gui_pipeline()
 
+    def test_gui_worker_pipeline_accepts_existing_synced_checkpoint_parent(self):
+        work = self.root / ".recordprep/profile-work"
+        work.mkdir(parents=True, exist_ok=True)
+        work.chmod(0o775)
+        self._run_gui_pipeline()
+        self.assertEqual(work.stat().st_mode & 0o777, 0o775)
+
     def test_old_derived_selection_is_stale_without_staling_classification_or_writing(self):
         from recordprep.boundary_profiles import boundary_issues, toc_issues
         self._run_gui_pipeline()

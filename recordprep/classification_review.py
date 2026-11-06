@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import re
+import tempfile
 import time
 from datetime import datetime, timezone
 import uuid
@@ -194,7 +195,7 @@ def retain_effective_changes(rows, corrected, audit):
     survive together. This proves structural effect, not semantic correctness.
     """
     audit = copy.deepcopy(audit)
-    audit["not_applied"] = []
+    audit.setdefault("not_applied", [])
     kept = []
     for change in audit["changes"]:
         name = change["file_name"]
@@ -243,101 +244,242 @@ def stage_inputs(root, project_dir, workspace):
     return guard, ref, candidate, spec, prompt
 
 
+def _proposal_row(change, rows, contracts):
+    """Check one patch's applicability, not the quality of the whole review."""
+    if not isinstance(change, dict):
+        raise ValueError("Proposal is not a page correction object.")
+    name = change.get("file_name")
+    if not isinstance(name, str) or name not in rows:
+        raise ValueError("Proposal does not identify an existing source page.")
+    before, after = change.get("before"), change.get("after")
+    if (not isinstance(before, dict) or not isinstance(after, dict) or not after
+            or set(before) != set(after) or not set(after) <= FIELDS
+            or any(rows[name].get(k) != v for k, v in before.items())):
+        raise ValueError("Proposed fields/before-values do not match this page; original retained.")
+    row = copy.deepcopy(rows[name])
+    for key, val in after.items():
+        if val is None:
+            row.pop(key, None)
+        elif isinstance(val, str) and len(val) <= 200:
+            row[key] = val
+        else:
+            raise ValueError("Proposed field value cannot be used; original retained.")
+    side = rows[name]["page_type"][:2]
+    if row.get("page_type") not in set(CLASSIFICATION_PAGE_TYPES[side.lower()]) | {s for s in STARTS if s.startswith(side)}:
+        raise ValueError("Proposed page type is unknown or belongs to the other transcript; original retained.")
+    kind = row["page_type"]
+    if row.get("date") and ("date" in after or "page_type" in after):
+        if kind not in {"CT_report_first_page", "CT_minute_order_first_page", "RT_body_first_page"} or _date_value(row["date"]) != row["date"]:
+            raise ValueError("Proposed correction leaves an unusable date or a date on a non-start; original retained.")
+    if row.get("name") and ("name" in after or "page_type" in after):
+        naming_kind = {"CT_report_first_page": "report", "CT_form_first_page": "form"}.get(kind)
+        if not naming_kind:
+            raise ValueError("Proposed correction leaves a name on an ineligible page; original retained.")
+        if row.get("name") != rows[name].get("name"):
+            contract = contracts.get(naming_kind)
+            if contract is None or row["name"] not in contract.allowed_names:
+                raise ValueError("Proposed name is not in the selected catalog; original retained.")
+    # A bad report marker must not invalidate unrelated corrections on other pages.
+    original_reports = [r for r in rows.values() if r["page_type"] in {"CT_report", "CT_report_first_page"}]
+    modern = report_detection_mode(original_reports) or not original_reports
+    if kind in {"CT_report", "CT_report_first_page"}:
+        expected = "yes" if kind == "CT_report_first_page" else "no"
+        if modern and row.get("report_first_page") != expected:
+            raise ValueError("Proposed report start/check disagree; original retained.")
+        if not modern and ("report_first_page" in row or kind == "CT_report_first_page"):
+            raise ValueError("Proposal would mix historical and current report checks; original retained.")
+    elif "report_first_page" in row:
+        raise ValueError("Proposed non-report still carries a report check; original retained.")
+    if row == rows[name]:
+        raise ValueError("Proposal makes no change to this page.")
+    return row
+
+
 def validate_candidate(data, rows, contracts, successful_reads, workspace, root):
-    value = _json(data)
-    if not isinstance(value, dict) or set(value) != {"schema_version", "reviewed_blocks", "changes", "unresolved"} or value["schema_version"] != 1:
-        raise ValueError("Invalid review candidate schema.")
+    """Best-effort knowledge-work result: bad findings never discard good ones.
+
+    Read bookkeeping and coverage are advisory. Inapplicable patches are retained
+    for human review, while usable patches proceed without an extra model pass.
+    Publication/input integrity is checked separately by publish().
+    """
+    audit = {"schema_version": 1, "reviewed_blocks": [], "changes": [],
+             "unresolved": [], "not_applied": [], "warnings": []}
+    def note(code, reason, name=None):
+        item = {"code": code, "reason": reason}
+        if name is not None:
+            item["file_name"] = name
+        audit["warnings"].append(item)
+    try:
+        text = data.decode("utf-8") if isinstance(data, bytes) else data
+        fenced = re.fullmatch(r"\s*```(?:json)?\s*\n(.*?)\n```\s*", text, re.DOTALL)
+        if fenced:
+            text = fenced[1]
+            note("candidate_format", "A Markdown fence was removed from the agent's JSON candidate; usable findings were retained.")
+        repeated = []
+        def pairs(items):
+            result = {}
+            for key, item in items:
+                if key in result:
+                    repeated.append(key)
+                result[key] = item
+            return result
+        value = json.loads(text, object_pairs_hook=pairs)
+        if repeated:
+            note("candidate_format", "Repeated JSON object keys were interpreted using their last value; inspect the archived raw proposal if material.")
+    except (ValueError, UnicodeError, RecursionError):
+        value = {}
+        note("unreadable_candidate", "The agent's candidate was not usable JSON. No proposed edits were applied; the raw candidate is archived for inspection.")
+    if not isinstance(value, dict):
+        value = {}
+        note("invalid_candidate", "The agent did not return a review object. Original classifications were retained.")
+    if value.get("schema_version") != 1:
+        note("candidate_format", "The candidate's schema marker was missing or unexpected; usable findings were still considered.")
     blocks = [f"block-{i+1:04d}" for i in range((len(rows)+79)//80)]
-    if (str(workspace / "classification-rules.txt") not in successful_reads
-            or value["reviewed_blocks"] != blocks
-            or any(str(workspace / (b + ".jsonl")) not in successful_reads for b in blocks)):
-        raise ValueError("Review did not cover every classification block.")
-    if not isinstance(value["changes"], list) or not isinstance(value["unresolved"], list):
-        raise ValueError("Invalid review findings.")
-    if len(value["changes"]) > len(rows) or len(value["unresolved"]) > len(rows):
-        raise ValueError("Too many review findings.")
+    claimed = value.get("reviewed_blocks", [])
+    claimed = claimed if isinstance(claimed, list) else []
+    audit["reviewed_blocks"] = [b for b in blocks if b in claimed]
+    read_blocks = [b for b in blocks if str(workspace / (b + ".jsonl")) in successful_reads]
+    rules_read = str(workspace / "classification-rules.txt") in successful_reads
+    complete = len(read_blocks) == len(blocks) and audit["reviewed_blocks"] == blocks and rules_read
+    audit["coverage"] = {"complete": complete, "expected_blocks": len(blocks),
+                         "recorded_read_blocks": len(read_blocks),
+                         "reported_reviewed_blocks": len(audit["reviewed_blocks"]), "rules_read": rules_read}
+    if not complete:
+        note("partial_coverage", f"Review coverage is incomplete or unconfirmed: {len(read_blocks)}/{len(blocks)} blocks have recorded reads, {len(audit['reviewed_blocks'])}/{len(blocks)} were reported reviewed. Useful findings are retained; this is not a complete-review claim.")
+    changes = value.get("changes", [])
+    if not isinstance(changes, list):
+        note("invalid_changes", "The changes list was unusable; originals and any usable unresolved findings were retained.")
+        changes = []
     result = copy.deepcopy(rows)
     seen = set()
-    for change in value["changes"]:
-        if not isinstance(change, dict) or set(change) != {"file_name", "before", "after", "impact", "reason", "evidence"}:
-            raise ValueError("Invalid review change.")
-        name = change["file_name"]
-        if not isinstance(name, str) or name not in rows or name in seen:
-            raise ValueError("Unknown or duplicate changed page.")
-        seen.add(name)
-        before, after = change["before"], change["after"]
-        if (not isinstance(before, dict) or not isinstance(after, dict) or not after
-                or set(before) != set(after) or not set(after) <= FIELDS
-                or any(rows[name].get(k) != v for k, v in before.items())):
-            raise ValueError("Review before-values do not match current input.")
-        if change["impact"] not in IMPACTS or not isinstance(change["reason"], str) or not 10 <= len(change["reason"]) <= 2000:
-            raise ValueError("Correction needs a bounded downstream-impact explanation.")
-        evidence = change["evidence"]
-        if (not isinstance(evidence, list) or not 1 <= len(evidence) <= 12
-                or any(not isinstance(e, str) or e not in rows for e in evidence) or name not in evidence
-                or any(str(root / "image_pages" / (Path(e).stem + ".png")) not in successful_reads for e in evidence)):
-            raise ValueError("Corrections require successfully read source images, including the changed page.")
-        if "page_type" in after and len(set(evidence)) < 2 and len(rows) > 1:
-            raise ValueError("Boundary/type corrections need neighboring-page evidence.")
-        if "page_type" in after and len(rows) > 1 and not any(abs(int(Path(e).stem)-int(Path(name).stem)) == 1 for e in evidence):
-            raise ValueError("Boundary/type corrections need an adjacent page.")
-        row = result[name]
-        for key, val in after.items():
-            if val is None:
-                row.pop(key, None)
-            elif isinstance(val, str) and len(val) <= 200:
-                row[key] = val
+    for proposal in changes:
+        name = proposal.get("file_name") if isinstance(proposal, dict) else None
+        known = isinstance(name, str) and name in rows
+        try:
+            if known and name in seen:
+                raise ValueError("A second proposal for this page was not applied; the first usable proposal was retained.")
+            row = _proposal_row(proposal, rows, contracts)
+        except ValueError as exc:
+            reason = str(exc)
+            audit["not_applied"].append({"change": proposal, "reason": reason})
+            if known:
+                audit["unresolved"].append({"file_name": name, "reason": reason + " See the saved proposal under Not applied."})
             else:
-                raise ValueError("Invalid correction field value.")
-        side = rows[name]["page_type"][:2]
-        if row.get("page_type") not in set(CLASSIFICATION_PAGE_TYPES[side.lower()]) | {s for s in STARTS if s.startswith(side)}:
-            raise ValueError("Invalid/cross-side corrected page type.")
-        kind = row["page_type"]
-        if row.get("date") and ("date" in after or "page_type" in after):
-            if kind not in {"CT_report_first_page", "CT_minute_order_first_page", "RT_body_first_page"} or _date_value(row["date"]) != row["date"]:
-                raise ValueError("Remove stale dates from non-starts; use supported calendar dates.")
-        if row.get("name") and ("name" in after or "page_type" in after):
-            naming_kind = {"CT_report_first_page": "report", "CT_form_first_page": "form"}.get(kind)
-            if not naming_kind:
-                raise ValueError("Names belong only on eligible starts.")
-            if row.get("name") != rows[name].get("name"):
-                contract = contracts.get(naming_kind)
-                if contract is None or row["name"] not in contract.allowed_names:
-                    raise ValueError("New names must exactly match the selected catalog.")
-        if row == rows[name]:
-            raise ValueError("Empty correction is not a change.")
-    for finding in value["unresolved"]:
-        if (not isinstance(finding, dict) or set(finding) != {"file_name", "reason"}
-                or not isinstance(finding["file_name"], str)
-                or finding["file_name"] not in rows or not isinstance(finding["reason"], str)
-                or not 10 <= len(finding["reason"]) <= 2000):
-            raise ValueError("Invalid unresolved finding.")
-    original_ct = [r for r in rows.values() if r["page_type"].startswith("CT_")]
-    modern = report_detection_mode(original_ct)
-    corrected_ct = [r for r in result.values() if r["page_type"].startswith("CT_")]
-    if (report_detection_mode(corrected_ct) != modern
-            and any(r["page_type"] in {"CT_report", "CT_report_first_page"} for r in original_ct)
-            and any(r["page_type"] in {"CT_report", "CT_report_first_page"} for r in corrected_ct)):
-        raise ValueError("Review cannot migrate historical report checks.")
-    for name in seen:
-        row = result[name]
-        if row["page_type"] not in {"CT_report", "CT_report_first_page"} and "report_first_page" in row:
-            raise ValueError("Remove report checks from non-report pages.")
-    return result, value
+                note("unidentified_proposal", reason)
+            continue
+        seen.add(name)
+        change = {key: copy.deepcopy(proposal[key]) for key in ("file_name", "before", "after")}
+        reason = proposal.get("reason")
+        change["reason"] = reason[:2000] if isinstance(reason, str) and reason.strip() else "Agent-proposed classification correction; inspect the source when reviewing."
+        impact = proposal.get("impact")
+        change["impact"] = impact if isinstance(impact, str) and impact in IMPACTS else "document_identity"
+        evidence = proposal.get("evidence", [])
+        evidence = evidence if isinstance(evidence, list) else []
+        normalized = []
+        for item in evidence:
+            if not isinstance(item, str):
+                continue
+            # Agents sometimes cite an opened PNG or its full path instead of the
+            # worklist's .txt identifier. This is a citation, not path authority.
+            page = Path(item).stem + ".txt"
+            if page in rows and page not in normalized:
+                normalized.append(page)
+        change["evidence"] = normalized
+        missing = [e for e in dict.fromkeys([name, *normalized])
+                   if str(root / "image_pages" / (Path(e).stem + ".png")) not in successful_reads]
+        if missing or name not in normalized or len(normalized) != len(evidence) or not evidence:
+            note("image_evidence_unconfirmed", "Image evidence is incomplete, mismatched or not confirmed by the read journal. "
+                 + ("Unconfirmed pages: " + ", ".join(missing) + ". " if missing else "")
+                 + "This is an agent proposal, not independently verified visual evidence; check the source if material.", name)
+        if "page_type" in change["after"] and len(rows) > 1 and not any(
+                abs(int(Path(e).stem)-int(Path(name).stem)) == 1 for e in normalized):
+            note("neighbor_evidence_unconfirmed", "No adjacent page was cited for this type/start correction. Check the boundary if material.", name)
+        result[name] = row
+        audit["changes"].append(change)
+    findings = value.get("unresolved", [])
+    if not isinstance(findings, list):
+        note("invalid_findings", "The unresolved-findings list was unusable; the raw candidate is archived.")
+        findings = []
+    for finding in findings:
+        if (isinstance(finding, dict) and isinstance(finding.get("file_name"), str)
+                and finding["file_name"] in rows and isinstance(finding.get("reason"), str)
+                and finding["reason"].strip()):
+            audit["unresolved"].append({"file_name": finding["file_name"], "reason": finding["reason"][:2000]})
+        else:
+            note("unidentified_finding", "An unresolved finding could not be attached to a source page; see the archived candidate.")
+    return result, audit
+
+
+def _optional_read(path, limit):
+    """Absence is advisory; unsafe links/types/ownership are not absence."""
+    try:
+        return _read(path, limit)
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        # The shared bounded reader wraps missing leaves in ProfileError.
+        if isinstance(exc.__cause__, FileNotFoundError):
+            return None
+        raise
+
+
+def preserve_attempt(workspace):
+    """Keep only candidate/read bookkeeping after a hard failure, never sessions."""
+    copies = {}
+    for name, limit in (("review-candidate.json", 8 * 1024 * 1024),
+                        ("review-reads.jsonl", 16 * 1024 * 1024)):
+        try:
+            data = _optional_read(workspace / name, limit)
+        except (OSError, ValueError):
+            continue  # Never follow an unsafe diagnostic just to retain an attempt.
+        if data is not None:
+            copies[name] = data
+    if not copies:
+        return None
+    directory = Path(tempfile.mkdtemp(prefix="review-attempt.", dir=workspace.parent))
+    for name, data in copies.items():
+        path = directory / name
+        path.write_bytes(data)
+        path.chmod(0o600)
+    return directory
 
 
 def publish(root, project_dir, guard, ref, candidate, *, check_stop=lambda: None,
-            started_at=None, agent_elapsed_seconds=None):
+            started_at=None, agent_elapsed_seconds=None, run_warnings=()):
     workspace = candidate.parent
     blobs, rows, current, current_ref, _, contracts = capture(root, project_dir)
     if current != guard or current_ref != ref:
         raise ValueError("Review inputs changed; prior classifications preserved.")
     journal = workspace / "review-reads.jsonl"
-    read_events = [_json(line) for line in _read(journal, 16 * 1024 * 1024).decode().splitlines() if line]
-    if any(not isinstance(path, str) for path in read_events):
-        raise ValueError("Invalid successful-read journal.")
-    reads = set(read_events)
-    corrected, audit = validate_candidate(_read(candidate, 8 * 1024 * 1024), rows, contracts, reads, workspace, root)
+    journal_unavailable = False
+    try:
+        journal_data = _optional_read(journal, 16 * 1024 * 1024) or b""
+    except (OSError, ValueError):
+        # This journal is evidence bookkeeping, not an input to be trusted or a
+        # reason to lose a review. Do not follow unsafe paths to obtain it.
+        journal_data = b""
+        journal_unavailable = True
+    read_events, invalid_events = [], 0
+    for line in journal_data.splitlines():
+        if not line.strip():
+            continue
+        try:
+            path = _json(line)
+        except (ValueError, UnicodeError, RecursionError):
+            path = None
+        if isinstance(path, str):
+            read_events.append(path)
+        else:
+            invalid_events += 1
+    candidate_data = _optional_read(candidate, 8 * 1024 * 1024) or b""
+    corrected, audit = validate_candidate(candidate_data, rows, contracts, set(read_events), workspace, root)
+    audit["warnings"].extend({"code": "agent_run", "reason": message} for message in run_warnings)
+    if run_warnings:
+        audit["coverage"]["complete"] = False
+    if invalid_events or journal_unavailable:
+        reason = ("The read journal could not be read safely and was not followed. " if journal_unavailable
+                  else f"{invalid_events} read-journal entries were unusable. ")
+        audit["warnings"].append({"code": "read_journal", "reason": reason + "This limits evidence confirmation, not publication of useful findings."})
     corrected, audit = retain_effective_changes(rows, corrected, audit)
     outputs = {}
     for filename, data in blobs.items():
@@ -358,6 +500,10 @@ def publish(root, project_dir, guard, ref, candidate, *, check_stop=lambda: None
             directory.mkdir(mode=0o700, exist_ok=True)
             _check_directory(directory)
         archive.mkdir(mode=0o700)
+        for name, data in (("review-candidate.json", candidate_data), ("review-reads.jsonl", journal_data)):
+            path = archive / name
+            path.write_bytes(data)
+            path.chmod(0o600)
         for name, data in blobs.items():
             (archive / name).write_bytes(data)
         (archive / "prior-outputs").mkdir(mode=0o700)
@@ -436,7 +582,14 @@ def review_summary(value):
     changes, findings = len(audit["changes"]), len(audit["unresolved"])
     pages = "page" if changes == 1 else "pages"
     remaining = "finding needs" if findings == 1 else "findings need"
-    return f"{changes} {pages} corrected · {findings} {remaining} review"
+    summary = f"{changes} {pages} corrected · {findings} {remaining} review"
+    warnings = audit.get("warnings", [])
+    if isinstance(warnings, list) and warnings:
+        summary += f" · {len(warnings)} review {'note' if len(warnings) == 1 else 'notes'}"
+    coverage = audit.get("coverage")
+    if isinstance(coverage, dict) and not coverage.get("complete"):
+        summary += " · partial review"
+    return summary
 
 
 def review_details(value):
@@ -464,6 +617,12 @@ def review_details(value):
                     lines.append(f'{title} reads: {counts.get("calls", "unknown")} successful calls; {counts.get("unique_pages", "unknown")} distinct pages')
     else:
         lines.append("Timing and read counts were not recorded by this older review.")
+    warnings = audit.get("warnings", [])
+    if isinstance(warnings, list) and warnings:
+        lines += ["", "REVIEW NOTES / LIMITATIONS", "Useful corrections were retained; these notes did not stop downstream processing."]
+        for item in warnings:
+            if isinstance(item, dict):
+                lines += ["", str(item.get("file_name", "Review")) + ": " + str(item.get("reason", ""))]
     lines += ["", "FINDINGS NEEDING REVIEW"]
     for finding in audit["unresolved"]:
         lines += ["", finding["file_name"], finding["reason"]]
@@ -479,10 +638,13 @@ def review_details(value):
         lines.append("None.")
     skipped = audit.get("not_applied", [])
     if isinstance(skipped, list) and skipped:
-        lines += ["", f"NOT APPLIED: {len(skipped)} proposals had no selected-document effect."]
+        lines += ["", f"NOT APPLIED: {len(skipped)} {'proposal' if len(skipped) == 1 else 'proposals'}."]
         for item in skipped:
-            if isinstance(item, dict) and isinstance(item.get("change"), dict):
-                lines.append(str(item["change"].get("file_name", "")) + ": " + str(item.get("reason", "")))
+            if isinstance(item, dict):
+                change = item.get("change")
+                name = change.get("file_name", "Unidentified page") if isinstance(change, dict) else "Unidentified page"
+                lines += ["", str(name) + ": " + str(item.get("reason", "")),
+                          "Proposal: " + json.dumps(change, ensure_ascii=False)]
     lines += ["", "Originals archive: " + str(value.get("archive", "Not recorded"))]
     return "\n".join(lines)
 

@@ -2022,19 +2022,37 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             monitor.finish()
             _set_terminal_foreground_process_group(runner_process_group)
         _active_process = None
+        def preserve_review_attempt():
+            if review_guard is not None:
+                try:
+                    saved = review.preserve_attempt(workspace)
+                    if saved is not None:
+                        _line(f"Review candidate/read bookkeeping preserved at {saved}. No full session retained; this is not a Pi resume session.")
+                except (OSError, ValueError):
+                    _line("Minimal review diagnostics could not be retained safely. See the publication error; no automatic recovery was attempted.")
         if _stopped:
+            preserve_review_attempt()
             return 130
+        review_run_warnings = []
         if return_code != 0:
             _line(f"\033[31mPI exited with code {return_code}.\033[0m")
-            return return_code
+            if review_guard is None or not candidate_path.is_file():
+                preserve_review_attempt()
+                return return_code
+            review_run_warnings.append(f"The agent exited with code {return_code}; usable saved proposals were retained, but this is a partial review.")
         if review_guard is not None:
             def check_review_stop():
                 if _stopped:
                     raise ValueError("Classification review stopped; prior output preserved.")
-            changed, unresolved = review.publish(root, project_dir, review_guard, review_ref, candidate_path,
-                check_stop=check_review_stop, started_at=review_started_at,
-                agent_elapsed_seconds=time.monotonic()-review_agent_started_at)
-            _line(f"Classification review: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Use View review or classification/agent-review.json.")
+            try:
+                changed, unresolved = review.publish(root, project_dir, review_guard, review_ref, candidate_path,
+                    check_stop=check_review_stop, started_at=review_started_at,
+                    agent_elapsed_seconds=time.monotonic()-review_agent_started_at,
+                    run_warnings=review_run_warnings)
+            except Exception:
+                preserve_review_attempt()
+                raise
+            _line(f"Classification review saved: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Evidence/coverage limitations and retained proposals are advisory: use View review or classification/agent-review.json.")
         if caption_guard is not None:
             def check_caption_stop():
                 if _stopped:

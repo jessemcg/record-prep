@@ -209,7 +209,6 @@ def stage_issues(root: Path, stage: str, profile: ProfileSnapshot | None, settin
 
 
 def _work_directory(root: Path, stage: str, fingerprint: str) -> Path:
-    from .profile_store import _check_directory
     path = root / ".recordprep"
     path.mkdir(mode=0o700, exist_ok=True)
     from .case_profiles import _case_directory
@@ -225,7 +224,9 @@ def _work_directory(root: Path, stage: str, fingerprint: str) -> Path:
             os.close(fd)
             fd = child
             path = path / name
-            _check_directory(path, private=True)
+            # Case-local checkpoints sync with the bundle, unlike private XDG
+            # profile stores. Accept ordinary sync modes without chmod/repair.
+            _case_directory(path)
     finally:
         os.close(fd)
     return path

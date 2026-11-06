@@ -73,8 +73,15 @@ Python applies supported changes to separate `*_dates_names_corrected.jsonl`
 finals. Names inputs retain their exact bytes and mtime. Zero-change output copies
 those input bytes; an identical existing final keeps its mtime. The agent has no
 direct write access to these files. Every
-proposed change needs matching before-values, a downstream-impact reason and
-successfully read image evidence; type/boundary changes need an adjacent image.
+proposal is considered independently. Matching before-values, known same-side
+page types and usable naming/date/report fields protect the source-to-output mapping;
+a proposal that cannot be applied retains its original row and is saved under
+Not applied, with a finding for human review. It never cancels other useful changes.
+Image-read bookkeeping, adjacent-page evidence, block coverage and explanatory
+formatting are **advisory**, not publication gates. An otherwise usable correction
+is retained even when an image read cannot be confirmed, with an explicit review
+note attached to that page. These notes are not independent visual verification.
+There is no mandatory extra model pass or paid repair loop.
 Python also compares selected document identities, dates, starts and extents with
 each proposed edit removed from the jointly corrected result. An edit with no such
 effect is not applied and is recorded in `review.not_applied`, even if the agent
@@ -83,13 +90,22 @@ gap) survive together. This projection includes all hearing/minute starts, named
 reports/forms, and unnamed starts that split named reports. It is not a semantic
 classifier and does not infer missing names. Structural validation cannot prove
 semantic correctness or that an image was understood. Human review remains necessary.
+A malformed findings list, duplicate page proposal or unusable candidate does not
+stop downstream work: keep usable findings, retain originals elsewhere, and label
+coverage/format limitations honestly. A wholly unreadable candidate yields unchanged
+Names-based finals and a visible partial-review note, never a claim of a complete
+zero-error review. Fenced JSON and PNG evidence citations are handled without
+throwing away otherwise usable proposals. The raw candidate is always archived.
 
 Ambiguities are recorded without speculative edits. A completed review can have
 zero changes and/or unresolved findings. Inspect **classification/agent-review.json**
 for changes, before/after field values, evidence pages and unresolved items. The
 row now displays persistent correction/finding counts; **View review** opens a
 read-only, selectable, scrollable findings view with unresolved items first,
-followed by applied corrections and proposals not applied. Its header identifies
+with advisory evidence/coverage notes, followed by applied corrections and the
+complete proposals not applied, each with a specific explanation. The row also
+identifies review notes and partial coverage rather than claiming full review.
+Its header identifies
 the bundle. It has no save/apply action and renders model prose as plain text.
 Counts refresh on case selection/reopening and stage completion. Clearing the case
 removes the displayed result. Old receipts work without migration; unavailable or
@@ -114,7 +130,8 @@ source/classification files or claim later manual edits were reviewed.
 ## Preservation and publication
 
 Before any replacement, exact Names inputs, prior final outputs (under
-`prior-outputs/`), the previous receipt and an audit are archived in:
+`prior-outputs/`), the previous receipt, raw `review-candidate.json`, raw
+`review-reads.jsonl` bookkeeping and an audit are archived in:
 
 ```
 .recordprep/classification-review/<unique-run-id>/
@@ -150,8 +167,17 @@ Source PDFs/text/images, earlier classifications, private config/profiles, manif
 TOCs, boundaries and summaries are never edited by this stage. Inputs, source
 inventory/bytes, layout, rules, shared agent preferences and prior receipt are
 rechecked before publication under the existing case-profile publication lock.
-Changed inputs, Stop, missing/invalid proposals and model failures preserve prior
-canonical outputs. Ordinary write failures roll back from exact captured bytes.
+Changed inputs, Stop and unsafe/unwritable publication preserve prior canonical
+outputs. Ordinary write failures roll back from exact captured bytes. Candidate
+quality and evidence bookkeeping do not trigger this rollback or discard a review.
+If an agent exits abnormally but leaves a candidate, usable proposals still publish
+with a partial-review note. An agent failure without any candidate still reports
+an execution failure; there is no review result to recover.
+On Stop or a hard publication failure, the runner attempts to preserve only the
+candidate and read bookkeeping in a private machine-local
+`~/.cache/recordprep-pi-workspaces/review-attempt.<id>/` directory (or the effective
+XDG cache root). It prints that location; no full session is retained. This is for
+manual inspection, not a Pi resume session or an automatic cross-run checkpoint.
 
 Multi-file replacement is not an atomic filesystem transaction. A durable
 `.recordprep/classification-review-pending.json` marker identifies the recovery
@@ -166,8 +192,8 @@ A rollback failure intentionally leaves the marker. No startup repair/migration.
 - `recordprep/classification_files.py`: canonical filenames, legacy compatibility,
   review-required/publication readiness and shared downstream resolution.
 - `recordprep/classification_review.py`: source/contract snapshots, 80-row metadata
-  blocks and prioritized worklists, selected-document impact filtering, strict
-  patch validation, telemetry, read-only result formatting, backups, rollback and
+  blocks and prioritized worklists, selected-document impact filtering, per-proposal
+  applicability and advisory review notes, telemetry, read-only result formatting, backups, rollback and
   receipt publication.
 - `.pi/skills/recordprep-correct-classification/SKILL.md`: fixed impact-focused method.
 - `.pi/extensions/recordprep-classification-review-tools.ts`: exact read allowlist,
@@ -176,15 +202,40 @@ A rollback failure intentionally leaves the marker. No startup repair/migration.
   settings, Stop/process-group termination, stall monitoring and workspace cleanup.
 - No new framework, dependencies, profile schema, Focus contract, classifier prompt,
   launcher or keyboard mapping. No stage-specific model overrides.
-- Every metadata block must be read and attested reviewed. This is not proof of
-  exhaustive semantic review; the agent may miss anomalies. Large records use
-  bounded reads and Pi compaction, not a concatenated source payload.
+- The agent is instructed to read and report every metadata block, but incomplete
+  coverage is a visible limitation, not a reason to discard useful work or stop
+  downstream processing. Even complete read bookkeeping is not proof of exhaustive
+  semantic review. Large records use bounded reads and Pi compaction.
 - Historical fully unmarked report files remain unmarked. The reviewer refuses
   mixed/inconsistent report checks rather than silently migrating a bundle.
 - Without a selected naming catalog, existing names can be preserved/removed, but
   new nonempty names are unresolved/manual work rather than invented titles.
-- Explicit review runs start fresh. Partial private candidates are cleaned on
-  Stop/failure; cross-run incremental review/checkpoint reuse is not implemented.
+- Explicit review runs start fresh. Minimal candidates/read bookkeeping survive
+  Stop/hard failure when safe to retain; full sessions are cleaned. Successful
+  publication archives the raw candidate, including unused/malformed findings.
+  Cross-run incremental review/checkpoint reuse is not implemented.
+
+## Knowledge-work result policy (2026-11-05)
+
+This supersedes historical strict-output acceptance descriptions in the validation
+history below. Deliver useful results, not all-or-nothing model-output validation.
+Evidence/coverage limitations are review notes; inapplicable individual patches
+retain their originals and their proposals without cancelling usable corrections.
+Only source/selection changes, Stop, unsafe access or inability to publish safely
+remain hard failures. No new submit/validation tool, mandatory model retry, extra
+paid pass, private bundle repair or settings migration is introduced.
+
+Acceptance for this policy: **906 tests, 898 passed and 8 skipped** (93.298s),
+including 20 new best-effort scenarios and the updated review tests. A separate
+fatal-critical GTK acceptance opened View review and verified advisory notes,
+partial-review counts, retained unapplied proposals, read-only text and unchanged
+receipt bytes/mtime; local accessibility/screenshot observation confirmed the view.
+Resource/skill checks, offline registered-tool audit, compile and offline wheel/sdist
+build passed. Evidence: `/tmp/recordprep-advisory-review.iq0lmV/` (`full-final.log`,
+`gtk-notes-final.log`, `resources-final.log`, `skill-final.log`, `tools-final.log`,
+`build-final.log`, `dist-final/`). All cases/providers were fictional/offline; no
+real case processing, settings writes, paid rerun or maintained-app restart occurred.
+The previous failed run's already-deleted workspace was not recovered.
 
 ## Validation
 

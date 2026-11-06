@@ -146,39 +146,32 @@ class ReviewTests(unittest.TestCase):
         self.assertFalse(step_outputs_present('correct_classification_agent',self.root))
         self.assertFalse((self.root / review.PENDING).exists())
 
-    def test_bad_proposals_preserve_output(self):
+    def test_inapplicable_proposals_preserve_output_without_failing_review(self):
         cases = []
         for mutation in (
             lambda c: c["after"].update(page_type="RT_body"),
             lambda c: c["after"].update(report_first_page="yes"),
             lambda c: c["before"].update(page_type="CT_form"),
-            lambda c: c.update(evidence=["0002.txt"]),
-            lambda c: c.update(evidence=["../../outside"]),
-            lambda c: c.update(impact="cosmetic"),
             lambda c: c["after"].update(file_name="0006.txt"),
             lambda c: c.update(file_name="9999.txt"),
         ):
             c = self.continuity(); mutation(c); cases.append([c])
-        cases.append([self.continuity(), self.continuity()])
         original = self.output.read_bytes()
         for changes in cases:
             with self.subTest(changes=changes):
                 guard, ref, candidate, _, _ = self.prepared(changes)
-                with self.assertRaises(ValueError):
-                    review.publish(self.root, self.project, guard, ref, candidate)
+                changed, _ = review.publish(self.root, self.project, guard, ref, candidate)
+                self.assertEqual(changed, 0)
                 self.assertEqual(self.output.read_bytes(), original)
+                self.assertEqual(self.final_output.read_bytes(), original)
+                self.assertTrue(review.saved_review(self.root)["review"]["not_applied"])
+                self.assertEqual(review.output_issues(self.root), [])
 
-    def test_missing_evidence_coverage_invalid_json_and_stale_inputs(self):
-        for mode in ("image", "block", "coverage", "duplicate_key", "source", "output", "model", "stop"):
+    def test_changed_inputs_and_stop_still_preserve_output(self):
+        for mode in ("source", "output", "model", "stop"):
             with self.subTest(mode=mode):
                 guard, ref, candidate, spec, _ = self.prepared([self.continuity()])
-                access = json.loads(spec.read_text())
-                if mode in ("image", "block"):
-                    Path(access["journal"]).write_text("\n".join(json.dumps(p) for p in access["reads"] if ("image_pages" not in p if mode == "image" else "block-" not in p)))
-                elif mode == "coverage":
-                    value = json.loads(candidate.read_text()); value["reviewed_blocks"] = []; candidate.write_text(json.dumps(value))
-                elif mode == "duplicate_key": candidate.write_text('{"changes":[],"changes":[]}')
-                elif mode == "source": (self.root / "text_pages/0002.txt").write_text("Changed synthetic source")
+                if mode == "source": (self.root / "text_pages/0002.txt").write_text("Changed synthetic source")
                 elif mode == "output": self.output.write_text(self.output.read_text() + "\n")
                 elif mode == "model": guard["model"] = [{"defaultModel": "different"}]
                 before = self.output.read_bytes()
@@ -238,7 +231,7 @@ class ReviewTests(unittest.TestCase):
             env=os.environ | {"RECORDPREP_GUARD_TEST_ROOT": str(self.base / "guard")}, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_stale_date_and_unapproved_name_are_rejected(self):
+    def test_stale_date_and_unapproved_name_become_review_findings(self):
         cases = [
             {"file_name":"0005.txt", "before":{"page_type":"CT_minute_order_first_page"},
              "after":{"page_type":"CT_minute_order"}, "impact":"false_start",
@@ -250,8 +243,12 @@ class ReviewTests(unittest.TestCase):
         for change in cases:
             guard, ref, candidate, _, _ = self.prepared([change])
             before = self.output.read_bytes()
-            with self.assertRaises(ValueError): review.publish(self.root,self.project,guard,ref,candidate)
+            self.assertEqual(review.publish(self.root,self.project,guard,ref,candidate), (0, 1))
             self.assertEqual(self.output.read_bytes(),before)
+            self.assertEqual(self.final_output.read_bytes(),before)
+            saved = review.saved_review(self.root)
+            self.assertEqual(saved["review"]["not_applied"][0]["change"], change)
+            self.assertIn("NOT APPLIED", review.review_details(saved))
 
     def test_unresolved_only_is_a_completed_nonmutating_review(self):
         guard, ref, candidate, _, _ = self.prepared()

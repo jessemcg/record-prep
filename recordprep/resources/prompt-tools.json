@@ -10,7 +10,7 @@
     ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "d460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee",
     ".pi/skills/recordprep-synthesize-reports/SKILL.md": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a",
     ".pi/skills/recordprep-summarize-minutes/SKILL.md": "345dadc6265e896546bb2f1d2a7fe31c56395141e1d80fa8823b5833ba4b5416",
-    ".pi/scripts/run_recordprep_skill.py": "4826a1261e1830f582d545f93b8575aadb9b917dbaa558db44790bd765d41b96",
+    ".pi/scripts/run_recordprep_skill.py": "61031809e655fcba52de38bafb84debce9233693bd1638e7453862b42f335dd1",
     "recordprep/summary_prompts.py": "06587b5e293b80161f45baaf2c6a6104242efe574aa7cb404a81dc2c90eec5fb",
     "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
     ".pi/SYSTEM.md": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",

@@ -3950,10 +3950,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         run_target_box.append(self._run_until_dropdown)
         action_box.append(run_target_box)
 
-        self._edit_toc_button = Gtk.Button(label="Edit TOC")
-        self._edit_toc_button.connect("clicked", self.on_edit_toc_clicked)
-        action_box.append(self._edit_toc_button)
-
         content.append(action_box)
 
         activity_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -4118,6 +4114,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             subtitle="Remove duplicate minute order dates in the TOC.",
         )
         self.step_correct_toc_row.set_activatable(False)
+        self._edit_toc_button = Gtk.Button(label="Modify TOC", valign=Gtk.Align.CENTER)
+        self._edit_toc_button.add_css_class("flat")
+        self._edit_toc_button.set_sensitive(False)
+        self._edit_toc_button.connect("clicked", self.on_edit_toc_clicked)
+        self.step_correct_toc_row.add_suffix(self._edit_toc_button)
         self._attach_step_controls(
             "correct_toc",
             self.step_correct_toc_row,
@@ -4477,7 +4478,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         toc_path = self._toc_path()
         enabled = bool(toc_path and toc_path.exists())
         if self._edit_toc_button is not None:
-            self._edit_toc_button.set_visible(enabled and not self._pipeline_running)
             self._edit_toc_button.set_sensitive(enabled and not self._pipeline_running)
 
     def _set_status(self, message: str, active: bool) -> None:

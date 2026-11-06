@@ -91,7 +91,11 @@ A clearly identified form with conflicting signature/filing dates can cease bein
 a false minute-order start without choosing a replacement date.
 
 No changes is a valid outcome after completing the review.
-This is an advisory quality pass, not a guarantee of perfect classification.
+This is an advisory knowledge-work pass, not a guarantee of perfect classification.
+Deliver useful findings even when part of the record is uncertain. Do not spend a
+second full pass policing the output format or certifying your own tool history.
+Keep uncertainty attached to the affected page, not as a reason to abandon other
+useful corrections. Python preserves usable results and reports limitations.
 
 ## Private output
 
@@ -135,10 +139,16 @@ Every unresolved item is {"file_name": "0012.txt", "reason": "Specific ambiguity
 Keep reasons concise (10–2000 characters), explain evidence and downstream impact,
 not a legal narrative. Leave unrelated valid labels and names alone.
 
-Python validates exact page coverage, allowed fields/types, before-values, image
-read evidence, report checks, naming eligibility and current inputs before applying
-changes into separate *_basic_advanced_dates_names_corrected.jsonl files, including
-on a zero-change review. Names inputs remain byte-for-byte untouched. It archives
-exact inputs, prior final outputs and this audit. Stop, invalid output or
-changed inputs prevents publication. No manifest or downstream artifact is edited.
-After writing the completed candidate, finish with a short count-only response.
+Python considers each proposal independently and applies usable corrections into
+separate *_basic_advanced_dates_names_corrected.jsonl files. Missing image-read
+bookkeeping or incomplete block coverage produces advisory review notes, not a
+failed review or an extra mandatory model pass. Unusable page/field/before-value
+proposals retain their originals and remain visible for manual review; they never
+cancel other useful corrections. Report checks and naming eligibility must remain
+usable downstream. Evidence notes do not certify image comprehension or accuracy.
+Names inputs remain byte-for-byte untouched. Python archives exact inputs, prior
+final outputs, the raw candidate, read bookkeeping and the results audit, including
+on a zero-change or partial review. Changed inputs, Stop or unsafe publication
+still prevents replacement. No manifest or downstream artifact is edited.
+After saving your best available candidate, finish with short proposal/unresolved
+counts. These are proposed counts; Python reports what was actually retained.

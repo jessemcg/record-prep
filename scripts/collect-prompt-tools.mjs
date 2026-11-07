@@ -26,7 +26,8 @@ for (const extension of extensions) {
 const {AgentSession} = await import(pathToFileURL(join(pkg,'dist/core/agent-session.js')));
 const {stripFrontmatter} = await import(pathToFileURL(join(pkg,'dist/utils/frontmatter.js')));
 const skills = ['recordprep-extract-hearing','recordprep-extract-report',
-  'recordprep-synthesize-hearings','recordprep-synthesize-reports','recordprep-summarize-minutes'];
+  'recordprep-synthesize-hearings','recordprep-synthesize-reports','recordprep-summarize-minutes',
+  'recordprep-extract-motion','recordprep-synthesize-motions'];
 for (const skillName of skills) {
   const path = '.pi/skills/'+skillName+'/SKILL.md';
   sources[path]=createHash('sha256').update(readFileSync(path)).digest('hex');

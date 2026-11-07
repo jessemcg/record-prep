@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .case_profiles import read_case_profile_ref, resolve_case_profile, case_profile_publication
-from .document_naming import compile_naming_profile
+from .document_naming import compile_naming_profile, compile_motion_naming
 from .profile_contract import ProfileSnapshot, compile_stage_profile, read_file_at, _json, CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PAGE_TYPES
 from .summary_agents import _atomic_write, sha256_json
 
@@ -35,8 +35,8 @@ STAGES = ("basic", "advanced", "dates", "names")
 
 
 def classifier_prompt(profile: ProfileSnapshot | None, kind: str, *, contract=None) -> tuple[str, tuple[str, ...]]:
-    if kind in ("report", "form"):
-        contract = compile_naming_profile(profile, kind)
+    if kind in ("report", "form", "motion"):
+        contract = compile_motion_naming(profile) if kind == "motion" else compile_naming_profile(profile, kind)
         return contract.prompt, contract.response_keys
     return classifier_document(kind, contract).render(), (KINDS[kind][0],)
 
@@ -71,7 +71,9 @@ def normalize_classifier(payload, kind: str) -> dict[str, str]:
 
 def component(profile: ProfileSnapshot | None, stage: str, *, contract=None) -> str:
     if stage == "names":
-        return sha256_json({"report_start_selection": 2, **{kind: compile_naming_profile(profile, kind).prompt_sha256
+        return sha256_json({"report_start_selection": 2, "motion_start_selection": 1,
+                            "motion": compile_motion_naming(profile).prompt_sha256,
+                            **{kind: compile_naming_profile(profile, kind).prompt_sha256
                                                         for kind in ("report", "form")}})
     kinds = {"basic": ("rt", "ct"),
              "advanced": tuple(CLASSIFICATION_FIRST_PAGE_TYPES),
@@ -80,7 +82,7 @@ def component(profile: ProfileSnapshot | None, stage: str, *, contract=None) -> 
     prompts = {kind: classifier_prompt(profile, kind, contract=contract)[0] for kind in kinds}
     if stage != "dates":
         prompts["@recognition"] = contract.identity
-        prompts["@page_flow"] = "explicit-report-starts-1; no-report-gap-fill"
+        prompts["@page_flow"] = "explicit-report-starts-1; no-report-gap-fill; explicit-motion-starts-1"
     return sha256_json(prompts)
 
 
@@ -312,6 +314,8 @@ class ClassificationRun:
                 _atomic_write(canonical / name, (self.directory / name).read_text())
             metadata = self.inputs | {"schema_version": 1, "profile_ref": asdict(expected_ref) if expected_ref is not None else None, "outputs": outputs,
                                       "source_stats": source_stats}
+            if self.stage == 'advanced':
+                metadata['motion_checks_version'] = 1
             # Publish the integrity/freshness marker last. Interrupted publication
             # is incomplete, never current. Source documents remain untouched.
             _atomic_write(canonical / f"profile-{self.stage}.json", json.dumps(metadata, sort_keys=True) + "\n")

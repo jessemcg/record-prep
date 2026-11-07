@@ -56,6 +56,9 @@ from recordprep.classification_profiles import ClassificationRun, ClassifierResp
 from recordprep.document_naming import NamingContract
 from recordprep.classifier_prompts import classifier_document
 from recordprep.report_pages import REPORT_TYPES, REPORT_FIRST_FIELD, report_detection_mode, report_check_signature, report_ranges
+from recordprep.motion_pages import MOTION_TYPES, MOTION_FIRST_FIELD, motion_detection_mode, motion_check_signature, motion_ranges
+from recordprep.document_naming import compile_motion_naming
+from recordprep.motion_pages import build_motion_boundaries
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
     pi_step_complete,
@@ -222,6 +225,7 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         (
             "create_hearing_summaries",
             "create_report_summaries",
+            "create_motion_summaries",
             "create_minute_order_summaries",
             "build_summary_editions",
         ),
@@ -929,7 +933,7 @@ def _correct_toc_lines(
             seen_dates.clear()
             corrected_lines.append(line)
             continue
-        if stripped in {"FORMS", "REPORTS", "HEARINGS"}:
+        if stripped in {"FORMS", "REPORTS", "MOTIONS", "HEARINGS"}:
             in_minute_orders = False
             corrected_lines.append(line)
             continue
@@ -1055,6 +1059,8 @@ def _summary_edition_sources(root_dir: Path) -> dict[str, Path]:
         "hearings": hearings_path,
         "reports": reports_path,
         "minutes": _minutes_summary_output_path(root_dir),
+        **({"motions": _summary_agents.summary_final_path(root_dir, "motions")}
+           if _summary_agents.summary_final_path(root_dir, "motions").is_file() else {}),
     }
 
 
@@ -1548,6 +1554,8 @@ def _write_manifest(
     temp_dir = root_dir / "temp"
     summarized_hearings_path, summarized_reports_path = _summary_output_paths(root_dir)
     summarized_minutes_path = _minutes_summary_output_path(root_dir)
+    from ..summary_agents import summary_final_path
+    summarized_motions_path = summary_final_path(root_dir, 'motions')
 
     def _root_path(value: Path) -> str:
         return str(value)
@@ -1619,12 +1627,22 @@ def _write_manifest(
             "summarized_minutes": _relpath(summarized_minutes_path),
         }
     )
+    # Motion publication is additive, never evidence fabricated for an old bundle.
+    for key, path in (
+        ('motion_boundaries', artifacts_dir / 'motion_boundaries.json'),
+        ('summarized_motions', summarized_motions_path),
+    ):
+        if path.is_file():
+            files_payload[key] = _relpath(path)
+        else:
+            files_payload.pop(key, None)
     # Companion page-matched edition keys are additive and optional: present
     # only while the generated PDF and page-map sidecar exist on disk, so
     # invalidation removes them and older Focus versions never see them.
     for kind, summary_path in (
         ("hearings", summarized_hearings_path),
         ("reports", summarized_reports_path),
+        ("motions", summarized_motions_path),
         ("minutes", summarized_minutes_path),
     ):
         edition_pdf, edition_pages = summary_edition_output_paths(summary_path)
@@ -4127,6 +4145,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_report_summaries_row)
 
+        self.step_motion_summaries_row = Adw.ActionRow(title="Create motion summaries", subtitle="Summarize each selected motion paper")
+        self.step_motion_summaries_row.set_activatable(False)
+        self._attach_step_controls("create_motion_summaries", self.step_motion_summaries_row,
+                            lambda _btn: self.on_create_motion_summaries_clicked(self.step_motion_summaries_row))
+        self._attach_step_status(self.step_motion_summaries_row)
+
         self.step_minute_order_summaries_row = Adw.ActionRow(
             title="Create minute-order summaries",
             subtitle="Summarize dated minute orders into concise paragraphs.",
@@ -5740,6 +5764,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self._run_step_create_report_summaries,
             ),
             (
+                "create_motion_summaries",
+                self.step_motion_summaries_row,
+                self._run_step_create_motion_summaries,
+            ),
+            (
                 "create_minute_order_summaries",
                 self.step_minute_order_summaries_row,
                 self._run_step_create_minute_order_summaries,
@@ -5856,6 +5885,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 raise ValueError("Unknown end step.")
             end_index = step_ids.index(end_step_id)
         for index, (step_id, _row, _handler) in enumerate(steps[: end_index + 1]):
+            if step_id == "create_motion_summaries" and not (root_dir / "artifacts/motion_boundaries.json").is_file():
+                self.show_toast("Skipped — motion preparation unavailable. Explicitly rebuild motion classification and boundaries to enable it.")
+                continue
             if not self._resume_step_complete(step_id, root_dir):
                 if step_id == "create_files" and self._has_layout_dependent_work(root_dir):
                     raise ValueError("Resume blocked: source pages are incomplete but prepared work exists. "
@@ -6461,6 +6493,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self._run_step_create_report_summaries,
         )
 
+    def on_create_motion_summaries_clicked(self, _row: Adw.ActionRow) -> None:
+        if self._resolve_case_root() is None:
+            self.show_toast("Choose PDF files or select a saved case first.")
+            return
+        self._launch_single_step(self.step_motion_summaries_row, self._run_step_create_motion_summaries)
+
     def on_create_minute_order_summaries_clicked(self, _row: Adw.ActionRow) -> None:
         root_dir = self._resolve_case_root()
         if root_dir is None:
@@ -6544,6 +6582,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         try:
             for step_id, row, handler in steps_to_run:
                 self._raise_if_stop_requested()
+                if (skip_completed_steps and root_dir is not None and step_id == "create_motion_summaries"
+                        and not (root_dir / "artifacts/motion_boundaries.json").is_file()):
+                    GLib.idle_add(self._finish_step, row, "Skipped")
+                    GLib.idle_add(self.show_toast, "Skipped — motion preparation unavailable; no model launched.")
+                    continue
                 if (
                     skip_completed_steps
                     and root_dir is not None
@@ -7104,7 +7147,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     ),
                 }
                 task = {"RT_body_first_page": "first_hearing", "CT_minute_order_first_page": "first_minute",
-                        "CT_form_first_page": "first_form", "CT_report_first_page": "first_report"}[updated_type]
+                        "CT_form_first_page": "first_form", "CT_report_first_page": "first_report",
+                        "CT_motion_first_page": "first_motion"}[updated_type]
                 payload = classification_run.payload(payload, task)
                 jobs.append((self._classify_image, (payload, file_name, image_path)))
                 metadata.append((entry, updated_type, truthy_keys))
@@ -7196,6 +7240,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         reusable = saved is not None and saved_type in REPORT_TYPES and saved.get(REPORT_FIRST_FIELD) == (
                             "yes" if saved_type == "ct_report_first_page" else "no")
                         entry["page_type"] = "CT_report"
+                    if source_type in MOTION_TYPES:
+                        reusable = saved is not None and saved_type in MOTION_TYPES and saved.get(MOTION_FIRST_FIELD) == (
+                            "yes" if saved_type == "ct_motion_first_page" else "no")
+                        entry["page_type"] = "CT_motion"
                     if reusable:
                         ct_pending_entries.append(saved)
                         continue
@@ -7205,6 +7253,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         ("ct_form", "CT_form_first_page", settings["form_prompt"]),
                         ("ct_report", "CT_report_first_page", settings.get("report_first_prompt")
                          or classifier_document("first_report").render()),
+                        ("ct_motion", "CT_motion_first_page", classifier_document("first_motion").render()),
                     ):
                         _queue_page_type_update(ct_jobs, ct_metadata, entry, (target_type,), updated_type, prompt,
                                                 ("first_page", "first", "is_first_page", "is_first"))
@@ -7218,10 +7267,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         if answer not in {"yes", "no"}:
                             raise ClassifierResponseError("Report first-page check requires yes or no.")
                         entry[REPORT_FIRST_FIELD] = answer
+                    if updated_type == "CT_motion_first_page":
+                        if answer not in {"yes", "no"}:
+                            raise ClassifierResponseError("Motion first-page check requires yes or no.")
+                        entry[MOTION_FIRST_FIELD] = answer
                     if _is_truthy(answer):
                         entry["page_type"] = updated_type
                         updates += 1
                 report_detection_mode(ct_pending_entries, required=True)
+                motion_detection_mode(ct_pending_entries, required=True)
                 self._raise_if_stop_requested()
                 _summary_agents._atomic_write(ct_advanced_path, "".join(json.dumps(row) + "\n" for row in ct_pending_entries))
             classification_run.publish(load_classifier_settings())
@@ -7385,7 +7439,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                 )
                 cached_dates = _load_jsonl_entries(ct_dated_path)
-                same_checks = report_check_signature(ct_entries) == report_check_signature(cached_dates)
+                same_checks = (report_check_signature(ct_entries) == report_check_signature(cached_dates)
+                               and motion_check_signature(ct_entries) == motion_check_signature(cached_dates))
                 ct_done = _load_jsonl_file_names(ct_dated_path) if same_checks else set()
                 ct_last_done = _last_jsonl_file_name(ct_dated_path) if same_checks else ""
                 ct_resume_key = _natural_sort_key(ct_last_done) if ct_last_done else None
@@ -7512,6 +7567,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             if need_ct:
                 report_detection_mode(_load_jsonl_entries(ct_dated_path), required=True)
+                motion_detection_mode(_load_jsonl_entries(ct_dated_path), required=True)
             form_first_types = {"ct_form_first_page"}
             updates = 0
 
@@ -7561,7 +7617,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
                 )
                 cached_names = _load_jsonl_entries(ct_named_path)
-                same_checks = report_check_signature(ct_entries) == report_check_signature(cached_names)
+                same_checks = (report_check_signature(ct_entries) == report_check_signature(cached_names)
+                               and motion_check_signature(ct_entries) == motion_check_signature(cached_names))
                 ct_done = _load_jsonl_file_names(ct_named_path) if same_checks else set()
                 ct_last_done = _last_jsonl_file_name(ct_named_path) if same_checks else ""
                 ct_resume_key = _natural_sort_key(ct_last_done) if ct_last_done else None
@@ -7590,8 +7647,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         for key in list(entry):
                             if _normalize_key(key) in {"name", "reportname", "date", "reportdate"}:
                                 entry.pop(key)
+                    if page_type in MOTION_TYPES:
+                        for key in list(entry):
+                            if _normalize_key(key) in {"name", "motionname", "date", "motiondate", "datebasis", "namingruleid"}:
+                                entry.pop(key)
                     ct_pending_entries.append(entry)
-                    if is_report_start and file_name:
+                    if page_type == "ct_motion_first_page" and file_name:
+                        contract = compile_motion_naming(classification_run.profile)
+                        if contract.rules:
+                            ct_jobs.append((self._classify_image, ({
+                                "api_url": shared_settings["api_url"], "model_id": shared_settings["model_id"],
+                                "api_key": shared_settings["api_key"], "prompt": contract.prompt,
+                                "profile_snapshot": classification_run.profile, "profile_kind": "motion",
+                                "naming_contract": contract,
+                                "disable_reasoning": bool(shared_settings.get("disable_reasoning", DEFAULT_DISABLE_REASONING)),
+                            }, file_name, _image_path_for_filename(file_name, image_dir))))
+                            ct_metadata.append((entry, ("name", "motion_name"), True))
+                    elif is_report_start and file_name:
                         image_path = _image_path_for_filename(file_name, image_dir)
                         ct_jobs.append(
                             (
@@ -7653,6 +7725,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         if rule_id:
                             entry["naming_rule_id"] = rule_id
                         updates += 1
+                    if _extract_entry_value(entry, "page_type", "pagetype").lower() == "ct_motion_first_page":
+                        entry["date_basis"] = _extract_entry_value(response, "date_basis") or "unknown"
                     if capture_report_date:
                         report_date = _extract_entry_value(response, "date", "report_date")
                         if report_date and not _extract_entry_value(entry, "date"):
@@ -7735,6 +7809,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     date_by_file[file_name] = date_value
             form_lines: list[str] = []
             report_lines: list[str] = []
+            motion_lines: list[str] = []
             report_types = REPORT_TYPES
             form_first_types = {
                 "ct_form_first_page",
@@ -7761,7 +7836,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     # Selection only: retain every source page/classification.
                     continue
                 page = _page_label_from_filename(file_name)
-                if page_type in form_first_types:
+                if page_type == "ct_motion_first_page":
+                    motion_date = _extract_entry_value(entry, "date")
+                    motion_lines.append(_format_toc_line(_format_report_label(name_value, motion_date), page))
+                elif page_type in form_first_types:
                     form_lines.append(_format_toc_line(name_value, page))
                 elif page_type in report_types and (not modern_reports or is_report_start):
                     report_date = _extract_entry_value(entry, "date", "report_date").strip()
@@ -7806,6 +7884,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "",
                 "REPORTS",
                 *report_lines,
+                "",
+                "MOTIONS",
+                *motion_lines,
                 "",
                 "MINUTE ORDERS",
                 *minute_order_lines,
@@ -7942,6 +8023,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearing_boundaries: list[dict[str, str]] = []
             report_boundaries: list[dict[str, str]] = []
             minutes_boundaries: list[dict[str, str]] = []
+            from recordprep.motion_pages import motion_preparation_available
+            motion_ready = motion_preparation_available(root_dir, payload_entries)
+            motion_boundaries = build_motion_boundaries(payload_entries, split_page) if motion_ready else []
             entries: list[tuple[str, str, int]] = []
             for entry in payload_entries:
                 file_name = _extract_entry_value(entry, "file_name", "filename")
@@ -8061,11 +8145,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
                 "hearing_boundaries.json": hearing_boundaries, "report_boundaries.json": report_boundaries,
                 "minutes_boundaries.json": filtered_minutes,
+                **({"motion_boundaries.json": motion_boundaries} if motion_ready else {}),
             })
             total_boundaries = (
                 len(hearing_boundaries)
                 + len(report_boundaries)
                 + len(filtered_minutes)
+                + len(motion_boundaries)
             )
         except StopRequested:
             success = None
@@ -8124,7 +8210,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             boundary_expected = boundary_inputs(root_dir, boundary_profile, load_classifier_settings())
             hearing_entries = _load_json_entries(hearing_path)
             report_entries = _load_json_entries(report_path)
-            if not hearing_entries and not report_entries:
+            motion_path = derived_dir / "motion_boundaries.json"
+            motion_entries = _load_json_entries(motion_path) if motion_path.is_file() else None
+            if not hearing_entries and not report_entries and not motion_entries:
                 GLib.idle_add(
                     self.show_toast,
                     "No hearing/report boundaries found. Skipping Correct boundaries.",
@@ -8152,14 +8240,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     report_removed += 1
                     continue
                 filtered_reports.append(entry)
-            if boundary_profile is not None:
-                publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
-                    "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
-                    "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
-                })
-            else:
-                hearing_path.write_text(json.dumps(filtered_hearings, indent=2), encoding="utf-8")
-                report_path.write_text(json.dumps(filtered_reports, indent=2), encoding="utf-8")
+            motion_payload = ({"motion_boundaries.json": [row for row in motion_entries
+                               if str(row.get("motion_name") or "").strip() and row.get("naming_status") != "unresolved"]}
+                              if motion_entries is not None else {})
+            publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
+                "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
+                "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
+                **motion_payload,
+            })
             removed = hearing_removed + report_removed
         except StopRequested:
             success = None
@@ -8209,6 +8297,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.step_report_summaries_row,
         )
 
+    def _run_step_create_motion_summaries(self) -> bool:
+        return self._run_pi_skill_step("create_motion_summaries", self.step_motion_summaries_row)
+
     def _run_step_create_minute_order_summaries(self) -> bool:
         """Direct-source Pi summaries sharing the synthesis model selection."""
         return self._run_pi_skill_step(
@@ -8233,13 +8324,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     raise ValueError("Selected PDFs must be in the same folder.")
                 raise ValueError("Choose PDF files or select a saved case first.")
             sources = _summary_edition_sources(root_dir)
-            for kind in SUMMARY_EDITION_KINDS:
+            for kind in sources:
                 if not sources[kind].exists():
                     raise FileNotFoundError(
                         "Run the summary steps to generate all three summaries first."
                     )
             editions: dict[str, SummaryEdition] = {}
-            for kind in SUMMARY_EDITION_KINDS:
+            for kind in sources:
                 self._raise_if_stop_requested()
                 editions[kind] = build_summary_edition(
                     kind,
@@ -8247,7 +8338,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     root_dir,
                 )
                 page_counts[kind] = editions[kind].page_map["pdf"]["page_count"]
-            for kind in SUMMARY_EDITION_KINDS:
+            for kind in sources:
                 self._raise_if_stop_requested()
                 publish_summary_edition(editions[kind], sources[kind])
         except StopRequested:
@@ -8275,7 +8366,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             counts_text = ", ".join(
                 f"{kind} {page_counts[kind]} pages"
-                for kind in SUMMARY_EDITION_KINDS
+                for kind in page_counts
             )
             GLib.idle_add(
                 self.show_toast,
@@ -8367,8 +8458,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         profile_kind = settings.get("profile_kind")
         if naming_contract is not None and naming_contract.kind != profile_kind:
             raise ValueError("Naming contract does not match the explicit task")
-        if profile_kind in ("report", "form"):
-            if profile is not None:
+        if profile_kind in ("report", "form", "motion"):
+            if profile_kind == "motion":
+                naming_contract = compile_motion_naming(profile)
+            elif profile is not None:
                 from recordprep.document_naming import compile_naming_profile
                 naming_contract = compile_naming_profile(profile, profile_kind)
             effective_prompt = naming_contract.prompt if naming_contract is not None else settings["prompt"]
@@ -8420,8 +8513,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             result = {"file_name": filename, "name": named.name}
             if named.rule_id:
                 result["naming_rule_id"] = named.rule_id
-            if naming_contract.kind == "report":
+            if naming_contract.kind in ("report", "motion"):
                 result["date"] = named.date
+            if naming_contract.kind == "motion":
+                result["date_basis"] = named.date_basis
             return result
         if profile_kind in ("report", "form"):
             # Unassigned naming retains literal guidance and explicit fields.

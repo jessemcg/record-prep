@@ -15,13 +15,14 @@ from .structured_guidance import effective_resource
 CLASSIFICATION_TASKS = (
     ("rt", "RT page types"), ("ct", "CT page types"),
     ("first_hearing", "Hearing first page"), ("first_minute", "Minute-order first page"),
-    ("first_form", "Form first page"), ("first_report", "Report first page"), ("date_hearing", "Hearing dates"),
-    ("date_minute", "Minute-order dates"), ("report", "Report Names"), ("form", "Form Names"),
+    ("first_form", "Form first page"), ("first_report", "Report first page"), ("first_motion", "Motion first page"), ("date_hearing", "Hearing dates"),
+    ("date_minute", "Minute-order dates"), ("report", "Report Names"), ("form", "Form Names"), ("motion", "Motion Names"),
 )
-FIXED_TASKS = CLASSIFICATION_TASKS[:8]
-NAMING_TASKS = CLASSIFICATION_TASKS[8:]
+FIXED_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] not in {"report", "form", "motion"})
+NAMING_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] in {"report", "form", "motion"})
 SUMMARY_TASKS = (("hearings-extract", "Hearing digest"), ("hearings-synthesize", "Hearing narrative"),
-                 ("reports-extract", "Report digest"), ("reports-synthesize", "Report narrative"), ("minutes", "Minute-order summary"))
+                 ("reports-extract", "Report digest"), ("reports-synthesize", "Report narrative"),
+                 ("motions-extract", "Motion digest"), ("motions-synthesize", "Motion narrative"), ("minutes", "Minute-order summary"))
 TOOLS = {"extract": ("recordprep_get_source", "recordprep_submit_extraction"),
          "synthesize": ("recordprep_get_facts", "recordprep_submit_summary_section", "recordprep_finish_summary", "recordprep_synthesis_scratchpad"),
          "minutes": ("recordprep_get_minute_source", "recordprep_submit_minute_summary")}
@@ -91,7 +92,7 @@ def tool_audit(project_dir: Path, phase: str):
             audit = {}
         expected_skills = {'recordprep-extract-hearing', 'recordprep-extract-report',
                            'recordprep-synthesize-hearings', 'recordprep-synthesize-reports',
-                           'recordprep-summarize-minutes'}
+                           'recordprep-summarize-minutes', 'recordprep-extract-motion', 'recordprep-synthesize-motions'}
         if (audit.get('expands') is not True or audit.get('launch_prefix') != 'slash-skill followed by space'
                 or not expected_skills.issubset(audit.get('skills', []))):
             issues.append("INSPECTION LIMITATION — the packaged audit does not verify Pi skill expansion. "
@@ -122,6 +123,12 @@ def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=Tr
 
 def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None) -> Inspection:
     resources = copy.deepcopy(resources)
+    if task == "motion":
+        from .document_naming import source_title_document
+        naming = resources.get("motion_naming", {"schema_version": 1, "motions": []})
+        if template:
+            naming = {"schema_version": 1, "motions": [{"id": "⟪stable internal ID⟫", "name": "⟪fallback name⟫", "guidance": "⟪eligibility description⟫", "naming_mode": "source_title"}]}
+        return Inspection((("System message", source_title_document(naming, "motion").render()), PAGE_IMAGE_COMPONENT))
     if task in dict(CLASSIFICATION_TASKS):
         if task in ("report", "form"):
             naming = effective_resource(resources["naming"], "naming")
@@ -156,9 +163,11 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
     else:
         kind, phase = task.split("-", 1)
         skill = {("hearings", "extract"): "recordprep-extract-hearing", ("reports", "extract"): "recordprep-extract-report",
-                 ("hearings", "synthesize"): "recordprep-synthesize-hearings", ("reports", "synthesize"): "recordprep-synthesize-reports"}[(kind, phase)]
+                 ("hearings", "synthesize"): "recordprep-synthesize-hearings", ("reports", "synthesize"): "recordprep-synthesize-reports",
+                 ("motions", "extract"): "recordprep-extract-motion", ("motions", "synthesize"): "recordprep-synthesize-motions"}[(kind, phase)]
         skill_text = profile_skill_text(project_dir, skill, phase)
-        catalog = resources[kind] if not template else [{"id": "⟪topic-id⟫", "title": "⟪topic name⟫", "guidance": "⟪topic instructions⟫"}]
+        from .motion_guidance import MOTION_TOPICS
+        catalog = resources.get(kind, MOTION_TOPICS if kind == "motions" else []) if not template else [{"id": "⟪topic-id⟫", "title": "⟪topic name⟫", "guidance": "⟪topic instructions⟫"}]
         guidance = draft_summary_guidance(catalog, kind, phase)
         if phase == "extract":
             config = SimpleNamespace(guidance=guidance, additional_guidance="", definitions=[SimpleNamespace(identifier=c.get("id", ""), guidance=c.get("guidance", "")) for c in catalog])

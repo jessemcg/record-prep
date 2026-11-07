@@ -26,10 +26,11 @@ OUTPUTS = {
     'number_transcript_pages': ['artifacts/transcript_page_numbers.json', 'artifacts/transcript_page_number_series.md'],
     'build_participant_index': ['artifacts/participant_index.json'],
     'create_hearing_summaries': ['summaries/hearings_sum_Synthetic.txt'],
+    'create_motion_summaries': ['summaries/motions_sum_Synthetic.txt'],
     'create_report_summaries': ['summaries/reports_sum_Synthetic.txt'],
     'create_minute_order_summaries': ['summaries/minutes_sum_Synthetic.txt'],
     'build_summary_editions': [f'summaries/editions/{kind}_sum_Synthetic.{suffix}'
-                              for kind in ('hearings', 'reports', 'minutes') for suffix in ('pdf', 'pages.json')],
+                              for kind in ('hearings', 'reports', 'motions', 'minutes') for suffix in ('pdf', 'pages.json')],
     'create_case_overview': ['artifacts/case_overview.md'],
     'build_source_map': ['artifacts/source_map.json'],
 }

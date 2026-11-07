@@ -66,6 +66,7 @@ def _write_source(root: Path, kind: str, text: str) -> Path:
     names = {
         "hearings": "hearings_sum_IsoCase.txt",
         "reports": "reports_sum_IsoCase.txt",
+        "motions": "motions_sum_IsoCase.txt",
         "minutes": "minutes_sum_IsoCase.txt",
     }
     path = summaries_dir / names[kind]
@@ -1101,12 +1102,13 @@ class InvalidationTests(unittest.TestCase):
 
 
 class StepHandlerTests(unittest.TestCase):
-    def test_build_step_publishes_all_three_and_reports_page_counts(self) -> None:
+    def test_build_step_publishes_all_four_and_reports_page_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = _build_bundle(temporary)
             _write_source(root, "hearings", _long_source(5))
             _write_source(root, "reports", _long_source(5))
             _write_source(root, "minutes", _long_source(5))
+            _write_source(root, "motions", _long_source(5))
             harness = _make_harness(root)
 
             self.assertTrue(
@@ -1126,6 +1128,7 @@ class StepHandlerTests(unittest.TestCase):
                 source = {
                     "hearings": root / "summaries/hearings_sum_IsoCase.txt",
                     "reports": root / "summaries/reports_sum_IsoCase.txt",
+                    "motions": root / "summaries/motions_sum_IsoCase.txt",
                     "minutes": root / "summaries/minutes_sum_IsoCase.txt",
                 }[kind]
                 self.assertTrue(summary_edition_is_complete(kind, source, root))

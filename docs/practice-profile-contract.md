@@ -1,6 +1,15 @@
 # Practice-profile maintainer contract
 
-## Current schema 10 ownership
+## Current schema 11 ownership
+
+[Motions](motions-workflow.md) adds separate motion_naming and motions resources in
+Dependency 1.14.0, profile API 1. Both shared contract/artifact modules must be
+byte-identical in Focus. Schemas 1–10 and naming 1–5 remain readable without writes;
+no old snapshot adopts motion naming implicitly. Profiles now own three naming and
+three digest-topic pages; fixed minutes remain application-owned. The schema-10
+minute ownership below is historical except where this section supersedes it.
+
+## Schema 10 minute ownership
 
 [Application-owned minutes](application-minutes.md) supersedes historical minute
 ownership/generation statements below. Dependency 1.11.0 uses content schema 10,
@@ -47,6 +56,7 @@ Historical Focus content schema 1 (not active research guidance) requires capabi
 | --- | --- |
 | classification (historical schemas 1–5 only; inert) | Markdown |
 | naming, hearings, reports, policies | JSON |
+| motion_naming, motions (schema 11 only) | JSON |
 | roles (historical schemas 1–3 only; inert) | JSON |
 | hearing_extraction, report_extraction (historical schemas 1/2 only; inert) | Markdown |
 | hearing_synthesis, report_synthesis (historical schemas 1/2 only; inert) | Markdown |

@@ -65,6 +65,17 @@ verification if the selected agent cannot read an image: leave it unresolved.
    Reassess metadata after a type/start change: remove dates/names belonging only
    to the rejected start. Modern CT_report pages need report_first_page "no";
    CT_report_first_page needs "yes". Non-reports must not carry that field.
+   Motion papers use CT_motion_first_page and motion_first_page yes/no on checked
+   pages. Review motions, oppositions, replies and separately titled supporting
+   papers independently, including unnamed starts that end selected ranges.
+   Do not manufacture checks on untouched historical motion rows. Only name
+   established starts under Motion Names with a valid rule ID; retain actual
+   titles and meaningful qualifiers. Prefer filed/e-filed dates, otherwise an
+   explicit document/signature date, never a hearing or service date. Preserve
+   date_basis filed/document/unknown; unresolved dates have unknown basis.
+   Removing a motion start removes its name/rule/date/date-basis metadata.
+   Forms, standalone notices/service proofs, neutral reports, exhibits and
+   actual rulings retain their own classifications, not motion-family guesses.
    Never migrate historical unmarked report classifications; flag such needs.
 6. Deprioritize isolated unnamed material that neither changes a selected document's
    extent nor hides an eligible document. Unnamed report starts still terminate a

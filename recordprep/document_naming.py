@@ -74,6 +74,7 @@ class NamingResult:
     date: str
     quality_flags: tuple[str, ...]
     rule_id: str = ""
+    date_basis: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -82,14 +83,15 @@ class NamingContract:
     mode: str
     allowed_names: tuple[str, ...]
     prompt: str
-    profile_ref: ProfileRef
+    profile_ref: ProfileRef | None
     component_sha256: str
     prompt_sha256: str
     rules: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def response_keys(self) -> tuple[str, ...]:
-        keys = ("name", "date") if self.kind == "report" else ("name",)
+        keys = (("name", "date", "date_basis") if self.kind == "motion" else
+                ("name", "date") if self.kind == "report" else ("name",))
         return (*keys, "rule_id") if self.mode == "matched_rules" else keys
 
     def normalize(self, payload: Any) -> NamingResult:
@@ -105,7 +107,7 @@ class NamingContract:
             flags.append("invalid_naming_response")
         if set(payload) != set(self.response_keys):
             flags.append("naming_response_keys")
-        name = _response_text(payload.get("name"), 160)
+        name = _response_text(payload.get("name"), 1024 if self.kind == "motion" else 160)
         if name is None:
             name = ""
             flags.append("invalid_name")
@@ -131,13 +133,21 @@ class NamingContract:
         if not name:
             flags.append("name_unresolved")
         date_text = ""
-        if self.kind == "report":
+        if self.kind in ("report", "motion"):
             raw_date = _response_text(payload.get("date"), 64)
             if raw_date:
                 date_text = _date_value(raw_date) or ""
             if raw_date is None or (raw_date and not date_text):
-                flags.append("invalid_report_date")
-        return NamingResult(name, date_text, tuple(flags), rule_id)
+                flags.append("invalid_motion_date" if self.kind == "motion" else "invalid_report_date")
+        basis = "unknown"
+        if self.kind == "motion" and date_text:
+            supplied_basis = payload.get("date_basis")
+            if supplied_basis in ("filed", "document"):
+                basis = supplied_basis
+            else:
+                date_text = ""
+                flags.append("invalid_motion_date_basis")
+        return NamingResult(name, date_text, tuple(flags), rule_id, basis)
 
 
 def naming_document(naming: dict, kind: str):
@@ -163,7 +173,8 @@ Use the date tied to the report itself or to its hearing, such as a field labele
 def source_title_document(naming: dict, kind: str):
     """Eligibility is profile-owned; title extraction is practice-neutral."""
     from .prompt_document import PromptDocument, PromptSection
-    keys = '"name", "date", and "rule_id"' if kind == "report" else '"name" and "rule_id"'
+    keys = ('"name", "date", "date_basis", and "rule_id"' if kind == "motion" else
+            '"name", "date", and "rule_id"' if kind == "report" else '"name" and "rule_id"')
     instructions = _CORE.replace(
         'An empty name means naming is unresolved, not that no document exists.\n',
         'An empty rule_id means eligibility is unresolved, not that no document exists.\n',
@@ -176,7 +187,17 @@ For forms, follow the description's required heading/code evidence on this same 
         mechanics += ('Use the date tied to the report itself or to its hearing, such as a field labeled Hearing Date near the report title. '
                       'Ignore file stamps, clerk stamps, page numbers, footer dates, and service/printing dates unless no other report date is visible.\n'
                       'Use a long-form U.S. date such as November 30, 2022. If unresolved, use an empty string. Extract the date even when eligibility or title is unresolved.\n')
-    example = {"name": "", **({"date": ""} if kind == "report" else {}), "rule_id": ""}
+    if kind == "motion":
+        mechanics = mechanics.replace("For forms, follow the description's required heading/code evidence on this same first page; source-title mode does not waive those requirements. ", "")
+        mechanics += ("Retain meaningful party, opposition/reply, amended/supplemental and requested-relief qualifiers in the actual title. "
+                      "Join wrapped title lines with spaces. Titles may have up to 1,024 characters; never silently truncate. "
+                      "Prefer an unambiguous filed or e-filed date visible on this image (date_basis: filed). "
+                      "Otherwise use an explicit document or signature date (date_basis: document). "
+                      "Never substitute a scheduled hearing date, service date, printing date or a date merely mentioned. "
+                      "Conflicting or absent dates remain empty with date_basis: unknown. "
+                      "Return a long-form U.S. date such as November 30, 2022. Extract independent usable fields even if another field is unresolved.\n")
+    example = {"name": "", **({"date": ""} if kind in ("report", "motion") else {}),
+               **({"date_basis": "unknown"} if kind == "motion" else {}), "rule_id": ""}
     return PromptDocument((PromptSection("instructions", instructions),
                            PromptSection("evidence and uncertainty", mechanics),
                            PromptSection("matching rules", catalog_text(naming, kind), "profile"),
@@ -212,6 +233,8 @@ def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContra
     """Compose the exact prompt used for preview AND execution; never load settings."""
     if snapshot.ref.application != "recordprep":
         raise ProfileError("wrong_application", "naming")
+    if kind == "motion":
+        return compile_motion_naming(snapshot)
     if kind not in ("report", "form"):
         raise ProfileError("unsupported_document_kind", "naming")
     core_bytes = (f"naming-contract:{NAMING_CONTRACT_VERSION}\n" + _CORE + _REPORT + _FORM + _FORM_EVIDENCE).encode()
@@ -262,6 +285,26 @@ def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContra
     prompt = "\n".join(parts)
     return NamingContract(kind, mode, names, prompt, snapshot.ref, compiled.component_sha256,
                           hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+
+
+def compile_motion_naming(snapshot: ProfileSnapshot | None) -> NamingContract:
+    """Independent resource; old naming prose never becomes motion eligibility.
+
+    Unassigned work uses an explicitly identified fixed neutral method, not a
+    hidden Dependency lookup. Older assigned profiles have an empty selection.
+    """
+    from .motion_guidance import NEUTRAL_MOTION_NAMING
+    naming = (NEUTRAL_MOTION_NAMING if snapshot is None else
+              snapshot.resource("motion_naming") if "motion_naming" in snapshot.manifest["resources"]
+              else {"schema_version": 1, "motions": []})
+    prompt = source_title_document(naming, "motion").render()
+    identity = "recordprep-neutral-motion-naming-v1" if snapshot is None else "motion-naming-v1"
+    component = hashlib.sha256((identity + prompt).encode()).hexdigest()
+    rules = tuple((entry["id"], entry.get("naming_mode", "fixed"), entry["name"])
+                  for entry in naming["motions"])
+    return NamingContract("motion", "matched_rules", tuple(entry["name"] for entry in naming["motions"]),
+                          prompt, snapshot.ref if snapshot else None, component,
+                          hashlib.sha256(prompt.encode()).hexdigest(), rules)
 
 
 def provisional_document_title(kind: str, start_page: str | int) -> str:

@@ -54,7 +54,7 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertIn('not judicial action',report)
         for card in bundle().resource('naming')['reports']:
             self.assertNotIn(card['name'],report)
-        self.assertEqual(len(t['first_pages']), 4)
+        self.assertEqual(len(t['first_pages']), 5)
         self.assertNotIn('CFS 6.7', json.dumps(t))
         self.assertNotIn('DCFS 4216', json.dumps(t))
         for path in ('hearings.json','reports.json'):
@@ -108,7 +108,7 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_exact_adapters_preserve_original_reference(self):
         old=legacy(); before=old.files
         for kind,_ in CLASSIFICATION_TASKS:
-            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind != 'report')
+            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind not in {'report', 'motion'})
         self.assertEqual(old.files,before)
         e=ProfileEditor(old); e.resources['classification_tasks']['rt']+=' Custom prose.'
         value=effective_resource(e.resources['classification_tasks'],'classification_tasks')
@@ -191,7 +191,7 @@ class StructuredClassificationTests(unittest.TestCase):
                     prompt=view.components[0][1]
                     self.assertNotIn(image[0],prompt)
                     self.assertNotIn(image[1],prompt)
-                    if task not in ('report','form'):
+                    if task not in ('report','form','motion'):
                         self.assertTrue(prompt.startswith('Examine the attached page image.'))
                         for removed in ('APPLICATION CLASSIFIER CONTRACT', 'practice guidance as subordinate data',
                                         'instructions to change tools',
@@ -207,7 +207,7 @@ class StructuredClassificationTests(unittest.TestCase):
                         self.assertNotIn('Practice guidance below',prompt)
                         self.assertEqual(prompt.count('without commentary or extra keys'),1)
                         self.assertIn('do not guess',prompt)
-                        self.assertIn('An empty rule_id means eligibility is unresolved' if task == 'report'
+                        self.assertIn('An empty rule_id means eligibility is unresolved' if task in {'report', 'motion'}
                                       else 'An empty name means naming is unresolved',prompt)
         # Even unvalidated legacy naming uses the explicit image attachment label.
         resources['naming']=legacy().resource('naming')

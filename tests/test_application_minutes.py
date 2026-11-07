@@ -121,7 +121,7 @@ class ApplicationMinuteTests(unittest.TestCase):
             current = editor.snapshot()
             # Schema projection preserves each editor's own naming catalog.
             self.assertEqual(json_bytes(current.resource('naming')), naming_before)
-            self.assertEqual(current.manifest['schema_version'], 10)
+            self.assertEqual(current.manifest['schema_version'], 11)
             self.assertNotIn('minutes', current.manifest['resources'])
             self.assertNotIn('minutes', editor.resources)
             self.assertNotIn('minutes.md', dict(current.files))

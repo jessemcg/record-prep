@@ -33,6 +33,7 @@ PI_STEP_IDS = (
 SUMMARY_STEP_KINDS = {
     "create_hearing_summaries": "hearings",
     "create_report_summaries": "reports",
+    "create_motion_summaries": "motions",
     "create_minute_order_summaries": "minutes",
 }
 
@@ -384,7 +385,10 @@ def _legacy_participant_index_issues(payload: dict[str, Any]) -> list[str]:
 def validate_summary_source_outputs(root: Path, *, project_dir: Path | None = None) -> list[str]:
     """Downstream work consumes saved summary text, not historical run settings."""
     issues: list[str] = []
-    for kind in ("hearings", "reports", "minutes"):
+    kinds = ['hearings', 'reports', 'minutes']
+    if summary_agents.summary_final_path(root, 'motions').exists():
+        kinds.append('motions')
+    for kind in kinds:
         final_path = summary_agents.summary_final_path(root, kind)
         label = summary_agents.SUMMARY_KIND_LABELS.get(kind, kind)
         try:

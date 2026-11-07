@@ -1,5 +1,19 @@
 # RecordPrep Agent Notes
 
+## Motions workflow (current)
+
+Read docs/motions-workflow.md. Dependency 1.14.0 uses content schema 11/profile API 1:
+separate motion_naming and motions resources, Motion Names and motion topics.
+Schemas 1–10/naming 1–5 remain readable without mutation or implicit adoption.
+Recognition v2 checks every motion page explicitly; independent papers keep source
+start IDs, actual titles (up to 1,024 characters), filed/document/unknown date basis,
+MOTIONS TOC, optional motion boundaries/finals/editions/overview/map/manifest inputs.
+Missing historical preparation is not zero motions. Resume skips it honestly; badges
+remain presence-based. Both profile_contract.py AND profile_artifacts.py must match
+Focus byte-for-byte. No private config/case migration or live provider acceptance.
+Publish compatible Focus before RecordPrep only if separately authorized. This section
+supersedes older current-version, two-topic-page and shared-file statements below.
+
 ## Application-owned minute instructions (current)
 
 Read docs/application-minutes.md and its validation report. Every new minute run,

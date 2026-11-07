@@ -53,7 +53,7 @@ class DependencyReportNamingTests(unittest.TestCase):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.13.0',10,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.14.0',11,1))
         n = b.resource('naming'); historical = old.resource('naming')
         self.assertEqual(n['schema_version'],5)
         self.assertEqual(n['reports'][0]['naming_mode'], 'source_title')
@@ -118,13 +118,11 @@ class DependencyReportNamingTests(unittest.TestCase):
 
     def test_descriptions_only_in_report_naming_and_stage_identities(self):
         b = bundle()
-        # Golden component identities captured from the exact pre-change 1.9.0 source.
-        for stage,digest in {
-            'basic':'916b2bb8188cb85a02a97f8cb5ad3b7f7f472a646e531ff2170ee38361e37d97',
-            'advanced':'522e2d3f2a5e747c94a652dc327da284fa68a565f938ea3765657f6b91869851',
-            'dates':'3c78456f54d23abaf5acafc9031b48b9158cc74c4a3e9ef7843b7db4afb75531',
-        }.items():
-            self.assertEqual(component(b,stage),digest,stage)
+        # Motion recognition deliberately advances the application contract.
+        # Report catalog changes must still leave all non-Names stages alone.
+        old_catalog = title_catalog_bundle()
+        for stage in ('basic', 'advanced', 'dates'):
+            self.assertEqual(component(b, stage), component(old_catalog, stage), stage)
         self.assertNotEqual(component(b,'names'),'eb02838cd1a6e8994f4d2709747d8f490878f49796f79e75701d905f5c743369')
         resources = {k:b.resource(k) for k in b.manifest['resources']}
         for task in ('rt','ct','first_hearing','first_minute','first_form','first_report','date_hearing','date_minute','form','report'):

@@ -12,7 +12,7 @@ from .profile_editor_ui import button, wrapped
 
 OWNERSHIP = (
     "These rules belong to RecordPrep and apply to every profile. Viewing them does not alter saved output. "
-    "Report Names, Form Names, summary topics and minute-summary guidance remain profile settings. "
+    "Report Names, Form Names, Motion Names and summary topics remain profile settings; minute guidance is application-owned. "
     "Each classifier request receives one page image, not adjacent-page context."
 )
 SAVED_OUTPUT = (
@@ -43,7 +43,7 @@ class ClassificationReference(Adw.Window):
             contract = self.contract = load_recognition()
             groups = [("Reporter transcript (RT)", entries) for side, entries in contract.page_types if side == "rt"]
             groups += [("Clerk transcript (CT)", entries) for side, entries in contract.page_types if side == "ct"]
-            groups += [("First pages — four independent tasks", contract.first_pages)]
+            groups += [("First pages — five independent tasks", contract.first_pages)]
             for title, entries in groups:
                 heading = wrapped(title)
                 heading.add_css_class("title-3")

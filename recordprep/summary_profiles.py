@@ -281,6 +281,16 @@ class SummaryProfile:
 
 def summary_core(kind: str, phase: str) -> str:
     """Pure byte-preserving method selection for runtime and draft inspection."""
+    if kind == "motions" and phase in ("extract", "synthesize"):
+        method = ("MOTION PAPERS — Attribute assertions to their author. Distinguish allegations, argument, "
+                  "requested relief and actual rulings. Describe authorities only as presented in the paper, "
+                  "without outside research or invented holdings. Preserve contrary evidence, concessions, "
+                  "qualifications and limitations. Each separately titled paper has its own section; "
+                  "explain only supported relationships without merging entries or moving a later response "
+                  "or ruling into an earlier paper. Use focused prose; no word quotas, extra review passes "
+                  "or blocking editorial gates.\n")
+        return CORE + method + (EXTRACTION.replace("HEARING OR REPORT", "MOTION PAPER").replace("hearing or report", "motion paper")
+                               if phase == "extract" else SYNTHESIS.replace("hearings or", "motions or").replace("reports", "motion papers").replace("hearing or report", "motion paper") + QUOTE_CASE_GUIDANCE)
     if kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary kind or phase.")
     return CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
@@ -288,15 +298,25 @@ def summary_core(kind: str, phase: str) -> str:
 
 
 def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> SummaryProfile:
-    if snapshot.ref.application != "recordprep" or kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
+    if snapshot.ref.application != "recordprep" or kind not in ("hearings", "reports", "motions") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary profile application, kind or phase.")
-    stage = ("hearing" if kind == "hearings" else "report") + ("_extraction" if phase == "extract" else "_synthesis")
+    stage = {"hearings": "hearing", "reports": "report", "motions": "motion"}[kind] + ("_extraction" if phase == "extract" else "_synthesis")
     core = summary_core(kind, phase)
-    compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8"))
-    prompt = summary_guidance(core, compiled.resources)
+    from .profile_contract import json_bytes
+    defaults = (("motions", json_bytes(summary_topics(snapshot, kind))),) if kind == "motions" and "motions" not in snapshot.manifest["resources"] else ()
+    compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8") + (json_bytes(summary_topics(snapshot, kind)) if defaults else b""))
+    prompt = summary_guidance(core, compiled.resources + defaults)
     provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
     return SummaryProfile(prompt, compiled.component_sha256, provenance,
-                          tuple((e["id"], e["title"], e["guidance"]) for e in snapshot.resource(kind)))
+                          tuple((e["id"], e["title"], e["guidance"]) for e in summary_topics(snapshot, kind)))
+
+
+def summary_topics(snapshot, kind):
+    if kind == "motions" and "motions" not in snapshot.manifest["resources"]:
+        from .motion_guidance import MOTION_TOPICS
+        from copy import deepcopy
+        return deepcopy(MOTION_TOPICS)
+    return snapshot.resource(kind)
 
 
 def summary_guidance(core, resources):
@@ -314,14 +334,14 @@ def draft_summary_guidance(catalog, kind, phase):
 
 
 def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:
-    allowed = {"extract": {"recordprep-extract-hearing", "recordprep-extract-report"},
-               "synthesize": {"recordprep-synthesize-hearings", "recordprep-synthesize-reports"}}
+    allowed = {"extract": {"recordprep-extract-hearing", "recordprep-extract-report", "recordprep-extract-motion"},
+               "synthesize": {"recordprep-synthesize-hearings", "recordprep-synthesize-reports", "recordprep-synthesize-motions"}}
     if phase not in allowed or skill_name not in allowed[phase]:
         raise ValueError("Unsupported profile summary skill.")
     from .profile_contract import read_file_at
     import os
     fd = os.open(project_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    report_synthesis = phase == "synthesize" and skill_name == "recordprep-synthesize-reports"
+    report_synthesis = (phase == "synthesize" and skill_name == "recordprep-synthesize-reports") or skill_name in {"recordprep-extract-motion", "recordprep-synthesize-motions"}
     relative = f"skills/{skill_name}/SKILL.md" if report_synthesis else f"resources/profile-summary-{phase}.md"
     try:
         template = read_file_at(fd, relative).decode("utf-8")
@@ -334,4 +354,6 @@ def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:
 
 def extraction_metadata(snapshot: ProfileSnapshot, kind: str) -> dict:
     contract = compile_summary(snapshot, kind, "extract")
-    return {"category_catalog": category_descriptor(snapshot, kind), "profile_provenance": contract.provenance}
+    catalog = ([{"id": e["id"], "title": e["title"]} for e in summary_topics(snapshot, kind)]
+               if kind == "motions" else category_descriptor(snapshot, kind))
+    return {"category_catalog": catalog, "profile_provenance": contract.provenance}

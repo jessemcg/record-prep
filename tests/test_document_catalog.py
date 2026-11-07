@@ -112,7 +112,7 @@ class DocumentCatalogTests(unittest.TestCase):
         self.assertEqual(compile_naming_profile(old,'form').prompt,compile_naming_profile(bundle(),'form').prompt)
         draft=editable_profile(old)
         self.assertEqual(draft.resources['naming']['reports'][0]['guidance'],'')
-        self.assertEqual(draft.manifest['schema_version'],10)
+        self.assertEqual(draft.manifest['schema_version'],11)
         self.assertNotIn('classification_tasks',draft.resources)
         self.assertEqual(old.files,before)
         custom=old.resource('naming');custom['reports'][0]['guidance']+=' Custom literal prose.'

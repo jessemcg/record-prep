@@ -79,10 +79,10 @@ LEGACY_SUMMARY_FACTS_META_ARTIFACT = "recordprep-summary-facts-meta"
 LEGACY_SUMMARY_FINAL_META_SCHEMA_VERSION = 1
 LEGACY_SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-1"
 
-SUMMARY_KINDS = ("hearings", "reports")
-SUMMARY_KIND_LABELS = {"hearings": "hearing", "reports": "report"}
-SUMMARY_ITEM_PREFIXES = {"hearings": "hearing", "reports": "report"}
-SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary"}
+SUMMARY_KINDS = ("hearings", "reports", "motions")
+SUMMARY_KIND_LABELS = {"hearings": "hearing", "reports": "report", "motions": "motion"}
+SUMMARY_ITEM_PREFIXES = {"hearings": "hearing", "reports": "report", "motions": "motion"}
+SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary", "motions": "Motions Summary"}
 
 # Phase-specific versions of the immutable relevance, scope, schema, quote,
 # and safety contract baked into every effective prompt. Changing one
@@ -103,7 +103,8 @@ REPORT_DUPLICATION_SHINGLE_WORDS = 15
 
 def summary_renderer_version(kind: str) -> str:
     """Scope presentation changes independently for hearing/report synthesis."""
-    return HEARING_RENDERER_VERSION if kind == "hearings" else REPORT_RENDERER_VERSION
+    return {"hearings": HEARING_RENDERER_VERSION, "reports": REPORT_RENDERER_VERSION,
+            "motions": "recordprep-motion-renderer-1"}[kind]
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,7 @@ REPORT_CATEGORY_IDS = summary_categories.category_ids("reports")
 SUMMARY_CATEGORY_IDS: dict[str, tuple[str, ...]] = {
     "hearings": HEARING_CATEGORY_IDS,
     "reports": REPORT_CATEGORY_IDS,
+    "motions": summary_categories.category_ids("motions"),
 }
 
 # Descriptions are loaded once and frozen per process (one summary stage per
@@ -1013,6 +1015,9 @@ _DEFAULT_GUIDANCE: dict[tuple[str, str], str] = {
 
 def default_guidance(kind: str, phase: str) -> str:
     """The immutable current built-in guidance contract for one phase."""
+    if kind == "motions":
+        from .summary_profiles import summary_core
+        return summary_core(kind, phase)
     guidance = _DEFAULT_GUIDANCE.get((kind, phase))
     if guidance is None:
         raise ValueError(f"Unknown summary kind/phase: {kind}/{phase}")
@@ -1252,6 +1257,7 @@ class SummaryWorkItem:
     generation_sha256: str = ""
     participant_context: str = ""
     profile: ProfileSnapshot | None = None
+    date_basis: str = "unknown"
 
 
 def _load_boundary_entries(root: Path, kind: str) -> list[dict[str, Any]]:
@@ -1268,6 +1274,8 @@ def _load_boundary_entries(root: Path, kind: str) -> list[dict[str, Any]]:
         raise ValueError(f"{path.name} is invalid: {exc}") from exc
     if not isinstance(payload, list):
         raise ValueError(f"{path.name} must contain a list of boundaries.")
+    if kind == "motions" and any(not isinstance(entry, dict) for entry in payload):
+        raise ValueError("motion_boundaries.json contains malformed entries; prior output preserved.")
     return [entry for entry in payload if isinstance(entry, dict)]
 
 
@@ -1602,6 +1610,8 @@ def item_fingerprint_payload(
             "label": item.label,
         }
     )
+    if item.kind == "motions":
+        payload["motion_date_basis"] = item.date_basis
     if item.participant_context:
         payload["participant_context_sha256"] = sha256_text(
             item.participant_context
@@ -1725,6 +1735,16 @@ def build_work_items(
                 participant.get("date") or "HEARING"
             )
             item.label = format_label_date(date_value) or "HEARING"
+        elif kind == "motions":
+            name = _boundary_value(entry, "motion_name")
+            if not name or len(name) > 1024:
+                raise ValueError("Motion boundary requires a selected title of at most 1,024 characters.")
+            date_value = _boundary_value(entry, "motion_date", "date")
+            item.date_basis = _boundary_value(entry, "motion_date_basis") or "unknown"
+            if item.date_basis not in {"filed", "document", "unknown"}:
+                raise ValueError("Motion boundary has an invalid date basis.")
+            display_date = format_label_date(date_value)
+            item.label = f"{display_date} - {name}" if display_date else name
         else:
             name = _boundary_value(entry, "report_label", "report_name") or f"Report {ordinal}"
             date_value = _boundary_value(entry, "report_date", "date")
@@ -3759,7 +3779,7 @@ def validate_final_meta(
             issues.append(f"the {kind} profile summary must reference Markdown format 2.")
         try:
             provenance = preparation_provenance(meta.get("profile_provenance"))
-            stage = "hearing_synthesis" if kind == "hearings" else "report_synthesis"
+            stage = {"hearings": "hearing_synthesis", "reports": "report_synthesis", "motions": "motion_synthesis"}[kind]
             if stage not in provenance["components"]:
                 raise ValueError("Missing synthesis component.")
         except ValueError:
@@ -3925,8 +3945,8 @@ def effective_extraction_config(project_dir: Path, kind: str, *, profile: Profil
         profile=profile,
         runtime_contract_sha256=sha256_json({str(path.relative_to(project_dir)): _resource_sha256(path)
             for path in (project_dir / "SYSTEM.md",
-                         project_dir / "resources/profile-summary-extract.md" if profile is not None else
-                         project_dir / "skills" / ("recordprep-extract-hearing" if kind == "hearings" else "recordprep-extract-report") / "SKILL.md",
+                         project_dir / "resources/profile-summary-extract.md" if profile is not None and kind != "motions" else
+                         project_dir / "skills" / {"hearings": "recordprep-extract-hearing", "reports": "recordprep-extract-report", "motions": "recordprep-extract-motion"}[kind] / "SKILL.md",
                          project_dir / "extensions/recordprep-summary-tools.ts")}),
     )
 
@@ -3957,12 +3977,14 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
     skill_names = {
         "hearings": "recordprep-synthesize-hearings",
         "reports": "recordprep-synthesize-reports",
+        "motions": "recordprep-synthesize-motions",
     }
     compiled = compile_summary(profile, kind, "synthesize") if profile is not None else None
     return {
         "kind": kind,
         "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + (
-            HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE),
+            {"hearings": HEARING_QUOTE_CASE_GUIDANCE, "reports": REPORT_QUOTE_CASE_GUIDANCE,
+             "motions": ""}[kind]),
         "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
         **({"profile_component": compiled.component_sha256} if compiled is not None else {}),
         "provider": identity.provider,

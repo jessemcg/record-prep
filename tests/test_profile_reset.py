@@ -191,8 +191,9 @@ class ProfileResetTests(unittest.TestCase):
         buffer.set_text("Synthetic long unsaved guidance.\n" * 500)
         scroll = view.get_ancestor(Gtk.ScrolledWindow)
         drain()
-        scroll.get_vadjustment().set_value(200)
         buffer.select_range(buffer.get_iter_at_offset(12000), buffer.get_iter_at_offset(10000))
+        drain()  # Let GTK's selection/caret scroll settle before the user scrolls.
+        scroll.get_vadjustment().set_value(200)
         self.confirm(w)
         self.assertEqual(w.editor.snapshot().files, self.bundle.files)
         self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "report-naming")

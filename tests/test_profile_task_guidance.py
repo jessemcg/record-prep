@@ -17,7 +17,7 @@ class TaskGuidanceTests(unittest.TestCase):
     def test_task_guidance_changes_only_its_runtime_prompt_and_component(self):
         groups = {"rt": "basic", "ct": "basic", "first_hearing": "advanced", "first_minute": "advanced", "first_form": "advanced", "first_report": "advanced",
                   "date_hearing": "dates", "date_minute": "dates"}
-        for task in KINDS:
+        for task in groups:  # Historical editable tasks exclude application-owned motion starts.
             with self.subTest(task=task):
                 editor = ProfileEditor(self.base)
                 if task == 'first_report':

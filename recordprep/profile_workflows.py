@@ -188,7 +188,13 @@ class ProfileEditor:
             from .case_name_prompt import CASE_NAME_PROMPT
             self.manifest["resources"]["case_name"] = "case-name.md"
             self.resources["case_name"] = CASE_NAME_PROMPT
-        self.manifest["schema_version"] = 10
+        from copy import deepcopy
+        from .motion_guidance import MOTION_TOPICS
+        self.resources.setdefault("motion_naming", {"schema_version": 1, "motions": []})
+        self.resources.setdefault("motions", deepcopy(MOTION_TOPICS))
+        self.manifest["resources"].setdefault("motion_naming", "motion-naming.json")
+        self.manifest["resources"].setdefault("motions", "motions.json")
+        self.manifest["schema_version"] = 11
 
     def snapshot(self) -> ProfileSnapshot:
         originals = dict(self.base.files)

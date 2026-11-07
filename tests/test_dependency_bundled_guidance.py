@@ -23,7 +23,7 @@ class DependencyBundledGuidanceTests(unittest.TestCase):
         self.assertEqual(json.loads((BASE/'profile.json').read_bytes())['version'],'1.6.0')
         self.assertEqual(hashlib.sha256((BASE/'classification-tasks.json').read_bytes()).hexdigest(),'ff5f02032aa081923badf4c40c5df19cb137af8be0c8a4512536fe0dbc97c189')
         b=api.bundled_profile_for_identity(api.APPLICATION,api.DEFAULT_PROFILE_ID)
-        self.assertEqual(b.manifest['version'],'1.13.0')
+        self.assertEqual(b.manifest['version'],'1.14.0')
         self.assertNotIn('classification_tasks', b.manifest['resources'])
         old = effective_resource(json.loads((BASE/'naming.json').read_bytes()), 'naming')
         frozen = json.loads((api.bundled_profile_directory('california_dependency').parents[1] /
@@ -36,7 +36,7 @@ class DependencyBundledGuidanceTests(unittest.TestCase):
 
     def test_bundle_already_matches_current_editor_resources(self):
         b=api.bundled_profile_for_identity(api.APPLICATION,api.DEFAULT_PROFILE_ID)
-        self.assertEqual(b.manifest['schema_version'],10)
+        self.assertEqual(b.manifest['schema_version'],11)
         self.assertEqual(editable_profile(b).snapshot().files,b.files)
-        self.assertEqual(set(b.manifest['resources']),{'case_name','naming','hearings','reports','policies'})
+        self.assertEqual(set(b.manifest['resources']),{'case_name','naming','motion_naming','hearings','reports','motions','policies'})
         self.assertEqual(b.resource('policies'),{})

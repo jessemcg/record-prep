@@ -66,7 +66,7 @@ PAGE_MAP_ARTIFACT = "recordprep-summary-pages"
 # sidecars (layouts v1/v2, no quote spans) remain readable by Focus but are
 # no longer produced or accepted by this module's validator.
 PAGE_MAP_SCHEMA_VERSION = 2
-SUMMARY_EDITION_KINDS: tuple[str, ...] = ("hearings", "reports", "minutes")
+SUMMARY_EDITION_KINDS: tuple[str, ...] = ("hearings", "reports", "motions", "minutes")
 
 # Letter v3 layout: the letter-v2 typography contract plus bold quoted
 # phrases rendered without their outer double quote delimiters. Body text

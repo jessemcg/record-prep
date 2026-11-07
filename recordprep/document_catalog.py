@@ -14,6 +14,10 @@ def catalog_entries(naming: dict, kind: str) -> list[dict[str, str]]:
     explicitly declared names remain usable; the original prose stays in naming.
     Stable IDs identify matched rules in source-title responses, never display names.
     """
+    if kind == "motion":
+        return [{"name": entry["name"], "description": entry["guidance"],
+                 "rule_id": entry["id"], "naming_mode": entry.get("naming_mode", "fixed")}
+                for entry in naming["motions"]]
     if kind not in ("report", "form"):
         raise ValueError("Unsupported catalog kind")
     naming = effective_resource(naming, "naming")

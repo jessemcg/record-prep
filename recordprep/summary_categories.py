@@ -40,6 +40,14 @@ class CategoryContract:
 
 # Code-owned category ids, display titles, and order per summary kind.
 CATEGORY_CONTRACTS: dict[str, tuple[CategoryContract, ...]] = {
+    "motions": (
+        CategoryContract("requested_relief", "Requested relief and position"),
+        CategoryContract("procedural_context", "Material procedural context"),
+        CategoryContract("facts_and_evidence", "Material facts and supporting evidence"),
+        CategoryContract("legal_grounds", "Legal grounds and authorities"),
+        CategoryContract("responses", "Responses to arguments or papers"),
+        CategoryContract("qualifications", "Qualifications, concessions and limitations"),
+    ),
     "hearings": (
         CategoryContract("parent_appearances", "Parent Appearances"),
         CategoryContract("evidence_considered", "Evidence Considered"),
@@ -84,6 +92,7 @@ CATEGORY_CONTRACTS: dict[str, tuple[CategoryContract, ...]] = {
 RESOURCE_FILENAMES: dict[str, str] = {
     "hearings": "hearings.md",
     "reports": "reports.md",
+    "motions": "motions.md",
 }
 
 

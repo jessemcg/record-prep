@@ -56,6 +56,7 @@ CLASSIFICATION_EXPLANATION = (
 CLASSIFICATION_PAGES = (
     ("report-naming", "Report Names", "Names"),
     ("form-naming", "Form Names", "Names"),
+    ("motion-naming", "Motion Names", "Names"),
 )
 
 
@@ -390,9 +391,9 @@ class ProfileEditorWindow(Adw.Window):
 
     def _topic_catalog(self, group, values, *, kind=None):
         kind = kind or ("hearings" if values is self.editor.resources["hearings"] else "reports")
-        naming = kind in {"naming-reports", "naming-forms"}
+        naming = kind in {"naming-reports", "naming-forms", "naming-motions"}
         title_key = "name" if naming else "title"
-        noun = "Report" if kind == "naming-reports" else "Form" if naming else "Topic"
+        noun = "Report" if kind == "naming-reports" else "Motion" if kind == "naming-motions" else "Form" if naming else "Topic"
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
         # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
@@ -439,7 +440,8 @@ class ProfileEditorWindow(Adw.Window):
                         def change_mode(widget, _pspec, value=value):
                             if not self._installing:
                                 if widget.get_selected() == 1:
-                                    self.editor.resources["naming"]["schema_version"] = 5
+                                    if kind != "naming-motions":
+                                        self.editor.resources["naming"]["schema_version"] = 5
                                     value["naming_mode"] = "source_title"
                                 else:
                                     value.pop("naming_mode", None)
@@ -569,6 +571,10 @@ class ProfileEditorWindow(Adw.Window):
         self._page_body.append(scroll)
 
     def _classification_contents(self, key, title):
+        if key == "motion-naming":
+            self._explanation(self._page_body, "Document naming")
+            self._topic_catalog(self._group(title), self.editor.resources["motion_naming"]["motions"], kind="naming-motions")
+            return
         naming = self.editor.resources["naming"]
         self._explanation(self._page_body, "Document naming")
         if naming.get("schema_version") in (4, 5):
@@ -587,10 +593,10 @@ class ProfileEditorWindow(Adw.Window):
             self._page("Document naming", key, title)
             self.nav_rows[key].set_subtitle(stage)
             self._classification_contents(key, title)
-        for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
+        for kind, title in (("hearings", "Hearing"), ("reports", "Report"), ("motions", "Motion")):
             self._page("Summaries", kind + "-topics", title + " digest topics")
             self._explanation(self._page_body, "Summaries")
-            self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind])
+            self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind], kind=kind)
             self.nav_rows[kind + "-topics"].set_subtitle("1 · Build digest")
 
     def _bundled_action(self):

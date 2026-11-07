@@ -4,6 +4,14 @@
 
 This is the detailed preparation reference. Historical adoption notes describe explicit reruns, never startup migrations. Installation/settings storage alone does not require regenerating prepared work.
 
+## Motion papers (current)
+
+[The Motions workflow](motions-workflow.md) defines schema 11/Dependency 1.14.0,
+explicit per-page starts, actual titles and filed/document dates, independent paper
+summaries and optional Focus publication. It supersedes historical four-detector,
+two-topic-page and schema-10 ownership descriptions below. Missing old motion
+preparation is skipped by automatic Resume, never represented as checked zero.
+
 ## Model connections
 
 Classification uses the configurable vision API URL, model ID and required API key
@@ -26,15 +34,15 @@ profile and starting point for personal profiles. General Court Record is a read
 historical archive, not a current choice. The hamburger profile dropdown selects the
 application-wide guidance used for new work. Its name appears beneath the app title.
 **Profile settings** opens an independent window with two expandable groups:
-**Document naming** (Report Names and Form Names) and **Summaries**. Naming uses
+**Document naming** (Report Names, Form Names and Motion Names) and **Summaries**. Naming uses
 stable-ID approved-name/description cards; old unknown naming formats remain in a
-literal compatibility editor. Only accepted nonempty names produce form/report TOC
-entries and standalone report-summary work. Source pages/classifications remain intact.
+literal compatibility editor. Only accepted nonempty names produce form/report/motion TOC
+entries and standalone report/motion summary work. Source pages/classifications remain intact.
 
 Structural classification is fixed application behavior, not an editable profile
 setting. **App-owned Classification** in the hamburger menu works without a case
-or available profile storage. It explains the five RT types, ten CT types and four
-start detectors and offers all eight complete fixed prompts. RT_body is displayed
+or available profile storage. It explains the five RT types, ten CT types and five
+start detectors and offers all nine complete fixed prompts. RT_body is displayed
 as **Hearing body** and CT_notice as **Hearing notice**. A standardized hearing notice
 stays CT_notice; a distinct service proof stays CT_proof_of_service. Neither enters
 form-start detection, naming or Forms TOC. A qualifying Notice of Appeal remains

@@ -32,6 +32,7 @@ _CLASSIFICATION = {
 _SUMMARIES = {
     "create_hearing_summaries": "hearings",
     "create_report_summaries": "reports",
+    "create_motion_summaries": "motions",
     "create_minute_order_summaries": "minutes",
 }
 
@@ -82,7 +83,8 @@ def step_outputs_present(step_id: str, root: Path) -> bool:
             return all(any(pdf.with_suffix(".pages.json").is_file()
                            for pattern in (f"{kind}_sum_*.pdf", f"summarized_{kind}.pdf")
                            for pdf in directory.glob(pattern) if pdf.is_file())
-                       for kind in ("hearings", "reports", "minutes"))
+                       for kind in ("hearings", "reports", "minutes", *(
+                           ("motions",) if step_outputs_present("create_motion_summaries", root) else ())))
     except OSError:
         return False
     return False

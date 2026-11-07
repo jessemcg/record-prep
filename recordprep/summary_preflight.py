@@ -629,7 +629,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--kind",
         default="both",
-        choices=("hearings", "reports", "both"),
+        choices=("hearings", "reports", "motions", "both", "all"),
         help="Which summary kind(s) to report",
     )
     parser.add_argument("--json", action="store_true", help="JSON output (default)")
@@ -645,7 +645,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Case bundle is missing or invalid: {root}", file=sys.stderr)
         return 2
     project_dir = resource_root()
-    kinds = SUMMARY_KINDS if args.kind == "both" else (args.kind,)
+    kinds = SUMMARY_KINDS if args.kind == "all" else ("hearings", "reports") if args.kind == "both" else (args.kind,)
     settings_path = pi_settings_path(project_dir)
 
     # One discovery result is reused for every kind/phase identity match.

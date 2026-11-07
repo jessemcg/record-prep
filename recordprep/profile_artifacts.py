@@ -44,7 +44,7 @@ def descriptors(value: Any, *, roles: bool = False) -> tuple[tuple[str, str], ..
 
 
 def category_descriptor(snapshot: ProfileSnapshot, kind: str) -> list[dict[str, str]]:
-    _require(snapshot.ref.application == "recordprep" and kind in ("hearings", "reports"),
+    _require(snapshot.ref.application == "recordprep" and kind in ("hearings", "reports", "motions"),
              "wrong_application", "categories")
     result = [{"id": entry["id"], "title": entry["title"]} for entry in snapshot.resource(kind)]
     descriptors(result)
@@ -93,11 +93,12 @@ def preparation_provenance(value: Any) -> dict:
 
 
 def digest_profile_metadata(value: Any, kind: str) -> dict:
-    _require(kind in ("hearings", "reports"), "unsupported_kind", "digest")
+    _require(kind in ("hearings", "reports", "motions"), "unsupported_kind", "digest")
     _object(value, {"category_catalog", "profile_provenance"}, "digest")
     catalog = descriptors(value["category_catalog"])
     provenance = preparation_provenance(value["profile_provenance"])
-    stage = "hearing_extraction" if kind == "hearings" else "report_extraction"
+    stage = {"hearings": "hearing_extraction", "reports": "report_extraction",
+             "motions": "motion_extraction"}[kind]
     _require(stage in provenance["components"], "missing_component", "digest")
     return {"category_catalog": [{"id": i, "title": t} for i, t in catalog],
             "profile_provenance": provenance}

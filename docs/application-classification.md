@@ -1,6 +1,6 @@
 # Application-owned classification
 
-This is the current contract (Dependency **1.10.0**, content schema **9**, unchanged
+This is the current contract (Dependency **1.14.0**, content schema **11**, unchanged
 `profile_api: 1`). It supersedes the editable-classification portions of
 [structured classification](structured-classification.md), older settings reports
 and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
@@ -9,16 +9,17 @@ and schema-8 adoption notes. [Validation and limits](application-classification-
 
 **App-owned Classification** opens only from the hamburger menu and works without
 a case, selected profile, working profile store, model discovery or network.
-It contains the full five RT definitions, ten CT definitions and four first-page
+It contains the full five RT definitions, ten CT definitions and five first-page
 clue sets, with readable titles beside unchanged output keys. **View full prompts…**
-shows the complete eight fixed task prompts: RT, CT, hearing/minute/form/report
+shows the complete nine fixed task prompts: RT, CT, hearing/minute/form/report/motion
 starts, and hearing/minute dates. It has search, selectable wrapped read-only text,
 Copy and Close; fixed prompts have no template/current-draft switch. The page image
 is a separate request attachment, not text added to the system prompt. Escape closes
 the reference and prompt inspector. Opening/copying never saves or runs a model.
 
-Profile settings has only **Document naming** (Report Names and Form Names) and
-**Summaries** (hearing/report digest topics and minute orders). Naming and summary
+Profile settings has only **Document naming** (Report Names, Form Names and Motion Names)
+and **Summaries** (hearing/report/motion digest topics). Minute instructions remain
+application-owned, available only in full-prompt inspection. See [Motions](motions-workflow.md). Naming and summary
 inspection still freezes the unsaved draft and offers its existing template/draft
 views. Invalid naming does not affect application reference inspection. Save, kept
 buffers/undo/selection, guarded revision publication, unsaved-close choices and the

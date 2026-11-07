@@ -247,7 +247,7 @@ def validated_case_overview_path(root: Path) -> str:
 def summary_paths(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
     files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
     result: dict[str, str] = {}
-    for kind in ("hearings", "reports", "minutes"):
+    for kind in ("hearings", "reports", "motions", "minutes"):
         configured = files.get(f"summarized_{kind}")
         source = root / configured if isinstance(configured, str) and configured else None
         if source is None or not source.is_file():
@@ -309,6 +309,7 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
     specifications = (
         ("hearing", "hearing_boundaries.json"),
         ("report", "report_boundaries.json"),
+        ("motion", "motion_boundaries.json"),
         ("minute_order", "minutes_boundaries.json"),
     )
     documents: list[dict[str, Any]] = []
@@ -318,13 +319,13 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
             end = page_number(item.get("end_page"))
             start_page = pages_by_number.get(start, {})
             end_page = pages_by_number.get(end, {})
-            date = str(item.get("date") or item.get("hearing_date") or item.get("report_date") or "").strip()
+            date = str(item.get("date") or item.get("hearing_date") or item.get("report_date") or item.get("motion_date") or "").strip()
             report_id = str(item.get("report_id") or "").strip()
             label = str(
-                item.get("report_label") or item.get("report_name") or date
+                item.get("motion_label") or item.get("motion_name") or item.get("report_label") or item.get("report_name") or date
                 or f"{doc_type.replace('_', ' ').title()} {index}"
             ).strip()
-            doc_id = str(item.get("id") or report_id or f"{doc_type}:{index:04d}")
+            doc_id = str(item.get("id") or item.get("motion_id") or report_id or (f"motion:{start:04d}" if doc_type == "motion" else f"{doc_type}:{index:04d}"))
             documents.append({
                 "id": doc_id,
                 "type": doc_type,
@@ -335,6 +336,10 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
                 "report_date": str(item.get("report_date") or ""),
                 "report_label": str(item.get("report_label") or ""),
                 "report_id": report_id,
+                **({"motion_id": doc_id, "motion_name": str(item.get("motion_name") or ""),
+                    "motion_date": date, "motion_date_basis": item.get("motion_date_basis", "unknown"),
+                    "motion_label": label}
+                   if doc_type == "motion" else {}),
                 "start_page": start,
                 "end_page": end,
                 "start_file": f"{start:04d}.txt" if start else "",
@@ -346,7 +351,7 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
                     str(end_page.get("citation_label") or ""),
                 ),
                 "page_labels": [f"{number:04d}" for number in range(start, end + 1)] if start and end >= start else [],
-                "aliases": sorted({value for value in (label, date, report_id, str(item.get("report_name") or ""), str(item.get("report_label") or "")) if value}),
+                "aliases": sorted({value for value in (label, date, report_id, doc_id if doc_type == "motion" else "", str(item.get("motion_name") or ""), str(item.get("report_name") or ""), str(item.get("report_label") or "")) if value}),
                 "metadata": item,
             })
     return documents
@@ -529,6 +534,7 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
         "toc": "artifacts/toc.txt" if (root / "artifacts" / "toc.txt").is_file() else "",
         "hearing_boundaries": "artifacts/hearing_boundaries.json",
         "report_boundaries": "artifacts/report_boundaries.json",
+        **({"motion_boundaries": "artifacts/motion_boundaries.json"} if (root / "artifacts/motion_boundaries.json").is_file() else {}),
         "minutes_boundaries": "artifacts/minutes_boundaries.json",
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
@@ -547,6 +553,8 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
             "pages": len(pages), "documents": len(documents),
             "hearings": sum(item["type"] == "hearing" for item in documents),
             "reports": sum(item["type"] == "report" for item in documents),
+            **({"motions": sum(item["type"] == "motion" for item in documents)}
+               if (root / "artifacts/motion_boundaries.json").is_file() else {}),
             "minute_orders": sum(item["type"] == "minute_order" for item in documents),
             "participants": sum(len(item.get("counsel", [])) + len(item.get("participants", [])) + len(item.get("witnesses", [])) for item in participants.get("hearings", []) if isinstance(item, dict)),
             "citation_series": len(citation_series), "citation_anomalies": len(anomalies),
@@ -566,6 +574,7 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
         "case_overview": case_overview,
         "source_map": "artifacts/source_map.json",
         **summaries,
+        **({"motion_boundaries": "artifacts/motion_boundaries.json"} if (root / "artifacts/motion_boundaries.json").is_file() else {}),
         **({} if ct_only else {"participant_index": "artifacts/participant_index.json"}),
     })
     if ct_only:

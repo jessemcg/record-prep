@@ -11,7 +11,8 @@ from .classification_profiles import _digest, component
 from .summary_agents import _atomic_write
 from .profile_contract import read_file_at, _json
 
-FILES = ("hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json")
+LEGACY_FILES = ("hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json")
+FILES = (*LEGACY_FILES, "motion_boundaries.json")
 
 
 def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
@@ -20,25 +21,25 @@ def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
     # Freeze actual inputs for this run, not the settings that created them.
     # Old markers and filesystem timestamps never authorize or block a new run.
     from .classification_profiles import prepared_classification_digest
-    return {"contract_version": 4,
+    return {"contract_version": 5,
             "classification_sha256": prepared_classification_digest(root, "final"),
             "classification_component": component(profile, "basic"),
             "naming_component": component(profile, "names")}
 
 
 def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, payloads: dict):
-    if set(payloads) != set(FILES) or any(not isinstance(value, list) for value in payloads.values()):
+    if set(payloads) not in (set(FILES), set(LEGACY_FILES)) or any(not isinstance(value, list) for value in payloads.values()):
         raise ValueError("Invalid application boundary publication contract.")
     if profile is not None:
         if read_case_profile_ref(root) != profile.ref or boundary_inputs(root, profile, settings) != expected_inputs:
             raise ValueError("Preparation selection or classifier inputs changed; prior boundaries preserved.")
-    outputs = {name: json.dumps(payloads[name], indent=2) for name in FILES}
+    outputs = {name: json.dumps(value, indent=2) for name, value in payloads.items()}
     with case_profile_publication(root, profile.ref if profile is not None else None):
         for name, text in outputs.items():
             _atomic_write(root / "artifacts" / name, text)
         if profile is not None:
             metadata = {"schema_version": 1, "profile_ref": asdict(profile.ref), "inputs": expected_inputs,
-                        "outputs": {name: _digest(root / "artifacts" / name) for name in FILES}}
+                        "outputs": {name: _digest(root / "artifacts" / name) for name in payloads}}
             _atomic_write(root / "artifacts/profile-boundaries.json", json.dumps(metadata, sort_keys=True) + "\n")
 
 
@@ -57,7 +58,7 @@ def boundary_issues(root: Path, profile, settings: dict) -> list[str]:
     try:
         value = _read_metadata(root, "profile-boundaries.json")
         expected = boundary_inputs(root, profile, settings, verify_source_bytes=False)
-        if value.get("schema_version") != 1 or value.get("inputs") != expected or set(value.get("outputs", {})) != set(FILES):
+        if value.get("schema_version") != 1 or value.get("inputs") != expected or set(value.get("outputs", {})) not in (set(FILES), set(LEGACY_FILES)):
             raise ValueError("Boundary profile inputs changed.")
         if any(_digest(root / "artifacts" / name) != digest for name, digest in value["outputs"].items()):
             raise ValueError("Boundary output changed.")

@@ -25,6 +25,8 @@ from .profile_contract import CLASSIFICATION_PAGE_TYPES
 from .profile_store import _check_directory
 from .recognition_contract import load_recognition
 from .report_pages import report_detection_mode, report_ranges
+from .motion_pages import motion_detection_mode, motion_ranges
+from .document_naming import compile_motion_naming
 from .skill_commands import skill_launch
 from .summary_agents import _atomic_write
 
@@ -33,8 +35,8 @@ EXTENSION = "recordprep-classification-review-tools.ts"
 RECEIPT = "classification/agent-review.json"
 PENDING = ".recordprep/classification-review-pending.json"
 IMPACTS = {"report_continuity", "false_start", "missed_document", "document_identity", "date_or_name"}
-FIELDS = {"page_type", "report_first_page", "name", "date", "naming_rule_id"}
-STARTS = {"RT_body_first_page", "CT_report_first_page", "CT_form_first_page", "CT_minute_order_first_page"}
+FIELDS = {"page_type", "report_first_page", "motion_first_page", "name", "date", "date_basis", "naming_rule_id"}
+STARTS = {"RT_body_first_page", "CT_report_first_page", "CT_motion_first_page", "CT_form_first_page", "CT_minute_order_first_page"}
 
 
 def require_no_pending(root):
@@ -91,8 +93,9 @@ def capture(root, project_dir):
     profile = resolve_case_profile(root)
     recognition = load_recognition()
     contracts = {kind: compile_naming_profile(profile, kind) for kind in ("report", "form")} if profile else {}
+    contracts["motion"] = compile_motion_naming(profile)
     guidance = "\n\n".join(classifier_document(kind, recognition).render()
-                            for kind in ("rt", "ct", "first_hearing", "first_minute", "first_form", "first_report", "date_hearing", "date_minute"))
+                            for kind in ("rt", "ct", "first_hearing", "first_minute", "first_form", "first_report", "first_motion", "date_hearing", "date_minute"))
     guidance += "\n\nNAMING CONTRACTS (naming only; never determine structural type):\n"
     guidance += "\n\n".join(c.prompt for c in contracts.values()) if contracts else "No selected naming catalog: do not add or change nonempty names; flag missing identities for manual review."
     resources = [project_dir / "SYSTEM.md", project_dir / "skills" / SKILL / "SKILL.md",
@@ -110,11 +113,12 @@ def capture(root, project_dir):
     # modern checks for an old bundle as a side effect of review.
     ct = [r for r in rows.values() if r["page_type"].startswith("CT_")]
     report_detection_mode(ct)
+    motion_detection_mode(ct)
     return blobs, rows, guard, read_case_profile_ref(root), guidance, contracts
 
 
 def _document_name(row):
-    return next((str(row[k]).strip() for k in ("name", "report_name", "form_name")
+    return next((str(row[k]).strip() for k in ("name", "motion_name", "report_name", "form_name")
                  if isinstance(row.get(k), str) and row[k].strip()), "")
 
 
@@ -131,11 +135,15 @@ def selected_documents(rows):
     def add(kind, start, end):
         row = rows[start]
         documents.append({"kind": kind, "start": start, "end": end,
-                          "name": _document_name(row) if kind in {"report", "form"} else "",
+                          "name": _document_name(row) if kind in {"report", "form", "motion"} else "",
+                          **({"date_basis": row.get("date_basis", "unknown"), "naming_rule_id": row.get("naming_rule_id", "")} if kind == "motion" else {}),
                           "date": "" if kind == "form" else (row.get("date") or (row.get("report_date", "") if kind == "report" else ""))})
     for group in report_ranges(entries, -1, modern=modern):
         if group.start_detected and _document_name(rows[group.start_file]):
             add("report", group.start_file, group.end_file)
+    for group in motion_ranges(entries, -1):
+        if _document_name(rows[group.start_file]):
+            add("motion", group.start_file, group.end_file)
     for i, row in enumerate(ordered):
         kind = row["page_type"]
         start = row["file_name"]
@@ -161,7 +169,7 @@ def prioritized_worklist(rows):
         number = int(Path(name).stem)
         return [by_number[n] for n in (number-1, number, number+1) if n in by_number]
     boundaries = [{**d, "opening_neighbors": neighbors(d["start"]),
-                   "ending_neighbors": neighbors(d["end"])} for d in documents if d["kind"] == "report"]
+                   "ending_neighbors": neighbors(d["end"])} for d in documents if d["kind"] in {"report", "motion"}]
     starts = [d for d in documents if d["kind"] in {"hearing", "minute_order"}]
     for i, document in enumerate(starts):
         document["opening_neighbors"] = neighbors(document["start"])
@@ -260,7 +268,7 @@ def _proposal_row(change, rows, contracts):
     for key, val in after.items():
         if val is None:
             row.pop(key, None)
-        elif isinstance(val, str) and len(val) <= 200:
+        elif isinstance(val, str) and len(val) <= (1024 if key == "name" and after.get("page_type", rows[name]["page_type"]) == "CT_motion_first_page" else 200):
             row[key] = val
         else:
             raise ValueError("Proposed field value cannot be used; original retained.")
@@ -268,21 +276,41 @@ def _proposal_row(change, rows, contracts):
     if row.get("page_type") not in set(CLASSIFICATION_PAGE_TYPES[side.lower()]) | {s for s in STARTS if s.startswith(side)}:
         raise ValueError("Proposed page type is unknown or belongs to the other transcript; original retained.")
     kind = row["page_type"]
+    if rows[name]["page_type"] == "CT_motion_first_page" and kind != "CT_motion_first_page":
+        for key in ("name", "naming_rule_id", "date", "date_basis"):
+            if key not in after:
+                row.pop(key, None)
+    if kind in {"CT_motion", "CT_motion_first_page"}:
+        if "page_type" in after or "motion_first_page" in after:
+            expected = "yes" if kind == "CT_motion_first_page" else "no"
+            if "motion_first_page" in after and row.get("motion_first_page") != expected:
+                raise ValueError("Proposed motion start/check disagree; original retained.")
+            row["motion_first_page"] = expected
+        if kind == "CT_motion_first_page":
+            if row.get("date_basis", "unknown") not in {"filed", "document", "unknown"}:
+                raise ValueError("Proposed motion date basis is invalid; original retained.")
+            row["date_basis"] = row.get("date_basis", "unknown") if row.get("date") else "unknown"
+        else:
+            row.pop("date_basis", None)
+    else:
+        row.pop("motion_first_page", None)
+        row.pop("date_basis", None)
     if row.get("date") and ("date" in after or "page_type" in after):
-        if kind not in {"CT_report_first_page", "CT_minute_order_first_page", "RT_body_first_page"} or _date_value(row["date"]) != row["date"]:
+        if kind not in {"CT_report_first_page", "CT_motion_first_page", "CT_minute_order_first_page", "RT_body_first_page"} or _date_value(row["date"]) != row["date"]:
             raise ValueError("Proposed correction leaves an unusable date or a date on a non-start; original retained.")
     if row.get("name") and ("name" in after or "page_type" in after or "naming_rule_id" in after):
-        naming_kind = {"CT_report_first_page": "report", "CT_form_first_page": "form"}.get(kind)
+        naming_kind = {"CT_report_first_page": "report", "CT_form_first_page": "form", "CT_motion_first_page": "motion"}.get(kind)
         if not naming_kind:
             raise ValueError("Proposed correction leaves a name on an ineligible page; original retained.")
         if row.get("name") != rows[name].get("name") or "naming_rule_id" in after:
             contract = contracts.get(naming_kind)
-            payload = {"name": row["name"], **({"date": row.get("date", "")} if naming_kind == "report" else {})}
+            payload = {"name": row["name"], **({"date": row.get("date", "")} if naming_kind in {"report", "motion"} else {}),
+                       **({"date_basis": row.get("date_basis", "unknown")} if naming_kind == "motion" else {})}
             if contract is not None and contract.mode == "matched_rules":
                 payload["rule_id"] = row.get("naming_rule_id", "")
             if contract is None or contract.normalize(payload).name != row["name"]:
                 raise ValueError("Proposed name does not satisfy the selected naming rule; original retained.")
-    if not row.get("name") or kind not in {"CT_report_first_page", "CT_form_first_page"}:
+    if not row.get("name") or kind not in {"CT_report_first_page", "CT_form_first_page", "CT_motion_first_page"}:
         row.pop("naming_rule_id", None)
     # A bad report marker must not invalidate unrelated corrections on other pages.
     original_reports = [r for r in rows.values() if r["page_type"] in {"CT_report", "CT_report_first_page"}]
@@ -376,9 +404,10 @@ def validate_candidate(data, rows, contracts, successful_reads, workspace, root)
         change = {key: copy.deepcopy(proposal[key]) for key in ("file_name", "before", "after")}
         # Include automatic removal of now-inapplicable eligibility metadata in
         # the audit, not only the model-authored fields.
-        if rows[name].get("naming_rule_id") != row.get("naming_rule_id"):
-            change["before"]["naming_rule_id"] = rows[name].get("naming_rule_id")
-            change["after"]["naming_rule_id"] = row.get("naming_rule_id")
+        for field in FIELDS:
+            if rows[name].get(field) != row.get(field):
+                change["before"][field] = rows[name].get(field)
+                change["after"][field] = row.get(field)
         reason = proposal.get("reason")
         change["reason"] = reason[:2000] if isinstance(reason, str) and reason.strip() else "Agent-proposed classification correction; inspect the source when reviewing."
         impact = proposal.get("impact")

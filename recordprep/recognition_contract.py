@@ -7,8 +7,8 @@ from pathlib import Path
 from .profile_contract import (CLASSIFICATION_FIRST_PAGE_TYPES, CLASSIFICATION_PAGE_TYPES,
                                _json, _object, _text)
 
-RESOURCE = Path(__file__).parent / "resources/classification/recognition-v1.json"
-CONTRACT_ID = "recordprep-recognition-v1"
+RESOURCE = Path(__file__).parent / "resources/classification/recognition-v2.json"
+CONTRACT_ID = "recordprep-recognition-v2"
 # Presentation only: titles are deliberately absent from model prompts/fingerprints.
 TITLES = {
     "RT_cover": "Transcript cover", "RT_index": "Transcript index", "RT_body": "Hearing body",
@@ -19,6 +19,7 @@ TITLES = {
     "CT_proof_of_service": "Proof of service", "CT_other": "Other CT material",
     "first_hearing": "Hearing first page", "first_minute": "Minute-order first page",
     "first_form": "Form first page", "first_report": "Report first page",
+    "first_motion": "Motion first page",
 }
 
 

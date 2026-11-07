@@ -35,6 +35,7 @@ MINUTE_STEP_ID = "create_minute_order_summaries"
 SUMMARY_STAGE_KINDS = {
     "create_hearing_summaries": "hearings",
     "create_report_summaries": "reports",
+    "create_motion_summaries": "motions",
 }
 SUMMARY_SKILL_NAMES = {
     "hearings": {
@@ -44,6 +45,10 @@ SUMMARY_SKILL_NAMES = {
     "reports": {
         "extract": "recordprep-extract-report",
         "synthesize": "recordprep-synthesize-reports",
+    },
+    "motions": {
+        "extract": "recordprep-extract-motion",
+        "synthesize": "recordprep-synthesize-motions",
     },
 }
 SUMMARY_TOOL_ALLOWLISTS = {
@@ -1860,6 +1865,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             else:
                 from recordprep.summary_agents import summary_final_path
                 reads = [summary_final_path(root, kind) for kind in ("hearings", "reports", "minutes")]
+                if summary_final_path(root, "motions").exists():
+                    reads.append(summary_final_path(root, "motions"))
                 reads.append(root / "artifacts/transcript_layout.json")
                 from recordprep.transcript_layout import is_ct_only
                 if not is_ct_only(root):
@@ -1894,7 +1901,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                     + json.dumps([str(path) for path in reads if path.is_file()], ensure_ascii=True)
                     + "\nRead the exact absolute paths listed above. Do not guess filenames, use ~ aliases, "
                       "list directories, run shell commands, or read case_name.txt/manifest.json. "
-                      "The list includes all three canonical summaries, transcript layout, the skill, "
+                      "The list includes the canonical hearing/report/minute summaries, any available final motion summary, transcript layout, the skill, "
                       "and participant metadata only when applicable. Read every summary completely, "
                       "continuing with offsets after truncation. Stop if a listed required input cannot be read; "
                       "do not search for substitutes. Write only the private output candidate.\n"
@@ -2149,9 +2156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage = SkillStage(
                 step_id=args[0],
                 title=(
-                    "Create hearing summaries"
-                    if kind == "hearings"
-                    else "Create report summaries"
+                    {"hearings": "Create hearing summaries", "reports": "Create report summaries",
+                     "motions": "Create motion summaries"}[kind]
                 ),
                 skill_name=SUMMARY_SKILL_NAMES[kind]["extract"],
                 tools=SUMMARY_TOOL_ALLOWLISTS["extract"],

@@ -386,11 +386,13 @@ class PiResourceTests(unittest.TestCase):
                 "recordprep-create-case-overview",
                 "recordprep-detect-transcript-layout",
                 "recordprep-extract-hearing",
+                "recordprep-extract-motion",
                 "recordprep-extract-report",
                 "recordprep-infer-case",
                 "recordprep-number-transcript-pages",
                 "recordprep-summarize-minutes",
                 "recordprep-synthesize-hearings",
+                "recordprep-synthesize-motions",
                 "recordprep-synthesize-reports",
             ],
         )

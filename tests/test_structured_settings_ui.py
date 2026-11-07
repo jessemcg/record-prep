@@ -24,7 +24,7 @@ class StructuredSettingsUITests(unittest.TestCase):
         e.resources['classification_tasks']['rt']=raw
         e.resources['naming']['report_guidance']+=' Unrecognized custom recognition.'
         old=e.snapshot();w.editor=editable_profile(old);w._render()
-        self.assertEqual(w.editor.manifest['schema_version'],10)
+        self.assertEqual(w.editor.manifest['schema_version'],11)
         self.assertNotIn('classification_tasks', w.editor.resources)
         self.assertEqual(old.resource('classification_tasks')['rt'],raw)
         self.assertEqual(w.editor.resources['naming'],old.resource('naming'))
@@ -44,7 +44,7 @@ class StructuredSettingsUITests(unittest.TestCase):
         old=e.snapshot();draft=editable_profile(old)
         self.assertNotIn('classification_tasks', draft.resources)
         self.assertEqual(draft.resources['naming'],old.resource('naming'))
-        self.assertEqual(draft.manifest['schema_version'],10)
+        self.assertEqual(draft.manifest['schema_version'],11)
         self.assertEqual(old.resource('classification_tasks').get('schema_version'),None)
 
     def test_catalog_editing_keeps_ct_independent_and_first_pages_has_four_cards(self):

@@ -33,6 +33,7 @@ RESOURCE_TYPES = {
         "hearing_synthesis": "md", "report_synthesis": "md",
         "minutes": "md", "participants": "md", "overview": "md",
         "classification_tasks": "json", "case_name": "md",
+        "motion_naming": "json", "motions": "json",
     },
 }
 # Required only by historical content schemas 1/2, never compiled into summaries.
@@ -52,6 +53,9 @@ STAGE_RESOURCES = {
         "report_extraction": ("reports",),
         "hearing_synthesis": ("hearings",),
         "report_synthesis": ("reports",),
+        "motion_naming": ("motion_naming",),
+        "motion_extraction": ("motions",),
+        "motion_synthesis": ("motions",),
         "minutes": (),  # Fixed application method for every supported content schema.
         "overview": (),  # Orientation method is fixed; summaries are runtime inputs.
     },
@@ -72,6 +76,12 @@ CLASSIFICATION_FIRST_PAGE_TYPES = {
     "first_minute": "CT_minute_order_first_page",
     "first_form": "CT_form_first_page",
     "first_report": "CT_report_first_page",
+    "first_motion": "CT_motion_first_page",
+}
+# Historical snapshot contracts must not grow with the runtime taxonomy.
+HISTORICAL_FIRST_PAGE_TASKS = {
+    2: frozenset({"first_hearing", "first_minute", "first_form"}),
+    3: frozenset({"first_hearing", "first_minute", "first_form", "first_report"}),
 }
 
 
@@ -242,8 +252,27 @@ def naming_prompt_titles(prompt: str) -> tuple[str, ...]:
 
 
 def _structured(name: str, value: Any) -> None:
-    if name in {"hearings", "reports"}:
+    if name in {"hearings", "reports", "motions"}:
         _catalog(value, name)
+    elif name == "motion_naming":
+        _object(value, {"schema_version", "motions"}, name)
+        _require(type(value["schema_version"]) is int and value["schema_version"] == 1,
+                 "unsupported_version", name)
+        entries = value["motions"]
+        _require(isinstance(entries, list) and len(entries) <= 256, "invalid_catalog", name)
+        ids, names = set(), []
+        for entry in entries:
+            fields = {"id", "name", "guidance"}
+            if isinstance(entry, dict) and "naming_mode" in entry:
+                fields.add("naming_mode")
+                _require(entry["naming_mode"] in ("fixed", "source_title"), "unsupported_policy", name)
+            _object(entry, fields, name)
+            identity = _identifier(entry["id"], name)
+            _require(identity not in ids, "duplicate_id", name)
+            ids.add(identity)
+            names.append(entry["name"])
+            _text(entry["guidance"], name, empty=True)
+        _terms(names, name)
     elif name == "roles":
         _object(value, {"counsel", "participants"}, name)
         for catalog in value.values():
@@ -331,9 +360,7 @@ def _structured(name: str, value: Any) -> None:
                 descriptions = _object(value["page_types"][side], set(keys), side)
                 for key in keys:
                     _text(descriptions[key], key)
-            first_keys = set(CLASSIFICATION_FIRST_PAGE_TYPES)
-            if value["schema_version"] == 2:
-                first_keys.remove("first_report")
+            first_keys = set(HISTORICAL_FIRST_PAGE_TASKS[value["schema_version"]])
             first = _object(value["first_pages"], first_keys, name)
             for key, guidance in first.items():
                 _text(guidance, key)
@@ -400,7 +427,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -413,6 +440,9 @@ def _manifest(data: bytes, application: str) -> dict:
              "unsupported_capabilities", "required_capabilities")
     types = dict(RESOURCE_TYPES[application])
     if application == "recordprep":
+        if value["schema_version"] < 11:
+            for name in ("motion_naming", "motions"):
+                types.pop(name)
         if value["schema_version"] == 1:
             for name in ("classification_tasks", "case_name"):
                 types.pop(name)
@@ -540,6 +570,10 @@ def compile_stage_profile(snapshot: ProfileSnapshot, stage: str, *, core_contrac
     names = (() if stage in task_stages else
              ("case_name",) if stage == "case_name" else STAGE_RESOURCES[snapshot.ref.application][stage])
     for name in names:
+        # Older snapshots have no motion selection or topic resources. Compiling
+        # them must neither invent eligibility nor rewrite their accepted bytes.
+        if name not in snapshot.manifest["resources"]:
+            continue
         value = snapshot.resource(name)
         data = value.encode("utf-8") if isinstance(value, str) else json_bytes(value)
         resources.append((name, data))

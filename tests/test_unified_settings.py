@@ -182,8 +182,8 @@ class UnifiedSettingsTests(unittest.TestCase):
         from recordprep.profile_editor_ui import CLASSIFICATION_PAGES
         w, store = self.profile_window()
         keys = [key for key, _, _ in CLASSIFICATION_PAGES]
-        self.assertEqual(list(w.nav_rows)[:2], keys)
-        self.assertEqual(keys, ['report-naming', 'form-naming'])
+        self.assertEqual(list(w.nav_rows)[:len(keys)], keys)
+        self.assertEqual(keys, ['report-naming', 'form-naming', 'motion-naming'])
         self.assertNotIn("classification", w.pages)
         self.assertNotIn("Common guidance", [row.get_title() for row in w.nav_rows.values()])
         chooser_before = list(w._navigation._prompt_keys)
@@ -201,14 +201,15 @@ class UnifiedSettingsTests(unittest.TestCase):
                 self.assertEqual(w._navigation.view.get_visible_page().get_tag(), key)
                 if key.endswith('-naming'):
                     plural = key.removesuffix('-naming') + 's'
-                    detail = 'topic:naming-' + plural + ':' + w.editor.resources['naming'][plural][0]['id']
+                    owner = w.editor.resources['motion_naming' if plural == 'motions' else 'naming']
+                    detail = 'topic:naming-' + plural + ':' + owner[plural][0]['id']
                     w._topic_expanders[detail].set_expanded(True)
                 view = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView))
                 buffer = view.get_buffer()
                 literal = "Synthetic outline guidance: " + key
                 buffer.set_text(literal)
                 if key.endswith("-naming"):
-                    self.assertEqual(w.editor.resources['naming'][plural][0]['guidance'], literal)
+                    self.assertEqual(owner[plural][0]['guidance'], literal)
                 self.assertTrue(w._navigation.view.pop())
                 drain()
                 self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "home")

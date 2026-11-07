@@ -32,7 +32,7 @@ def synthetic_files(application="focus"):
         "required_capabilities": sorted(contract.CAPABILITIES[application]),
         "resources": {name: f"resources/{name}.{suffix}"
                       for name, suffix in contract.RESOURCE_TYPES[application].items()
-                      if name not in {"classification_tasks", "case_name"}},
+                      if name not in {"classification_tasks", "case_name", "motion_naming", "motions"}},
     }
     catalog = [{"id": "material_facts", "title": "Material facts", "guidance": "Attribute material facts."}]
     roles = [{"id": role, "label": role.title(), "guidance": "Use explicit source evidence."}
@@ -57,6 +57,11 @@ def historical_snapshot(profile, version=3):
     files = dict(profile.files)
     manifest = profile.manifest
     manifest["schema_version"] = version
+    if version < 11:
+        for name in ("motion_naming", "motions"):
+            path = manifest["resources"].pop(name, None)
+            if path:
+                files.pop(path)
     synthetic = synthetic_files("recordprep")
     old_manifest = json.loads(synthetic["profile.json"])
     retired = {"minutes"} if version < 10 and "minutes" not in manifest["resources"] else set()
@@ -380,6 +385,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(list(outside.iterdir()), [])
         self.store.config_root.unlink()
         self.store.config_root.mkdir(mode=0o755)
+        self.store.config_root.chmod(0o755)  # Deliberately broad regardless of test umask.
         with self.assertRaises(contract.ProfileError):
             self.store.accept_profile(self.draft(), expected_previous_digest=None)
 

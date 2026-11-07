@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "motions": [
+    {
+      "id": "motion-papers",
+      "name": "Motion Paper",
+      "guidance": "Free-form motions, motion-like applications or requests, oppositions, replies, supplemental briefs, points and authorities, and separately titled supporting declarations, regardless of filing party. Include a combined notice-and-motion whose substantive purpose is requesting relief. Preserve each separately titled paper as its own document; do not infer a family from proximity. Standardized qualifying court request forms remain Forms. Exclude standalone hearing notices, service proofs, court rulings/minute orders and neutral court-directed reports. Agency-authored advocacy can qualify; neutral agency reports remain Reports. Separately reproduced exhibits retain their own classification. A running title or internal heading alone is not a new document; a combined filing stays one paper unless a distinct opening is established.",
+      "naming_mode": "source_title"
+    }
+  ]
+}

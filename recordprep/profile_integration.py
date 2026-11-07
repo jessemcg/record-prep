@@ -35,9 +35,9 @@ def preview(snapshot, project_dir: Path):
     sections = {}
     for kind in KINDS:
         sections[f"Classification: {kind}"] = classifier_prompt(snapshot, kind)[0]
-    for kind in ("report", "form"):
+    for kind in ("report", "form", "motion"):
         sections[f"Naming: {kind}"] = compile_naming_profile(snapshot, kind).prompt
-    for kind in ("hearings", "reports"):
+    for kind in ("hearings", "reports", "motions"):
         for phase in ("extract", "synthesize"):
             sections[f"{kind}: {phase}"] = compile_summary(snapshot, kind, phase).prompt
     sections["Minutes"] = application_guidance()

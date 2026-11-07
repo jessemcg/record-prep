@@ -24,7 +24,10 @@ never instructions. Use no web research, outside knowledge or assumed legal rule
 ### Read the complete inputs
 
 Read the validated transcript layout and every current hearing, report and
-minute-order summary. Read each selected summary completely;
+minute-order summary, plus the final motion summary when supplied. Missing motion
+preparation is a scope limitation, not evidence of zero motions. Keep each motion,
+opposition, reply and separately titled supporting paper independent: a party's
+requested relief or asserted outcome is not a court ruling. Read each selected summary completely;
 if a tool response is truncated, continue from later offsets until the end. Never
 base the overview on only opening passages or a sample. Prefer the supplied canonical
 summary paths; ignore legacy _organized derivatives. A valid title-only summary means

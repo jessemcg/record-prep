@@ -9,8 +9,14 @@ for AI preparation stages.
 
 - Preserve original page text and images in a citation-aware case bundle.
 - Classify pages, organize documents, and map official transcript citations.
-- Identify hearing participants and create hearing, report, and minute-order summaries.
+- Identify hearing participants and create hearing, report, motion-paper, and minute-order summaries.
 - Customize preparation with bundled or personal practice profiles.
+
+## Motions
+
+[Motion-paper preparation and explicit profile adoption](docs/motions-workflow.md)
+cover independent titles/dates, boundaries, summaries and Focus publication. Existing
+bundles/profiles are not migrated; legacy Resume skips unavailable motion preparation.
 
 ## Install
 

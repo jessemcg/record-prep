@@ -10,6 +10,7 @@ INSTRUCTIONS = """Examine the attached page image. Use only visible evidence, pr
 Return only the specified JSON object, without commentary or extra keys."""
 BEST_FIT = "Compare all category descriptions and choose the single best-supported fit."
 FIRST_TASKS = {
+    "first_motion": "Review a page labeled CT_motion in a legal transcript image. Decide whether this is clearly the first page of a distinct motion paper, not a continuation. Check every page independently, including adjacent papers and separately titled oppositions, replies and supporting declarations. Detect starts even without an approved name. Answer yes if clearly the start; otherwise answer no.",
     "first_hearing": "Review a page labeled RT_body in a legal transcript image. Decide whether this is the first page of the hearing for the particular case that is called. Ignore page numbers. If the page shows that hearing starting, answer yes; otherwise answer no.",
     "first_minute": "Review a page labeled CT_minute_order in a legal transcript image. Decide whether this is clearly the first page of the minute order, not a continuation. Answer yes if clearly the start; otherwise answer no.",
     "first_form": "Review a page labeled CT_form in a legal transcript image. Decide whether this is clearly the first page of the form, not a continuation. Answer yes if clearly the start; otherwise answer no.",

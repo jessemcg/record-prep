@@ -54,7 +54,7 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
                 from .structured_guidance import _BASE
                 naming = json.loads((_BASE / "naming.json").read_bytes())
                 editor.resources["naming"] = naming
-                editor.manifest["schema_version"] = 11
+                editor.manifest["schema_version"] = 12
             if naming.get("schema_version") == 3:
                 # Preserve previous prose verbatim, without pretending arbitrary
                 # prose supplies a machine-verifiable list of approved names.

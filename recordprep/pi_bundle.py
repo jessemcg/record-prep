@@ -25,6 +25,7 @@ PI_STEP_IDS = (
     "detect_transcript_layout",
     "infer_case",
     "correct_classification_agent",
+    "organize_motion_papers",
     "number_transcript_pages",
     "build_participant_index",
     "create_case_overview",
@@ -618,6 +619,12 @@ def prepare_bundle_complete(root: Path) -> bool:
 
 
 def validate_pi_step_outputs(step_id: str, root: Path, *, project_dir: Path | None = None) -> list[str]:
+    if step_id == "organize_motion_papers":
+        from .motion_groups import load
+        try:
+            return [] if load(root) is not None else ["Motion grouping is missing."]
+        except (OSError, ValueError):
+            return ["Motion grouping is invalid; prior output preserved."]
     if step_id == "correct_classification_agent":
         from recordprep.classification_review import output_issues
         return output_issues(root)

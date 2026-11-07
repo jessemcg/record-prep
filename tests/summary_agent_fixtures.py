@@ -36,7 +36,9 @@ def synthetic_facts_row(
     if item_id is None:
         item_id = f"{sa.SUMMARY_ITEM_PREFIXES[kind]}:{start:04d}"
     categories: list[dict[str, Any]] = []
-    for definition in sa.summary_category_definitions(kind):
+    # This helper deliberately writes historical row schema 2. Its catalog
+    # must not advance when application-owned motion topics change.
+    for definition in sa.summary_categories.category_contracts(kind):
         entry: dict[str, Any] = {"id": definition.identifier, "digest": None}
         if facts and definition.identifier in facts:
             digest_texts: list[str] = []

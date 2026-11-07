@@ -549,7 +549,7 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result.draft.ref.application, api.APPLICATION)
                     for stage in contract.STAGE_RESOURCES[api.APPLICATION]:
                         compiled = contract.compile_stage_profile(result.draft, stage, core_contract=b"synthetic core")
-                        if stage in ("minutes", "participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
+                        if stage in ("minutes", "motion_extraction", "motion_synthesis", "participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
                             self.assertEqual(compiled.resources, ())
                         else:
                             self.assertTrue(compiled.resources)

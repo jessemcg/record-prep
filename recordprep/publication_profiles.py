@@ -18,7 +18,7 @@ from .transcript_layout import is_ct_only
 
 def provenance(profile, root, project_dir):
     components = {"classification": component(profile, "basic"), "naming": component(profile, "names")}
-    for kind in ("hearings", "reports", *(("motions",) if (root / "artifacts/motion_boundaries.json").is_file() else ())):
+    for kind in ("hearings", "reports"):
         for phase in ("extract", "synthesize"):
             components.update(compile_summary(profile, kind, phase).provenance["components"])
     components["minutes"] = minutes.application_contract(project_dir)["component_sha256"]
@@ -48,7 +48,7 @@ def input_digest(root, profile, project_dir, *, verify_source_bytes):
         "transcript_layout.json", "transcript_page_numbers.json", "transcript_page_number_series.md",
         "hearing_boundaries.json", "report_boundaries.json", "minutes_boundaries.json",
         "toc.txt", "case_overview.md")]
-    for optional in (root / "artifacts/motion_boundaries.json", sa.summary_final_path(root, "motions")):
+    for optional in (root / "artifacts/motion_boundaries.json", root / "artifacts/motion_groups.json", sa.summary_final_path(root, "motions")):
         if optional.exists():
             paths.append(optional)
     paths.extend(sorted((root / "text_pages").glob("*.txt")))

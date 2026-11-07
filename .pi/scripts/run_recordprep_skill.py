@@ -29,6 +29,7 @@ PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
 PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
 CASE_NAME_EXTENSION_NAME = "recordprep-case-name-tools.ts"
 CLASSIFICATION_REVIEW_EXTENSION_NAME = "recordprep-classification-review-tools.ts"
+MOTION_ORGANIZATION_EXTENSION_NAME = "recordprep-motion-organization-tools.ts"
 MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
 MINUTE_STEP_ID = "create_minute_order_summaries"
 
@@ -88,6 +89,7 @@ STAGES = {
     stage.step_id: stage
     for stage in (
         SkillStage("infer_case", "Infer case", "recordprep-infer-case", "read,write,edit"),
+        SkillStage("organize_motion_papers", "Organize motion papers", "recordprep-organize-motion-papers", "read,write,edit"),
         SkillStage("correct_classification_agent", "Correct classification with agent", "recordprep-correct-classification", "read,write,edit"),
         SkillStage(
             "detect_transcript_layout",
@@ -219,7 +221,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
     if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
         issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
-    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME):
+    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME, MOTION_ORGANIZATION_EXTENSION_NAME):
         if not (project_dir / "extensions" / name).is_file():
             issues.append(f"extensions/{name} is missing.")
     for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-participants.md", "profile-overview.md"):
@@ -233,7 +235,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME, MOTION_ORGANIZATION_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -1039,6 +1041,28 @@ def _report_capacity(capacity: Any, phase: str) -> None:
         )
 
 
+def _load_summary_candidate(path: Path, phase: str) -> tuple[dict[str, Any], list[str]]:
+    """Treat absent/malformed model output as advisory, not a stage failure.
+
+    Extraction normalizes an unusable candidate to a flagged empty row while
+    other documents continue; synthesis falls back to saved digest prose.
+    Do not catch execution, Stop, source, or publication failures here.
+    """
+    code = None
+    try:
+        candidate = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        code = f"{phase}_candidate_missing"
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        code = f"{phase}_candidate_malformed"
+    else:
+        if isinstance(candidate, dict):
+            return candidate, []
+        code = f"{phase}_candidate_nonobject"
+    _line(f"\033[33m[warn]\033[0m {code}; continuing with best-effort output.")
+    return {}, [code]
+
+
 def _run_extraction_child(
     root: Path,
     project_dir: Path,
@@ -1120,17 +1144,7 @@ def _run_extraction_child(
                 f"Extraction for {item.item_id} failed (exit code {return_code}); "
                 "the canonical row is unchanged."
             )
-        if not cache_candidate.is_file():
-            raise ValueError(
-                f"Extraction for {item.item_id} produced no candidate; "
-                "the canonical row is unchanged."
-            )
-        try:
-            candidate = json.loads(cache_candidate.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Extraction candidate for {item.item_id} is unreadable: {exc}"
-            ) from exc
+        candidate, _flags = _load_summary_candidate(cache_candidate, "extraction")
         return candidate
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
@@ -1229,14 +1243,7 @@ def _run_synthesis_child(
                 f"Synthesis failed (exit code {return_code}); the prior summary "
                 "is unchanged."
             )
-        if not cache_candidate.is_file():
-            raise ValueError(
-                "Synthesis produced no candidate; the prior summary is unchanged."
-            )
-        try:
-            candidate = json.loads(cache_candidate.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Synthesis candidate is unreadable: {exc}") from exc
+        candidate, candidate_flags = _load_summary_candidate(cache_candidate, "synthesis")
         sections_payload = candidate.get("sections")
         if not isinstance(sections_payload, list):
             # A candidate without a sections list normalizes to an all-fallback
@@ -1244,7 +1251,7 @@ def _run_synthesis_child(
             sections_payload = []
         # Private candidate diagnostics are validated and republished as
         # sanitized counts only (advisory warnings, never failure gates).
-        diagnostics = sa.normalize_synthesis_diagnostics(
+        diagnostics = candidate_flags + sa.normalize_synthesis_diagnostics(
             candidate.get("diagnostics")
         )
         return sections_payload, diagnostics
@@ -1299,7 +1306,7 @@ def _render_and_validate(
             )
     else:
         heading_pages = {
-            str(row.get("item_id")): (int(row.get("start_page") or 0), None)
+            str(row.get("item_id")): (int(row.get("anchor_page") or row.get("start_page") or 0), None)
             for row in rows
         }
     final_text = sa.render_final_summary(
@@ -1356,7 +1363,26 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     from recordprep.boundary_profiles import require_current_boundaries
     require_current_boundaries(root, profile, project_dir, verify_source_bytes=True)
 
+    def motion_guard():
+        if kind != "motions":
+            return None
+        from recordprep.case_name_stage import _read, _sha
+        watched = [sa.summary_final_path(root, kind), sa.summary_final_meta_path(root, kind),
+                   root / "artifacts/motion_groups.json", root / "artifacts/motion_boundaries.json",
+                   root / "case_name.txt", root / "manifest.json"]
+        from recordprep.classification_files import final_paths
+        watched.extend(p for p in final_paths(root) if p.is_file())
+        return {str(p): _sha(_read(p, 32 * 1024 * 1024)) if p.exists() or p.is_symlink() else None for p in watched}
+
+    frozen_motion_guard = motion_guard()
+
     def check_selection():
+        if kind == "motions":
+            if motion_guard() != frozen_motion_guard:
+                raise ValueError("Motion inputs or prior final changed during generation; prior final preserved.")
+            current_config = sa.effective_extraction_config(project_dir, kind, profile=profile)
+            if current_config.fingerprint != extraction_config.fingerprint:
+                raise ValueError("Motion method or model changed during generation; prior final preserved.")
         if read_case_profile_ref(root) != expected_ref:
             raise ValueError("Preparation profile selection changed during the stage; prior final preserved.")
         current_items = sa.build_work_items(root, extraction_config)
@@ -1370,7 +1396,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     settings = _summary_stage_settings(project_dir, kind)
     extraction_config = (sa.effective_extraction_config(project_dir, kind, profile=profile) if profile is not None
                          else _extraction_config(project_dir, kind, settings))
-    if (profile is not None and not sa.validate_summary_agent_outputs(root, kind)
+    if ((profile is not None or kind == "motions") and not sa.validate_summary_agent_outputs(root, kind)
             and not sa.summary_stage_freshness_issues(root, kind, project_dir=project_dir, profile=profile)):
         _line(f"[{kind}] selected profile components and outputs are current; no model calls.")
         return 0
@@ -1544,6 +1570,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         root, kind, rows, sections
                     )
                     quality_flags = [
+                        *coverage_flags,
                         *section_flags,
                         *sa.rendered_narrative_flags(final_text),
                     ]
@@ -1567,7 +1594,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 **({"profile": profile} if profile is not None else {}),
             )
             check_selection()
-            if profile is not None:
+            if profile is not None or kind == "motions":
                 current_extraction = sa.effective_extraction_config(project_dir, kind, profile=profile)
                 current_items = sa.build_work_items(root, current_extraction)
                 if (current_extraction.fingerprint != extraction_config.fingerprint
@@ -1586,11 +1613,15 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 prior_meta.get("final_text_sha256") or ""
             ) != meta["final_text_sha256"]
             with case_profile_publication(root, expected_ref):
-                sa._atomic_write(final_path, final_text)
-                sa._atomic_write(
-                    sa.summary_final_meta_path(root, kind),
-                    json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
-                )
+                if kind == "motions":
+                    check_selection()
+                    sa.publish_motion_final(final_path, sa.summary_final_meta_path(root, kind), final_text, meta)
+                else:
+                    sa._atomic_write(final_path, final_text)
+                    sa._atomic_write(
+                        sa.summary_final_meta_path(root, kind),
+                        json.dumps(meta, ensure_ascii=True, indent=2) + "\n",
+                    )
             # Legacy v1 fact-inventory artifacts are removed only after the
             # digest pipeline published successfully; the retired digest JSONL
             # is removed only once the new Markdown, metadata, and final
@@ -1702,8 +1733,14 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
     return 0
 
 
-def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
+def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organization_locked=False) -> int:
     global _active_process
+
+    if stage.step_id == "organize_motion_papers" and not _organization_locked:
+        from recordprep import motion_organization as organization
+        return organization.run_stage(root, project_dir,
+            lambda: _run_stage(stage, root, project_dir, _organization_locked=True),
+            check_stop=_check_stop, log=_line)
 
     if stage.step_id == "correct_classification_agent":
         review_started_at = time.monotonic()
@@ -1779,7 +1816,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir, "overview"),
                 "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
             native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
-    pi_command = _resolve_pi_command() if stage.step_id in {"infer_case", "correct_classification_agent"} else _pi_command()
+    pi_command = _resolve_pi_command() if stage.step_id in {"infer_case", "correct_classification_agent", "organize_motion_papers"} else _pi_command()
     _check_pi_version(pi_command)
     cache_root = Path(
         os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
@@ -1789,6 +1826,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     workspace = Path(tempfile.mkdtemp(prefix="skill.", dir=workspace_parent))
     try:
         review_guard = None
+        organization_guard = None
+        if stage.step_id == "organize_motion_papers":
+            from recordprep import motion_organization as organization
+            organization_before_staging = organization.capture(root, project_dir)[1]
         if stage.step_id == "correct_classification_agent":
             from recordprep import classification_review as review
             review_before_staging = review.capture(root, project_dir)[2]
@@ -1809,7 +1850,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         (workspace / "tmp").mkdir()
         (workspace / "sessions").mkdir()
         env = os.environ.copy()
-        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC", "RECORDPREP_CLASSIFICATION_REVIEW_ACCESS_SPEC"):
+        for key in ("RECORDPREP_PROFILE_REF", "RECORDPREP_PARTICIPANT_CANDIDATE", "RECORDPREP_APPLICATION_ROOT", "RECORDPREP_NATIVE_ACCESS_SPEC", "RECORDPREP_CASE_NAME_ACCESS_SPEC", "RECORDPREP_CLASSIFICATION_REVIEW_ACCESS_SPEC", "RECORDPREP_MOTION_ORGANIZATION_ACCESS_SPEC"):
             env.pop(key, None)
         if stage.step_id == "build_participant_index":
             # The staged schema-4 helper uses the shared reader even for an
@@ -1820,6 +1861,14 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
         native_extension_args = []
         native_tools = stage.tools
         caption_guard = None
+        if stage.step_id == "organize_motion_papers":
+            organization_guard, organization_ref, candidate_path, access_spec, stage_prompt = organization.stage_inputs(root, project_dir, workspace)
+            if organization_guard != organization_before_staging:
+                raise ValueError("Motion inputs changed during staging; no model work started.")
+            env["RECORDPREP_MOTION_ORGANIZATION_ACCESS_SPEC"] = str(access_spec)
+            guard_extension = staged_pi / "extensions" / organization.EXTENSION
+            shutil.copy2(project_dir / "extensions" / organization.EXTENSION, guard_extension)
+            native_extension_args = ["--extension", str(guard_extension)]
         if stage.step_id == "correct_classification_agent":
             review_guard, review_ref, candidate_path, access_spec, stage_prompt = review.stage_inputs(root, project_dir, workspace)
             if review_guard != review_before_staging:
@@ -1947,6 +1996,8 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             from recordprep.case_profiles import case_profile_publication
             with case_profile_publication(root, profile.ref):
                 pass  # Recheck explicit selection after staging, before paid work.
+        if organization_guard is not None and organization.capture(root, project_dir)[1] != organization_guard:
+            raise ValueError("Motion inputs changed before launch; no model work started.")
         if caption_guard is not None and caption.capture(root, project_dir)[1] != caption_guard:
             raise ValueError("Case or inputs changed before inference; no model work started.")
         if review_guard is not None:
@@ -2059,6 +2110,9 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 preserve_review_attempt()
                 raise
             _line(f"Classification review saved: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Evidence/coverage limitations and retained proposals are advisory: use View review or classification/agent-review.json.")
+        if organization_guard is not None:
+            result = organization.publish(root, project_dir, organization_guard, organization_ref, candidate_path, check_stop=_check_stop)
+            _line(f"Motion organization saved: {len(result['groups'])} entries; coverage {result['coverage_status']}. Use View grouping for advisory findings.")
         if caption_guard is not None:
             def check_caption_stop():
                 if _stopped:

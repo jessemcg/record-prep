@@ -1,5 +1,10 @@
 # Application-owned classification: validation and limits
 
+Historical validation report: the classification-reference menu, window and dedicated
+inspector described below were removed on 2026-11-07. Classification rules and runtime
+behavior are unchanged by that UI removal. See the current
+[ownership and maintenance contract](application-classification.md).
+
 ## Scope and isolation
 
 Validated on the current `home` host, 2026-10-31. This is an implementation and

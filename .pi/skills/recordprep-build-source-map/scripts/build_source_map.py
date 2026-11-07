@@ -521,7 +521,36 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
     case_overview = validated_case_overview_path(root)
     pages, pages_by_number, warnings = build_pages(root, transcript)
     documents = boundary_documents(root, pages_by_number)
+    motion_grouping = None
+    from recordprep.motion_groups import load as load_motion_groups, current_groups
+    saved_groups = load_motion_groups(root)
+    if saved_groups is not None:
+        boundary_path = root / "artifacts/motion_boundaries.json"
+        if not boundary_path.is_file():
+            warnings.append("Motion grouping has no saved physical boundaries; rerun Find boundaries.")
+        else:
+            selected_groups, grouping_warning = current_groups(root, json.loads(boundary_path.read_text(encoding="utf-8")))
+            if grouping_warning:
+                warnings.append(grouping_warning)
+            else:
+                # No model settings, prompts or runtime paths enter reader context.
+                motion_grouping = dict(saved_groups, inputs={})
+                by_member = {member: group for group in selected_groups for member in group["member_paper_ids"]}
+                for document in documents:
+                    group = by_member.get(document["id"])
+                    if group is not None:
+                        document["motion_group_id"] = group["group_id"]
+                        document["motion_entry_title"] = group["display_title"]
+                        document["aliases"] = sorted(set(document["aliases"]) | {group["display_title"], group["group_id"]})
     annotate_pages(pages_by_number, documents, participants)
+    if motion_grouping is not None:
+        for group in motion_grouping["groups"]:
+            for component in group["components"]:
+                for number in range(component["start_page"], component["end_page"] + 1):
+                    if number in pages_by_number:
+                        pages_by_number[number]["motion_entries"] = [{"group_id": group["group_id"],
+                            "display_title": group["display_title"], "anchor_page": group["anchor_page"],
+                            "member_paper_ids": group["member_paper_ids"]}]
     participant_warnings = participants.get("warnings") if isinstance(participants.get("warnings"), list) else []
     warnings.extend(str(item) for item in participant_warnings if str(item).strip())
     if ct_only:
@@ -535,6 +564,7 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
         "hearing_boundaries": "artifacts/hearing_boundaries.json",
         "report_boundaries": "artifacts/report_boundaries.json",
         **({"motion_boundaries": "artifacts/motion_boundaries.json"} if (root / "artifacts/motion_boundaries.json").is_file() else {}),
+        **({"motion_groups": "artifacts/motion_groups.json"} if motion_grouping is not None else {}),
         "minutes_boundaries": "artifacts/minutes_boundaries.json",
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",
@@ -555,19 +585,23 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
             "reports": sum(item["type"] == "report" for item in documents),
             **({"motions": sum(item["type"] == "motion" for item in documents)}
                if (root / "artifacts/motion_boundaries.json").is_file() else {}),
+            **({"motion_entries": len(motion_grouping["groups"])} if motion_grouping is not None else {}),
             "minute_orders": sum(item["type"] == "minute_order" for item in documents),
             "participants": sum(len(item.get("counsel", [])) + len(item.get("participants", [])) + len(item.get("witnesses", [])) for item in participants.get("hearings", []) if isinstance(item, dict)),
             "citation_series": len(citation_series), "citation_anomalies": len(anomalies),
         },
         "citation_series": citation_series, "citation_anomalies": anomalies,
         "participant_index": participants, "pages": pages, "documents": documents,
+        **({"motion_groups": motion_grouping} if motion_grouping is not None else {}),
         "lookup": build_lookup(pages, documents, participants),
         "warnings": sorted(set(warnings)),
     }
     files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
     for key in LEGACY_FILE_KEYS:
         files.pop(key, None)
+    files.pop("motion_groups", None)
     files.update({
+        **({"motion_groups": "artifacts/motion_groups.json"} if motion_grouping is not None else {}),
         "transcript_layout": transcript_layout,
         "transcript_page_numbers": "artifacts/transcript_page_numbers.json",
         "transcript_page_number_series": "artifacts/transcript_page_number_series.md",

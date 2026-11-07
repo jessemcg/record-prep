@@ -23,16 +23,14 @@ descriptions; legacy naming v1–v4 stays supported. These catalogs supply namin
 not structural recognition or start checks. Save/reset and summary behavior are unchanged.
 
 All 15 page-type definitions and four start-task clue sets belong to RecordPrep.
-**App-owned Classification** is a standalone menu action without case/profile/store
-or network requirements, showing the full definitions and eight complete fixed task
-prompts, searchable/selectable/copyable and read-only. It has no draft/template switch.
-RT_body is **Hearing body**, CT_notice is **Hearing notice**, with unchanged JSON keys.
+There is no classification-reference menu action, window or dedicated prompt-inspector
+mode. Classification rules are maintained in application source through the coding
+agent, not end-user settings. The output JSON keys and model prompts are unchanged.
 Standardized hearing notices and separate service proofs are excluded from form-start,
 naming and Forms TOC; qualifying Notice of Appeal forms remain CT_form. Dates are unchanged.
 
 Naming and summary About disclosures still inspect a frozen unsaved draft or template.
-Invalid naming JSON remains literal with an honest warning; it cannot block or alter
-application classification inspection. The [summary delivery audit](summary-skill-delivery.md)
+Invalid naming JSON remains literal with an honest warning. The [summary delivery audit](summary-skill-delivery.md)
 continues to distinguish staged skills from actual launch/expansion, with unchanged
 summary resources and semantics. Missing/stale audits remain visible.
 

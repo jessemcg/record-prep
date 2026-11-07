@@ -1,15 +1,38 @@
 # RecordPrep Agent Notes
 
+## Useful knowledge-work output (current)
+
+Usefulness, not perfection, governs model-authored summaries and reviews. Imperfect
+content/coverage/quote matching and missing or malformed output from an otherwise
+successful summary child are advisory: preserve usable material, use saved digest
+prose for unavailable synthesis, flag unusable extraction honestly, and continue
+other documents. Never add a mandatory paid repair/validation pass or an all-or-nothing
+quality gate. Stop, genuine execution/source failures, changed-input checks, corrupt
+generated stores and unsafe publication remain separate safeguards. The digest codec
+must accept every runner-generated summary kind/ID, including motion headings/quotes;
+do not mistake an application grammar bug for defective model work. See
+`docs/summary-best-effort.md` for the motion regression and behavior.
+
 ## Motions workflow (current)
 
-Read docs/motions-workflow.md. Dependency 1.14.0 uses content schema 11/profile API 1:
-separate motion_naming and motions resources, Motion Names and motion topics.
-Schemas 1–10/naming 1–5 remain readable without mutation or implicit adoption.
-Recognition v2 checks every motion page explicitly; independent papers keep source
-start IDs, actual titles (up to 1,024 characters), filed/document/unknown date basis,
-MOTIONS TOC, optional motion boundaries/finals/editions/overview/map/manifest inputs.
-Missing historical preparation is not zero motions. Resume skips it honestly; badges
-remain presence-based. Both profile_contract.py AND profile_artifacts.py must match
+Read docs/motions-workflow.md. Dependency 1.15.0 uses content schema 12/profile API 1:
+retain motion_naming eligibility; omit motions. Every new motion summary uses fixed
+Request / Reasons, ignoring historical profile/config motion prose. Schemas 1–11/
+naming 1–5 remain readable; explicit Create/Save/Reset only. Recognition v2 preserves
+physical papers, source IDs, actual titles and filed/document/unknown dates.
+Organize motion papers precedes Build TOC, with its own native guard/private candidate,
+lock, unchanged reuse, honest coverage and read-only View grouping. Logical entries
+use the lead ID/anchor and exact member spans, including nonadjacent or preceding
+support. Motion/opposition/reply stay separate; ambiguous support stays singleton.
+Titles identify the request (Motion to compel police records), not the filing party;
+party belongs in metadata/opening narrative. No brevity gate, regex renaming or extra
+paid repair pass. New motion Markdown3/row4/metadata6 retains historical six-topic
+readers, useful imperfect output and digest fallback. Source-map documents/counts
+stay physical; optional grouping/aliases/motion_entries add reader-only context.
+Missing historical grouping uses singleton behavior; Resume skips legacy adoption
+honestly, while fresh pipelines organize. Stale grouping warns; corrupt stores and
+Stop/source/model/race/publication failures preserve prior output. Badges stay
+presence-based. Both profile_contract.py AND profile_artifacts.py must match
 Focus byte-for-byte. No private config/case migration or live provider acceptance.
 Publish compatible Focus before RecordPrep only if separately authorized. This section
 supersedes older current-version, two-topic-page and shared-file statements below.
@@ -140,9 +163,10 @@ as Hearing notice without changing JSON keys. Standardized hearing notices and
 distinct service proofs remain CT_notice/CT_proof_of_service and never enter form
 start/naming/Forms TOC; qualifying Notice of Appeal forms remain CT_form. Titles are
 presentation-only. Strict loading fails before model work, no fallback. Runtime,
-preview, reference and fingerprints share pure builders and frozen contracts.
-Standalone App-owned Classification works without case/profile/storage/network;
-show complete eight fixed prompts without template/draft controls. Naming and hearing/report summary
+preview and fingerprints share pure builders and frozen contracts.
+Classification has no menu link, reference window or dedicated prompt-inspector mode.
+Maintain its application-owned rules through source changes with the coding agent;
+do not restore a read-only end-user classification reference. Naming and hearing/report summary
 topics remain profile-owned; minutes and dates are fixed application methods. Structural work
 including unassigned work uses honest private checkpoints and guarded publication.
 Never delete canonical output to force regeneration; badges/Resume stay presence-based.
@@ -184,7 +208,7 @@ bytes still determine downstream workspaces. Historical classification prose sta
 literal but inactive in accepted snapshots. New drafts omit it; no conversion into
 editable recognition cards. Exact historical adapters remain compatibility-only.
 Document naming has Report Names and Form Names with stable-ID naming cards;
-App-owned Classification supplies read-only definitions and first-page clues. Date extraction is
+Application resources supply fixed definitions and first-page clues. Date extraction is
 entirely application-owned; old date text is byte-preserved but inactive. Best fit
 compares all descriptions, with no precedence, weights or preferred label. Exact
 naming-resource allowlists adapt known baseline prose; unknown custom naming prose
@@ -264,8 +288,8 @@ Its Cancel/Create buttons use a plain action box, never FlowBoxChild hover wrapp
 Delete hides only non-built-in identities using a guarded head/default-CAS tombstone;
 accepted revisions remain intact as historical data. A deleted application selection
 returns to California Juvenile Dependency; old drafts cannot resurrect it. Historical pins never select guidance.
-App-owned Classification is linked only from the hamburger menu, never from the
-classification explainers. Keep About classification's original pipeline explanation
+There is no App-owned Classification menu action, reference window or link from the
+classification explainers. Classification changes belong in source, not end-user settings. Keep About classification's original pipeline explanation
 and progression; do not restore the extra ownership/notice-policy paragraph or the
 "Enter each approved name and optional description once" catalog-entry hint.
 Document naming has no pinned stage/context summary above About classification. Its collapsed disclosure contains the complete explanation followed by the progression line. Both About classification and About summaries expand to their full natural height in the page's ordinary scroll area, pushing editors below them; never put either explanation in its own capped scroller. Hearing/Report digest topics use retained inline expandable topic cards on their catalog page, not third-level editor destinations. Keep stable-ID buffers/undo across reorder and Save, with display-only prose unwrapping that preserves stored guidance until edited. Keep only Report Names/Form Names under Document naming; never restore editable RT/CT/First pages or date destinations. Keep full-width retained editors. Classification is entirely application-owned; no profile common/task recognition

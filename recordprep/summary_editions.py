@@ -388,7 +388,28 @@ MINUTE_SPACING_POLICY = "source-blank-lines-v1"
 MINUTE_LABEL_POLICY = "bold-field-prefixes-v1"
 
 
-def _build_html(source_text: str, *, kind: str = "hearings") -> tuple[str, dict[str, dict[str, Any]]]:
+def _motion_heading_targets(source_path, source_text):
+    """Optional Python-owned heading anchors; canonical text/layout stay unchanged."""
+    try:
+        metadata = json.loads(source_path.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if (not isinstance(metadata, dict) or metadata.get("schema_version") != 6
+            or metadata.get("kind") != "motions" or metadata.get("final_text_sha256") != _sha256_bytes(source_text.encode("utf-8"))):
+        return {}
+    from .profile_artifacts import motion_application_metadata
+    from .summary_agents import motion_heading_targets
+    try:
+        motion_application_metadata(metadata.get("application_metadata"))
+        expected = motion_heading_targets(source_text, metadata["entries"])
+        if metadata.get("heading_targets") != expected:
+            return {}
+        return {int(line): target for line, target in expected.items() if type(target) is int and target > 0}
+    except (ValueError, KeyError, TypeError):
+        return {}
+
+
+def _build_html(source_text: str, *, kind: str = "hearings", heading_targets=None) -> tuple[str, dict[str, dict[str, Any]]]:
     paragraphs: list[str] = []
     registry: dict[str, dict[str, Any]] = {}
     counter = 0
@@ -423,7 +444,10 @@ def _build_html(source_text: str, *, kind: str = "hearings") -> tuple[str, dict[
             bold_close[quote.end] = True
         link_open_at: dict[int, tuple[int, int]] = {}  # start -> (target, end)
         link_close_at: dict[int, bool] = {}
-        for link_start, link_end, target in analysis.links:
+        links = analysis.links
+        if heading_targets and lineno in heading_targets and not links and not analysis.quotes:
+            links = ((0, len(text), heading_targets[lineno]),)
+        for link_start, link_end, target in links:
             link_open_at[link_start] = (target, link_end)
             link_close_at[link_end] = True
 
@@ -921,7 +945,8 @@ def build_summary_edition(
     if source_text is None:
         source_text = source_path.read_text(encoding="utf-8")
 
-    html_body, registry = _build_html(source_text, kind=kind)
+    heading_targets = _motion_heading_targets(source_path, source_text) if kind == "motions" else {}
+    html_body, registry = _build_html(source_text, kind=kind, heading_targets=heading_targets)
     base_pdf_bytes, positions = _render_story_html(html_body)
     document = fitz.open("pdf", base_pdf_bytes)
     try:
@@ -996,6 +1021,7 @@ def build_summary_edition(
         "source": {
             "path": source_rel,
             "sha256": _sha256_bytes(source_text.encode("utf-8")),
+            **({"motion_heading_targets": {str(k): v for k, v in heading_targets.items()}} if heading_targets else {}),
         },
         "pdf": {
             "path": pdf_rel,
@@ -1349,12 +1375,17 @@ def validate_summary_edition_files(
         source_text = source_path.read_text(encoding="utf-8")
     except OSError:
         return ["Source summary text file could not be read."]
-    return validate_edition_payload(
+    issues = validate_edition_payload(
         page_map,
         kind=kind,
         root_dir=root_dir,
         source_text=source_text,
     )
+    if kind == "motions":
+        expected = {str(k): v for k, v in _motion_heading_targets(source_path, source_text).items()}
+        if page_map.get("source", {}).get("motion_heading_targets", {}) != expected:
+            issues.append("Motion heading navigation changed; rebuild the edition.")
+    return issues
 
 
 def summary_edition_is_complete(

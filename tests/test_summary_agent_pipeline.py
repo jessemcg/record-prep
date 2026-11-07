@@ -1026,9 +1026,7 @@ class MarkdownCodecRoundTripTests(unittest.TestCase):
 
     def _row(self, kind: str) -> dict:
         row = synthetic_facts_row(kind, start=7, end=9, ordinal=3)
-        category_id = (
-            "agency_recommendations" if kind == "reports" else "parent_appearances"
-        )
+        category_id = row["categories"][0]["id"]
         row["label"] = (
             "March 3, 2025 - odd (label) #heading *stars* — em\nsecond line"
             if kind == "hearings"
@@ -1064,7 +1062,7 @@ class MarkdownCodecRoundTripTests(unittest.TestCase):
         return row
 
     def test_round_trip_preserves_rows_exactly(self) -> None:
-        for kind in ("hearings", "reports"):
+        for kind in sa.SUMMARY_KINDS:
             with self.subTest(kind=kind):
                 row = self._row(kind)
                 text = sa.serialize_digest_markdown(kind, "SynCase", [row])
@@ -2241,6 +2239,8 @@ raise SystemExit(3)
         for skill in (
             "recordprep-extract-hearing",
             "recordprep-extract-report",
+            "recordprep-extract-motion",
+            "recordprep-synthesize-motions",
             "recordprep-synthesize-hearings",
             "recordprep-synthesize-reports",
         ):

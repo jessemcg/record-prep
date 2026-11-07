@@ -212,7 +212,7 @@ PIPELINE_PHASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "organize",
         "Organize",
-        ("build_toc", "correct_toc", "find_boundaries", "correct_boundaries"),
+        ("organize_motion_papers", "build_toc", "correct_toc", "find_boundaries", "correct_boundaries"),
     ),
     (
         "record_context",
@@ -4062,6 +4062,20 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_classification_agent_row)
 
+        self.step_motion_organization_row = Adw.ActionRow(
+            title="Organize motion papers",
+            subtitle="Group each filing with its own supporting papers and name the request.",
+        )
+        self.step_motion_organization_row.set_activatable(False)
+        grouping_button = Gtk.Button(label="View grouping", valign=Gtk.Align.CENTER)
+        grouping_button.add_css_class("flat")
+        grouping_button.connect("clicked", self._show_motion_grouping)
+        self.step_motion_organization_row.add_suffix(grouping_button)
+        self._attach_step_controls("organize_motion_papers", self.step_motion_organization_row,
+            lambda _btn: self._launch_single_step(self.step_motion_organization_row,
+                self._run_step_motion_organization, "organize_motion_papers"))
+        self._attach_step_status(self.step_motion_organization_row)
+
         self.step_six_row = Adw.ActionRow(
             title="Build TOC",
             subtitle="Compile a table of contents for forms, reports, orders, and hearings.",
@@ -4145,7 +4159,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
         self._attach_step_status(self.step_report_summaries_row)
 
-        self.step_motion_summaries_row = Adw.ActionRow(title="Create motion summaries", subtitle="Summarize each selected motion paper")
+        self.step_motion_summaries_row = Adw.ActionRow(title="Create motion summaries", subtitle="Explain each request and its reasons, including grouped supporting papers")
         self.step_motion_summaries_row.set_activatable(False)
         self._attach_step_controls("create_motion_summaries", self.step_motion_summaries_row,
                             lambda _btn: self.on_create_motion_summaries_clicked(self.step_motion_summaries_row))
@@ -4235,10 +4249,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _setup_menu(self, app: Adw.Application) -> None:
         menu = Gio.Menu()
         menu.append("Model settings", "app.settings")
-        menu.append("App-owned Classification", "app.classification-reference")
-        reference = Gio.SimpleAction.new("classification-reference", None)
-        reference.connect("activate", self._open_classification_reference)
-        app.add_action(reference)
         from recordprep.profile_manager_ui import install_profile_menu
         from recordprep.profile_integration import open_manager
         install_profile_menu(menu, self.menu_button, lambda: open_manager(self, PI_PROJECT_DIR))
@@ -4251,11 +4261,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             save_action = Gio.SimpleAction.new("save-settings", None)
             save_action.connect("activate", self._on_action_save_settings)
             app.add_action(save_action)
-
-    def _open_classification_reference(self, *_args) -> None:
-        from recordprep.classification_reference_ui import ClassificationReference
-        self._classification_reference = ClassificationReference(self)
-        self._classification_reference.present()
 
     def on_settings(self, _action: Gio.SimpleAction, _param: object) -> None:
         if self._settings_window:
@@ -5407,7 +5412,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             raise RuntimeError(
                 f"Classification basic returned an invalid page_type for {filename} "
                 f"after {max_attempts} attempts. {response_error} "
-                "Retry Classification basic; if it persists, check the classifier model and App-owned Classification."
+                "Retry Classification basic; if it persists, check the classifier model in Model settings."
             ) from response_error
         raise RuntimeError(
             f"Classification basic returned blank page_type for {filename} "
@@ -5735,6 +5740,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             ("classify_dates", self.step_dates_row, self._run_step_dates),
             ("classify_names", self.step_names_row, self._run_step_names),
             ("correct_classification_agent", self.step_classification_agent_row, self._run_step_classification_agent),
+            ("organize_motion_papers", self.step_motion_organization_row, self._run_step_motion_organization),
             ("build_toc", self.step_six_row, self._run_step_six),
             ("correct_toc", self.step_correct_toc_row, self._run_step_correct_toc),
             ("find_boundaries", self.step_seven_row, self._run_step_seven),
@@ -5869,7 +5875,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return self._step_artifact_complete(step_id, root_dir, self.selected_pdfs)
         if step_id == "build_participant_index" and is_ct_only(root_dir):
             return True
-        from recordprep.output_presence import step_outputs_present
+        from recordprep.output_presence import step_outputs_present, legacy_organization_skip
+        if step_id == "organize_motion_papers" and legacy_organization_skip(root_dir):
+            self.show_toast("Skipped — existing prepared bundle. Run Organize motion papers explicitly to adopt grouping.")
+            return True
         return step_outputs_present(step_id, root_dir)
 
     def _resume_start_index(self, root_dir: Path, end_step_id: str | None) -> int | None:
@@ -7794,6 +7803,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             from recordprep.boundary_profiles import boundary_inputs, publish_toc
             toc_profile = resolve_case_profile(root_dir)
             toc_expected = boundary_inputs(root_dir, toc_profile, load_classifier_settings())
+            from recordprep.motion_groups import output_fingerprint
+            toc_grouping_sha256 = output_fingerprint(root_dir)
             basic_entries = _load_combined_jsonl_entries(paths)
             modern_reports = report_detection_mode(basic_entries)
             if not basic_entries:
@@ -7846,6 +7857,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     report_lines.append(
                         _format_toc_line(_format_report_label(name_value, report_date), page)
                     )
+            from recordprep.motion_pages import motion_preparation_available
+            if motion_preparation_available(root_dir, basic_entries):
+                from recordprep.motion_groups import current_groups
+                groups, grouping_warning = current_groups(root_dir, build_motion_boundaries(basic_entries, split_page))
+                motion_lines = [_format_toc_line(_format_report_label(g["display_title"], _summary_agents.format_label_date(g["date"])),
+                                               f"{g['anchor_page']:04d}") for g in groups]
+                if grouping_warning:
+                    GLib.idle_add(self.show_toast, grouping_warning)
             minute_order_lines: list[str] = []
             hearing_lines: list[str] = []
             minute_first_types = {
@@ -7894,7 +7913,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "HEARINGS",
                 *hearing_lines,
             ]
-            publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(), "\n".join(toc_lines).rstrip() + "\n")
+            publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(), "\n".join(toc_lines).rstrip() + "\n", grouping_sha256=toc_grouping_sha256)
         except StopRequested:
             success = None
         except Exception as exc:
@@ -8296,6 +8315,46 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "create_report_summaries",
             self.step_report_summaries_row,
         )
+
+    def _run_step_motion_organization(self) -> bool:
+        return self._run_pi_skill_step("organize_motion_papers", self.step_motion_organization_row)
+
+    def _show_motion_grouping(self, _button) -> None:
+        root = self._resolve_case_root()
+        if root is None:
+            self.show_toast("Choose a case bundle first.")
+            return
+        from recordprep.motion_groups import load, review_text
+        try:
+            value = load(root)
+            if value is None:
+                self.show_toast("Run Organize motion papers to create grouping.")
+                return
+            contents = review_text(value)
+            try:
+                from recordprep.motion_organization import selected_inventory
+                from recordprep.motion_groups import source_fingerprint
+                inventory, _ = selected_inventory(root)
+                fingerprint, _ = source_fingerprint(root, inventory)
+                if value["inventory"] != inventory or value["input_sha256"] != fingerprint:
+                    contents = "Saved grouping is stale. Current work uses physical singletons until you explicitly organize again.\n\n" + contents
+            except (OSError, ValueError):
+                contents = "Current inputs could not be verified. Showing the saved grouping without changes.\n\n" + contents
+        except (OSError, ValueError):
+            self.show_toast("Saved grouping is unreadable; it has not been changed.")
+            return
+        window = Adw.Window(title="Motion grouping", transient_for=self, modal=True,
+                            default_width=760, default_height=600)
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        view = Gtk.TextView(editable=False, cursor_visible=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                            left_margin=16, right_margin=16, top_margin=12, bottom_margin=12)
+        view.get_buffer().set_text(contents)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_child(view)
+        toolbar.set_content(scroll)
+        window.set_content(toolbar)
+        window.present()
 
     def _run_step_create_motion_summaries(self) -> bool:
         return self._run_pi_skill_step("create_motion_summaries", self.step_motion_summaries_row)

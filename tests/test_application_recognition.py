@@ -26,8 +26,6 @@ class ResourceTests(unittest.TestCase):
             self.assertEqual(tuple(dict(frozen.descriptions(side))), keys)
             self.assertTrue(all(text.strip() for _, text in frozen.descriptions(side)))
         self.assertEqual(tuple(dict(frozen.first_pages)), tuple(CLASSIFICATION_FIRST_PAGE_TYPES))
-        self.assertEqual(recognition.TITLES['RT_body'], 'Hearing body')
-        self.assertEqual(recognition.TITLES['CT_notice'], 'Hearing notice')
         for task, _ in FIXED_TASKS:
             prompt = classifier_document(task, frozen).render()
             for specialty in ('juvenile', 'dependency', 'CFS 6.7', 'DCFS 4216', 'Detention Report', 'JV-'):
@@ -82,7 +80,7 @@ class ResourceTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'No profile fallback'):
                         recognition.load_recognition(path)
 
-    def test_prompt_content_is_stage_local_and_display_titles_are_not_inputs(self):
+    def test_prompt_content_is_stage_local(self):
         original = recognition.load_recognition()
         stages = ('basic','advanced','dates','names')
         baseline = {stage: component(bundle(),stage,contract=original) for stage in stages}
@@ -95,8 +93,6 @@ class ResourceTests(unittest.TestCase):
             changed = replace(original, first_pages=tuple((k,v+' Synthetic clue.' if k==task else v) for k,v in original.first_pages))
             for stage in stages:
                 self.assertEqual(component(bundle(),stage,contract=changed) != baseline[stage], stage == 'advanced')
-        with patch.dict(recognition.TITLES, {'RT_body':'Cosmetic title'}):
-            self.assertEqual(component(bundle(),'basic'),baseline['basic'])
         self.assertEqual(component(None,'dates'),component(bundle(),'dates'))
 
     def test_inspection_and_preview_do_not_depend_on_profile_or_valid_naming_draft(self):
@@ -126,7 +122,7 @@ class ResourceTests(unittest.TestCase):
                 ref=editor.managed_save(store,expected_head=old.ref.content_sha256,expected_default=None,
                     validate=lambda snapshot:classifier_document('ct'),can_modify=lambda:True)
                 saved=store.load_profile_snapshot(ref)
-                self.assertEqual(saved.manifest['schema_version'],11)
+                self.assertEqual(saved.manifest['schema_version'],12)
                 self.assertEqual(saved.manifest['profile_api'],1)
                 self.assertNotIn('classification_tasks',saved.manifest['resources'])
                 self.assertEqual(saved.resource('naming'),old.resource('naming'))
@@ -135,7 +131,7 @@ class ResourceTests(unittest.TestCase):
                 for path,content in before.items():
                     if 'snapshots' in path.parts:self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),content)
                 created=ProfileEditor.create(old,'Fictional neutral practice').snapshot()
-                self.assertEqual(created.manifest['schema_version'],11)
+                self.assertEqual(created.manifest['schema_version'],12)
                 self.assertEqual(created.resource('naming'),old.resource('naming'))
 
     def test_retired_configuration_is_inert_and_ordinary_saves_do_not_create_keys(self):

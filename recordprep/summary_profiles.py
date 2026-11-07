@@ -282,15 +282,8 @@ class SummaryProfile:
 def summary_core(kind: str, phase: str) -> str:
     """Pure byte-preserving method selection for runtime and draft inspection."""
     if kind == "motions" and phase in ("extract", "synthesize"):
-        method = ("MOTION PAPERS — Attribute assertions to their author. Distinguish allegations, argument, "
-                  "requested relief and actual rulings. Describe authorities only as presented in the paper, "
-                  "without outside research or invented holdings. Preserve contrary evidence, concessions, "
-                  "qualifications and limitations. Each separately titled paper has its own section; "
-                  "explain only supported relationships without merging entries or moving a later response "
-                  "or ruling into an earlier paper. Use focused prose; no word quotas, extra review passes "
-                  "or blocking editorial gates.\n")
-        return CORE + method + (EXTRACTION.replace("HEARING OR REPORT", "MOTION PAPER").replace("hearing or report", "motion paper")
-                               if phase == "extract" else SYNTHESIS.replace("hearings or", "motions or").replace("reports", "motion papers").replace("hearing or report", "motion paper") + QUOTE_CASE_GUIDANCE)
+        from .motion_guidance import application_guidance
+        return application_guidance(phase)
     if kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary kind or phase.")
     return CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
@@ -303,7 +296,11 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
     stage = {"hearings": "hearing", "reports": "report", "motions": "motion"}[kind] + ("_extraction" if phase == "extract" else "_synthesis")
     core = summary_core(kind, phase)
     from .profile_contract import json_bytes
-    defaults = (("motions", json_bytes(summary_topics(snapshot, kind))),) if kind == "motions" and "motions" not in snapshot.manifest["resources"] else ()
+    if kind == "motions":
+        from .motion_guidance import application_fingerprint
+        return SummaryProfile(core, application_fingerprint(phase), {},
+                              tuple((e["id"], e["title"], e["guidance"]) for e in summary_topics(snapshot, kind)))
+    defaults = ()
     compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8") + (json_bytes(summary_topics(snapshot, kind)) if defaults else b""))
     prompt = summary_guidance(core, compiled.resources + defaults)
     provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
@@ -312,7 +309,7 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
 
 
 def summary_topics(snapshot, kind):
-    if kind == "motions" and "motions" not in snapshot.manifest["resources"]:
+    if kind == "motions":
         from .motion_guidance import MOTION_TOPICS
         from copy import deepcopy
         return deepcopy(MOTION_TOPICS)
@@ -330,6 +327,8 @@ def summary_guidance(core, resources):
 def draft_summary_guidance(catalog, kind, phase):
     """Literal incomplete drafts may be inspected without validating unrelated fields."""
     from .profile_contract import json_bytes
+    if kind == "motions":
+        return summary_core(kind, phase)
     return summary_guidance(summary_core(kind, phase), ((kind, json_bytes(catalog)),))
 
 
@@ -353,6 +352,9 @@ def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:
 
 
 def extraction_metadata(snapshot: ProfileSnapshot, kind: str) -> dict:
+    if kind == "motions":
+        from .motion_guidance import application_metadata
+        return application_metadata()
     contract = compile_summary(snapshot, kind, "extract")
     catalog = ([{"id": e["id"], "title": e["title"]} for e in summary_topics(snapshot, kind)]
                if kind == "motions" else category_descriptor(snapshot, kind))

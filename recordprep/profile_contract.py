@@ -54,8 +54,8 @@ STAGE_RESOURCES = {
         "hearing_synthesis": ("hearings",),
         "report_synthesis": ("reports",),
         "motion_naming": ("motion_naming",),
-        "motion_extraction": ("motions",),
-        "motion_synthesis": ("motions",),
+        "motion_extraction": (),  # Application-owned, including historical profiles.
+        "motion_synthesis": (),
         "minutes": (),  # Fixed application method for every supported content schema.
         "overview": (),  # Orientation method is fixed; summaries are runtime inputs.
     },
@@ -427,7 +427,7 @@ def _manifest(data: bytes, application: str) -> dict:
     _require(type(value["profile_api"]) is int and value["profile_api"] == 1,
              "unsupported_version", "profile_api")
     _require(type(value["schema_version"]) is int and value["schema_version"] in
-             ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
+             ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) if application == "recordprep" else (1,)), "unsupported_version", "schema_version")
     _require(value["application"] == application, "wrong_application", "application")
     _identifier(value["specialty_id"], "specialty_id")
     _text(value["display_name"], "display_name", 160)
@@ -461,6 +461,8 @@ def _manifest(data: bytes, application: str) -> dict:
             types.pop("classification_tasks")
         if value["schema_version"] >= 10:
             types.pop("minutes")
+        if value["schema_version"] >= 12:
+            types.pop("motions")
     resources = _object(value["resources"], set(types), "resources")
     paths = set()
     for name, suffix in types.items():

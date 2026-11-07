@@ -47,8 +47,8 @@ SUMMARY_FACTS_META_SCHEMA_VERSION = 4
 # Metadata schemas recognized as readable. Schema 3 predates dependency
 # fingerprints: its artifacts remain structurally valid but their freshness
 # is unproven, so they show as regeneration-pending instead of current.
-READABLE_FACTS_META_SCHEMA_VERSIONS = (3, 4, 5)
-READABLE_FINAL_META_SCHEMA_VERSIONS = (3, 4, 5)
+READABLE_FACTS_META_SCHEMA_VERSIONS = (3, 4, 5, 6)
+READABLE_FINAL_META_SCHEMA_VERSIONS = (3, 4, 5, 6)
 # Version of the metadata dependency-fingerprint contract itself.
 METADATA_DEPENDENCY_SCHEMA_VERSION = 1
 SUMMARY_FACTS_ARTIFACT = "recordprep-summary-digest"
@@ -145,6 +145,9 @@ def summary_category_definitions(
     kind: str, *, reload: bool = False
 ) -> tuple[CategoryDefinition, ...]:
     """Code-owned category identities with resource-loaded guidance prose."""
+    if kind == "motions":
+        from .motion_guidance import application_catalog
+        return tuple(CategoryDefinition(t["id"], t["title"], t["guidance"]) for t in application_catalog())
     contracts = summary_categories.category_contracts(kind)
     descriptions = _category_descriptions(kind, reload=reload)
     return tuple(
@@ -1063,6 +1066,8 @@ def resolve_phase_guidance(
     """
     immutable = default_guidance(kind, phase)
     raw = str(stored_prompt or "")
+    if kind == "motions":
+        return GuidanceResolution(kind, phase, raw, "default", immutable, "")
     text = raw.strip()
     if not text or text == immutable:
         return GuidanceResolution(kind, phase, raw, "default", immutable, "")
@@ -1258,6 +1263,31 @@ class SummaryWorkItem:
     participant_context: str = ""
     profile: ProfileSnapshot | None = None
     date_basis: str = "unknown"
+    members: tuple[dict, ...] = ()
+    anchor_page: int = 0
+    group_metadata: dict | None = None
+
+
+def item_source_pages(item):
+    """Exact selected pages in physical order, never an enclosing gap range."""
+    if getattr(item, "members", ()):
+        return tuple(sorted(number for member in item.members
+                            for number in range(member["start_page"], member["end_page"] + 1)))
+    return tuple(range(item.start_page, item.end_page + 1))
+
+
+def _item_page_text_map(text_dir, item):
+    if getattr(item, "kind", "") == "motions":
+        from .case_name_stage import _read
+        return {number: _read(text_dir / f"{number:04d}.txt", 16 * 1024 * 1024).decode("utf-8")
+                for number in item_source_pages(item)}
+    return {number: _page_text_map(text_dir, number, number)[number] for number in item_source_pages(item)}
+
+
+def _source_ranges_text(row):
+    if row.get("schema_version") == 4:
+        return ", ".join(f"{m['start_page']}-{m['end_page']}" for m in row["members"])
+    return f"{int(row['start_page'])}-{int(row['end_page'])}"
 
 
 def _load_boundary_entries(root: Path, kind: str) -> list[dict[str, Any]]:
@@ -1267,7 +1297,13 @@ def _load_boundary_entries(root: Path, kind: str) -> list[dict[str, Any]]:
         / f"{SUMMARY_KIND_LABELS[kind]}_boundaries.json"
     )
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        if kind == "motions":
+            from .case_name_stage import _read
+            if not path.exists() and not path.is_symlink():
+                raise FileNotFoundError(path)
+            payload = json.loads(_read(path, 16 * 1024 * 1024).decode("utf-8"))
+        else:
+            payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError(f"Run Find boundaries first: {path} is missing.") from exc
     except (OSError, json.JSONDecodeError) as exc:
@@ -1523,6 +1559,10 @@ class ExtractionConfig:
     runtime_contract_sha256: str = ""
 
     def __post_init__(self):
+        if self.kind == "motions":
+            from .motion_guidance import application_guidance
+            object.__setattr__(self, "guidance", application_guidance("extract"))
+            object.__setattr__(self, "additional_guidance", "")
         if self.profile is not None:
             # One validated contract per frozen configuration, never a global
             # cache of settings/drafts. Unassigned category loading stays live.
@@ -1545,7 +1585,7 @@ class ExtractionConfig:
             "kind": self.kind,
             "categories": [definition.identifier for definition in self.definitions],
             **({"profile_component": self._profile_component}
-               if self.profile is not None else {}),
+               if self.profile is not None and self.kind != "motions" else {}),
             "runtime_contract_sha256": self.runtime_contract_sha256,
             "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
             # The effective per-category guidance text is part of the
@@ -1611,14 +1651,16 @@ def item_fingerprint_payload(
         }
     )
     if item.kind == "motions":
-        payload["motion_date_basis"] = item.date_basis
+        from .motion_guidance import APPLICATION_CONTRACT
+        payload.update(motion_date_basis=item.date_basis, application_contract=APPLICATION_CONTRACT,
+                       members=list(item.members), anchor_page=item.anchor_page, group_metadata=item.group_metadata)
     if item.participant_context:
         payload["participant_context_sha256"] = sha256_text(
             item.participant_context
         )
     citation_labels = [
         citation_map.get(number, f"file page {number}")
-        for number in range(item.start_page, item.end_page + 1)
+        for number in item_source_pages(item)
     ]
     payload["citation_labels_sha256"] = sha256_json(citation_labels)
     return payload
@@ -1630,7 +1672,7 @@ def build_work_items(
 ) -> list[SummaryWorkItem]:
     """Build ordered, boundary-validated complete-document work items."""
     metadata = load_digest_meta(root, config.kind)
-    if metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
+    if config.kind != "motions" and metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
         raise ValueError("Profile-era summaries require explicit profile-aware generation; prior output preserved.")
     kind = config.kind
     if kind not in SUMMARY_KINDS:
@@ -1641,6 +1683,24 @@ def build_work_items(
         raise ValueError("Run Create files to generate text pages first.")
     prefix = SUMMARY_ITEM_PREFIXES[kind]
     entries = _load_boundary_entries(root, kind)
+    motion_inventory = {}
+    if kind == "motions":
+        from .motion_groups import current_groups, inventory_from_boundaries
+        motion_inventory = {p["paper_id"]: p for p in inventory_from_boundaries(entries)}
+        from bisect import bisect_left, bisect_right
+        available = sorted({int(path.stem) for path in text_dir.glob("*.txt") if path.stem.isdigit()})
+        for paper in motion_inventory.values():
+            start, end = paper["start_page"], paper["end_page"]
+            if bisect_right(available, end) - bisect_left(available, start) != end - start + 1:
+                raise ValueError("Selected motion source pages are missing; prior output preserved.")
+        entries, grouping_warning = current_groups(root, entries)
+        if grouping_warning:
+            import warnings
+            warnings.warn(grouping_warning, stacklevel=2)
+        entries = [dict(g, start_page=min(c["start_page"] for c in g["components"]),
+                        end_page=max(c["end_page"] for c in g["components"]),
+                        motion_name=g["display_title"], motion_date=g["date"], motion_date_basis=g["date_basis"])
+                   for g in entries]
     participant_by_range: dict[tuple[int, int], dict[str, Any]] = {}
     if kind == "hearings":
         if is_ct_only(root):
@@ -1690,7 +1750,9 @@ def build_work_items(
                 f"{SUMMARY_KIND_LABELS[kind].title()} boundary {ordinal} is missing "
                 "or has an invalid page range."
             )
-        item_id = f"{prefix}:{start:04d}"
+        item_id = entry["group_id"] if kind == "motions" else f"{prefix}:{start:04d}"
+        member_pages = ({n for c in entry["components"] for n in range(c["start_page"], c["end_page"] + 1)}
+                        if kind == "motions" else set(range(start, end + 1)))
         if item_id in seen_item_ids:
             raise ValueError(
                 f"{SUMMARY_KIND_LABELS[kind].title()} boundary {ordinal} repeats "
@@ -1702,7 +1764,7 @@ def build_work_items(
             (
                 prior
                 for prior in items
-                if start <= prior.end_page and prior.start_page <= end
+                if member_pages.intersection(item_source_pages(prior))
             ),
             None,
         )
@@ -1723,6 +1785,10 @@ def build_work_items(
             label="",
             profile=config.profile,
         )
+        if kind == "motions":
+            item.anchor_page = entry["anchor_page"]
+            item.members = tuple(dict(motion_inventory[c["paper_id"]], role=c["role"]) for c in entry["components"])
+            item.group_metadata = {k: entry[k] for k in ("filing_role", "filing_party", "purpose", "date", "date_basis", "relationship_to", "relationship_notes")}
         if kind == "hearings":
             participant = participant_by_range.get((start, end))
             if participant is None:
@@ -1753,8 +1819,9 @@ def build_work_items(
                 item.label = f"{display_date} - {name}"
             else:
                 item.label = name or display_date or f"Report {ordinal}"
-        page_text = _page_text_map(text_dir, start, end)
-        item.input_sha256 = _item_input_sha256(page_text, start, end)
+        page_text = _item_page_text_map(text_dir, item)
+        item.input_sha256 = (sha256_json([[n, page_text[n]] for n in item_source_pages(item)]) if kind == "motions"
+                             else _item_input_sha256(page_text, start, end))
         item.generation_sha256 = sha256_json(
             item_fingerprint_payload(item, config, citation_map)
         )
@@ -1768,7 +1835,8 @@ def item_source_payload(
     citation_by_page: dict[int, str],
 ) -> str:
     """Render the document's complete source pages for the extraction agent."""
-    page_text = _page_text_map(text_dir, item.start_page, item.end_page)
+    page_text = _item_page_text_map(text_dir, item)
+    members = getattr(item, "members", ())
     sections: list[str] = []
     if item.participant_context:
         sections.extend([
@@ -1777,10 +1845,14 @@ def item_source_payload(
             "",
         ])
     sections.append(
-        f"COMPLETE SOURCE PAGES {item.start_page:04d}-{item.end_page:04d} — READ "
+        "COMPLETE SOURCE PAGES " + (", ".join(f"{m['start_page']:04d}-{m['end_page']:04d}" for m in members)
+                                    if members else f"{item.start_page:04d}-{item.end_page:04d}") + " — READ "
         "EVERY PAGE; RETAIN THE MATERIAL INFORMATION NEEDED FOR CASE ORIENTATION"
     )
-    for number in range(item.start_page, item.end_page + 1):
+    for number in item_source_pages(item):
+        if members:
+            member = next(m for m in members if m["start_page"] <= number <= m["end_page"])
+            sections.append("COMPONENT " + json.dumps(member, ensure_ascii=True))
         citation = citation_by_page.get(number, "")
         sections.append(f"[{citation or f'file page {number}'} | source page {number:04d}]")
         text = page_text[number]
@@ -1810,6 +1882,7 @@ def build_work_spec(
         "start_page": item.start_page,
         "end_page": item.end_page,
         "source": source,
+        **({"members": list(item.members), "anchor_page": item.anchor_page} if item.kind == "motions" else {}),
         "candidate_path": str(candidate_path),
         "guidance": config.guidance,
         "additional_guidance": config.additional_guidance,
@@ -1955,11 +2028,12 @@ def canonicalize_extraction_candidate(
     never exclude source pages or discard a category digest.
     """
     kind = item.kind
-    profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None else None
-    expected_ids = ([e["id"] for e in profile_metadata["category_catalog"]] if profile_metadata is not None
+    profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None and kind != "motions" else None
+    expected_ids = (["request", "reasons"] if kind == "motions" else
+                    [e["id"] for e in profile_metadata["category_catalog"]] if profile_metadata is not None
                     else list(SUMMARY_CATEGORY_IDS[kind]))
     flags: list[str] = []
-    page_text = _page_text_map(text_dir, item.start_page, item.end_page)
+    page_text = _item_page_text_map(text_dir, item)
 
     submitted: list[Any] = []
     if isinstance(candidate, dict) and isinstance(candidate.get("categories"), list):
@@ -2043,7 +2117,7 @@ def canonicalize_extraction_candidate(
                     file_page = int(quote.get("file_page") or 0)
                 except (TypeError, ValueError):
                     file_page = 0
-                if not quote_text or not item.start_page <= file_page <= item.end_page:
+                if not quote_text or file_page not in page_text:
                     discarded_evidence_count += 1
                     continue
                 eligible_page_text = page_text[file_page]
@@ -2110,6 +2184,15 @@ def canonicalize_extraction_candidate(
     }
     if profile_metadata is not None:
         row.update(schema_version=3, profile_metadata=profile_metadata)
+    if kind == "motions":
+        from .motion_guidance import application_metadata
+        row.update(schema_version=4, application_metadata=application_metadata(),
+                   anchor_page=item.anchor_page or int(item.item_id.split(":")[1]), members=list(item.members) or [
+                       {"paper_id": item.item_id, "start_page": item.start_page, "end_page": item.end_page,
+                        "source_title": item.label, "date": "", "date_basis": item.date_basis, "naming_rule_id": "", "role": "lead"}],
+                   group_metadata=item.group_metadata or {
+                       "filing_role": "unresolved supporting paper", "filing_party": "", "purpose": "", "date": "",
+                       "date_basis": item.date_basis, "relationship_to": "", "relationship_notes": "Unlinked physical singleton."})
     # Canonical quote ids are assigned now that category order is fixed.
     for category in row["categories"]:
         digest = category["digest"]
@@ -2174,6 +2257,48 @@ def _atomic_write(path: Path, text: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def publish_motion_final(final_path, meta_path, final_text, metadata):
+    """Stage both files before replacement; ordinary second-write failure rolls back.
+
+    A machine crash is still detected by the canonical hash agreement checks; this
+    is not a claim of a two-file atomic filesystem transaction.
+    """
+    import tempfile
+    from .case_name_stage import _read
+    from .profile_store import _check_directory
+    _check_directory(final_path.parent)
+    with tempfile.TemporaryDirectory(prefix=".motion-publication-", dir=final_path.parent) as directory:
+        pending = Path(directory)
+        paths = (final_path, meta_path)
+        old = []
+        for index, path in enumerate(paths):
+            if path.exists() or path.is_symlink():
+                data = _read(path, 32 * 1024 * 1024)
+                info = path.stat()
+                backup = pending / f"prior-{index}"
+                backup.write_bytes(data)
+                os.chmod(backup, info.st_mode & 0o777)
+                os.utime(backup, ns=(info.st_atime_ns, info.st_mtime_ns))
+                old.append(backup)
+            else:
+                old.append(None)
+        candidates = (pending / "final", pending / "meta")
+        _atomic_write(candidates[0], final_text)
+        _atomic_write(candidates[1], json.dumps(metadata, ensure_ascii=True, indent=2) + "\n")
+        replaced = []
+        try:
+            for index, (candidate, destination) in enumerate(zip(candidates, paths)):
+                os.replace(candidate, destination)
+                replaced.append(index)
+        except BaseException:
+            for index in reversed(replaced):
+                if old[index] is None:
+                    paths[index].unlink(missing_ok=True)
+                else:
+                    os.replace(old[index], paths[index])
+            raise
+
+
 # --- Markdown codec ---
 
 # Escaped in all content, labels, and quote text so source text cannot create
@@ -2217,8 +2342,14 @@ _ROW_COMMENT_PATTERN = re.compile(
 _QUOTE_COMMENT_PATTERN = re.compile(
     r"^<!-- " + re.escape(_DIGEST_QUOTE_COMMENT) + r" (?P<payload>.*?) -->$"
 )
+# Keep the generated-store grammar aligned with the runner-owned item kinds.
+# A new summary kind must not generate IDs that its own codec then rejects.
+_SUMMARY_ITEM_ID_PATTERN = (
+    r"(?:" + "|".join(re.escape(prefix) for prefix in SUMMARY_ITEM_PREFIXES.values())
+    + r"):\d{4,}"
+)
 _ROW_HEADING_PATTERN = re.compile(
-    r"^## (?P<label>.*) \((?P<item_id>(?:hearing|report):\d{4})\)$"
+    r"^## (?P<label>.*) \((?P<item_id>" + _SUMMARY_ITEM_ID_PATTERN + r")\)$"
 )
 _SOURCE_PAGES_PATTERN = re.compile(r"^Source pages: (?P<start>\d+)-(?P<end>\d+)$")
 _QUOTE_LINE_PATTERN = re.compile(
@@ -2227,7 +2358,9 @@ _QUOTE_LINE_PATTERN = re.compile(
 )
 # Canonical Python-generated quote ids appear raw in Markdown so synthesis
 # placeholders keep matching them exactly.
-_QUOTE_ID_PATTERN = re.compile(r"^(?:hearing|report):\d{4}/[a-z][a-z0-9_-]{0,95}/\d+$")
+_QUOTE_ID_PATTERN = re.compile(
+    r"^" + _SUMMARY_ITEM_ID_PATTERN + r"/[a-z][a-z0-9_-]{0,95}/\d+$"
+)
 
 
 def _escape_markdown_text(text: str) -> str:
@@ -2305,22 +2438,65 @@ def _row_metadata_payload(row: dict[str, Any]) -> dict[str, Any]:
         "input_sha256": str(row.get("input_sha256")),
         "generation_sha256": str(row.get("generation_sha256")),
         "quality_flags": list(row.get("quality_flags") or []),
+        **({k: row[k] for k in ("application_metadata", "members", "anchor_page", "group_metadata")}
+           if row.get("schema_version") == 4 else {}),
     }
 
 
 class DigestRows(list):
     """A parsed document retains metadata even when it has zero rows."""
 
-    def __init__(self, rows=(), *, profile_metadata=None):
+    def __init__(self, rows=(), *, profile_metadata=None, application_metadata=None):
         super().__init__(rows)
         self.profile_metadata = profile_metadata
+        self.application_metadata = application_metadata
+
+
+def _validate_motion_row_members(row):
+    from .motion_groups import inventory_from_boundaries
+    members = row.get("members")
+    if not isinstance(members, list) or not members or not isinstance(row.get("group_metadata"), dict):
+        raise ValueError("Invalid motion row members.")
+    metadata = row["group_metadata"]
+    fields = {"filing_role", "filing_party", "purpose", "date", "date_basis", "relationship_to", "relationship_notes"}
+    if (set(metadata) != fields or any(not isinstance(v, str) or len(v) > 1024 or not all(c.isprintable() for c in v) for v in metadata.values())
+            or metadata["filing_role"] not in {"motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"}
+            or metadata["date_basis"] not in {"filed", "document", "unknown"}
+            or (metadata["relationship_to"] and re.fullmatch(r"motion:\d{4,}", metadata["relationship_to"]) is None)):
+        raise ValueError("Invalid instruction-free motion row metadata.")
+    boundaries = []
+    for member in members:
+        if not isinstance(member, dict) or set(member) != {"paper_id", "start_page", "end_page", "source_title", "date", "date_basis", "naming_rule_id", "role"}:
+            raise ValueError("Invalid motion row component.")
+        if (any(type(member[k]) is not int for k in ("start_page", "end_page"))
+                or any(not isinstance(member[k], str) or len(member[k]) > (160 if k == "role" else 1024)
+                       or not all(c.isprintable() for c in member[k]) for k in ("source_title", "date", "date_basis", "naming_rule_id", "role"))):
+            raise ValueError("Invalid motion row component values.")
+        boundaries.append(dict(start_page=member["start_page"], end_page=member["end_page"], motion_name=member["source_title"], motion_date=member["date"], motion_date_basis=member["date_basis"]))
+        if member["paper_id"] != f"motion:{int(member['start_page']):04d}":
+            raise ValueError("Invalid motion member identity.")
+    inventory_from_boundaries(boundaries)
+    if (any(type(row.get(k)) is not int for k in ("anchor_page", "start_page", "end_page"))
+            or row.get("anchor_page") not in [m["start_page"] for m in members]
+            or row.get("item_id") != f"motion:{row['anchor_page']:04d}"
+            or row.get("start_page") != min(m["start_page"] for m in members)
+            or row.get("end_page") != max(m["end_page"] for m in members)
+            or members != sorted(members, key=lambda m: m["start_page"])):
+        raise ValueError("Invalid motion anchor/ranges.")
 
 
 def _row_category_contracts(row: dict[str, Any]):
     kind = row.get("kind")
     version = row.get("schema_version")
-    if type(version) is not int or version not in (2, 3):
+    if type(version) is not int or version not in (2, 3, 4):
         raise ValueError("Unsupported digest row schema version.")
+    if version == 4:
+        from .profile_artifacts import motion_application_metadata
+        if kind != "motions" or "profile_metadata" in row:
+            raise ValueError("Application motion row has invalid ownership.")
+        metadata = motion_application_metadata(row.get("application_metadata"))
+        _validate_motion_row_members(row)
+        return tuple(summary_categories.CategoryContract(e["id"], e["title"]) for e in metadata["category_catalog"])
     if version == 2:
         if "profile_metadata" in row:
             raise ValueError("Legacy digest rows cannot carry profile metadata.")
@@ -2353,7 +2529,7 @@ def _render_row_lines(row: dict[str, Any], *, include_metadata: bool) -> list[st
             "",
         ])
     lines.extend([
-        f"Source pages: {int(row['start_page'])}-{int(row['end_page'])}",
+        "Source pages: " + _source_ranges_text(row),
         "",
     ])
     categories = row.get("categories")
@@ -2428,6 +2604,7 @@ def serialize_digest_markdown(
     rows: Sequence[dict[str, Any]],
     *,
     profile_metadata: dict | None = None,
+    application_metadata: dict | None = None,
 ) -> str:
     """Serialize canonical rows into the versioned Markdown digest document.
 
@@ -2436,6 +2613,13 @@ def serialize_digest_markdown(
     """
     if kind not in SUMMARY_KINDS:
         raise ValueError(f"Unknown summary kind: {kind}")
+    application_metadata = (application_metadata or getattr(rows, "application_metadata", None)
+                            or (rows[0].get("application_metadata") if rows else None))
+    if application_metadata is not None:
+        from .profile_artifacts import motion_application_metadata
+        if kind != "motions" or profile_metadata is not None:
+            raise ValueError("Invalid application motion document ownership.")
+        motion_application_metadata(application_metadata)
     if profile_metadata is None:
         profile_metadata = getattr(rows, "profile_metadata", None)
     if profile_metadata is None and rows:
@@ -2444,14 +2628,16 @@ def serialize_digest_markdown(
         profile_metadata = digest_profile_metadata(profile_metadata, kind)
     for row in rows:
         _row_category_contracts(row)
-        if row.get("profile_metadata") != profile_metadata:
-            raise ValueError("Digest rows cannot mix profile revisions or category catalogs.")
+        if row.get("profile_metadata") != profile_metadata or row.get("application_metadata") != application_metadata:
+            raise ValueError("Digest rows cannot mix ownership contracts or category catalogs.")
     document_payload = {
         "artifact": SUMMARY_DIGEST_MARKDOWN_ARTIFACT,
-        "format_version": 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "format_version": 3 if application_metadata is not None else 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "kind": kind,
         "case_stem": str(case_stem),
     }
+    if application_metadata is not None:
+        document_payload["application_metadata"] = application_metadata
     if profile_metadata is not None:
         document_payload["profile_metadata"] = profile_metadata
     lines = [
@@ -2545,7 +2731,7 @@ def parse_digest_markdown(
     if header.get("artifact") != SUMMARY_DIGEST_MARKDOWN_ARTIFACT:
         raise ValueError(f"line {cursor}: unsupported digest document artifact; {preserved}")
     format_version = header.get("format_version")
-    if type(format_version) is not int or format_version not in (1, 2):
+    if type(format_version) is not int or format_version not in (1, 2, 3):
         raise ValueError(
             f"line {cursor}: unsupported digest Markdown format version; {preserved}"
         )
@@ -2558,15 +2744,24 @@ def parse_digest_markdown(
     _take_blank_or_eof()
 
     profile_metadata = None
+    application_metadata = None
     definitions = summary_categories.CATEGORY_CONTRACTS[kind]
+    if format_version == 3:
+        from .profile_artifacts import motion_application_metadata
+        if kind != "motions" or "profile_metadata" in header:
+            raise ValueError("Invalid application motion digest document.")
+        application_metadata = motion_application_metadata(header.get("application_metadata"))
+        definitions = tuple(summary_categories.CategoryContract(e["id"], e["title"]) for e in application_metadata["category_catalog"])
     if format_version == 2:
         profile_metadata = digest_profile_metadata(header.get("profile_metadata"), kind)
         definitions = tuple(summary_categories.CategoryContract(e["id"], e["title"])
                             for e in profile_metadata["category_catalog"])
     elif "profile_metadata" in header:
         raise ValueError("Legacy digest documents cannot carry profile metadata.")
-    row_version = 3 if format_version == 2 else SUMMARY_FACTS_SCHEMA_VERSION
-    rows: list[dict[str, Any]] = DigestRows(profile_metadata=profile_metadata)
+    if format_version != 3 and "application_metadata" in header:
+        raise ValueError("Historical digests cannot carry an application motion contract.")
+    row_version = 4 if format_version == 3 else 3 if format_version == 2 else SUMMARY_FACTS_SCHEMA_VERSION
+    rows: list[dict[str, Any]] = DigestRows(profile_metadata=profile_metadata, application_metadata=application_metadata)
     seen_item_ids: set[str] = set()
     while cursor < len(lines):
         heading_line = cursor + 1
@@ -2605,9 +2800,14 @@ def parse_digest_markdown(
                 f"line {cursor}: document label disagrees with its heading; {preserved}"
             )
         _take_blank()
-        pages = _take_pattern(_SOURCE_PAGES_PATTERN, "a source-page range")
-        start_page = int(pages.group("start"))
-        end_page = int(pages.group("end"))
+        if row_version == 4:
+            _validate_motion_row_members(row_meta)
+            _take("Source pages: " + _source_ranges_text(row_meta), "exact member source ranges")
+            start_page, end_page = row_meta["start_page"], row_meta["end_page"]
+        else:
+            pages = _take_pattern(_SOURCE_PAGES_PATTERN, "a source-page range")
+            start_page = int(pages.group("start"))
+            end_page = int(pages.group("end"))
         try:
             meta_start = int(row_meta.get("start_page"))
             meta_end = int(row_meta.get("end_page"))
@@ -2744,6 +2944,11 @@ def parse_digest_markdown(
         }
         if profile_metadata is not None:
             row["profile_metadata"] = digest_profile_metadata(profile_metadata, kind)
+        if row_version == 4:
+            row.update({k: row_meta[k] for k in ("members", "anchor_page", "group_metadata")})
+            row["application_metadata"] = application_metadata
+            if row_meta.get("application_metadata") != application_metadata:
+                raise ValueError("Motion row contract disagrees with document.")
         issues = validate_digest_row(row, kind)
         if issues:
             raise ValueError(
@@ -2885,6 +3090,9 @@ def validate_digest_row(row: dict[str, Any], kind: str | None = None) -> list[st
                     f"category {category_id}: evidence has unexpected or missing keys"
                 )
                 continue
+            if row.get("schema_version") == 4 and not (type(quote.get("file_page")) is int and any(
+                    member["start_page"] <= quote["file_page"] <= member["end_page"] for member in row["members"])):
+                issues.append("Motion evidence page is outside exact member spans.")
             if not str(quote.get("quote_id") or "").startswith(item_id + "/"):
                 issues.append(
                     f"category {category_id}: evidence quote_id must belong to "
@@ -3036,10 +3244,13 @@ def build_digest_meta(
             rows_by_id=rows_by_id,
         )
     )
-    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None else None
+    from .motion_guidance import application_metadata
+    application = application_metadata() if kind == "motions" else None
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind != "motions" else None
     return {
         "artifact": SUMMARY_FACTS_META_ARTIFACT,
-        "schema_version": 5 if profile_metadata is not None else SUMMARY_FACTS_META_SCHEMA_VERSION,
+        "schema_version": 6 if application is not None else 5 if profile_metadata is not None else SUMMARY_FACTS_META_SCHEMA_VERSION,
+        **({"application_metadata": application, "entries": [_row_metadata_payload(row) for row in rows]} if application is not None else {}),
         **({"profile_metadata": profile_metadata} if profile_metadata is not None else {}),
         "kind": kind,
         "expected_item_ids": expected_ids,
@@ -3065,9 +3276,9 @@ def build_digest_meta(
         "extraction_config_sha256": config.fingerprint,
         "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
         "digest_markdown_sha256": digest_markdown_sha256(
-            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
+            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata, application_metadata=application)
         ),
-        "markdown_format_version": 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "markdown_format_version": 3 if application is not None else 2 if profile_metadata is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "quality_flags": {
             str(row.get("item_id")): list(row.get("quality_flags") or [])
             for row in rows
@@ -3116,8 +3327,16 @@ def publish_digests(
     is always written before its derived metadata sidecar.
     """
     existing = load_digest_meta(root, kind)
-    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None else None
-    if profile_metadata is None and (getattr(rows, "profile_metadata", None) is not None
+    from .motion_guidance import application_metadata
+    application = application_metadata() if kind == "motions" else None
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind != "motions" else None
+    if kind == "motions":
+        expected = {item.item_id: item for item in items}
+        rows = DigestRows([row for row in rows if row.get("schema_version") == 4
+                           and row.get("item_id") in expected
+                           and row.get("generation_sha256") == expected[row["item_id"]].generation_sha256],
+                          application_metadata=application)
+    if profile_metadata is None and kind != "motions" and (getattr(rows, "profile_metadata", None) is not None
             or any(row.get("schema_version") == 3 for row in rows)
             or (existing is not None and existing.get("schema_version") == 5)):
         raise ValueError("Profile-era digests require a profile-aware publisher; prior output preserved.")
@@ -3139,12 +3358,16 @@ def publish_digests(
     markdown_path = summary_digest_path(root, kind)
     meta_path = summary_digest_meta_path(root, kind)
     # Serialize once; the metadata sidecar reuses the exact bytes and hash.
-    markdown_text = serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
-    _atomic_write(markdown_path, markdown_text)
+    markdown_text = serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata, application_metadata=application)
     meta = build_digest_meta(
         root, kind, items, config, rows, markdown_text=markdown_text
     )
-    _atomic_write(meta_path, json.dumps(meta, ensure_ascii=True, indent=2) + "\n")
+    if kind == "motions":
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        publish_motion_final(markdown_path, meta_path, markdown_text, meta)
+    else:
+        _atomic_write(markdown_path, markdown_text)
+        _atomic_write(meta_path, json.dumps(meta, ensure_ascii=True, indent=2) + "\n")
     return meta
 
 
@@ -3533,9 +3756,16 @@ def normalize_synthesis_sections(
         if item_id not in rows_by_id:
             flags.append(f"unknown_section_ignored:{item_id or 'unlabeled'}")
             continue
-        paragraphs = [
-            str(value) for value in entry.get("paragraphs", []) if isinstance(value, str)
-        ]
+        raw_paragraphs = entry.get("paragraphs", [])
+        if isinstance(raw_paragraphs, str):
+            # Preserve usable prose submitted as one string, not one character
+            # per paragraph. A malformed field never cancels other documents.
+            raw_paragraphs = [raw_paragraphs]
+            flags.append(f"paragraph_string_kept:{item_id}")
+        elif not isinstance(raw_paragraphs, list):
+            raw_paragraphs = []
+            flags.append(f"malformed_paragraphs_fallback:{item_id}")
+        paragraphs = [value for value in raw_paragraphs if isinstance(value, str)]
         # The last submission for an item wins, matching the replace-by-id
         # contract of the submission tool.
         submitted[item_id] = paragraphs
@@ -3708,6 +3938,22 @@ def render_final_summary(
 # --- Final metadata ---
 
 
+def motion_heading_targets(final_text, rows):
+    """Exact generated heading lines; ambiguous prose matches get no guessed link."""
+    lines = final_text.splitlines()
+    labels = [str(row["label"]) for row in rows]
+    positions = {label: [i + 1 for i, line in enumerate(lines) if line == label] for label in set(labels)}
+    used, targets = {}, {}
+    for row in rows:
+        label = str(row["label"])
+        if len(positions[label]) != labels.count(label):
+            continue
+        index = used.get(label, 0)
+        targets[str(positions[label][index])] = int(row.get("anchor_page") or row["start_page"])
+        used[label] = index + 1
+    return targets
+
+
 def build_final_meta(
     root: Path,
     kind: str,
@@ -3718,17 +3964,20 @@ def build_final_meta(
     quality_flags: Sequence[str] | None = None,
     *, profile: ProfileSnapshot | None = None,
 ) -> dict[str, Any]:
-    profile_metadata = extraction_metadata(profile, kind) if profile is not None else None
+    from .motion_guidance import application_metadata
+    application = application_metadata() if kind == "motions" else None
+    profile_metadata = extraction_metadata(profile, kind) if profile is not None and kind != "motions" else None
     meta: dict[str, Any] = {
         "artifact": SUMMARY_FINAL_META_ARTIFACT,
-        "schema_version": 5 if profile is not None else SUMMARY_FINAL_META_SCHEMA_VERSION,
-        **({"profile_provenance": compile_summary(profile, kind, "synthesize").provenance} if profile is not None else {}),
+        "schema_version": 6 if application is not None else 5 if profile is not None else SUMMARY_FINAL_META_SCHEMA_VERSION,
+        **({"application_metadata": application, "entries": [_row_metadata_payload(row) for row in rows]} if application is not None else {}),
+        **({"profile_provenance": compile_summary(profile, kind, "synthesize").provenance} if profile is not None and kind != "motions" else {}),
         "kind": kind,
         "item_ids": [str(row.get("item_id")) for row in rows],
         "digest_markdown_sha256": digest_markdown_sha256(
-            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata)
+            serialize_digest_markdown(kind, summary_case_stem(root), rows, profile_metadata=profile_metadata, application_metadata=application)
         ),
-        "markdown_format_version": 2 if profile is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "markdown_format_version": 3 if application is not None else 2 if profile is not None else SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "synthesis_config_sha256": sha256_json(synthesis_config),
         "synthesis_model": {
             "provider": synthesis_config.get("provider", ""),
@@ -3738,6 +3987,7 @@ def build_final_meta(
         "fingerprint_version": METADATA_DEPENDENCY_SCHEMA_VERSION,
         "renderer_version": summary_renderer_version(kind),
         "final_text_sha256": sha256_text(final_text),
+        **({"heading_targets": motion_heading_targets(final_text, rows)} if kind == "motions" else {}),
         "heading_boundary_hashes": {
             item_id: sha256_json({"label_page": primary, "secondary_page": secondary})
             for item_id, (primary, secondary) in heading_pages.items()
@@ -3774,6 +4024,20 @@ def validate_final_meta(
         )
     if meta.get("kind") != kind:
         issues.append(f"the {kind} summary metadata kind is invalid.")
+    if meta.get("schema_version") == 6:
+        try:
+            from .profile_artifacts import motion_application_metadata
+            motion_application_metadata(meta.get("application_metadata"))
+            if kind != "motions" or meta.get("markdown_format_version") != 3 or not isinstance(meta.get("entries"), list):
+                raise ValueError("Invalid motion metadata.")
+            if ([entry.get("item_id") for entry in meta["entries"]] != meta.get("item_ids")
+                    or len(set(meta.get("item_ids", []))) != len(meta.get("item_ids", []))
+                    or meta.get("heading_targets") != motion_heading_targets(final_text, meta["entries"])):
+                raise ValueError("Inconsistent motion entry metadata.")
+            for entry in meta["entries"]:
+                _validate_motion_row_members(entry)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            issues.append("Invalid application-owned motion metadata.")
     if meta.get("schema_version") == 5:
         if meta.get("markdown_format_version") != 2:
             issues.append(f"the {kind} profile summary must reference Markdown format 2.")
@@ -3843,7 +4107,12 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
                 f"{list(READABLE_FACTS_META_SCHEMA_VERSIONS)}."
             )
         document_metadata = getattr(rows, "profile_metadata", None)
-        expected_format = 2 if document_metadata is not None else 1
+        application = getattr(rows, "application_metadata", None)
+        expected_format = 3 if application is not None else 2 if document_metadata is not None else 1
+        if (meta.get("schema_version") == 6) != (application is not None):
+            issues.append("Motion metadata ownership disagrees with digest document.")
+        if application is not None and (meta.get("application_metadata") != application or meta.get("entries") != [_row_metadata_payload(row) for row in rows]):
+            issues.append("Motion metadata entries disagree with digest document.")
         if (meta.get("schema_version") == 5) != (document_metadata is not None):
             issues.append(f"the {kind} digest metadata schema disagrees with its document.")
         if meta.get("schema_version") == 5:
@@ -3872,6 +4141,8 @@ def validate_summary_agent_outputs(root: Path, kind: str) -> list[str]:
         if final_meta is not None and ((final_meta.get("schema_version") == 5) !=
                                        (getattr(rows, "profile_metadata", None) is not None)):
             issues.append(f"the {kind} final metadata schema disagrees with its digest.")
+        if final_meta is not None and final_meta.get("schema_version") == 6 and final_meta.get("entries") != [_row_metadata_payload(row) for row in rows]:
+            issues.append("Motion final metadata entries disagree with digest document.")
         if final_meta is not None and str(
             final_meta.get("digest_markdown_sha256") or ""
         ) != markdown_hash:
@@ -3915,8 +4186,8 @@ def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
         "synthesize_provider": "",
         "synthesize_model": "",
         "synthesize_thinking": "",
-        "extract_prompt": raw_value(f"summarize_{kind}_prompt"),
-        "synthesize_prompt": raw_value(f"summarize_{kind}_synthesis_prompt"),
+        "extract_prompt": "" if kind == "motions" else raw_value(f"summarize_{kind}_prompt"),
+        "synthesize_prompt": "" if kind == "motions" else raw_value(f"summarize_{kind}_synthesis_prompt"),
     }
 
 
@@ -3979,7 +4250,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "reports": "recordprep-synthesize-reports",
         "motions": "recordprep-synthesize-motions",
     }
-    compiled = compile_summary(profile, kind, "synthesize") if profile is not None else None
+    compiled = compile_summary(profile, kind, "synthesize") if profile is not None and kind != "motions" else None
     return {
         "kind": kind,
         "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + (
@@ -3996,7 +4267,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
             (project_dir / "resources/profile-summary-synthesize.md") if profile is not None and kind == "hearings" else
             (project_dir / "skills" / skill_names[kind] / "SKILL.md")
         ),
-        **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None else {}),
+        **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None or kind == "motions" else {}),
         "extension_sha256": _resource_sha256(
             project_dir / "extensions" / "recordprep-summary-tools.ts"
         ),
@@ -4041,14 +4312,14 @@ def summary_stage_freshness_issues(
             profile = resolve_case_profile(root)
         except (ValueError, OSError):
             return [f"the {label} selected profile snapshot is unavailable or invalid; new work is blocked."]
-    if profile is not None:
+    if profile is not None and kind != "motions":
         from .boundary_profiles import require_current_boundaries
         try:
             require_current_boundaries(root, profile, project_dir)
         except (ValueError, OSError) as exc:
             return [str(exc)]
     # Legacy generation cannot establish freshness for profile-era output.
-    if profile is None and any(meta is not None and meta.get("schema_version") == 5
+    if kind != "motions" and profile is None and any(meta is not None and meta.get("schema_version") == 5
            for meta in (load_digest_meta(root, kind), load_final_meta(root, kind))):
         return [f"the {label} profile-dependent freshness requires explicit profile-aware generation."]
 
@@ -4147,6 +4418,8 @@ def _freshness_signature(root: Path, kind: str, project_dir: Path) -> tuple:
         summary_final_path(root, kind),
         summary_final_meta_path(root, kind),
     ]
+    if kind == "motions":
+        watched.append(root / "artifacts/motion_groups.json")
     if kind == "hearings":
         watched.append(root / "artifacts" / "participant_index.json")
         # A layout decision change (for example to or from CT-only) alters

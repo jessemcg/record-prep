@@ -26,8 +26,9 @@ class PromptSDKTests(unittest.TestCase):
                 skill_name=parts[1][0].split(': ',1)[1]
                 skill=root/skill_name/'SKILL.md';skill.parent.mkdir();skill.write_text(parts[1][1])
                 phase='minutes' if task=='minutes' else task.split('-')[1]
-                extension={'extract':'recordprep-summary-tools.ts','synthesize':'recordprep-summary-synthesis-tools.ts','minutes':'recordprep-profile-minute-tools.ts'}[phase]
-                plan={'system':parts[0][1],'skill':str(skill),'extension':str(ROOT/'.pi/extensions'/extension),'tools':list(TOOLS[phase]),'launch':parts[2][1]}
+                extension={'extract':'recordprep-summary-tools.ts','synthesize':'recordprep-summary-synthesis-tools.ts','minutes':'recordprep-profile-minute-tools.ts', 'organization':'recordprep-motion-organization-tools.ts'}[phase]
+                tools = ['read', 'write', 'edit'] if phase == 'organization' else list(TOOLS[phase])
+                plan={'system':parts[0][1],'skill':str(skill),'extension':str(ROOT/'.pi/extensions'/extension),'tools':tools,'launch':parts[2][1]}
                 path=root/'plan.json';path.write_text(json.dumps(plan));capture=root/'capture.json'
                 env=os.environ.copy()
                 for name in ('HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_STATE_HOME','XDG_CACHE_HOME','TMPDIR'):
@@ -48,5 +49,8 @@ class PromptSDKTests(unittest.TestCase):
                 self.assertTrue(message.endswith(parts[2][1].split(' ',1)[1].strip()))
                 self.assertEqual(inspection.issues,())
                 actual={t['name']:{'name':t['name'],'description':t['description'],'parameters':t['parameters']} for t in system['toolsAdded']}
-                expected={t['name']:t for t in json.loads(parts[3][1])}
-                self.assertEqual(actual,expected)
+                if phase == 'organization':
+                    self.assertEqual(set(actual), {'read', 'write', 'edit'})
+                else:
+                    expected={t['name']:t for t in json.loads(parts[3][1])}
+                    self.assertEqual(actual,expected)

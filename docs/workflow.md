@@ -40,10 +40,8 @@ literal compatibility editor. Only accepted nonempty names produce form/report/m
 entries and standalone report/motion summary work. Source pages/classifications remain intact.
 
 Structural classification is fixed application behavior, not an editable profile
-setting. **App-owned Classification** in the hamburger menu works without a case
-or available profile storage. It explains the five RT types, ten CT types and five
-start detectors and offers all nine complete fixed prompts. RT_body is displayed
-as **Hearing body** and CT_notice as **Hearing notice**. A standardized hearing notice
+setting. There is no classification-reference menu item or window; changes to these
+rules are made in application source through the coding agent. A standardized hearing notice
 stays CT_notice; a distinct service proof stays CT_proof_of_service. Neither enters
 form-start detection, naming or Forms TOC. A qualifying Notice of Appeal remains
 CT_form. Dates retain their fixed extraction rules. See
@@ -54,7 +52,7 @@ Names reads only marked starts. All starts terminate earlier report ranges, and
 report-gap filling is not used. Hearing labels are dates, not separately extracted
 names. Applying changed classification rules to saved classifications requires an
 explicit Basic run and the desired downstream stages, with new image-model work.
-Opening the reference, saving a profile or Resume never reclassifies existing pages
+Saving a profile or Resume never reclassifies existing pages
 or cleans historical names/TOCs. Existing outputs stay as saved.
 
 Participant identification and caption inference also use fixed neutral methods,

@@ -5,28 +5,25 @@ This is the current contract (Dependency **1.14.0**, content schema **11**, unch
 [structured classification](structured-classification.md), older settings reports
 and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
 
-## Ownership and reference
+## Ownership and maintenance
 
-**App-owned Classification** opens only from the hamburger menu and works without
-a case, selected profile, working profile store, model discovery or network.
-It contains the full five RT definitions, ten CT definitions and five first-page
-clue sets, with readable titles beside unchanged output keys. **View full prompts…**
-shows the complete nine fixed task prompts: RT, CT, hearing/minute/form/report/motion
-starts, and hearing/minute dates. It has search, selectable wrapped read-only text,
-Copy and Close; fixed prompts have no template/current-draft switch. The page image
-is a separate request attachment, not text added to the system prompt. Escape closes
-the reference and prompt inspector. Opening/copying never saves or runs a model.
+Classification is application-owned, with no hamburger-menu link, reference window
+or dedicated classification prompt-inspector mode. Maintain definitions, first-page
+clues and fixed date rules through source changes with the coding agent, not through
+end-user settings. The page image remains a separate request attachment, not text
+added to the system prompt. This UI removal does not change classification prompts,
+fingerprints, validation, saved output or Resume, and requires no regeneration.
 
 Profile settings has only **Document naming** (Report Names, Form Names and Motion Names)
-and **Summaries** (hearing/report/motion digest topics). Minute instructions remain
-application-owned, available only in full-prompt inspection. See [Motions](motions-workflow.md). Naming and summary
+and **Summaries** (hearing/report digest topics). Motion and minute instructions remain
+application-owned, available in the existing summary full-prompt inspection. See [Motions](motions-workflow.md). Naming and summary
 inspection still freezes the unsaved draft and offers its existing template/draft
-views. Invalid naming does not affect application reference inspection. Save, kept
+views. Save, kept
 buffers/undo/selection, guarded revision publication, unsaved-close choices and the
 confirmed Reset and Save boundary are retained. Reset affects profile settings,
 not application definitions, model settings or case output. About classification
 retains the pipeline explanation and progression, without the extra ownership/policy
-paragraph, repeated catalog-entry hint or a link to App-owned Classification.
+paragraph, repeated catalog-entry hint or a classification-reference link.
 
 ## Purpose, not a checklist
 
@@ -138,7 +135,7 @@ and all existing artifact formats remain unchanged.
 Badges and Resume remain **output-presence based**. Existing classifications and
 TOCs remain as saved. To adopt the new definitions for an existing bundle, the user
 must explicitly run Basic and the desired downstream stages; this incurs new image
-model work. Merely opening the reference, selecting/saving a profile, updating the
+model work. Merely selecting/saving a profile, updating the
 application, or resuming does not reclassify, remove historical named forms or
 rebuild a TOC. No automatic regeneration or saved-output cleanup is performed.
 

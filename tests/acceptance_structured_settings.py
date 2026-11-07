@@ -1,6 +1,6 @@
 """Current schema-10 GTK acceptance, synthetic store, no network or real settings.
 
-Run from a disposable source/HOME/XDG. --interactive leaves the reference and
+Run from a disposable source/HOME/XDG. --interactive leaves the menu and
 settings available for native desktop checks. --screenshots PATH captures only
 these authored/public resources; style/font overrides are process-local.
 """
@@ -14,10 +14,6 @@ from gi.repository import Adw, Gtk, GLib
 from recordprep import practice_profiles as api
 from recordprep.profile_editor_ui import ProfileEditorWindow, editable_profile
 from recordprep.profile_integration import preview
-from recordprep.classification_reference_ui import ClassificationReference
-from recordprep.classifier_prompts import classifier_document
-from recordprep.prompt_inspection import FIXED_TASKS
-from recordprep.prompt_inspector_ui import PromptInspector
 from recordprep.ui.main_window import RecordPrepWindow
 
 root=Path(tempfile.mkdtemp(prefix='recordprep-neutral-ui.'))
@@ -43,17 +39,18 @@ def run(*_):
     parent=Adw.ApplicationWindow(application=app,title='Synthetic RecordPrep — no case')
     parent.menu_button=Gtk.MenuButton(icon_name='open-menu-symbolic')
     parent.set_content(parent.menu_button)
-    parent._open_classification_reference=lambda *args:RecordPrepWindow._open_classification_reference(parent,*args)
     parent.on_settings=lambda *_:None
     parent._on_action_save_settings=lambda *_:None
-    # Exercise the production main-menu action, even with unavailable profile storage.
+    # The production menu has no fixed-classification reference, even without storage.
     with patch.object(api,'profile_store',side_effect=ValueError('Synthetic unavailable storage')):
         RecordPrepWindow._setup_menu(parent,app)
-        app.lookup_action('classification-reference').activate(None)
-    reference=parent._classification_reference
-    assert len(reference.cards)==19
-    assert reference.get_title()=='App-owned Classification'
-    windows.extend((parent,reference))
+    assert app.lookup_action('classification-reference') is None
+    menu=parent.menu_button.get_popover().get_menu_model()
+    assert menu.get_n_items()==2  # profile controls and Model settings
+    assert menu.get_item_attribute_value(1,'label',None).get_string()=='Model settings'
+    assert menu.get_item_attribute_value(1,'action',None).get_string()=='app.settings'
+    assert not hasattr(parent,'_classification_reference')
+    windows.append(parent)
     store=api.ProfileStore('recordprep',config_root=root/'config',data_root=root/'data')
     with patch('recordprep.profile_customization.initial_candidate',return_value=None):
         candidates=list(api.profile_catalog(store=store))
@@ -67,7 +64,7 @@ def run(*_):
         w.present();return
     def check():
         assert list(w.nav_groups)==['Document naming','Summaries']
-        assert list(w.nav_rows)==['report-naming','form-naming','hearings-topics','reports-topics']
+        assert list(w.nav_rows)==['report-naming','form-naming','motion-naming','hearings-topics','reports-topics']
         assert not w._recognition_cards and 'classification_tasks' not in w.editor.resources
         assert not hasattr(w,'_classification_reference')
         for key in ('report-naming','form-naming'):
@@ -78,32 +75,6 @@ def run(*_):
             assert not any(isinstance(x,Gtk.Button) and x.get_label() in
                            ('Classification reference…','App-owned Classification') for x in widgets)
         assert not store.registry_path.exists()
-        reference.search.set_text('CT_proof_of_service');reference._find()
-        assert reference.cards['CT_proof_of_service'][0].get_visible()
-        reference.search.set_text('');reference._find()
-        reference._prompts();inspector=reference.prompt_inspector
-        assert inspector.tasks==FIXED_TASKS and len(inspector.tasks)==8
-        assert inspector.recognition is reference.contract
-        for index,(task,_) in enumerate(inspector.tasks):
-            inspector.selector.set_selected(index);inspector._refresh()
-            assert not inspector.mode.get_visible() and not inspector.mode_note.get_visible()
-            assert inspector.text.get_editable() is False
-            assert classifier_document(task).render() in inspector.text.get_buffer().get_text(*inspector.text.get_buffer().get_bounds(),True)
-            assert not inspector.status.get_text()
-        with patch('recordprep.recognition_contract.RESOURCE',root/'missing-recognition.json'):
-            inspector._refresh()
-            assert not inspector.status.get_label()
-            broken=PromptInspector(reference,'Application classification')
-            assert 'No profile fallback' in broken.status.get_label()
-            assert broken.text.get_buffer().get_text(*broken.text.get_buffer().get_bounds(),True).strip()=='{}'
-            broken.destroy()
-        inspector.selector.set_selected(0);inspector.search.set_text('RT_body');inspector._find()
-        textbuffer=inspector.text.get_buffer()
-        assert textbuffer.get_text(*textbuffer.get_selection_bounds(),True)=='RT_body'
-        clipboard=Mock()
-        with patch.object(type(inspector),'get_clipboard',return_value=clipboard):inspector._copy()
-        clipboard.set.assert_called_once_with(textbuffer.get_text(*textbuffer.get_bounds(),True))
-        inspector.destroy()
         reports=w.editor.resources['naming']['reports']
         assert len(reports)==1 and reports[0]['id']=='report-agency'
         assert reports[0]['name']=='Child Welfare Agency Report'
@@ -143,11 +114,6 @@ def run(*_):
                 assert 'Memoranda, letters, addenda, supplemental information' in text
             current.destroy()
         ref=w.editor.base.ref;value['name']='';assert not w._save();assert w.editor.base.ref==ref
-        # Invalid naming cannot contaminate standalone fixed inspection.
-        app.lookup_action('classification-reference').activate(None)
-        other=parent._classification_reference;other._prompts()
-        assert not other.prompt_inspector.status.get_text()
-        other.prompt_inspector.destroy();other.destroy()
         mode.set_selected(0)
         w._reset().response('reset')
         assert mode.get_selected() == 1
@@ -158,32 +124,22 @@ def run(*_):
             for window in windows:window.destroy()
             app.quit();return GLib.SOURCE_REMOVE
         destination=Path(sys.argv[sys.argv.index('--screenshots')+1]);destination.mkdir(parents=True,exist_ok=False)
-        steps=[('reference-light',reference,None,850,760,False,11),
-               ('reference-narrow',reference,None,480,760,False,11),
-               ('reference-dark',reference,None,480,760,True,11),
-               ('reference-large-font',reference,None,480,760,False,18),
-               ('naming-home',w,'home',850,760,False,11),
+        steps=[('naming-home',w,'home',850,760,False,11),
                ('report-names',w,'report-naming',480,760,False,11),
                ('report-names-about',w,'report-naming',480,1000,False,11),
                ('report-agency',w,'report-naming',700,1000,False,11),
                ('report-prompts',w,'report-prompts',700,760,False,11),
                ('form-names',w,'form-naming',480,760,False,11),
-               ('summary-topics',w,'hearings-topics',850,760,False,11),
-               ('fixed-prompts',reference,'prompts',700,760,False,11)]
+               ('summary-topics',w,'hearings-topics',850,760,False,11)]
         def next_step():
             if not steps:
                 for window in windows:window.destroy()
                 app.quit();return GLib.SOURCE_REMOVE
             name,target,page,width,height,dark,font=steps.pop(0)
-            fresh_reference = target is reference and page is None
-            if fresh_reference:
-                target=ClassificationReference(parent)
-            else:
-                target.set_visible(False)
+            target.set_visible(False)
             Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK if dark else Adw.ColorScheme.FORCE_LIGHT)
             Gtk.Settings.get_default().set_property('gtk-font-name',f'Sans {font}')
             if page=='home':w._navigation.view.pop_to_tag('home');w.nav_groups['Document naming'].set_expanded(True)
-            elif page=='prompts':reference._prompts();target=reference.prompt_inspector
             elif page=='report-prompts':
                 w._inspect_prompts('Document naming');target=w.prompt_inspector
                 target.mode.set_selected(1);target.selector.set_selected(0);target._refresh()
@@ -206,7 +162,7 @@ def run(*_):
                 if node is None:raise RuntimeError('No rendered GTK frame; visual acceptance incomplete.')
                 target.get_renderer().render_texture(node,None).save_to_png(str(destination/(name+'.png')))
                 print(name,target.get_width(),target.get_height(),flush=True)
-                if page in ('prompts','report-prompts') or fresh_reference:target.destroy()
+                if page=='report-prompts':target.destroy()
                 schedule(350,next_step);return GLib.SOURCE_REMOVE
             schedule(500,capture);return GLib.SOURCE_REMOVE
         schedule(350,next_step);return GLib.SOURCE_REMOVE

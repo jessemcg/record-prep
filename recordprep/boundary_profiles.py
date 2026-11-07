@@ -88,10 +88,13 @@ def require_current_boundaries(root, profile, project_dir, *, verify_source_byte
     return
 
 
-def publish_toc(root, profile, expected_inputs, settings, text):
+def publish_toc(root, profile, expected_inputs, settings, text, *, grouping_sha256=None):
     if profile is not None and (read_case_profile_ref(root) != profile.ref or boundary_inputs(root, profile, settings) != expected_inputs):
         raise ValueError("Preparation selection or classifier inputs changed; prior TOC preserved.")
     with case_profile_publication(root, profile.ref if profile is not None else None):
+        from .motion_groups import output_fingerprint
+        if grouping_sha256 is not None and output_fingerprint(root) != grouping_sha256:
+            raise ValueError("Motion grouping changed; prior TOC preserved.")
         _atomic_write(root / "artifacts/toc.txt", text)
         if profile is not None:
             metadata = {"schema_version": 1, "profile_ref": asdict(profile.ref), "inputs": expected_inputs,

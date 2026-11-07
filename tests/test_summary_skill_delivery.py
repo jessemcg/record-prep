@@ -45,6 +45,8 @@ class SummarySkillDeliveryTests(unittest.TestCase):
         minute_plans = []
         for profile in (None, bundle()):
             for task, _label in SUMMARY_TASKS:
+                if task == 'motion-organization':
+                    continue  # Native stage, covered separately by organization guard/SDK tests.
                 with self.subTest(profile=profile is not None, task=task), tempfile.TemporaryDirectory() as temporary:
                     base = Path(temporary)
                     root, project = fixture(base, 1)

@@ -29,6 +29,9 @@ SUMMARY_EXPLANATION = (
     "In the second stage, the agent separately analyzes all digests for the hearings and the reports. For each, the "
     "agent synthesizes the digests into a cohesive narrative with short direct quotes mixed in. "
     "The short direct quotes become links when displayed in the Focus app.\n\n"
+    "Motion summaries use a fixed Request and Reasons method: each motion, opposition and reply stays separate, "
+    "with its own clearly linked supporting papers grouped into the same entry. The narrative explains who wants "
+    "what and why, integrating relevant declaration evidence into the reasons. These topics are application-owned.\n\n"
     "Minute summaries use RecordPrep’s fixed, practice-neutral compact method: hearing, appearances, orders, "
     "and next substantive hearing. View full prompts below to inspect the method and examples."
 )
@@ -593,7 +596,7 @@ class ProfileEditorWindow(Adw.Window):
             self._page("Document naming", key, title)
             self.nav_rows[key].set_subtitle(stage)
             self._classification_contents(key, title)
-        for kind, title in (("hearings", "Hearing"), ("reports", "Report"), ("motions", "Motion")):
+        for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
             self._page("Summaries", kind + "-topics", title + " digest topics")
             self._explanation(self._page_body, "Summaries")
             self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind], kind=kind)

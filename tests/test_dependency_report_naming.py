@@ -53,7 +53,7 @@ class DependencyReportNamingTests(unittest.TestCase):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.14.0',11,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.15.0',12,1))
         n = b.resource('naming'); historical = old.resource('naming')
         self.assertEqual(n['schema_version'],5)
         self.assertEqual(n['reports'][0]['naming_mode'], 'source_title')

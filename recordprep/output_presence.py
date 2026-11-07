@@ -14,6 +14,7 @@ _FILES = {
     "detect_transcript_layout": ("artifacts/transcript_layout.json",),
     "infer_case": ("case_name.txt",),
     "correct_classification_agent": ("classification/agent-review.json",),
+    "organize_motion_papers": ("artifacts/motion_groups.json",),
     "build_toc": ("artifacts/toc.txt",),
     "correct_toc": ("artifacts/toc.txt",),
     "find_boundaries": ("artifacts/hearing_boundaries.json", "artifacts/report_boundaries.json", "artifacts/minutes_boundaries.json"),
@@ -35,6 +36,13 @@ _SUMMARIES = {
     "create_motion_summaries": "motions",
     "create_minute_order_summaries": "minutes",
 }
+
+
+def legacy_organization_skip(root: Path) -> bool:
+    """Resume adoption only, output presence, no parsing or writes."""
+    return (not (root / "artifacts/motion_groups.json").exists()
+            and ((root / "artifacts/toc.txt").is_file()
+                 or any(_has_file(root / "summaries", pattern) for pattern in ("*_sum_*.txt", "summarized_*.txt"))))
 
 
 def _has_file(directory: Path, pattern: str) -> bool:

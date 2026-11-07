@@ -5,28 +5,19 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
 from .profile_editor_ui import wrapped, button
-from .prompt_inspection import CLASSIFICATION_TASKS, FIXED_TASKS, NAMING_TASKS, SUMMARY_TASKS, inspect_prompt
+from .prompt_inspection import NAMING_TASKS, SUMMARY_TASKS, FIXED_SUMMARY_TASKS, inspect_prompt
 from .paths import resource_root
 
 
 class PromptInspector(Adw.Window):
-    def __init__(self, parent, category, page="rt", draft=None, *, contract=None):
+    def __init__(self, parent, category, page="rt", draft=None):
         super().__init__(transient_for=parent, modal=True, resizable=True,
                          title="Full prompts — RecordPrep-controlled instructions", default_width=850, default_height=720)
         self.draft = draft
-        self.recognition, self.recognition_error = contract, ""
-        if category == "Application classification" and contract is None:
-            from .recognition_contract import load_recognition
-            try:
-                self.recognition = load_recognition()
-            except ValueError as exc:
-                self.recognition_error = str(exc)
         self.resources = draft.resources if draft else {}
         self.snapshot = draft.snapshot if draft else None
         validation = "\n".join(draft.issues) if draft else ""
-        self.tasks = (FIXED_TASKS if category == "Application classification" else
-                      NAMING_TASKS if category == "Document naming" else
-                      CLASSIFICATION_TASKS if category == "Classification" else SUMMARY_TASKS)
+        self.tasks = NAMING_TASKS if category == "Document naming" else SUMMARY_TASKS
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -35,9 +26,7 @@ class PromptInspector(Adw.Window):
         toolbar.add_top_bar(header)
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                           margin_start=12, margin_end=12, margin_top=8, margin_bottom=12, vexpand=True)
-        content.append(wrapped("Complete fixed application prompts. The actual page image is attached separately; there are no profile/draft substitutions."
-                               if category == "Application classification" else
-                               "RecordPrep-controlled instruction components and delivery audit, with runtime-data placeholders. Not a live conversation replay or provider internals."))
+        content.append(wrapped("RecordPrep-controlled instruction components and delivery audit, with runtime-data placeholders. Not a live conversation replay or provider internals."))
         self.selector = Gtk.DropDown.new_from_strings([title for _, title in self.tasks])
         self.selector.set_enable_search(True)
         content.append(self.selector)
@@ -75,19 +64,17 @@ class PromptInspector(Adw.Window):
 
     def _refresh(self, *_args):
         task = self.tasks[self.selector.get_selected()][0]
-        fixed = task in dict(FIXED_TASKS) or task == "minutes"
+        fixed = task in FIXED_SUMMARY_TASKS
         self.mode.set_visible(not fixed)
         self.mode_note.set_visible(not fixed and self.mode.get_selected() == 1)
         try:
-            if task in dict(FIXED_TASKS) and self.recognition_error:
-                raise ValueError(self.recognition_error)
-            result = inspect_prompt(self.resources, self.tasks[self.selector.get_selected()][0], resource_root(),
-                                    template=self.mode.get_selected() == 0, draft=self.draft, contract=self.recognition)
+            result = inspect_prompt(self.resources, task, resource_root(),
+                                    template=self.mode.get_selected() == 0, draft=self.draft)
             self.text.get_buffer().set_text(result.display_text())
             self.status.set_text("\n".join(result.issues))
         except (ValueError, OSError, KeyError, TypeError):
             self.status.set_text("\n".join(filter(None, [self.validation,
-                self.recognition_error or "Incomplete inspection: this draft or an installed resource is malformed. No bundled values have been substituted."])))
+                "Incomplete inspection: this draft or an installed resource is malformed. No bundled values have been substituted."])))
             import json
             self.text.get_buffer().set_text(json.dumps(self.resources, ensure_ascii=False, indent=2)
                 + "\n\n" + "\n\n".join(name + " (literal raw draft)\n" + text for name, text in (self.draft.raw_resources if self.draft else ())))

@@ -14,7 +14,7 @@ globalThis.fetch = () => {throw new Error('Network forbidden during audit');};
 for (const name of ['RECORDPREP_SUMMARY_WORK_SPEC','RECORDPREP_SUMMARY_DATASET','RECORDPREP_MINUTE_WORK_SPEC']) delete process.env[name];
 const definitions = {};
 const sources = {};
-const extensions = ['recordprep-summary-tools.ts','recordprep-summary-synthesis-tools.ts','recordprep-profile-minute-tools.ts','recordprep-minute-tools.ts'];
+const extensions = ['recordprep-summary-tools.ts','recordprep-summary-synthesis-tools.ts','recordprep-profile-minute-tools.ts','recordprep-minute-tools.ts','recordprep-motion-organization-tools.ts'];
 for (const extension of extensions) {
   const path = '.pi/extensions/' + extension;
   sources[path] = createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -27,7 +27,7 @@ const {AgentSession} = await import(pathToFileURL(join(pkg,'dist/core/agent-sess
 const {stripFrontmatter} = await import(pathToFileURL(join(pkg,'dist/utils/frontmatter.js')));
 const skills = ['recordprep-extract-hearing','recordprep-extract-report',
   'recordprep-synthesize-hearings','recordprep-synthesize-reports','recordprep-summarize-minutes',
-  'recordprep-extract-motion','recordprep-synthesize-motions'];
+  'recordprep-extract-motion','recordprep-synthesize-motions','recordprep-organize-motion-papers'];
 for (const skillName of skills) {
   const path = '.pi/skills/'+skillName+'/SKILL.md';
   sources[path]=createHash('sha256').update(readFileSync(path)).digest('hex');

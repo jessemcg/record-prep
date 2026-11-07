@@ -30,8 +30,8 @@ Profile version labels remain internal compatibility metadata, not bundle requir
 Profiles personalize **Document naming** (Report Names/Form Names) and **Summaries**
 (topics and minute guidance), not structural recognition. RecordPrep's packaged
 neutral definitions and four start detectors apply regardless of profile and to
-unassigned work. **App-owned Classification** works without a case or available
-profile storage and shows all definitions and eight complete fixed prompts.
+unassigned work. There is no classification-reference menu action or window;
+classification rules are maintained in application source through the coding agent.
 Standardized hearing notices and separate service proofs are not forms for start,
 naming or Forms TOC purposes; qualifying Notice of Appeal forms remain forms.
 Explicit profile create/save now produces schema 10 (also omitting minutes), without rewriting historical

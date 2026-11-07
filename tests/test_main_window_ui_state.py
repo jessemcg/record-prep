@@ -33,6 +33,27 @@ from recordprep.ui.main_window import (
 
 
 class MainWindowUiStateTests(unittest.TestCase):
+    def test_menu_has_no_application_classification_reference(self):
+        from gi.repository import Gio
+
+        app = Gio.SimpleActionGroup()
+        parent = mock.Mock()
+        with mock.patch('recordprep.profile_manager_ui.install_profile_menu') as install:
+            RecordPrepWindow._setup_menu(parent, app)
+        menu, menu_button, open_controls = install.call_args.args
+        self.assertIs(menu_button, parent.menu_button)
+        self.assertTrue(callable(open_controls))
+        self.assertEqual(menu.get_n_items(), 1)
+        self.assertEqual(menu.get_item_attribute_value(0, 'label', None).get_string(), 'Model settings')
+        self.assertEqual(menu.get_item_attribute_value(0, 'action', None).get_string(), 'app.settings')
+        self.assertEqual(set(app.list_actions()), {'settings', 'save-settings'})
+        self.assertIsNone(app.lookup_action('classification-reference'))
+        self.assertFalse(hasattr(RecordPrepWindow, '_open_classification_reference'))
+        app.activate_action('settings', None)
+        parent.on_settings.assert_called_once()
+        app.activate_action('save-settings', None)
+        parent._on_action_save_settings.assert_called_once()
+
     def test_pipeline_steps_are_grouped_once_in_pipeline_order(self) -> None:
         grouped = [
             step_id
@@ -40,7 +61,7 @@ class MainWindowUiStateTests(unittest.TestCase):
             for step_id in step_ids
         ]
 
-        self.assertEqual(len(grouped), 22)
+        self.assertEqual(len(grouped), 23)
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(PIPELINE_STEP_PHASE))
         self.assertEqual(grouped[0], "create_files")

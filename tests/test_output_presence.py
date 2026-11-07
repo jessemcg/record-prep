@@ -19,6 +19,7 @@ OUTPUTS = {
     'classify_advanced': ['classification/RT_basic_advanced.jsonl'],
     'classify_dates': ['classification/RT_basic_advanced_corrected_dates.jsonl'],
     'classify_names': ['classification/RT_basic_advanced_corrected_dates_names.jsonl'],
+    'organize_motion_papers': ['artifacts/motion_groups.json'],
     'build_toc': ['artifacts/toc.txt'],
     'correct_toc': ['artifacts/toc.txt'],
     'find_boundaries': ['artifacts/hearing_boundaries.json', 'artifacts/report_boundaries.json', 'artifacts/minutes_boundaries.json'],

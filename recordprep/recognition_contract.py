@@ -9,18 +9,6 @@ from .profile_contract import (CLASSIFICATION_FIRST_PAGE_TYPES, CLASSIFICATION_P
 
 RESOURCE = Path(__file__).parent / "resources/classification/recognition-v2.json"
 CONTRACT_ID = "recordprep-recognition-v2"
-# Presentation only: titles are deliberately absent from model prompts/fingerprints.
-TITLES = {
-    "RT_cover": "Transcript cover", "RT_index": "Transcript index", "RT_body": "Hearing body",
-    "RT_certificate": "Transcript certificate", "RT_other": "Other RT material",
-    "CT_cover": "Transcript cover", "CT_index": "Document index", "CT_minute_order": "Minute order",
-    "CT_report": "Court-directed report", "CT_form": "Court form", "CT_certificate": "Record certificate",
-    "CT_motion": "Motion / application", "CT_notice": "Hearing notice",
-    "CT_proof_of_service": "Proof of service", "CT_other": "Other CT material",
-    "first_hearing": "Hearing first page", "first_minute": "Minute-order first page",
-    "first_form": "Form first page", "first_report": "Report first page",
-    "first_motion": "Motion first page",
-}
 
 
 @dataclass(frozen=True)

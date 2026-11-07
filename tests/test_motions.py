@@ -17,8 +17,8 @@ from test_structured_classification import bundle
 class MotionTests(unittest.TestCase):
     def test_current_bundle_and_strict_resources(self):
         profile = bundle()
-        self.assertEqual(profile.manifest['schema_version'], 11)
-        self.assertEqual(profile.ref.version, '1.14.0')
+        self.assertEqual(profile.manifest['schema_version'], 12)
+        self.assertEqual(profile.ref.version, '1.15.0')
         contract = compile_motion_naming(profile)
         self.assertIn('1,024', contract.prompt)
         self.assertIn('filed', contract.prompt)
@@ -76,7 +76,8 @@ class MotionTests(unittest.TestCase):
         profile = bundle()
         files, manifest = dict(profile.files), profile.manifest
         for name in ('motions', 'motion_naming'):
-            files.pop(manifest['resources'].pop(name))
+            if name in manifest['resources']:
+                files.pop(manifest['resources'].pop(name))
         manifest['schema_version'] = 10
         files['profile.json'] = json_bytes(manifest)
         old = validate_contents(tuple(files.items()), 'recordprep')
@@ -86,7 +87,7 @@ class MotionTests(unittest.TestCase):
         editor = ProfileEditor(old)
         self.assertEqual(editor.snapshot().files, original)
         editor.use_current_schema()
-        self.assertEqual(editor.snapshot().manifest['schema_version'], 11)
+        self.assertEqual(editor.snapshot().manifest['schema_version'], 12)
         self.assertEqual(editor.resources['motion_naming']['motions'], [])
         self.assertEqual(old.files, original)
         self.assertTrue(compile_motion_naming(None).rules)

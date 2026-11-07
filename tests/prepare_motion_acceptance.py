@@ -28,30 +28,61 @@ summaries = bundle / 'summaries'; summaries.mkdir()
 (bundle / '.motion-acceptance-fixture').write_text('synthetic-disposable-motion-fixture-v1\n')
 (bundle / 'case_name.txt').write_text('Fictional Motion Acceptance')
 rows = []
-titles = {1: 'Motion for Protective Order', 3: 'Opposition to Motion for Protective Order',
-          5: 'Reply in Support of Motion'}
-for page in range(1, 7):
-    (text / f'{page:04d}.txt').write_text(f'Fictional source page {page}. The author seeks a protective order.\n')
+grouped = '--grouped' in sys.argv
+if grouped:
+    titles = {1: 'Supporting Declaration', 3: 'Opposition to Inspection', 5: 'Motion to Compel Inspection',
+              7: 'Supporting Memorandum', 9: 'Reply on Inspection'}
+else:
+    titles = {1: 'Motion for Protective Order', 3: 'Opposition to Motion for Protective Order', 5: 'Reply in Support of Motion'}
+bodies = {1: "This declaration expressly supports Owner's motion to compel inspection of the leased premises.",
+          3: 'Respondent opposes inspection, asserting that the request exceeds the agreement.',
+          5: 'Owner moves to compel inspection because access is needed to document the condition of the leased premises.',
+          7: "This memorandum expressly supports Owner's motion to compel inspection to document the disputed condition.",
+          9: 'Owner replies in support of inspection and disputes Respondent\'s interpretation of the agreement.'}
+for page in range(1, 11 if grouped else 7):
+    body = bodies[max(n for n in bodies if n <= page)] if grouped else 'The author seeks a protective order.'
+    (text / f'{page:04d}.txt').write_text(f'Fictional source page {page}. {body}\n' +
+        ('The supporting memorandum uses a distinct inspection phrase.\n' if grouped and page == 8 else ''))
     rows.append({'file_name': f'{page:04d}.txt', 'page_type': 'CT_motion_first_page' if page in titles else 'CT_motion',
                  'motion_first_page': 'yes' if page in titles else 'no',
                  **({'name': titles[page], 'date': 'November 1, 2026', 'date_basis': 'filed'} if page in titles else {})})
+if grouped:
+    classification = bundle / 'classification'; classification.mkdir()
+    (classification / 'CT_basic_advanced_corrected_dates_names.jsonl').write_text('\n'.join(json.dumps(row) for row in rows) + '\n')
 bounds = build_motion_boundaries(rows, 0)
 (artifacts / 'motion_boundaries.json').write_text(json.dumps(bounds))
+if grouped:
+    from recordprep import motion_groups as mg
+    inventory = mg.inventory_from_boundaries(bounds)
+    value = mg.normalize_candidate({'groups': [
+        {'lead_paper_id': 'motion:0005', 'member_paper_ids': ['motion:0001', 'motion:0005', 'motion:0007'],
+         'filing_role': 'motion/application', 'display_title': 'Motion to compel inspection', 'filing_party': 'Owner',
+         'purpose': 'Compel inspection', 'evidence': 'Fictional express relationship.'},
+        {'lead_paper_id': 'motion:0003', 'member_paper_ids': ['motion:0003'], 'filing_role': 'opposition',
+         'display_title': 'Opposition to inspection', 'filing_party': 'Respondent', 'relationship_to': 'motion:0005', 'evidence': 'Express response.'},
+        {'lead_paper_id': 'motion:0009', 'member_paper_ids': ['motion:0009'], 'filing_role': 'reply',
+         'display_title': 'Reply on inspection', 'filing_party': 'Owner', 'relationship_to': 'motion:0005', 'evidence': 'Express reply.'}],
+         'coverage_status': 'complete'}, inventory, mg.source_fingerprint(bundle, inventory)[0])
+    (bundle / mg.PATH).write_text(json.dumps(value))
 for kind in ('hearing', 'report', 'minutes'):
     (artifacts / f'{kind}_boundaries.json').write_text('[]')
 apply_manual_override(bundle, mode='ct_only')
-(artifacts / 'toc.txt').write_text('FORMS\nHEARINGS\nREPORTS\nMOTIONS\n' +
-    '\n'.join(f"\t{r['motion_name']} {r['start_page']}" for r in bounds) +
-    '\nMINUTE ORDERS\nEMPTY CUSTOM\n')
+toc_rows = [f"\t{g['display_title']} {g['anchor_page']}" for g in value['groups']] if grouped else [f"\t{r['motion_name']} {r['start_page']}" for r in bounds]
+(artifacts / 'toc.txt').write_text('FORMS\nHEARINGS\nREPORTS\nMOTIONS\n' + '\n'.join(toc_rows) + '\nMINUTE ORDERS\nEMPTY CUSTOM\n')
 config = sa.ExtractionConfig('motions', sa.default_guidance('motions', 'extract'))
 items = sa.build_work_items(bundle, config)
+requests = {'motion:0003': 'Respondent opposes inspection.', 'motion:0005': 'Owner requests inspection of the leased premises.',
+            'motion:0009': 'Owner maintains the inspection request in reply.'}
 digests = [sa.canonicalize_extraction_candidate({'categories': [
-    {'id': config.definitions[0].identifier, 'digest': {'text': 'The author requests a protective order.'}}]},
+    {'id': config.definitions[0].identifier, 'digest': {'text': requests[item.item_id] if grouped else 'The author requests a protective order.'}},
+    *([{'id': 'reasons', 'digest': {'text': 'The supporting memorandum supplies the reason.',
+        'evidence': [{'text': 'distinct inspection phrase', 'file_page': 8}]}}] if grouped and item.item_id == 'motion:0005' else [])]},
     item, text) for item in items]
 sections, flags = sa.normalize_synthesis_sections(digests, [
-    {'item_id': item.item_id, 'paragraphs': ['The author requests a protective order; no ruling is established by this paper.']}
+    {'item_id': item.item_id, 'paragraphs': ['The owner seeks inspection based on {{quote:motion:0005/reasons/1}}; no ruling is established.'
+        if grouped and item.item_id == 'motion:0005' else requests[item.item_id] if grouped else 'The author requests a protective order; no ruling is established by this paper.']}
     for item in items])
-heading_pages = {item.item_id: (item.start_page, None) for item in items}
+heading_pages = {item.item_id: (item.anchor_page or item.start_page, None) for item in items}
 final_text = sa.render_final_summary('motions', 'Fictional Motion Acceptance', digests, sections, heading_pages)
 final = sa.summary_final_path(bundle, 'motions'); final.write_text(final_text)
 metadata = sa.build_final_meta(bundle, 'motions', digests, final_text, {}, heading_pages)
@@ -82,8 +113,16 @@ script = Path(__file__).resolve().parents[1] / '.pi/skills/recordprep-build-sour
 spec = importlib.util.spec_from_file_location('acceptance_motion_map', script)
 builder = importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
 source_map, manifest = builder.build_source_map(bundle)
-assert source_map['counts']['motions'] == 3
-assert [d['id'] for d in source_map['documents']] == ['motion:0001', 'motion:0003', 'motion:0005']
+assert source_map['counts']['motions'] == (5 if grouped else 3)
+assert [d['id'] for d in source_map['documents']] == [f'motion:{n:04d}' for n in sorted(titles)]
+if grouped:
+    assert source_map['counts']['motion_entries'] == 3
+    support = next(d for d in source_map['documents'] if d['id'] == 'motion:0007')
+    assert support['motion_group_id'] == 'motion:0005' and 'Motion to compel inspection' in support['aliases']
+    assert len(source_map['documents']) == 5
+    from recordprep.profile_artifacts import source_map_profile_metadata
+    source_map_profile_metadata(source_map)
+    assert manifest['files']['motion_groups'] == 'artifacts/motion_groups.json'
 assert all(d['motion_date_basis'] == 'filed' for d in source_map['documents'])
 (artifacts / 'source_map.json').write_text(json.dumps(source_map))
 (bundle / 'manifest.json').write_text(json.dumps(manifest))

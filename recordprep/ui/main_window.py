@@ -2850,9 +2850,8 @@ from recordprep.settings_navigation import SettingsNavigation, SettingsSession, 
 
 
 class SettingsWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None, on_profiles=None) -> None:
+    def __init__(self, app: Adw.Application, on_saved: Callable[[], None] | None = None) -> None:
         super().__init__(application=app, title="Model settings")
-        self._on_profiles = on_profiles
         self.set_default_size(900, 720)
         self.set_resizable(True)
         self._on_saved = on_saved
@@ -2929,11 +2928,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                         category.add_row(row)
             if group_id in self._command_rows:
                 category.add_row(self._command_rows[group_id])
-        if self._on_profiles is not None:
-            row = Adw.ActionRow(title="Profile settings", subtitle="Processing instructions; saved separately", activatable=True)
-            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-            row.connect("activated", lambda *_: self._on_profiles(self))
-            self._navigation.home_list.append(row)
         self._navigation.finish()
         self._toasts = Adw.ToastOverlay()
         self._toasts.set_child(self._navigation.view)
@@ -4266,20 +4260,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._settings_window:
             self._settings_window.present()
             return
-        settings = SettingsWindow(self.get_application(), on_saved=self._on_settings_saved, on_profiles=self._open_practice_profiles)
+        settings = SettingsWindow(self.get_application(), on_saved=self._on_settings_saved)
         settings.connect_after("close-request", self._on_settings_close_request)
         self._settings_window = settings
         settings.present()
-
-    def _open_practice_profiles(self, parent=None) -> None:
-        from recordprep.profile_integration import open_manager
-        try:
-            if parent is None:
-                self.menu_button.popup()
-            else:
-                open_manager(self, PI_PROJECT_DIR, parent)
-        except (ValueError, OSError) as exc:
-            self.show_toast(f"Practice Profiles unavailable: {exc}")
 
     def _on_settings_saved(self) -> None:
         self.show_toast("Model settings saved.")

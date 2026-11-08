@@ -3,6 +3,7 @@ import copy
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -48,7 +49,7 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.parent = Adw.ApplicationWindow(application=self.app)
         self.addCleanup(dispose, self.parent)
 
-    def model_window(self):
+    def model_window(self, *, through_main_window=False):
         self.config = {"synthetic_unknown": [1], "case_name_prompt": "Retired literal"}
         def write(value):
             self.config.clear()
@@ -61,11 +62,40 @@ class UnifiedSettingsTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         with patch.object(ui.SettingsWindow, "_load_pi_models"):
-            window = ui.SettingsWindow(self.app)
+            if through_main_window:
+                self.model_host = SimpleNamespace(_settings_window=None, get_application=lambda: self.app,
+                    _on_settings_saved=Mock(), _on_settings_close_request=Mock(return_value=False),
+                    _open_practice_profiles=Mock())  # The old entry point passed this callback and exposed the bug.
+                ui.RecordPrepWindow.on_settings(self.model_host, None, None)
+                window = self.model_host._settings_window
+            else:
+                window = ui.SettingsWindow(self.app)
         window.present()
         self.addCleanup(dispose, window)
         drain()
         return window
+
+    def test_model_main_window_entry_has_no_profile_settings_footer(self):
+        window = self.model_window(through_main_window=True)
+        for width in (480, 1000):
+            with self.subTest(width=width):
+                window.set_default_size(width, 720)
+                drain()
+                rows = window._navigation.home_list
+                self.assertEqual([rows.get_row_at_index(i).get_title() for i in range(3)],
+                                 ['OCR', 'Classify', 'Agent'])
+                self.assertIsNone(rows.get_row_at_index(3))
+                self.assertFalse(any(isinstance(w, Gtk.Label) and w.get_text() == 'Profile settings'
+                                     for w in descendants(window.get_content())))
+        # Reopening through the same production action retains the existing model
+        # draft instead of navigating to or creating a profile-settings window.
+        buffer = window._local_ocr_widgets.start_command_buffer
+        buffer.insert_at_cursor(' synthetic unsaved edit')
+        before = window._draft_snapshot()
+        ui.RecordPrepWindow.on_settings(self.model_host, None, None)
+        self.assertIs(self.model_host._settings_window, window)
+        self.assertEqual(window._draft_snapshot(), before)
+        self.model_host._open_practice_profiles.assert_not_called()
 
     def test_model_inline_categories_commands_save_failure_and_hidden_validation(self):
         w = self.model_window()

@@ -46,7 +46,20 @@ it cannot invent physical IDs/ranges, execute a shell or write canonical outputs
 
 `artifacts/motion_groups.json` schema 1 records the organization contract, inventory,
 source/input fingerprints, model/resource identity, logical groups, findings and
-honest coverage. Each group has the lead's existing ID, a separate lead-page
+honest review coverage, independently of advisory notes. For a nonempty inventory,
+complete requires an explicit complete candidate and every paper accepted exactly once,
+without malformed/contradictory membership, duplicate assignments or automatic fallback.
+Reviewed ambiguous singletons, source-title fallbacks and omitted invalid optional
+relationships may have complete review coverage; that is not semantic certainty.
+Missing or explicitly incomplete candidates remain incomplete. Saved historical statuses
+are displayed as saved, never recalculated on viewing. The review separates components,
+relationship explanations and notes, with entry/physical-paper counts.
+
+Inventory dates/date bases can originate in image recognition. A text-only organization
+run must not equate an OCR omission with an absent stamp or downgrade known filed-date
+metadata. Genuine conflicting evidence belongs in an attributed advisory note.
+
+Each group has the lead's existing ID, a separate lead-page
 navigation anchor, exact ordered components, role, title, source-supported party,
 purpose/date/date basis and optional relationships. Components need not be adjacent
 and support can precede the lead. Never use an enclosing range as source scope.
@@ -77,8 +90,28 @@ page. Extraction reads exactly the selected components, integrating declaration
 evidence into **Request / Reasons**, not an independent supporting-fact inventory.
 The narrative answers **who wants what, and why**, distinguishing allegations,
 arguments and requested relief from actual court findings; it does not infer a
-later ruling or use external legal research. Motion, opposition and reply are never
-collapsed into one narrative. Quote verification, hashes, overlap checks and
+later ruling or use external legal research. **Both extraction and synthesis** select
+only what the filing party requests or opposes and its reasons. Opposition entries
+explain the opposed request, the result sought instead and the grounds for resisting
+it; replies explain the position maintained or changed and the answer to the objection.
+Substantive scope, conditions, alternatives and consequential qualifications remain.
+
+Digest prose, its quotation bank and final narrative exclude hearing dates/times/
+departments, street/mailing addresses, case/court numbers, incident/tracking identifiers,
+counsel/contact details and caption/notice/service/signature boilerplate. No general
+"needed to distinguish the filing" exception remains. Navigation metadata stays intact
+and Python still supplies headings. Supporting papers explain grounds, not a sequence
+of component accounts or a factual/procedural inventory. A contested timing, notice,
+informal-resolution or sanctions ground is explained as a contention and consequence,
+not a chronology of contacts or compliance recitals. A substantive deadline/duration
+that is itself relief or a disputed ground is not routine hearing-calendar information.
+Quotes anchor relief or reasons for/against it, retaining wording, negation, attribution
+and qualifications. Selection starts in extraction because digest prose is also the
+fallback final summary. Synthesis must not reintroduce excluded particulars from older
+digests, labels or metadata. Fictional motion/opposition/reply examples teach selection,
+not source facts or length limits. See [selection validation](motion-selection-validation.md).
+Motion, opposition and reply are never collapsed into one narrative.
+Quote verification, hashes, overlap checks and
 preflight payloads use exact member pages, excluding unrelated intervening pages.
 
 New motion digests use Markdown format **3**, row schema **4**, digest/final metadata
@@ -118,6 +151,17 @@ as needed. No upstream source reset, private migration or automatic paid run occ
 Historical missing motion preparation is not zero motions; explicit execution explains
 the prerequisite. Checked-zero motion preparation uses zero organization, extraction
 and synthesis model calls.
+
+For the request-and-reasons selection follow-up, explicitly **Create motion summaries**
+to adopt the new extraction and synthesis instructions. Existing digest fingerprints
+are intentionally not reused as current selection; no saved artifact is cleared,
+rewritten or relabeled by installing the change. No profile reset/save or hearing,
+report, minute, classification or boundary rerun is needed solely for it. Refresh the
+motion edition and dependent overview/source map after new output as appropriate.
+The organization method and membership rules are unchanged; its existing conservative
+resource identity nevertheless hashes the whole `motion_guidance.py` module, so a
+separately requested organization run may re-review rather than reuse its old receipt.
+That does not force organization or alter saved groups, presence badges or Resume.
 
 ## Validation and publication
 

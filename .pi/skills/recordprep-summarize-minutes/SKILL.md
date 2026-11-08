@@ -42,12 +42,15 @@ orders. Preserve necessary qualifications and uncertainty.
 ## Administrative directions are not headline orders
 
 Exclude routine report receipt/preparation, filing or e-filing deadlines, portal
-availability, clerical/service-of-paperwork logistics, return/remote-attendance instructions,
+availability, clerical/service-of-paperwork logistics, routine return/production logistics
+and remote-attendance instructions unless essential to the substantive disposition,
 calendar housekeeping and conditional warnings of sanctions for missing those
 administrative deadlines. Do not reproduce them merely because they are phrased
 as court orders, and do not relocate them from Next into Orders. This is not a
 reason to omit an actually imposed consequential sanction or a deadline essential
 to substantive relief, such as when a party must turn over disputed records.
+Prefer a supported scheduled date over an incidental duration that conflicts with the
+dates. Do not silently repair source chronology; preserve a material conflict as uncertainty.
 
 For an administrative-only order, use **“No substantive orders recorded.”** in
 Orders. This means the order records no substantive result to summarize, not that
@@ -75,14 +78,21 @@ distinguish different people with the same role. Include another participant onl
 when relevant to the order's purpose. Do not assume a practice area or family
 relationship, expand counsel listings into client attendance, or add court staff.
 Use explicit personal-attendance evidence from any page, including expressly recorded
-remote attendance. Representation alone establishes neither presence nor absence;
-an omitted name is not proof of absence. Keep uncertainty explicit. Do not invent an
+remote attendance. An express statement that a party was not produced for THIS hearing
+can establish absence; custody alone cannot. Representation alone establishes neither
+presence nor absence; an omitted name is not proof of absence. Keep uncertainty explicit.
+Evidence must be a short continuous verbatim passage from the declared supplied page,
+not a paraphrase or reconstructed sentence. Location verification is not semantic proof. Do not invent an
 “Unknown” person. With no relevant attendance established, use an empty array rather
 than a fabricated person. Next gives only the next substantive hearing
 and its date. Exclude report-only hearings, report filing/due dates and other future
 report dates, even when scheduled earlier. Do not move that report calendar into
 Orders. Omit later settings, times and scheduling mechanics.
-Say “Not stated.” or “Unclear.” as appropriate; never import dates from other orders.
+Require an actual future setting in this supplied order. A reference to the current
+continued hearing is not the next hearing. A generic promise to revisit something at
+the next hearing establishes neither its type nor date.
+Say “Not stated.” or “Unclear.” as appropriate. Never fill a missing setting from
+another order, a hearing transcript, participant metadata or an assumed missing page.
 
 ## Fictional examples — intended selection and language, not a length validator
 
@@ -95,6 +105,23 @@ May 7, 2030 — Motion to compel
 Appearances: Applicant present; respondent’s appearance unclear.
 Orders: Respondent must provide the records by May 21 under the confidentiality order. The court denied permission to disclose them without restrictions.
 Next: Review June 4.
+
+Attendance evidence examples (fictional):
+- Page 12: “Applicant Vale was not produced for this hearing.” This express absence
+  supports not_present, using that exact passage and file_page 12.
+- “Vale was absent” is a paraphrase, not valid verbatim evidence for that passage.
+  A correct quotation declared on another page does not establish its location.
+- “Vale remains in custody” and “Counsel Rowan appears for Vale” alone establish
+  neither Vale's presence nor absence.
+
+Current versus future settings (fictional):
+- “This matter is on calendar for a continued hearing” describes this hearing,
+  not the next one.
+- “The court will revisit access at the next hearing” states no next type/date.
+- “Further review is set for June 4” establishes a future setting.
+- If an April 9 order expressly sets May 7 but calls that interval “two weeks,”
+  prefer the supported May 7 setting, not the inconsistent duration or a recalculated
+  date. Preserve a material chronology conflict rather than silently correcting it.
 
 Plain-English translations, only when supported by the current order:
 - “Application denied without prejudice” → “The court denied the request, but it

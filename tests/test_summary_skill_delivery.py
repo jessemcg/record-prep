@@ -84,6 +84,15 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                         user = next(m for m in context['messages'] if m['role'] == 'user')
                         message = user['content'] if isinstance(user['content'], str) else user['content'][0]['text']
                         self.assertTrue(message.startswith('<skill name="' + skill_name + '"'))
+                        if kind == 'motions':
+                            # Check the real expanded child message, not just the staged
+                            # filename or /skill prefix. Both phases select before output.
+                            from recordprep.motion_guidance import application_guidance
+                            self.assertIn(application_guidance(phase), message)
+                            self.assertIn('Exclude hearing dates/times/departments', message)
+                            self.assertIn('Separate opposition example', message)
+                            self.assertIn('Separate reply example', message)
+                            self.assertNotIn('only when needed to distinguish', message)
                         observed.append(child.workspace)
                         # No synthetic candidate is published; the runner must clean staging.
                         raise CapturedLaunch()

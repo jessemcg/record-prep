@@ -559,11 +559,11 @@ def layout_display_summary(root: Path) -> str:
         return "Needs review"
     payload = load_layout(root) or {}
     source = (
-        " manual"
+        "manual"
         if payload.get("decision_source") == "manual"
-        else " automatic"
+        else "automatic"
     )
-    suffix = f"•{source} detection"
+    suffix = f" • {source} detection"
     if mode == "rt_only":
         return "Reporter's transcript only" + suffix
     if mode == "ct_only":

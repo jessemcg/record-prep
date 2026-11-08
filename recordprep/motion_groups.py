@@ -83,6 +83,9 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
     by_id = {p["paper_id"]: p for p in inventory}
     findings, proposals, counts = [], [], {}
     good_output = isinstance(candidate, dict) and isinstance(candidate.get("groups"), list)
+    # Review coverage is independent of advisory prose and unresolved relationships.
+    # Only rejected membership work or automatic fallback makes accounting incomplete.
+    coverage_problem = not good_output
     raw = candidate["groups"] if good_output else []
     if not good_output and inventory:
         findings.append("Successful agent returned no usable grouping candidate; singleton coverage is incomplete.")
@@ -93,6 +96,7 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
                 or len(members) != len(set(members)) or lead not in members
                 or any(m not in by_id for m in members) or not isinstance(value.get("filing_role"), str)
                 or value["filing_role"] not in ROLES):
+            coverage_problem = True
             findings.append("Malformed group or unknown/contradictory references; affected papers remain standalone.")
             # Known IDs in malformed proposals also participate in duplicate checks.
             for m in members if isinstance(members, list) else []:
@@ -106,6 +110,7 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
     for proposal in proposals:
         members = proposal["member_paper_ids"]
         if any(counts[m] != 1 for m in members):
+            coverage_problem = True
             findings.append("Duplicate membership proposals rejected; affected papers remain standalone.")
             continue
         lead = by_id[proposal["lead_paper_id"]]
@@ -135,6 +140,7 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
         assigned.update(ordered)
     for paper in inventory:
         if paper["paper_id"] not in assigned:
+            coverage_problem = True
             groups.append(singleton(paper))
             findings.append("Unassigned or unresolved physical paper retained as a standalone entry.")
     group_ids = {g["group_id"] for g in groups}
@@ -148,8 +154,8 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
               "inventory": copy.deepcopy(inventory), "input_sha256": input_sha256,
               "inputs": inputs or {}, "groups": sorted(groups, key=lambda g: g["anchor_page"]),
               "findings": list(dict.fromkeys(findings)),
-              "coverage_status": "complete" if (not inventory or (good_output and not findings
-                  and candidate.get("coverage_status") == "complete")) else "incomplete"}
+              "coverage_status": "complete" if (not inventory or (good_output and not coverage_problem
+                  and assigned == set(by_id) and candidate.get("coverage_status") == "complete")) else "incomplete"}
     validate_motion_groups(result)
     return result
 
@@ -198,10 +204,15 @@ def current_groups(root, boundaries, *, verify_classification=True):
     return value["groups"], ""
 
 
+def count_text(count, singular, plural=None):
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
 def review_text(value):
     validate_motion_groups(value)
     papers = {p["paper_id"]: p for p in value["inventory"]}
-    lines = [f"Motion grouping — {value['coverage_status']} — {len(value['groups'])} entries / {len(papers)} physical papers", ""]
+    lines = ["Motion grouping", f"Review coverage: {value['coverage_status']}",
+             f"{count_text(len(value['groups']), 'entry', 'entries')} / {count_text(len(papers), 'physical paper')}", ""]
     for group in value["groups"]:
         lines.append(group["display_title"])
         lines.append(f"  {group['filing_role']}; lead source page {group['anchor_page']}; {group['group_id']}")
@@ -209,14 +220,16 @@ def review_text(value):
         lines.append(f"  Date: {group['date'] or 'Unknown'} ({group['date_basis']})")
         if group["purpose"]:
             lines.append("  Purpose: " + group["purpose"])
+        lines.append("  Components:")
         roles = {part["paper_id"]: part["role"] for part in group["components"]}
         for member in group["member_paper_ids"]:
             paper = papers[member]
-            lines.append(f"  {roles[member]}: {paper['source_title']} — source pages {paper['start_page']}–{paper['end_page']}")
+            lines.append(f"    {roles[member]}: {paper['source_title']} — source pages {paper['start_page']}–{paper['end_page']}")
         if group["relationship_notes"]:
-            lines.append("  " + group["relationship_notes"])
+            lines.append("  Relationship explanation: " + group["relationship_notes"])
         if group["relationship_to"]:
             lines.append("  Related entry: " + group["relationship_to"])
         lines.append("")
-    lines.extend(value["findings"])
+    lines.append("Notes:")
+    lines.extend(value["findings"] or ["None recorded."])
     return "\n".join(lines)

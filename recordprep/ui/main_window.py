@@ -4034,7 +4034,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_names_row = Adw.ActionRow(
             title="Classification names",
-            subtitle="Add report and form names to first pages.",
+            subtitle="Add report, form, and motion-paper names to first pages.",
         )
         self.step_names_row.set_activatable(False)
         self._attach_step_controls(
@@ -4078,7 +4078,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_six_row = Adw.ActionRow(
             title="Build TOC",
-            subtitle="Compile a table of contents for forms, reports, orders, and hearings.",
+            subtitle="Compile a table of contents for forms, reports, motions, minute orders, and hearings.",
         )
         self.step_six_row.set_activatable(False)
         self._attach_step_controls(
@@ -4107,7 +4107,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_seven_row = Adw.ActionRow(
             title="Find boundaries",
-            subtitle="Determine page ranges for hearings, named reports, and dated minute orders.",
+            subtitle="Determine page ranges for hearings, named reports, motion papers, and dated minute orders.",
         )
         self.step_seven_row.set_activatable(False)
         self._attach_step_controls(
@@ -4119,7 +4119,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_correct_boundaries_row = Adw.ActionRow(
             title="Correct boundaries",
-            subtitle="Remove hearing boundaries without dates and single-page report boundaries unless they are last-minute.",
+            subtitle="Filter ineligible hearing, report, and motion entries; keep named single-page reports and all source pages.",
         )
         self.step_correct_boundaries_row.set_activatable(False)
         self._attach_step_controls(
@@ -4133,7 +4133,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_hearing_summaries_row = Adw.ActionRow(
             title="Create hearing summaries",
-            subtitle="Summarize hearing testimony into concise paragraphs.",
+            subtitle="Summarize hearing proceedings, arguments, and rulings.",
         )
         self.step_hearing_summaries_row.set_activatable(False)
         self._attach_step_controls(
@@ -4167,7 +4167,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_minute_order_summaries_row = Adw.ActionRow(
             title="Create minute-order summaries",
-            subtitle="Summarize dated minute orders into concise paragraphs.",
+            subtitle="Create compact appearances, orders, and next-hearing entries from dated minute orders.",
         )
         self.step_minute_order_summaries_row.set_activatable(False)
         self._attach_step_controls(
@@ -8221,7 +8221,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             report_path = derived_dir / "report_boundaries.json"
             if not hearing_path.exists() or not report_path.exists():
                 raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing/report boundaries first."
+                    "Run Find boundaries to generate hearing, report, and motion-paper boundaries first."
                 )
             from recordprep.case_profiles import resolve_case_profile
             from recordprep.boundary_profiles import boundary_inputs, publish_boundaries
@@ -8234,7 +8234,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not hearing_entries and not report_entries and not motion_entries:
                 GLib.idle_add(
                     self.show_toast,
-                    "No hearing/report boundaries found. Skipping Correct boundaries.",
+                    "No hearing, report, or motion-paper boundaries found. Skipping Correct boundaries.",
                     "WARN",
                 )
                 success = "Skipped"
@@ -8262,12 +8262,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             motion_payload = ({"motion_boundaries.json": [row for row in motion_entries
                                if str(row.get("motion_name") or "").strip() and row.get("naming_status") != "unresolved"]}
                               if motion_entries is not None else {})
+            motion_removed = (len(motion_entries) - len(motion_payload["motion_boundaries.json"])
+                              if motion_entries is not None else 0)
             publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
                 "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
                 "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
                 **motion_payload,
             })
-            removed = hearing_removed + report_removed
+            removed = hearing_removed + report_removed + motion_removed
         except StopRequested:
             success = None
         except Exception as exc:
@@ -8286,7 +8288,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 self.show_toast,
                 "Correct boundaries complete. "
                 f"{hearing_removed} hearing entries without dates and "
-                f"{report_removed} unnamed report entries omitted from standalone summaries "
+                f"{report_removed} unnamed/unresolved report entries and "
+                f"{motion_removed} unnamed/unresolved motion entries omitted from standalone summaries "
                 f"({removed} total); source pages retained.",
             )
         finally:
@@ -8368,7 +8371,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _run_step_build_summary_editions(self) -> bool:
         """Build and publish page-matched Letter PDFs and Focus page maps.
 
-        All three candidates are built and validated before any existing
+        All required candidates are built and validated before any existing
         edition is replaced, so an ordinary rendering failure never leaves a
         mixed update. Messages carry only categories and page counts.
         """
@@ -8386,7 +8389,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             for kind in sources:
                 if not sources[kind].exists():
                     raise FileNotFoundError(
-                        "Run the summary steps to generate all three summaries first."
+                        "Run the summary steps to generate the required summaries first."
                     )
             editions: dict[str, SummaryEdition] = {}
             for kind in sources:

@@ -111,6 +111,18 @@ class FixedOverviewTests(unittest.TestCase):
                 self.assertEqual(examples.count("- Too detailed:"), 5)
                 self.assertEqual(examples.count("- Prefer:"), 5)
 
+    def test_logical_groups_and_last_ruling_date_in_both_methods(self):
+        for resource in ('resources/profile-overview.md', 'skills/recordprep-create-case-overview/SKILL.md'):
+            text = ' '.join((PROJECT / '.pi' / resource).read_text().split())
+            for phrase in ('grouped motion and its clearly linked supporting papers as one logical request',
+                           'do not split support merely because it has a separate title',
+                           'Keep motion, opposition, reply and genuinely independent requests separate',
+                           'last supplied ruling that establishes it', 'not merely a later filing',
+                           'earlier status was independently confirmed at the later filing date',
+                           'Consolidate overlapping missing-outcome qualifications'):
+                self.assertIn(phrase, text)
+            self.assertNotIn('separately titled supporting paper independent', text)
+
     def test_short_bullet_overview_is_valid_in_both_modes(self):
         text = "---\nartifact: recordprep-case-overview\nschema_version: 1\nstatus: nonauthoritative-orientation\n---\n# Case Overview\n"
         text += "> Orientation aid only. Verify every factual claim against mapped source pages before relying on or citing it.\n"

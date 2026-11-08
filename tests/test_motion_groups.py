@@ -185,6 +185,23 @@ class GroupedMotionTests(unittest.TestCase):
         with self.assertRaises((OSError, ValueError)): org.publish(self.root, self.project, guard, ref, candidate)
         self.assertFalse(path.exists())
 
+    def test_explicit_organization_reuse_hashes_guidance_and_normalization(self):
+        inventory = self.papers()
+        self.save([self.proposal(inventory)])
+        path = self.root / mg.PATH
+        before = path.read_bytes(), path.stat().st_mtime_ns
+        self.assertTrue(org.is_current(self.root, self.project))
+        with patch.object(org, 'ORGANIZATION_GUIDANCE', org.ORGANIZATION_GUIDANCE + '\nFictional refinement.'):
+            self.assertFalse(org.is_current(self.root, self.project))
+        original_read = org._read
+        def changed_normalizer(path, *args, **kwargs):
+            value = original_read(path, *args, **kwargs)
+            return value + b'\n# fictional normalization change' if path == Path(mg.__file__) else value
+        with patch.object(org, '_read', side_effect=changed_normalizer):
+            self.assertFalse(org.is_current(self.root, self.project))
+        self.assertTrue(org.is_current(self.root, self.project))
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+
     def test_concurrent_organization_refused(self):
         with org.lock(self.root):
             with self.assertRaisesRegex(ValueError, 'already running'):
@@ -346,8 +363,70 @@ Path(spec['candidate']).write_text(json.dumps({'groups':[{'lead_paper_id':invent
         result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
         self.assertEqual(len(result['groups']), 1)
         self.assertEqual(result['groups'][0]['display_title'], inventory[0]['source_title'])
-        self.assertEqual(result['coverage_status'], 'incomplete')
+        self.assertEqual(result['coverage_status'], 'complete')
         self.assertIn('source title retained', ' '.join(result['findings']))
+
+    def test_review_coverage_is_independent_of_advisory_notes(self):
+        inventory = self.papers()
+        proposal = self.proposal(inventory)
+        proposal['relationship_to'] = 'motion:9999'  # Optional bad link, not bad membership.
+        candidate = {'groups': [proposal], 'coverage_status': 'complete',
+                     'findings': ['Fictional advisory: relationship evidence has a qualification.']}
+        result = mg.normalize_candidate(candidate, inventory, 'a' * 64)
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['groups'][0]['relationship_to'], '')
+        self.assertIn(candidate['findings'][0], result['findings'])
+        self.assertIn('relationship reference omitted', ' '.join(result['findings']))
+        for status in ('incomplete', None, '', 'COMPLETE'):
+            with self.subTest(status=status):
+                candidate['coverage_status'] = status
+                self.assertEqual(mg.normalize_candidate(candidate, inventory, 'a' * 64)['coverage_status'], 'incomplete')
+        candidate['coverage_status'] = 'complete'
+        for malformed in ({}, [], self.proposal(inventory, members=['motion:9999'])):
+            candidate['groups'] = [proposal, malformed]
+            self.assertEqual(mg.normalize_candidate(candidate, inventory, 'a' * 64)['coverage_status'], 'incomplete')
+
+    def test_explicit_ambiguous_singletons_are_reviewed_not_automatic_fallback(self):
+        inventory = self.papers()
+        proposals = [self.proposal(inventory, lead=p['paper_id'], members=[p['paper_id']],
+                                  role='unresolved supporting paper') for p in inventory]
+        for proposal in proposals:
+            proposal['relationship_notes'] = 'Reviewed; relationship remains ambiguous.'
+        candidate = {'groups': proposals, 'coverage_status': 'complete', 'findings': ['Ambiguous support retained.']}
+        self.assertEqual(mg.normalize_candidate(candidate, inventory, 'a' * 64)['coverage_status'], 'complete')
+        candidate['groups'] = proposals[:-1]
+        self.assertEqual(mg.normalize_candidate(candidate, inventory, 'a' * 64)['coverage_status'], 'incomplete')
+        duplicate = {'groups': [*proposals, proposals[0]], 'coverage_status': 'complete'}
+        self.assertEqual(mg.normalize_candidate(duplicate, inventory, 'a' * 64)['coverage_status'], 'incomplete')
+        for missing in (None, {}, {'groups': None}, {'groups': []}):
+            self.assertEqual(mg.normalize_candidate(missing, inventory, 'a' * 64)['coverage_status'], 'incomplete')
+
+    def test_review_plain_text_counts_components_notes_and_saved_status(self):
+        inventory = self.papers()
+        for papers, proposals, expected in (
+            ([], [], '0 entries / 0 physical papers'),
+            (inventory[:1], [self.proposal(inventory[:1])], '1 entry / 1 physical paper'),
+            (inventory, [self.proposal(inventory)], '1 entry / 4 physical papers'),
+            (inventory, [], '4 entries / 4 physical papers'),
+        ):
+            with self.subTest(expected=expected):
+                result = mg.normalize_candidate({'groups': proposals, 'coverage_status': 'complete'}, papers, 'a' * 64)
+                result['coverage_status'] = 'incomplete'  # Historical status stays as saved.
+                result['findings'] = ['<b>Advisory text, not markup</b>']
+                original = copy.deepcopy(result)
+                rendered = mg.review_text(result)
+                self.assertIn('Review coverage: incomplete', rendered)
+                self.assertIn(expected, rendered)
+                self.assertIn('Notes:\n<b>Advisory text, not markup</b>', rendered)
+                for paper in papers:
+                    self.assertIn(paper['source_title'], rendered)
+                    self.assertIn(f"source pages {paper['start_page']}–{paper['end_page']}", rendered)
+                if papers:
+                    self.assertIn('  Components:\n', rendered)
+                    self.assertIn('Filing party:', rendered)
+                    self.assertIn('(filed)', rendered)
+                    self.assertIn('lead source page', rendered)
+                self.assertEqual(result, original)
 
     def test_actual_native_guard_exact_reads_and_private_writes(self):
         import shutil

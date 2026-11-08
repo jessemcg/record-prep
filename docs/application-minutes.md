@@ -34,7 +34,15 @@ explicit evidence from any page, including recorded remote attendance. Counsel a
 and omitted names establish neither presence nor absence. Roles come from this order,
 not a practice assumption, role catalog or participant index. Unknown evidence remains
 advisory/unclear without cancelling useful output. Next is only the next substantive
-hearing type/date, never report calendars or scheduling mechanics.
+hearing type/date, never report calendars or scheduling mechanics. An express statement
+that a party was not produced for this hearing can establish absence; custody alone
+cannot. Attendance evidence remains a short continuous verbatim passage on its declared
+supplied page, not a paraphrase. Python verifies location, not attendance semantics.
+A current continued hearing or a generic reference to revisiting something next time
+is not an actual future setting. Never import a missing setting from another source or
+an assumed missing page. Omit routine return/production logistics unless substantive;
+prefer supported scheduled dates over inconsistent incidental durations without silently
+repairing source chronology. The fictional examples teach these distinctions, not facts.
 
 ## Instruction and freshness contract
 

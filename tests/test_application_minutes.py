@@ -109,6 +109,67 @@ class ApplicationMinuteTests(unittest.TestCase):
             self.assertEqual(before['components'], after['components'])
             self.assertEqual(before['components']['minutes'], minutes.application_contract(project)['component_sha256'])
 
+    def test_exact_nonproduction_absence_evidence_and_no_semantic_inference(self):
+        first = 'Applicant Vale remains in custody. Counsel Rowan appears for Vale.'
+        later = 'Applicant Vale was not produced for this hearing.'
+        item = minutes.MinuteItem('minute:0001', 1, 'April 9, 2030', 1, 2,
+                                  first+'\n'+later, first, 'fictional', ((1, first), (2, later)))
+        base = {'artifact': 'recordprep-minute-candidate', 'hearing': 'Review',
+                'orders': 'No substantive orders recorded.', 'next_hearing': 'Not stated.'}
+        for passage, page, submitted, expected in (
+            (later, 2, 'not_present', 'not_present'),
+            ('Vale was absent', 2, 'not_present', 'unclear'),
+            (later, 1, 'not_present', 'unclear'),
+            ('Counsel Rowan appears for Vale.', 1, 'unclear', 'unclear'),
+            ('Applicant Vale remains in custody.', 1, 'unclear', 'unclear'),
+        ):
+            with self.subTest(passage=passage, page=page):
+                value = base | {'appearances': [{'person': 'Vale', 'role_label': 'Applicant',
+                    'status': submitted, 'evidence': [{'file_page': page, 'text': passage}]}]}
+                row = minutes.normalize_candidate(value, item)
+                self.assertEqual(row['appearances'][0]['status'], expected)
+        # Counsel/custody fixtures submit unclear: the matcher verifies location,
+        # not semantics. Neither test nor Python infers personal attendance.
+
+    def test_fixed_guidance_distinguishes_attendance_and_current_future_settings(self):
+        prompt = minutes.application_guidance()
+        skill = (ROOT / '.pi/skills/recordprep-summarize-minutes/SKILL.md').read_text()
+        for text in (prompt, skill):
+            for phrase in ('not produced for THIS hearing', 'custody alone',
+                           'short continuous verbatim passage from the declared supplied page',
+                           'paraphrase', 'reconstruct',
+                           'This matter is on calendar for a continued hearing',
+                           'The court will revisit access at the next',
+                           'Further review is set', 'hearing transcript',
+                           'participant metadata', 'assumed missing page',
+                           'return/production logistics', 'substantive disposition',
+                           'supported scheduled date', 'silently repair source chronology'):
+                self.assertIn(phrase.lower(), ' '.join(text.lower().split()))
+
+    def test_instruction_hashes_invalidate_only_explicit_minute_work(self):
+        with tempfile.TemporaryDirectory() as td, patch('recordprep.case_profiles.resolve_case_profile', return_value=None):
+            root, project = fixture(Path(td), 1)
+            minutes.run_stage(root, project, Mock(return_value=candidate()))
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in
+                      (minutes.checkpoint_path(root), minutes.meta_path(root), sa.summary_final_path(root, 'minutes'))}
+            with patch.object(minutes, 'APPLICATION_MINUTE_CORE', minutes.APPLICATION_MINUTE_CORE + '\nFictional refinement.'):
+                self.assertTrue(minutes.freshness_issues(root, project))
+                self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+                generate = Mock(return_value=candidate())
+                minutes.run_stage(root, project, generate)
+                generate.assert_called_once()
+                generate.reset_mock()
+                minutes.run_stage(root, project, generate)
+                generate.assert_not_called()
+            # Restore baseline instructions/rows before testing skill-only invalidation.
+            minutes.run_stage(root, project, Mock(return_value=candidate()))
+            skill_path = project / 'skills' / minutes.SKILL_NAME / 'SKILL.md'
+            skill_path.write_text(skill_path.read_text() + '\nFictional refinement.')
+            self.assertTrue(minutes.freshness_issues(root, project))
+            generate = Mock(return_value=candidate())
+            minutes.run_stage(root, project, generate); generate.assert_called_once()
+            generate.reset_mock(); minutes.run_stage(root, project, generate); generate.assert_not_called()
+
     def test_schema10_projection_save_create_and_reset_omit_minutes_without_old_writes(self):
         old = shipped_previous()
         self.assertEqual(old.ref.content_sha256, '975fc7ddea124a0aa43cb83b77aef2cf0128f0af4e6c858fdf002dcbd80ee6c8')

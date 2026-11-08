@@ -2112,7 +2112,10 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
             _line(f"Classification review saved: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Evidence/coverage limitations and retained proposals are advisory: use View review or classification/agent-review.json.")
         if organization_guard is not None:
             result = organization.publish(root, project_dir, organization_guard, organization_ref, candidate_path, check_stop=_check_stop)
-            _line(f"Motion organization saved: {len(result['groups'])} entries; coverage {result['coverage_status']}. Use View grouping for advisory findings.")
+            from recordprep.motion_groups import count_text
+            _line(f"Motion organization saved: {count_text(len(result['groups']), 'entry', 'entries')} / "
+                  f"{count_text(len(result['inventory']), 'physical paper')}; review coverage {result['coverage_status']}. "
+                  "Use View grouping for advisory findings.")
         if caption_guard is not None:
             def check_caption_stop():
                 if _stopped:

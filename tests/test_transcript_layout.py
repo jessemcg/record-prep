@@ -123,6 +123,21 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
             self.assertIn("RT + CT", summary)
             self.assertIn("through page 4", summary)
 
+    def test_summary_separator_spacing_for_every_mode_and_decision_source(self):
+        for mode, prefix in (('rt_only', "Reporter's transcript only"),
+                             ('ct_only', "Clerk's transcript only"),
+                             ('split', 'RT + CT • RT through page 2')):
+            for decision in ('manual', 'pi-agent'):
+                with self.subTest(mode=mode, decision=decision), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    _make_pages(root, 4)
+                    draft = _resolved_draft(mode=mode, decision_source=decision,
+                        rt_end=4 if mode == 'rt_only' else 2 if mode == 'split' else None,
+                        ct_start=1 if mode == 'ct_only' else 3 if mode == 'split' else None)
+                    finalize_layout_draft(root, draft)
+                    source = 'manual' if decision == 'manual' else 'automatic'
+                    self.assertEqual(layout_display_summary(root), prefix + f' • {source} detection')
+
     def test_split_boundary_must_be_adjacent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

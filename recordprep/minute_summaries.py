@@ -118,12 +118,18 @@ phrasing without changing its meaning or inventing a reason. Retain a necessary
 legal term or essential condition when simplification would mislead. Do not copy
 statutory strings, evidentiary standards, repeated status findings or stock
 'all prior orders remain' language. Omit routine report receipt, report preparation,
-filing/e-filing/portal deadlines, clerical/service-of-paperwork logistics, calendar housekeeping
+filing/e-filing/portal deadlines, clerical/service-of-paperwork logistics, routine
+return/production logistics unless essential to the substantive disposition, calendar housekeeping
 and conditional warnings about sanctions for missing administrative deadlines.
 Do not reintroduce them just because the form calls them orders. An actually
 imposed consequential sanction is different and may be a headline outcome.
 For an administrative-only order, say 'No substantive orders recorded.' Do not
 invent a substantive result, imply no court action occurred, or pad with logistics.
+Prefer a supported scheduled date over repeating an incidental duration that conflicts
+with the dates; do not silently repair source chronology. For example, if a fictional
+order calls April 9 to May 7 'two weeks' but expressly sets May 7, use the supported
+May 7 setting, not a recalculated date or the inconsistent duration. Preserve a material
+chronology conflict as uncertainty.
 These are selection/writing instructions, not a text-deletion filter or word cap.
 
 Attendance has one fixed rule: use explicit evidence from any page of the order.
@@ -133,9 +139,16 @@ person, a short source-supported role_label (Unknown if unresolved), and evidenc
 people or a roster of staff/counsel; an empty array means attendance not established.
 Present includes expressly recorded personal remote attendance. Counsel appearing
 alone establishes neither a client's presence nor absence. A missing name is not
-proof of absence. Unstated, conflicting or illegible attendance stays unclear.
-Evidence must be continuous verbatim text on a supplied page identifying personal
-attendance or absence, not just the attorney. Python checks location, not semantics.
+proof of absence. An express statement that a party was not produced for THIS hearing
+can establish absence; custody alone cannot. Unstated, conflicting or illegible
+attendance stays unclear.
+Evidence must be a short continuous verbatim passage from the declared supplied page
+identifying personal attendance or absence, not just the attorney. Do not paraphrase
+or reconstruct a sentence. Fictional example: page 12 says 'Applicant Vale was not
+produced for this hearing.' That exact passage supports not_present on page 12;
+'Vale was absent' is a paraphrase, not evidence. 'Vale remains in custody' and
+'Counsel Rowan appears for Vale' alone do not establish Vale's attendance.
+Python checks location, not semantics.
 Never infer agreement or attendance from the court's ruling.
 
 In next_hearing, give only the next substantive hearing type/date compactly.
@@ -143,7 +156,13 @@ Exclude report-only hearings, report filing/due dates and other future report da
 even if they come first chronologically. Do not move that report calendar into orders.
 Do not list later substantive settings, times or directions to return/give notice,
 or invent a date. Use 'Not stated.' or 'Unclear.' as appropriate. A vacated hearing
-is not a next setting. Do not borrow settings from other orders.
+is not a next setting. Require an actual future setting in THIS supplied order.
+Fictional examples: 'This matter is on calendar for a continued hearing' describes
+the current hearing, not the next one. 'The court will revisit access at the next
+hearing' establishes neither that hearing's type nor date. 'Further review is set
+for June 4' does establish a future setting. Otherwise use Not stated/Unclear as
+appropriate. Do not fill a missing setting from another order, a hearing transcript,
+participant metadata or an assumed missing page.
 
 No reporting-status sentence, digest or quote placeholders. Only Python renders
 and publishes. Preserve uncertainty rather than filling fields with guesses.

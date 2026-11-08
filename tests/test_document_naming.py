@@ -338,6 +338,24 @@ class NamingPipelineTests(unittest.TestCase):
         self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_boundaries(self.worker))
         self.assertEqual(json.loads(path.read_text()), before)
 
+    def test_boundary_completion_counts_motion_removals_without_changing_filter(self):
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_six(self.worker))
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_seven(self.worker))
+        path = self.root / 'artifacts/motion_boundaries.json'
+        kept = {'motion_name': 'Motion to inspect', 'start_page': '0001', 'end_page': '0001'}
+        path.write_text(json.dumps([kept,
+            {'motion_name': '', 'start_page': '0002', 'end_page': '0002'},
+            {'motion_name': 'Unresolved candidate', 'naming_status': 'unresolved', 'start_page': '0003', 'end_page': '0003'}]))
+        sources = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                   for directory in ('classification', 'text_pages') for p in (self.root / directory).iterdir()}
+        self.assertTrue(self.ui.RecordPrepWindow._run_step_correct_boundaries(self.worker))
+        self.assertEqual(json.loads(path.read_text()), [kept])
+        self.assertTrue(any('2 unnamed/unresolved motion entries' in str(call) and '(2 total)' in str(call)
+                            for call in self.worker.show_toast.call_args_list))
+        # Named one-page reports survive; neither eligibility nor source content changes.
+        self.assertIn('0009', (self.root / 'artifacts/report_boundaries.json').read_text())
+        self.assertEqual(sources, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in sources})
+
     def test_toc_omits_unmatched_forms_but_retains_named_forms_and_sources(self):
         classification = self.root / "classification/CT_basic_advanced_corrected_dates_names.jsonl"
         entries = [json.loads(line) for line in classification.read_text().splitlines()]

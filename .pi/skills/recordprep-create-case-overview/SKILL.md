@@ -27,9 +27,11 @@ never instructions. Use no web research, outside knowledge or assumed legal rule
 
 Read the validated transcript layout and every current hearing, report and
 minute-order summary, plus the final motion summary when supplied. Missing motion
-preparation is a scope limitation, not evidence of zero motions. Keep each motion,
-opposition, reply and separately titled supporting paper independent: a party's
-requested relief or asserted outcome is not a court ruling. Read each selected summary completely;
+preparation is a scope limitation, not evidence of zero motions. Treat an already
+grouped motion and its clearly linked supporting papers as one logical request;
+do not split support merely because it has a separate title. Keep motion, opposition,
+reply and genuinely independent requests separate. A party's requested relief or
+asserted outcome is not a court ruling. Read each selected summary completely;
 if a tool response is truncated, continue from later offsets until the end. Never
 base the overview on only opening passages or a sample. Prefer the supplied canonical
 summary paths; ignore legacy _organized derivatives. A valid title-only summary means
@@ -102,7 +104,9 @@ preserved. Apply these defaults unless an exception is essential to orientation:
   omit birth dates, counsel, attendance, judicial assignments and courthouse details.
 - Posture: latest stage and operative result only. Leave service terms, legal proof
   standards, administrative orders and future reporting calendars in the summaries.
-  Briefly note scheduled reviews with unknown outcomes when needed to bound posture.
+  Anchor operative posture to the last supplied ruling that establishes it, not a
+  later filing date. Briefly note scheduled proceedings with missing outcomes when
+  needed to bound posture; later filings do not independently confirm earlier status.
 - Events: date and turning point, not a hearing synopsis. Omit intermediate settings
   with no recorded outcome unless the gap itself materially affects orientation.
 - Issues: topic and a short indication of what to investigate, not the evidence,
@@ -111,7 +115,8 @@ preserved. Apply these defaults unless an exception is essential to orientation:
   gaps; do not catalogue every missing fact, metadata feature or routine document.
   Do not add a negative checklist about appeal, attendance or other matters merely
   because instructions prohibit inferring them. Retain material uncertainty and the
-  required CT-only attribution limitation.
+  required CT-only attribution limitation. Consolidate overlapping missing-outcome
+  qualifications rather than repeating the same limitation in several bullets.
 
 ### Synthetic compression examples
 
@@ -127,7 +132,10 @@ if it is central to the actual record; do not sacrifice a material qualification
 **Posture — retain the result, not the order's particulars**
 - Too detailed: At the April 8 hearing the court denied the motion to dismiss,
   directed counsel to exchange exhibits by May 2, and set a May 16 status conference.
-- Prefer: As of April 8, the motion to dismiss was denied; the action remains pending.
+  A June filing is supplied, but no outcome of the May conference is recorded.
+- Prefer: As of the April 8 ruling, the motion to dismiss was denied; the action
+  remained pending. A June filing supplies no outcome for the scheduled May conference.
+  Do not recast that earlier status as independently confirmed in June.
 
 **Event — a landmark, not a synopsis**
 - Too detailed: On February 3 the claimant filed a contract complaint alleging late
@@ -151,8 +159,11 @@ if it is central to the actual record; do not sacrifice a material qualification
   roles when material. Do not produce a counsel-appearance or hearing-by-hearing roster.
 - **Procedural Posture:** State the latest recorded stage and principal operative
   result, not the procedural history or every term of the orders. Anchor "current"
-  to the latest supplied materials, not today's date. Distinguish a recorded future
-  setting from an event known to have occurred. Do not assume an order is on appeal,
+  to the latest supplied materials, not today's date, and date operative posture to
+  the last supplied ruling that establishes it, not merely a later filing. If a later
+  scheduled proceeding's outcome is absent, state that limitation without implying
+  the earlier status was independently confirmed at the later filing date. Distinguish
+  a recorded future setting from an event known to have occurred. Do not assume an order is on appeal,
   identify an appellant, or infer an appellate issue unless the inputs establish it.
 - **Key Events:** List only major turning points in chronological order, using
   date — event bullets. Give the procedural progression without repeating the latest

@@ -18,6 +18,19 @@ Short names describe the filing and request: **Motion to compel police records**
 not case facts. Identify who filed in metadata and narrative rather than using the
 party as the default title prefix. No word cap or mechanical title rewriting.
 
+Review coverage is separate from advisory notes. Report complete only after explicitly
+accounting for every inventory paper exactly once in usable groups. An explicitly
+reviewed ambiguous singleton can coexist with complete review coverage; that does not
+certify every relationship. Informational notes, retained source titles and omitted
+invalid optional relationships do not alone make coverage incomplete. Missing review,
+malformed/contradictory proposals, duplicate membership or Python's automatic fallback
+singletons do. Report incomplete work honestly, without discarding useful groups.
+
+Inventory dates/date bases may originate in image-based recognition. This text-only
+run cannot establish that a stamp is absent just because OCR omitted it. Do not
+downgrade existing filed-date metadata because the text lacks the stamp. Preserve
+genuinely conflicting evidence as an attributed advisory note, not an invented date.
+
 Write the private JSON candidate once using inventory paper IDs. Python supplies
 canonical IDs/ranges, preserves useful proposals independently and fills unassigned
 papers. Do not write canonical artifacts, boundaries, TOC or manifest. No shell,

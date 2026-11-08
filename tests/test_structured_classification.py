@@ -260,7 +260,7 @@ class StructuredClassificationTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(profile_skill_text(ROOT/'.pi',skill,phase).encode()).hexdigest(),golden[kind+'-'+phase]['staged_skill_sha256'])
         from recordprep.minute_summaries import profile_guidance
         self.assertEqual(hashlib.sha256(profile_guidance(b).encode()).hexdigest(),
-                         'd4ab8bd022954ccd6f556552e03ea6e31b99c3070f03894c0001bff6ed159d23')
+                         '7deaadf5a91258ab15ef8558bc510039c13e0a8a565e1f480c6e213e24e792a3')
         item=NS(item_id='id',ordinal=1,label='label',start_page=1,end_page=2)
         c=NS(guidance='literal {{quote:x}}',additional_guidance='additional {x}',definitions=[NS(identifier='topic',guidance='guidance')])
         expected='/skill:skill Run the loaded extraction skill now for the current document.\nitem_id: id\nordinal: 1\nlabel: label\npage range: 1-2\ncandidate_path: /private/candidate\ncategory ids in order: topic\n\nEXTRACTION GUIDANCE — DIGEST CONTRACT\nliteral {{quote:x}}\n\nPER-CATEGORY GUIDANCE\n- topic: guidance\n\nADDITIONAL USER GUIDANCE — lower priority than the built-in contracts above:\nadditional {x}\n\nThe work specification file is available to your tools; read the complete document source, then submit once.'

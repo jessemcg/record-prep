@@ -70,10 +70,11 @@ class ExternalSettingsTests(unittest.TestCase):
         self.assertEqual(current['minutes']['thinking'], 'high')
         current['minutes']['thinking'] = 'low'
         # Frozen pre-installer fixture remains historical. Reviewed aggregates
-        # retain the hearing/report editorial and plain-English minute contracts.
+        # retain editorial/minute contracts and the longer advisory quote policy.
+        # The extraction extension is also a legitimate synthesis dependency.
         changed_contracts = {
-            'extraction': '13b7cc7fb8e042404848aa5be3a23465dda8a5def9a7ef8b59cb82d49f7979c9',
-            'synthesis': '4f8bb1a7cbdb6314058f4f2f8ad87833e8c57bd5178141608148dd3a57bf3a56',
+            'extraction': 'b8fc2da5bbe04486ce6497df9dc5df8fe56ff6977cbf4c3e6df87f09ce698529',
+            'synthesis': 'e0da3e648845187449639c276daa04d792cce29ac6129e2bef2417cc0462ccf2',
             'minutes': '4fecbf5c56e1fdd1dd59b6b44a76d5a4452cdf573ae0c7505b10f7560c3bdcd1',
         }
         for key, value in current.items():

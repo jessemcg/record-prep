@@ -249,6 +249,18 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_summary_shared_guidance_and_launch_bytes(self):
         b=bundle()
         golden=json.loads((ROOT/'tests/fixtures/summary-inspection-golden.json').read_bytes())
+        # Keep the frozen historical fixture intact; only extraction's policy
+        # and staged template advance. Synthesis remains byte-identical.
+        golden.update({
+            'hearings-extract': {
+                'component_sha256': 'e22cc70d2b9b316028f36b03ec5b57178bd9d9217a521a33a03f9c473cc9a9ae',
+                'prompt_sha256': '57c2baa8703beae1146ada2493b816a8664b78ad71f36b9f7af4635214b154f2',
+                'staged_skill_sha256': '1fc88305fe14c03cbdbd2f5b1dfe615b535f69d6051b4bfe18717d6f3b6f6c79'},
+            'reports-extract': {
+                'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
+                'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',
+                'staged_skill_sha256': '4649e4af6c1a492987223d37db3e0102d7bf6f604ecec5c6cb4e928661c9cc41'},
+        })
         for kind in ('hearings','reports'):
             for phase in ('extract','synthesize'):
                 c=compile_summary(b,kind,phase)

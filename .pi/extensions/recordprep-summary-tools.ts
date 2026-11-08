@@ -163,9 +163,20 @@ export default function recordprepSummaryTools(pi: ExtensionAPI) {
       "there is no word, sentence, or paragraph quota. " +
       "Set digest to exactly null when the category has no material " +
       "orientation-worthy content. Evidence quotes are continuous verbatim " +
-      "two-to-five-word source phrases, preferably distinctive " +
-      "three-to-five-word anchors, with no fixed count — a quotation should " +
-      "help locate source language, not pad the digest. A flattened variant " +
+      "source quotations normally containing 6–12 words, usually 8–10. Choose the " +
+      "shortest natural phrase in that range distinguishing a substantive action, " +
+      "condition, reason or disputed assertion, not stock courtroom language, routine " +
+      "appearances, generic names/dates or boilerplate. Do not add incidental identifiers " +
+      "for uniqueness. Preserve negation, qualifications and attribution; copy from the " +
+      "declared original source page, never participant context. You see this document, " +
+      "not the whole record: do not claim record-wide uniqueness; repeated passages can " +
+      "still match more than once. Never pad, stitch fragments, insert ellipses, truncate " +
+      "or rewrite source wording to meet the range, or bring sentence-ending punctuation " +
+      "inside quotation marks. If no useful anchor exists, retain paraphrase rather than " +
+      "forcing a quotation. No fixed count or quote requirement in every paragraph; " +
+      "help locate source language, not pad or repeat digest prose. Useful out-of-range " +
+      "quotations remain exceptions: length checks are advisory, never a discard or " +
+      "another-model-pass trigger. A flattened variant " +
       "(digest as a string plus a category-level evidence array) is also " +
       "accepted. Python normalizes any deviation, so always submit once and " +
       "never restate case text.",

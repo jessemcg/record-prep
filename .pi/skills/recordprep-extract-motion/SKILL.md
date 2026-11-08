@@ -39,11 +39,21 @@ holdings or add independent legal analysis. Use the launch message's fictional
 examples to guide selection, never as facts about this entry.
 
 Submit exactly request and reasons, each with one paraphrased digest or null. Keep
-short continuous verbatim source phrases in evidence, with their actual file_page.
-Choose anchors about relief or reasons for or against it, not identifiers or packaging.
+continuous verbatim source quotations normally containing 6–12 words, usually 8–10,
+in evidence with their declared original file_page. Choose the shortest natural phrase
+in that range that meaningfully distinguishes a substantive action, condition, reason
+or disputed assertion about relief or reasons for or against it, not identifiers or
+packaging. Prefer substantive wording over stock courtroom language, routine appearances,
+generic names/dates and boilerplate. Never add incidental identifiers for uniqueness.
 Preserve exact wording, negation, attribution and qualifications; an excerpt must not
-reverse the supported proposition. Useful anchors have no count quota; never fabricate
-quotes or copy boilerplate just to fill a topic. Use no mandatory headings in eventual prose, length validator,
+reverse the supported proposition. You see this document, not the whole record; do not
+claim record-wide uniqueness. Repeated passages can still match more than once.
+Do not pad, stitch fragments, insert ellipses, truncate or rewrite source wording to
+meet the range, or bring sentence-ending punctuation inside quotation marks. If no
+useful anchor exists, retain the point as paraphrase. There is no count quota or quote
+requirement in every paragraph; never fabricate quotes or copy boilerplate to fill a
+topic. Useful out-of-range quotations remain exceptions: length checks are advisory,
+never a discard or extra-pass trigger. Use no mandatory headings in eventual prose, length validator,
 extra review/repair pass or blanket checklist of information absent from each paper.
 Call recordprep_submit_extraction once. Python supplies the group/quote IDs, verifies
 quotes best-effort and publishes canonical Markdown; imperfections are advisory.

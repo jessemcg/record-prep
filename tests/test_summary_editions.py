@@ -551,6 +551,42 @@ class EditionQuotePresentationTests(unittest.TestCase):
                 [],
             )
 
+    def test_natural_policy_anchors_keep_full_search_on_line_and_paper_splits(self) -> None:
+        phrases = (
+            'supervised visitation at the community center',
+            'supervised visitation at the community center every Saturday',
+            'the court finds that notice has been given as required by law',
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = _build_bundle(temporary)
+            for kind in ('hearings', 'reports', 'motions'):
+                # A long lead-in makes a natural 12-word quote wrap. Move this
+                # paragraph down until that wrap also crosses a paper boundary.
+                split = None
+                for lines in range(34, 40):
+                    text = ('Orientation.\n' * lines +
+                            'The court reviewed the disputed conditions and explained that ' +
+                            '“' + phrases[2] + '”.\n\n' +
+                            'The order provides for “' + phrases[1] + '”.\n\n' +
+                            'The report describes “' + phrases[0] + '”.\n')
+                    source = _write_source(root, kind, text)
+                    edition = build_summary_edition(kind, source, root)
+                    pages = [p for p in edition.pages if any(q.phrase == phrases[2] for q in p.quotes)]
+                    if len(pages) > 1:
+                        split = edition
+                        break
+                self.assertIsNotNone(split, 'Fixture must exercise an actual paper-page split')
+                found = {phrase: [] for phrase in phrases}
+                for page in split.pages:
+                    for span in page.quotes:
+                        self.assertIn(span.phrase, phrases)
+                        self.assertEqual(page.text[span.start:span.end], span.label)
+                        found[span.phrase].append(' '.join(span.label.split()))
+                for phrase in phrases:
+                    self.assertEqual(_coverage_stream(' '.join(found[phrase])), _coverage_stream(phrase))
+                self.assertEqual(validate_edition_payload(split.page_map, kind=kind,
+                                 root_dir=root, source_text=text, pdf_bytes=split.pdf_bytes), [])
+
     def test_quoted_links_keep_targets_and_bold_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             _root, _source, _text, edition = self._build(temporary)

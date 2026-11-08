@@ -64,13 +64,21 @@ per-category guidance. Follow that guidance completely.
    offered for adoption. Retain material recommendations and requested
    relief wherever they appear; omit routine boilerplate unless consequential.
    There is no heading-based source cutoff.
-5. Select evidence quotes: continuous, verbatim two-to-five-word source
-   phrases, preferably distinctive three-to-five-word anchors, taken from
-   the page you declare. Do not stitch fragments, insert ellipses, or
-   silently clean up source wording, and never bring sentence-ending
-   punctuation inside the final quotation marks. Choose useful anchors for
-   the report's important points; there is no fixed count per category,
-   paragraph, or document. Quotes may come from any supplied source page.
+5. Select continuous, verbatim source quotations normally containing 6–12
+   words, usually 8–10. Choose the shortest natural phrase in that range that
+   meaningfully distinguishes a substantive action, condition, reason or disputed
+   assertion. Prefer this over stock courtroom language, routine appearances,
+   generic names/dates and boilerplate. Do not add incidental identifiers merely
+   to make a quotation unique. Preserve negation, qualifications and attribution.
+   Take each quotation from its declared original source page; any supplied page
+   may support material information. You see this document, not the whole record;
+   do not claim record-wide uniqueness. Repeated passages can still match more
+   than once. Do not pad, stitch fragments, insert ellipses, truncate or rewrite
+   source wording to meet the range, or bring sentence-ending punctuation inside
+   quotation marks. If no useful anchor exists, retain the point as paraphrase.
+   There is no fixed quote count or requirement for a quote in every paragraph.
+   Useful out-of-range quotations remain exceptions: length checks are advisory,
+   never a reason to discard useful summaries or trigger another model pass.
 6. Submit once with `recordprep_submit_extraction` using the shape it
    describes, then stop. Python normalizes and verifies the submission and
    publishes it into the canonical Markdown digest document; never restate

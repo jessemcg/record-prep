@@ -1412,10 +1412,10 @@ class SynthesisNormalizationTests(unittest.TestCase):
                     "text": "Reunification services recommended for the parent.",
                     "evidence": [
                         {"text": "aa", "file_page": 1},
-                        {"text": "aa bb cc dd ee ff", "file_page": 1},
+                        {"text": "aa bb cc dd ee ff gg hh ii jj kk ll mm", "file_page": 1},
                         {"text": "aa bb...", "file_page": 1},
                         {"text": "aa bb.", "file_page": 1},
-                        {"text": "aa bb", "file_page": 1},
+                        {"text": "aa bb cc dd ee ff", "file_page": 1},
                     ],
                 }
             ]
@@ -1427,7 +1427,7 @@ class SynthesisNormalizationTests(unittest.TestCase):
             evidence["quote_id"]
             for evidence in row["categories"][0]["digest"]["evidence"]
         ]
-        one_word, six_word, ellipsis, terminal, compliant = quote_ids
+        one_word, thirteen_word, ellipsis, terminal, compliant = quote_ids
         payload = [
             {
                 "item_id": row["item_id"],
@@ -1439,7 +1439,7 @@ class SynthesisNormalizationTests(unittest.TestCase):
         sections, flags = sa.normalize_synthesis_sections([row], payload)
         joined = " ".join(flags)
         self.assertIn(f"quote_length_out_of_range:{row['item_id']}:{one_word}:1", joined)
-        self.assertIn(f"quote_length_out_of_range:{row['item_id']}:{six_word}:6", joined)
+        self.assertIn(f"quote_length_out_of_range:{row['item_id']}:{thirteen_word}:13", joined)
         self.assertIn(f"quote_ellipsis:{row['item_id']}:{ellipsis}", joined)
         self.assertIn(
             f"quote_terminal_punctuation:{row['item_id']}:{terminal}", joined

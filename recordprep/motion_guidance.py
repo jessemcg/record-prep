@@ -7,6 +7,8 @@ from copy import deepcopy
 import hashlib
 import json
 
+from .summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
+
 MOTION_ELIGIBILITY = (
     "Free-form motions, motion-like applications or requests, oppositions, replies, "
     "supplemental briefs, points and authorities, and separately titled supporting "
@@ -169,6 +171,7 @@ def application_guidance(phase):
                   "Keep prose paraphrased; store verbatim continuous short phrases in evidence with actual source pages. "
                   "Preserve negation and qualifications; do not turn a fragment into the opposite proposition. "
                   "Read every supplied page; submit once through the extraction tool.\n")
+        method += "\n" + EXTRACTION_QUOTE_GUIDANCE
     else:
         method = ("Write one cohesive section per entry. Open with the filing party, practical relief and target, "
                   "or the opposed request and the opposition's desired result; then explain that party's reasons. "

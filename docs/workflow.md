@@ -381,6 +381,26 @@ Historical proposal-exclusion text is retained solely for exact built-in recogni
 so obsolete defaults are not reattached as custom guidance; genuinely custom prose
 stays byte-preserved.
 
+Hearing, report and motion digest extraction now recommends **6–12-word** continuous,
+verbatim source quotations, **usually 8–10**. Choose the shortest natural phrase in
+that range that distinguishes a substantive action, condition, reason or disputed
+assertion rather than stock courtroom language, routine appearances, generic names/dates
+or boilerplate. Do not add incidental identifiers for uniqueness. Preserve negation,
+qualifications, attribution and the declared source page; never pad, stitch, insert
+ellipses, truncate or rewrite source wording to meet a range. There is no higher quote
+frequency or quote-per-paragraph requirement. If no useful anchor exists, keep paraphrase.
+Useful shorter/longer quotes remain usable with advisory warnings only, never an extra
+model pass. This practical starting range is not a statistically established optimum;
+repeated passages still produce multiple matches in unchanged Focus's record-wide search.
+Minute summaries and Focus Agent Q&A are unchanged.
+
+To adopt in an existing case, explicitly run the affected **Create hearing/report/motion
+summaries** stage, including extraction under the new policy, then **Build summary
+editions**. Rebuilding editions or synthesis alone cannot lengthen an existing quote
+bank. Explicit generation can incur normal provider costs; installation, inspection and
+startup never regenerate or migrate private output. Historical output remains readable;
+badges and Resume still reflect output presence. See [technical note](summary-quotation-policy.md).
+
 Canonical Markdown categories carry a salience-based `digest` and a small evidence
 quote bank, not atomized fact inventories. Categories with no material content use
 `digest: null`. Python normalizes Unicode/whitespace (then case and typographic marks)

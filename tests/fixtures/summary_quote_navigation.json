@@ -1,0 +1,14 @@
+{
+  "description": "Fictional source pages: distinctive longer anchor reaches page 2; boilerplate remains repeated. Not a real-record accuracy study.",
+  "pages": [
+    "The court ordered supervised visitation. The court finds that notice has been given as required by law. Visits are held at the library on weekdays.",
+    "The court ordered supervised visitation at the community center every Saturday. The court finds that notice has been given as required by law. The parent disputed the supervision condition.",
+    "The court ordered supervised visitation. Visits remain at the library on weekdays."
+  ],
+  "distinctive": "supervised visitation at the community center every Saturday",
+  "distinctive_page": 2,
+  "short_generic": "The court ordered supervised visitation",
+  "short_generic_pages": [1, 2, 3],
+  "repeated_boilerplate": "The court finds that notice has been given as required by law",
+  "repeated_boilerplate_pages": [1, 2]
+}

@@ -1,24 +1,24 @@
 {
   "schema_version": 1,
   "sources": {
-    ".pi/extensions/recordprep-summary-tools.ts": "dceb964290ed0680dbe6f34f5e44a2002ddebeafd00f45d52eb5cbcde8ddbe8e",
+    ".pi/extensions/recordprep-summary-tools.ts": "0251c1234d70635ceee91b48ce91ca2f6741473171ff8ae34d4b8693b7dc644a",
     ".pi/extensions/recordprep-summary-synthesis-tools.ts": "a63e513a0f997616de3e888d9e7375ad1f2604b63066a7f94da2bf42d722fcd8",
     ".pi/extensions/recordprep-profile-minute-tools.ts": "755775e5589586d380db4eb2df97ad713061e6a92807810db1346125893178f3",
     ".pi/extensions/recordprep-minute-tools.ts": "9abbd80a5b77ae32e932122fb78baef078aae6304249401ac19172c936778e05",
     ".pi/extensions/recordprep-motion-organization-tools.ts": "2f4bbc81780f91a81b35298ee0377a5bb1b7c3e5b0c631adb2e464b51b4f314f",
-    ".pi/skills/recordprep-extract-hearing/SKILL.md": "b38d7d214e5949b0d53296d8aacf038f85ae2fefc5a9f925258c8f6a07cf16db",
-    ".pi/skills/recordprep-extract-report/SKILL.md": "f0fdf69dceb1d56206974fcc64b41aeb4d635538dccdbd65db6e7a2b8fa06db9",
+    ".pi/skills/recordprep-extract-hearing/SKILL.md": "c7dbbbcac1b294bd8282ec487f6de4e48f3b8c4390967f3526f7b9f850d0505c",
+    ".pi/skills/recordprep-extract-report/SKILL.md": "f9a987a71260e08e34422660c8735a77b77ad809657ddd60ca363289ac8795b5",
     ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "d460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee",
     ".pi/skills/recordprep-synthesize-reports/SKILL.md": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a",
     ".pi/skills/recordprep-summarize-minutes/SKILL.md": "072ec2a476e44f377cb062782d79460349e1e750ae8b509925b0869649801af3",
-    ".pi/skills/recordprep-extract-motion/SKILL.md": "4a79dc8014ff08306a14a208d6d11b6221916a63dfae7624df0e124a06739c7c",
+    ".pi/skills/recordprep-extract-motion/SKILL.md": "ec62ba049a5f3ba04acfe6a5ca02fb989b8a2caabdd218b283d441ba8b9520fc",
     ".pi/skills/recordprep-synthesize-motions/SKILL.md": "2dd78953ad95822fe3260f885d2dbf19c7f5dacfe3c8201e8552769f9cea2af7",
     ".pi/skills/recordprep-organize-motion-papers/SKILL.md": "1c750dae1d63f7ca7f109576085581c1e65c55b72b466782c7c96430ac7cb737",
     ".pi/scripts/run_recordprep_skill.py": "8aa87ac4ea2710a90908e97ccb46f9e81ee67bbec9869b282fcb98c9b5319415",
     "recordprep/summary_prompts.py": "fc1deeca80b4cc739ede9f1e0c2948a3aaed00c2312c9b77c1eafa474f0e07fb",
     "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
     ".pi/SYSTEM.md": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",
-    ".pi/resources/profile-summary-extract.md": "80f4d6287976b4540228935828851f00d5422d952fa164ca1457da915c9c2a4c",
+    ".pi/resources/profile-summary-extract.md": "4ee8da0c91c1433f24c3fa9dd4cec669ea217062fc1a96e051d5a0594eaf1004",
     ".pi/resources/profile-summary-synthesize.md": "d0268d4b0d6b106282738fb1c0d70e42961ce3d0b33798382071f5e93ff96938"
   },
   "definitions": {
@@ -33,7 +33,7 @@
       },
       {
         "name": "recordprep_submit_extraction",
-        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim two-to-five-word source phrases, preferably distinctive three-to-five-word anchors, with no fixed count — a quotation should help locate source language, not pad the digest. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
+        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim source quotations normally containing 6–12 words, usually 8–10. Choose the shortest natural phrase in that range distinguishing a substantive action, condition, reason or disputed assertion, not stock courtroom language, routine appearances, generic names/dates or boilerplate. Do not add incidental identifiers for uniqueness. Preserve negation, qualifications and attribution; copy from the declared original source page, never participant context. You see this document, not the whole record: do not claim record-wide uniqueness; repeated passages can still match more than once. Never pad, stitch fragments, insert ellipses, truncate or rewrite source wording to meet the range, or bring sentence-ending punctuation inside quotation marks. If no useful anchor exists, retain paraphrase rather than forcing a quotation. No fixed count or quote requirement in every paragraph; help locate source language, not pad or repeat digest prose. Useful out-of-range quotations remain exceptions: length checks are advisory, never a discard or another-model-pass trigger. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
         "parameters": {
           "type": "object",
           "required": [
@@ -146,7 +146,7 @@
       },
       {
         "name": "recordprep_submit_extraction",
-        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim two-to-five-word source phrases, preferably distinctive three-to-five-word anchors, with no fixed count — a quotation should help locate source language, not pad the digest. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
+        "description": "Submit the completed category digest for the current document. This terminates the session on success.\n\nDesired shape: one entry per configured category id, in the configured order. Preferred form per entry: { \"id\": string, \"digest\": {\n  \"text\": \"one synthesized digest, with detail proportional to material content\",\n  \"evidence\": [{ \"text\": \"short verbatim source quote\", \"file_page\": 12 }] }\nA digest may contain multiple paragraphs for distinct material points; there is no word, sentence, or paragraph quota. Set digest to exactly null when the category has no material orientation-worthy content. Evidence quotes are continuous verbatim source quotations normally containing 6–12 words, usually 8–10. Choose the shortest natural phrase in that range distinguishing a substantive action, condition, reason or disputed assertion, not stock courtroom language, routine appearances, generic names/dates or boilerplate. Do not add incidental identifiers for uniqueness. Preserve negation, qualifications and attribution; copy from the declared original source page, never participant context. You see this document, not the whole record: do not claim record-wide uniqueness; repeated passages can still match more than once. Never pad, stitch fragments, insert ellipses, truncate or rewrite source wording to meet the range, or bring sentence-ending punctuation inside quotation marks. If no useful anchor exists, retain paraphrase rather than forcing a quotation. No fixed count or quote requirement in every paragraph; help locate source language, not pad or repeat digest prose. Useful out-of-range quotations remain exceptions: length checks are advisory, never a discard or another-model-pass trigger. A flattened variant (digest as a string plus a category-level evidence array) is also accepted. Python normalizes any deviation, so always submit once and never restate case text.",
         "parameters": {
           "type": "object",
           "required": [

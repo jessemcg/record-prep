@@ -59,17 +59,22 @@ per-category guidance. Follow that guidance completely.
    covered elsewhere. Write digest prose as paraphrase and keep direct
    quotations in the evidence bank instead of duplicating quoted passages
    in both places.
-4. Select evidence quotes: continuous, verbatim two-to-five-word source
-   phrases, preferably distinctive three-to-five-word anchors, taken from
-   the page you declare. Do not stitch fragments, insert ellipses, or
-   silently clean up source wording, and never bring sentence-ending
-   punctuation inside the final quotation marks. Choose useful anchors for
-   the hearing's important points; there is no fixed count per category,
-   paragraph, or document. Quotes must come from the original hearing
-   pages, never from the participant-index context. Distribute meaningful anchors
-   across distinct material positions, conditions, disputed evidence and reasons
-   retained in the digest, not only headline rulings. Generic names/dates are not
-   substitutes; do not collect extra quotes merely to reach a count.
+4. Select continuous, verbatim source quotations normally containing 6–12
+   words, usually 8–10. Choose the shortest natural phrase in that range that
+   meaningfully distinguishes a substantive action, condition, reason or disputed
+   assertion. Prefer this over stock courtroom language, routine appearances,
+   generic names/dates and boilerplate. Do not add incidental identifiers merely
+   to make a quotation unique. Preserve negation, qualifications and attribution.
+   Take each quotation from its declared original hearing page, never participant
+   context. You see this document, not the whole record; do not claim record-wide
+   uniqueness. Repeated passages can still match more than once.
+   Do not pad, stitch fragments, insert ellipses, truncate or rewrite source wording
+   to meet the range, or bring sentence-ending punctuation inside quotation marks.
+   If no useful anchor exists, retain the point as paraphrase. Distribute useful
+   anchors across retained material positions, conditions, disputed evidence and
+   reasons, not only headline rulings; do not collect extra quotes to reach a count
+   or require a quote in every paragraph. Useful out-of-range quotations remain
+   exceptions: length checks are advisory, never a discard or extra-pass trigger.
 5. Attribution rules: preserve participant attribution and testimony
    distinctions; counsel-only appearances are not parent appearances; Q/A
    formatting alone does not establish testimony; unsworn colloquy is

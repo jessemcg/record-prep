@@ -84,6 +84,27 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                         user = next(m for m in context['messages'] if m['role'] == 'user')
                         message = user['content'] if isinstance(user['content'], str) else user['content'][0]['text']
                         self.assertTrue(message.startswith('<skill name="' + skill_name + '"'))
+                        if phase == 'extract':
+                            # Verify actual expanded launches AND registered model-visible
+                            # descriptions, including profile and unassigned paths.
+                            system = next(m for m in context['messages'] if m['role'] == 'system')
+                            registered = [{k: t[k] for k in ('name', 'description', 'parameters')}
+                                          for t in system['toolsAdded']]
+                            for text in (message, next(t['description'] for t in registered
+                                         if t['name'] == 'recordprep_submit_extraction')):
+                                self.assertIn('6–12', text)
+                                self.assertIn('usually 8–10', text)
+                                self.assertIn('advisory', text)
+                                self.assertNotIn('two-to-five', text)
+                                self.assertNotIn('three-to-five', text)
+                            from recordprep.summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
+                            self.assertIn(EXTRACTION_QUOTE_GUIDANCE.strip(), message)
+                            self.assertIn('record-wide uniqueness', message)
+                            self.assertIn('negation', message)
+                            audit, issues = tool_audit(ROOT / '.pi', 'extract')
+                            self.assertEqual(issues, ())
+                            self.assertEqual({t['name']: t for t in json.loads(audit)},
+                                             {t['name']: t for t in registered})
                         if kind == 'motions':
                             # Check the real expanded child message, not just the staged
                             # filename or /skill prefix. Both phases select before output.

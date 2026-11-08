@@ -38,6 +38,9 @@ from recordprep.summary_profiles import (
 )
 from recordprep.summary_categories import SummaryResourceError  # noqa: F401
 from recordprep.transcript_layout import is_ct_only
+from recordprep.summary_quote_policy import (
+    EXTRACTION_QUOTE_GUIDANCE, QUOTE_MIN_WORDS, QUOTE_MAX_WORDS,
+)
 
 # --- Schema contracts ---
 
@@ -91,7 +94,8 @@ SUMMARY_TITLES = {"hearings": "Hearings Summary", "reports": "Reports Summary", 
 # guidance into tracked resource files and made custom prompts consistently
 # subordinate to the immutable contract; synthesis contract version 2 made
 # synthesis incremental and scratchpad-assisted.
-SUMMARY_EXTRACTION_CONTRACT_VERSION = 4
+# Version 5 recommends longer, distinctive anchors without enforcing a gate.
+SUMMARY_EXTRACTION_CONTRACT_VERSION = 5
 SUMMARY_SYNTHESIS_CONTRACT_VERSION = 4
 # Retained name for compatibility with older references.
 SUMMARY_CONTENT_CONTRACT_VERSION = SUMMARY_EXTRACTION_CONTRACT_VERSION
@@ -963,6 +967,21 @@ PREVIOUS_HEARING_READABILITY_GUIDANCE = DEFAULT_HEARING_SYNTHESIS_GUIDANCE
 DEFAULT_HEARING_EXTRACTION_GUIDANCE = HEARING_QUOTE_COVERAGE + "\n" + DEFAULT_HEARING_EXTRACTION_GUIDANCE
 DEFAULT_HEARING_SYNTHESIS_GUIDANCE = HEARING_READABILITY + "\n" + DEFAULT_HEARING_SYNTHESIS_GUIDANCE
 
+# Save the immediately preceding active defaults exactly before replacing only
+# their quotation paragraphs. Historical literals above remain byte-for-byte intact.
+PREVIOUS_SHORT_QUOTE_HEARING_EXTRACTION_GUIDANCE = DEFAULT_HEARING_EXTRACTION_GUIDANCE
+PREVIOUS_SHORT_QUOTE_REPORT_EXTRACTION_GUIDANCE = DEFAULT_REPORT_EXTRACTION_GUIDANCE
+
+
+def _current_quote_guidance(previous: str) -> str:
+    start = previous.index("Quotes: select")
+    end = previous.index("\n\n", start)
+    return previous[:start] + EXTRACTION_QUOTE_GUIDANCE.rstrip() + previous[end:]
+
+
+DEFAULT_HEARING_EXTRACTION_GUIDANCE = _current_quote_guidance(PREVIOUS_SHORT_QUOTE_HEARING_EXTRACTION_GUIDANCE)
+DEFAULT_REPORT_EXTRACTION_GUIDANCE = _current_quote_guidance(PREVIOUS_SHORT_QUOTE_REPORT_EXTRACTION_GUIDANCE)
+
 # Exact historical built-in texts per (kind, phase). Only these advance to
 # the current default guidance; anything else is genuinely custom and is
 # preserved byte-for-byte as subordinate additional guidance.
@@ -979,6 +998,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         PRIOR_HEARING_EXTRACTION_GUIDANCE,
         PREVIOUS_PROPOSAL_CUTOFF_HEARING_EXTRACTION_GUIDANCE,
         PREVIOUS_HEARING_QUOTE_COVERAGE_GUIDANCE,
+        PREVIOUS_SHORT_QUOTE_HEARING_EXTRACTION_GUIDANCE,
     ),
     ("reports", "extract"): (
         _HISTORIC_REPORT_CONCISE_PROMPT,
@@ -993,6 +1013,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         _HISTORIC_REPORT_EXTRACTION_V1_BEST_EFFORT,
         PRIOR_REPORT_EXTRACTION_GUIDANCE,
         PREVIOUS_PROPOSAL_CUTOFF_REPORT_EXTRACTION_GUIDANCE,
+        PREVIOUS_SHORT_QUOTE_REPORT_EXTRACTION_GUIDANCE,
     ),
     ("hearings", "synthesize"): (
         _HISTORIC_HEARING_SYNTHESIS_V1_FACTS,
@@ -3560,9 +3581,7 @@ def _normalized_words(text: str) -> list[str]:
     return [word for word in normalized.split(" ") if word]
 
 
-# The quote convention: continuous verbatim two-to-five-word phrases.
-QUOTE_MIN_WORDS = 2
-QUOTE_MAX_WORDS = 5
+# Advisory bounds are imported/re-exported from summary_quote_policy.
 _ELLIPSIS_PATTERN = re.compile(r"(?:\.\s*\.\s*\.|\u2026)")
 _TERMINAL_PUNCTUATION_PATTERN = re.compile(r"[.!?][\u201d\"]?\s*$")
 _NARRATIVE_METADATA_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (

@@ -90,3 +90,5 @@ generated work against the original record.
 ## License
 
 See [LICENSE](LICENSE).
+
+**Recommended Agent model:** the latest DeepSeek Flash model via the Fireworks API.

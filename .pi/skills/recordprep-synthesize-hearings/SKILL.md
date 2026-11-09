@@ -26,6 +26,18 @@ throughout, without forcing a quote into ordinary appearances or connective pros
 Read expanded quotations in their sentences: avoid doubled subjects/verbs, dangling
 fragments and paraphrase-plus-quote repetition. Recast surrounding prose, choose
 another suitable anchor or paraphrase; never rewrite a stored quotation.
+Let the quotation carry the proposition. Add attribution, context, transition or
+consequence around it, not an equivalent paraphrase followed by a colon, dash or
+another sentence repeating the point. A colon is acceptable when the lead-in is
+not redundant. A complete spoken statement needs brief supported attribution;
+do not insert its first-person subject into third-person prose. Prefer distinctive
+reasons and limitations to routine confirmations; the quote bank is not a checklist.
+Keep material facts when omitting unhelpful anchors, without aiming for fewer quotes.
+Before submitting, mentally expand every placeholder: is the sentence grammatical,
+and does the lead-in already say everything the quote says? Recast the surrounding
+prose or paraphrase, never trim the saved quote. The runtime contract demonstrates
+phrase integration, complete spoken statements, first-person grammar and omission
+of unhelpful confirmations with fictional before/after examples.
 
 Before asserting a position or ruling, reconcile overlapping accounts from the
 dataset. Preserve the speaker, actor and duty bearer; a counsel's account of a prior

@@ -149,6 +149,22 @@ HEARING_READABILITY = """HEARING READABILITY AND QUOTATION CHECKLIST
   prose grammatical, avoiding doubled subjects/verbs, dangling fragments and a
   paraphrase immediately repeated by a quote. Choose another suitable anchor or
   paraphrase if needed; never repair, shorten or rewrite the stored quotation.
+  Let the quotation carry the proposition: surrounding prose adds attribution,
+  context, transition or consequence, not a second statement of the same meaning.
+  Do not write a complete paraphrase followed by an equivalent quotation, whether
+  joined by a colon, dash, comma or a new sentence. A colon is not itself wrong;
+  a redundant lead-in is. Never treat the quote bank as a checklist to exhaust.
+  Distinguish a phrase that completes your sentence from a complete spoken statement.
+  Give a complete statement a brief, supported attribution instead of inserting its
+  first-person subject into third-person prose. If neither form works naturally,
+  choose another saved anchor or paraphrase without a quotation. Prefer distinctive
+  reasons, limitations and disputed assertions to generic confirmations or routine
+  announcements that the court reviewed materials. Keep material facts even when
+  omitting their unhelpful anchors; this is not a goal of fewer quotations overall.
+  Before submission, mentally expand every placeholder and read the whole sentence:
+  is it grammatical, and does the lead-in already say everything the quote says?
+  If so, remove the duplicated proposition or recast the surrounding prose, not the
+  stored quotation. Do this within ordinary drafting, not an additional model pass.
   Preserve speaker, actor and duty bearer: exact quoted words alone do not prove
   who said them or who was ordered to act. Do not repeat a quote for formatting.
 - Reconcile overlapping accounts before asserting a party's position or a ruling.
@@ -176,6 +192,31 @@ The court required notice before entry, requiring {{quote:hearing:0001/orders/1}
 Instead: Inspection could proceed only after {{quote:hearing:0001/orders/1}}.
 If the bank instead contains 'the owner must notify', construct a complete sentence
 with that subject or paraphrase; do not attach it to an unsupported agency duty.
+
+Fictional quote-bank examples below assume the digest supports the stated facts and
+attribution. Each placeholder expands to the complete exact bank entry shown; the
+examples never authorize trimming an existing quote or adding unsupported reasons.
+
+Phrase carrying the point — bank hearing:0001/orders/2 = 'only after an inspection':
+Avoid: Access required an inspection: {{quote:hearing:0001/orders/2}}.
+Prefer: The court permitted access {{quote:hearing:0001/orders/2}}.
+
+Complete spoken statement — bank hearing:0001/orders/3 = 'I will deny the request':
+Avoid: The court denied the request: {{quote:hearing:0001/orders/3}}.
+Prefer: {{quote:hearing:0001/orders/3}}, the court ruled.
+Continue with the supported reasons or consequences, not another announcement of denial.
+
+First-person grammar — bank hearing:0001/orders/4 = 'I cannot resolve that conflict':
+Avoid: The court {{quote:hearing:0001/orders/4}}.
+Prefer: {{quote:hearing:0001/orders/4}}, the court explained, leaving access unresolved.
+Use that consequence only when the digest establishes it.
+
+Unhelpful confirmation — bank hearing:0001/orders/5 = 'I have considered the proposal':
+Avoid: The court considered the proposal: {{quote:hearing:0001/orders/5}}.
+Prefer, if review matters: The court considered the proposal.
+Otherwise omit that routine recital and explain the substantive decision. Use another
+suitable anchor for its distinctive reason if available; do not invent one.
+
 Use only actual digest facts and ids, never these examples' facts, phrases or ids.
 """
 

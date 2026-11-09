@@ -1,4 +1,43 @@
-# Hearing editorial follow-up — 2026-10-16
+# Hearing editorial follow-up
+
+## Quotation integration — 2026-11-09
+
+Hearing synthesis now explicitly lets quotations carry the proposition rather than
+append evidence to an equivalent paraphrase. Surrounding prose adds attribution,
+context, transition or consequence. The rule covers colons, dashes, commas and
+separate sentences; it is not a punctuation ban. Complete spoken statements receive
+supported attribution instead of having first-person subjects pasted into third-person
+prose. Routine confirmations may be omitted while retaining material facts, without
+seeking fewer quotations overall or exhausting the quote bank.
+
+The application contract (`summary_profiles.HEARING_READABILITY`) includes four
+fictional quote-bank before/after pairs: integrated phrase, complete spoken statement,
+first-person grammar, and an unhelpful confirmation best paraphrased. Examples use
+complete stored placeholders and do not authorize quote trimming, new reasons or
+unsupported attribution. The canonical hearing synthesis SKILL reinforces the method
+and expanded-sentence check during ordinary drafting. No private case passages enter
+source/tests. Extraction, quote-length policy, report/motion instructions, schemas,
+rendering and tools are unchanged; no extra paid pass or blocking quality gate.
+
+All profiles (including California Criminal Law), unassigned work, staging and
+inspection use this method. Existing fingerprinting detects the hearing synthesis
+change; extraction remains reusable when otherwise current. No private settings,
+profiles or prepared bundles are changed. Restart the app and explicitly run
+**Create hearing summaries** to adopt; then rebuild the affected summary edition.
+Resume/output-presence badges do not force adoption. No regeneration was performed.
+
+Validation in disposable `/tmp/recordprep-quotation-8ccfI6/source` and its separate
+environment/HOME/XDG state: **51 tests run, 50 passed, 1 skipped** (optional offline
+SDK quote-schema fixture unavailable). Coverage includes hearing editorial/selection,
+application hearing topics, quotation policy/display, actual offline skill delivery,
+profile generation and report editorial regressions. The offline installed-Pi tool/
+skill audit was regenerated; only the hearing SKILL hash changed. Tests confirm
+application guidance reaches Criminal/Dependency/custom/unassigned modes and hearing
+method changes leave extraction and report/motion components unchanged. These checks
+verify instructions and integration, not live-model prose quality. No paid call or
+real-bundle evaluation of regenerated output was performed.
+
+## Historical follow-up — 2026-10-16
 
 ## Approved direction
 

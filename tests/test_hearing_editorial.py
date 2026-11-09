@@ -11,7 +11,7 @@ PROJECT = Path(__file__).resolve().parents[1] / '.pi'
 
 class HearingEditorialTests(unittest.TestCase):
     def test_shared_and_legacy_runtime_receive_editorial_priorities(self):
-        for profile in (None, bundled('general'), bundled('california_dependency')):
+        for profile in (None, bundled('general'), bundled('california_dependency'), bundled('california_criminal')):
             guidance = sa.effective_synthesis_config(PROJECT, 'hearings', profile=profile)['guidance']
             text = ' '.join(guidance.split())
             for phrase in (
@@ -33,6 +33,31 @@ class HearingEditorialTests(unittest.TestCase):
         self.assertIn('otherwise briefly attribute', skill)
         self.assertIn('never rewrite a stored quotation', skill)
 
+    def test_quotations_carry_the_point_in_runtime_and_canonical_skill(self):
+        for profile in (None, bundled('general'), bundled('california_dependency'),
+                        bundled('california_criminal')):
+            config = sa.effective_synthesis_config(PROJECT, 'hearings', profile=profile)
+            text = ' '.join(config['guidance'].split())
+            for phrase in (
+                'Let the quotation carry the proposition',
+                'whether joined by a colon, dash, comma or a new sentence',
+                'a redundant lead-in is', 'not a goal of fewer quotations overall',
+                'mentally expand every placeholder', 'not the stored quotation',
+                'Complete spoken statement', 'First-person grammar',
+                'Unhelpful confirmation', 'never authorize trimming an existing quote',
+                'Prefer: The court permitted access {{quote:hearing:0001/orders/2}}.',
+                'Prefer: {{quote:hearing:0001/orders/3}}, the court ruled.',
+                'Prefer: {{quote:hearing:0001/orders/4}}, the court explained',
+                'Prefer, if review matters: The court considered the proposal.',
+            ):
+                self.assertIn(phrase, text)
+        skill = (PROJECT / 'skills/recordprep-synthesize-hearings/SKILL.md').read_text()
+        self.assertEqual(skill, sp.profile_skill_text(
+            PROJECT, 'recordprep-synthesize-hearings', 'synthesize'))
+        for phrase in ('Let the quotation carry the proposition',
+                       'mentally expand every placeholder', 'never trim the saved quote'):
+            self.assertIn(phrase, skill)
+
     def test_preceding_builtin_is_recognized_without_reattaching_old_method(self):
         old = sp.PREVIOUS_HEARING_READABILITY + '\n' + sa.PREVIOUS_HEARING_READABILITY_GUIDANCE
         resolution = sa.resolve_phase_guidance('hearings', 'synthesize', old)
@@ -45,10 +70,10 @@ class HearingEditorialTests(unittest.TestCase):
     def test_hearing_core_changes_do_not_change_reports_or_extraction(self):
         profile = bundled('general')
         before = {(kind, phase): sp.compile_summary(profile, kind, phase).component_sha256
-                  for kind in ('hearings', 'reports') for phase in ('extract', 'synthesize')}
+                  for kind in ('hearings', 'reports', 'motions') for phase in ('extract', 'synthesize')}
         with patch.object(sp, 'HEARING_READABILITY', sp.HEARING_READABILITY + '\nSynthetic revision.'):
             after = {(kind, phase): sp.compile_summary(profile, kind, phase).component_sha256
-                     for kind in ('hearings', 'reports') for phase in ('extract', 'synthesize')}
+                     for kind in ('hearings', 'reports', 'motions') for phase in ('extract', 'synthesize')}
         self.assertNotEqual(before['hearings', 'synthesize'], after['hearings', 'synthesize'])
         for key in before.keys() - {('hearings', 'synthesize')}:
             self.assertEqual(before[key], after[key])

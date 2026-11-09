@@ -86,23 +86,8 @@ Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
-RecordPrep includes a **California Juvenile Dependency** profile that you can
-customize or use as a starting point for other practice areas. Profiles customize
-report/form naming and report digest topics. Hearing topics—including practice-neutral
-Appearances—and motion naming, eligibility and summaries use fixed application rules.
-See [hearing-topic ownership](docs/application-hearing-topics.md). Minute summaries use a fixed, practice-neutral method,
-inspectable through **View full prompts…**. Existing output changes only on explicit
-generation. Classification rules are maintained in the application source, not user settings.
-See the [user guide](docs/workflow.md) for details.
-
-**Correct classification with agent** is the last Classify process, immediately
-following Classification names. It uses the shared Agent model to review consequential
-boundaries, preserves Names inputs, and publishes separate `*_dates_names_corrected.jsonl`
-finals with corrections and unresolved findings. The pipeline is now Basic → Advanced
-→ Dates → Names → Agent correction; there is no earlier deterministic correction stage.
-Legacy bundles remain readable without renaming. Use **View review** on that row to inspect its saved results.
-See [classification agent correction](docs/classification-agent-correction.md) for
-running it on existing results and inspecting its audit.
+Customize the included **California Juvenile Dependency** profile or use it as a
+starting point for another practice area. See the [user guide](docs/workflow.md).
 
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify

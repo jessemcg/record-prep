@@ -34,7 +34,8 @@ class GroupedMotionTests(unittest.TestCase):
         self.project = ROOT / '.pi'
         self.final = self.root / 'classification/CT_basic_advanced_corrected_dates_names.jsonl'
 
-    def papers(self, spans=((98, 99), (100, 101), (102, 103), (104, 106))):
+    def papers(self, spans=((98, 99), (100, 101), (102, 103), (104, 106)), *,
+               date='November 1, 2026', basis='filed'):
         titles = ['Notice and Motion to Compel Inspection', 'Declaration Supporting Motion to Compel Inspection',
                   'Separate Statement Supporting Inspection', 'Memorandum Supporting Inspection']
         rows = []
@@ -44,7 +45,7 @@ class GroupedMotionTests(unittest.TestCase):
                     f'Fictional source page {n}. QUOTEME:aa bb unique phrase here. This paper expressly supports the inspection request.\n')
                 rows.append({'file_name': f'{n:04d}.txt', 'page_type': 'CT_motion_first_page' if n == start else 'CT_motion',
                              'motion_first_page': 'yes' if n == start else 'no',
-                             **({'name': titles[index % 4], 'date': 'November 1, 2026', 'date_basis': 'filed'} if n == start else {})})
+                             **({'name': titles[index % 4], 'date': date, 'date_basis': basis} if n == start else {})})
         self.final.write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
         bounds = build_motion_boundaries(rows, -1)
         (self.root / 'artifacts/motion_boundaries.json').write_text(json.dumps(bounds))
@@ -147,6 +148,65 @@ class GroupedMotionTests(unittest.TestCase):
         result = mg.normalize_candidate({'groups': [useful, duplicate]}, inventory, 'a' * 64)
         self.assertEqual(len(result['groups']), 4)
         self.assertTrue(all(len(g['member_paper_ids']) == 1 for g in result['groups']))
+
+    def test_optional_date_recovery_types_and_calendar_through_publication(self):
+        missing = object()
+        invalid = (missing, None, 20261102, True, False, [], {},
+                   'RAW_MODEL_OUTPUT_NOT_A_DATE', 'February 30, 2026', 'February 29, 2025')
+        cases = [(value, None) for value in invalid] + [
+            ('November 2, 2026', 'November 2, 2026'),
+            ('February 29, 2024', 'February 29, 2024')]
+        for original_date, original_basis in (('', 'unknown'), ('November 1, 2026', 'document'),
+                                               ('November 1, 2026', 'filed')):
+            for basis in ('filed', 'document'):
+                for value, recovered in cases:
+                    with self.subTest(original=(original_date, original_basis), basis=basis, value=value):
+                        inventory = self.papers(((98, 99),), date=original_date, basis=original_basis)
+                        sources = {p: p.read_bytes() for p in (self.root / 'text_pages').glob('*.txt')}
+                        proposal = self.proposal(inventory) | {'date_basis': basis}
+                        if value is not missing:
+                            proposal['date'] = value
+                        attempted = not original_date or (original_basis != 'filed' and basis == 'filed')
+                        result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'},
+                                                        inventory, 'a' * 64)
+                        saved = self.save([proposal])
+                        self.assertEqual(saved['groups'], result['groups'])
+                        self.assertEqual(saved['findings'], result['findings'])
+                        self.assertEqual(saved['inventory'], inventory)
+                        self.assertEqual(saved['coverage_status'], 'complete')
+                        group, = saved['groups']
+                        self.assertEqual((group['date'], group['date_basis']),
+                                         (recovered, basis) if attempted and recovered else
+                                         (original_date, original_basis))
+                        self.assertEqual(group['member_paper_ids'], ['motion:0098'])
+                        self.assertEqual((group['lead_paper_id'], group['anchor_page']), ('motion:0098', 98))
+                        self.assertEqual(group['components'], [{'paper_id': 'motion:0098', 'role': 'lead',
+                                                               'start_page': 98, 'end_page': 99}])
+                        self.assertEqual(saved['findings'], [
+                            'Optional date recovery unavailable; original lead date and basis retained.'
+                        ] if attempted and not recovered else [])
+                        self.assertEqual({p: p.read_bytes() for p in sources}, sources)
+                        self.assertEqual(mg.load(self.root), saved)
+
+    def test_malformed_optional_date_keeps_other_group_and_honest_coverage(self):
+        inventory = self.papers(((10, 11), (20, 21), (30, 31)), date='', basis='unknown')
+        before = copy.deepcopy(inventory)
+        proposals = [self.proposal(inventory, lead='motion:0020', members=['motion:0010', 'motion:0020']) |
+                     {'date_basis': 'filed', 'date': {'private': 'RAW_MODEL_OUTPUT'}},
+                     self.proposal(inventory, lead='motion:0030', members=['motion:0030']) |
+                     {'date_basis': 'filed', 'date': 'November 2, 2026'}]
+        saved = self.save(proposals)
+        self.assertEqual(saved['inventory'], before)
+        self.assertEqual(saved['coverage_status'], 'complete')
+        self.assertEqual([g['anchor_page'] for g in saved['groups']], [20, 30])
+        self.assertEqual([g['member_paper_ids'] for g in saved['groups']],
+                         [['motion:0010', 'motion:0020'], ['motion:0030']])
+        self.assertEqual([(g['date'], g['date_basis']) for g in saved['groups']],
+                         [('', 'unknown'), ('November 2, 2026', 'filed')])
+        self.assertNotIn('RAW_MODEL_OUTPUT', json.dumps(saved))
+        incomplete = self.save(proposals, coverage='incomplete')
+        self.assertEqual(incomplete['coverage_status'], 'incomplete')
+        self.assertEqual(incomplete['groups'], saved['groups'])
 
     def test_missing_successful_candidate_is_incomplete_singletons_and_reusable(self):
         self.papers()

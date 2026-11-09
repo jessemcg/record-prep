@@ -244,7 +244,17 @@ class InstallTests(unittest.TestCase):
 
     def test_readme_public_surface(self):
         text = (ROOT / 'README.md').read_text()
-        self.assertTrue(text.startswith('# RecordPrep\n\n<img src="recordprep_icon.svg" alt="RecordPrep icon" width="96" align="right">'))
+        self.assertTrue(text.startswith('# RecordPrep\n'))
+        # Icon identity and accessible text are public surface; pixel size is not.
+        from html.parser import HTMLParser
+        class Images(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                if tag == 'img':
+                    images.append(dict(attrs))
+        images = []
+        Images().feed(text)
+        self.assertTrue(any(image.get('src') == 'recordprep_icon.svg' and
+                            image.get('alt') == 'RecordPrep icon' for image in images))
         section = text.split('### Uninstall RecordPrep', 1)[1].split('### Uninstall Pi', 1)[0]
         self.assertEqual(section.count('"$HOME/.local/bin/recordprep-uninstall"'), 1)
         self.assertNotIn('--dry-run', section)

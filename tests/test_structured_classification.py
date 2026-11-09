@@ -258,9 +258,9 @@ class StructuredClassificationTests(unittest.TestCase):
                 'prompt_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
                 'staged_skill_sha256': '3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492'},
             'hearings-synthesize': {
-                'component_sha256': 'c26217e574214dcd61d97444db3bc9d13fbd5073f2ab08e3de5c10095db5e079',
-                'prompt_sha256': 'c26217e574214dcd61d97444db3bc9d13fbd5073f2ab08e3de5c10095db5e079',
-                'staged_skill_sha256': 'd460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee'},
+                'component_sha256': 'a6407991499dd6d065dd3b4fbd4e7d575e10a37d4971c0c933192e4d323608cd',
+                'prompt_sha256': 'a6407991499dd6d065dd3b4fbd4e7d575e10a37d4971c0c933192e4d323608cd',
+                'staged_skill_sha256': '61e7b23ba424c5185244f5a589e358e6436e394f3444301e443ea94f83c93670'},
             'reports-extract': {
                 'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
                 'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',

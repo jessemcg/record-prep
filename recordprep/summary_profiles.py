@@ -341,17 +341,15 @@ def summary_core(kind: str, phase: str) -> str:
 def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> SummaryProfile:
     if snapshot.ref.application != "recordprep" or kind not in ("hearings", "reports", "motions") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary profile application, kind or phase.")
-    stage = {"hearings": "hearing", "reports": "report", "motions": "motion"}[kind] + ("_extraction" if phase == "extract" else "_synthesis")
-    core = summary_core(kind, phase)
-    from .profile_contract import json_bytes
     if kind in ("hearings", "motions"):
         from . import hearing_guidance, motion_guidance
         method = hearing_guidance if kind == "hearings" else motion_guidance
         return SummaryProfile(method.application_guidance(phase), method.application_fingerprint(phase), {},
                               tuple((e["id"], e["title"], e["guidance"]) for e in summary_topics(snapshot, kind)))
-    defaults = ()
-    compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8") + (json_bytes(summary_topics(snapshot, kind)) if defaults else b""))
-    prompt = summary_guidance(core, compiled.resources + defaults)
+    stage = "report_extraction" if phase == "extract" else "report_synthesis"
+    core = summary_core(kind, phase)
+    compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8"))
+    prompt = summary_guidance(core, compiled.resources)
     provenance = {"schema_version": 1, "profile_ref": asdict(snapshot.ref), "components": {stage: compiled.component_sha256}}
     return SummaryProfile(prompt, compiled.component_sha256, provenance,
                           tuple((e["id"], e["title"], e["guidance"]) for e in summary_topics(snapshot, kind)))
@@ -378,12 +376,12 @@ def summary_guidance(core, resources):
 
 def draft_summary_guidance(catalog, kind, phase):
     """Literal incomplete drafts may be inspected without validating unrelated fields."""
-    from .profile_contract import json_bytes
     if kind == "hearings":
         from .hearing_guidance import application_guidance
         return application_guidance(phase)
     if kind == "motions":
         return summary_core(kind, phase)
+    from .profile_contract import json_bytes
     return summary_guidance(summary_core(kind, phase), ((kind, json_bytes(catalog)),))
 
 
@@ -414,6 +412,5 @@ def extraction_metadata(snapshot: ProfileSnapshot, kind: str) -> dict:
         from .motion_guidance import application_metadata
         return application_metadata()
     contract = compile_summary(snapshot, kind, "extract")
-    catalog = ([{"id": e["id"], "title": e["title"]} for e in summary_topics(snapshot, kind)]
-               if kind == "motions" else category_descriptor(snapshot, kind))
+    catalog = category_descriptor(snapshot, kind)
     return {"category_catalog": catalog, "profile_provenance": contract.provenance}

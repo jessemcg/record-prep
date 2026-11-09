@@ -4,12 +4,13 @@ RecordPrep owns one fixed, practice-neutral minute method for **all new generati
 including custom/historical profiles and unassigned compatibility contexts. The canonical
 editorial instructions and fictional examples are in
 `.pi/skills/recordprep-summarize-minutes/SKILL.md`. Profiles own only Report Names,
-Form Names, hearing digest topics and report digest topics; those methods are unchanged.
+Form Names and Report digest topics. Hearing and motion methods are also fixed;
+see [hearing ownership](application-hearing-topics.md) and [motions](motions-workflow.md).
 
 ## What users see
 
-Profile settings → Summaries contains **Hearing digest topics** and **Report digest
-topics** only. Either page's **About summaries → View full prompts…** inspector keeps
+Profile settings → Summaries contains **Report digest topics** only.
+Its **About summaries → View full prompts…** inspector keeps
 **Minute-order summary** in its existing task selector. That task displays the fixed
 system, canonical skill/examples, launch, audited tools and runtime placeholders.
 It has no template/current-draft switch or unsaved-draft notice; invalid unrelated
@@ -77,24 +78,27 @@ failure; invalid source/candidate, Stop, changed inputs or unsafe publication pr
 the prior final. Zero orders need no model. Completion badges and Resume remain based on
 output presence, not freshness; read-only checks never write/delete/regenerate outputs.
 
-## Profile content schema 10
+## Historical schema-10 transition
 
-`profile_api` stays **1**. Content schema **10** omits `minutes` and rejects its
+The minute-ownership change introduced content schema **10** with `profile_api: 1`.
+It omitted `minutes` and rejected its
 reintroduction. Every supported schema's compiled minute resource list is empty.
-Schemas **1–9** remain readable and byte-preserved. Only explicit Create/Save/Reset
-publishes a new schema-10 revision; opening/cancelling settings writes nothing. Legacy
+Schemas **1–9** remain readable and byte-preserved. At that transition only explicit
+Create/Save/Reset published schema 10; current writers publish schema 14
+(Dependency 1.17.0 / Criminal 1.0.0). Opening/cancelling settings writes nothing. Legacy
 initialization never imports minute prose. Existing configuration keys/values are inert
 and preserved on ordinary saves; absent keys stay absent.
 
-Bundled Dependency is **1.11.0**; its active `minutes.md` is removed. Naming, topic,
+At that transition bundled Dependency was **1.11.0**; its active `minutes.md` was removed. Naming, topic,
 policy and caption bytes are unchanged from 1.10.0. Its prior shipped digest
 `975fc7ddea124a0aa43cb83b77aef2cf0128f0af4e6c858fdf002dcbd80ee6c8` remains a known
 baseline, not personal ownership. Historical public fixtures and the retired General
 archive remain readable. No private accepted revision is rewritten.
 
-The only Focus companion is byte-identical `profile_contract.py`, compatibility tests
-and documentation. `profile_artifacts.py`, research instructions, UI, minute TXT/edition
-formats, source maps and runtime cross-import boundaries are unchanged.
+The minute-only transition changed Focus's byte-identical `profile_contract.py`,
+compatibility tests and documentation, not its artifact reader. Current shared-file
+parity covers both `profile_contract.py` and `profile_artifacts.py`; research methods
+and UI remain app-owned, with no runtime sibling imports.
 
 ## Adoption
 

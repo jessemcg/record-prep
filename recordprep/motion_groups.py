@@ -133,9 +133,12 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
         basis = proposal.get("date_basis")
         if isinstance(basis, str) and basis in {"filed", "document"} and (not lead["date"] or (lead["date_basis"] != "filed" and basis == "filed")):
             from .document_naming import _date_value
-            recovered = _date_value(proposal.get("date"))
+            candidate_date = proposal.get("date")
+            recovered = _date_value(candidate_date) if isinstance(candidate_date, str) else None
             if recovered:
                 group.update(date=recovered, date_basis=basis)
+            else:
+                findings.append("Optional date recovery unavailable; original lead date and basis retained.")
         groups.append(group)
         assigned.update(ordered)
     for paper in inventory:

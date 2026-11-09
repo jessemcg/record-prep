@@ -67,6 +67,21 @@ with patch.object(api,'profile_store',return_value=store), \
             view = inspect_prompt(editor.editor.resources,kind,ROOT/'.pi',template=False,snapshot=snapshot)
             assert not view.issues
             assert view.components[0][1]==compile_naming_profile(snapshot,kind).prompt
+        # Fixed inspection is assignment-independent and ignores unrelated bad drafts.
+        from recordprep import hearing_guidance, motion_guidance
+        from recordprep.prompt_inspection import DraftInspectionState
+        invalid = DraftInspectionState({}, (), ('INVALID SYNTHETIC DRAFT',), None)
+        for task, expected in (
+            ('hearings-extract', hearing_guidance.application_guidance('extract')),
+            ('hearings-synthesize', hearing_guidance.application_guidance('synthesize')),
+            ('motions-extract', motion_guidance.application_guidance('extract')),
+            ('motions-synthesize', motion_guidance.application_guidance('synthesize')),
+        ):
+            view = inspect_prompt({}, task, ROOT/'.pi', template=False, draft=invalid)
+            assert not view.issues
+            assert expected in view.display_text()
+        minute = inspect_prompt({}, 'minutes', ROOT/'.pi', template=False, draft=invalid)
+        assert not minute.issues
         # Real retained buffer callback → Save → exact bundled reset, for both.
         card = editor._topic_editors['topic:naming-reports:'+base.resource('naming')['reports'][0]['id']]
         buffer = card.get_child().get_buffer()

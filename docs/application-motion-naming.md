@@ -1,9 +1,9 @@
 # Application-owned motion naming
 
-The subsequent [hearing-topic ownership](application-hearing-topics.md) change uses
-Dependency 1.17.0/schema14 and also makes hearing topics fixed. The motion-only
-implementation and validation record below describes its preceding schema13 step;
-report topics and report/form naming remain profile-owned in both.
+Current writers use schema 14 / API 1 (Dependency 1.17.0 / Criminal 1.0.0).
+[Hearing topics](application-hearing-topics.md) are fixed too; Report Names,
+Form Names and Report digest topics remain profile-owned. The schema-13 transition
+and dated validation below are historical evidence, not a description of current writers.
 
 Motion rules are universal, not an area-of-law preference. Recognition, physical
 source naming and dates, eligibility/exclusions, grouping and Request/Reasons
@@ -12,7 +12,7 @@ Forms even when they request relief. Neutral reports remain Reports.
 
 **Report Names and Form Names remain profile-owned.** Their catalogs, descriptions,
 fixed/source-title options, editors, Save/Reset behavior and naming JSON are unchanged.
-Hearing and report digest topics also remain profile-owned.
+Report digest topics remain profile-owned; hearing topics do not.
 
 `document_naming.compile_motion_naming` now uses `motion_guidance`'s fixed neutral
 catalog for every assignment, ignoring historical motion catalogs and identity.
@@ -21,9 +21,9 @@ share this compiler. Fixed inspection ignores invalid unsaved profile drafts and
 has no draft/template controls. Motion Names is removed from the settings editor;
 no new menu or reference window was added.
 
-Dependency 1.16.0/content schema 13 omits `motion_naming` as well as `motions`.
-Schemas 1–12 remain readable; historical motion resources are inert. Explicit
-Create/Save/Reset produces the new schema through the existing guarded workflow.
+The Dependency 1.16.0/content schema 13 transition omitted `motion_naming` as well
+as `motions`. Schemas 1–13 remain readable; historical motion resources are inert.
+Explicit Create/Save/Reset now produces schema 14 through the existing guarded workflow.
 Opening settings does not rewrite any accepted snapshot. The legacy report/form
 customization adapter retains the current envelope rather than downgrading it.
 The byte-identical profile contract in Focus accepts the new format without adding

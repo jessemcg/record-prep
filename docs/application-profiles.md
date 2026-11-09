@@ -1,12 +1,14 @@
 # Application profiles, independent case bundles
 
-## Minute ownership (content schema 10)
+## Current ownership (content schema 14)
 
-Dependency1.11.0/schema10 retires minute guidance from new profiles. Every new minute
+Dependency 1.17.0 and Criminal 1.0.0 use schema 14 / profile API 1.
+Profiles own Report Names, Form Names and Report digest topics only. Hearing/motion
+methods, minutes, classification, dates, participants, caption and overview are fixed.
+The schema-10 transition (Dependency 1.11.0) retired minute guidance from new profiles. Every new minute
 run, including custom/historical/unassigned contexts, uses RecordPrep's fixed neutral
 method. Profile/config minute prose is inert; schemas1–9 and saved summaries remain
-unchanged/readable. Explicit Save/Create publishes schema10, never migrates old bytes.
-Profiles still own naming and hearing/report topics. Full-selection publication guards
+unchanged/readable. Explicit Save/Create/Reset publishes schema 14, never migrates old bytes. Full-selection publication guards
 remain, but minute fingerprints do not depend on profile identity or retired prose.
 Inspect fixed minutes only through the existing **View full prompts…** task selector.
 No profile reset/save is required to adopt: explicitly generate minutes when desired,
@@ -25,16 +27,16 @@ An absent historical snapshot, an older profile version, or a malformed historic
 pin cannot make the current profile unavailable. New bundles get no such pin.
 Profile version labels remain internal compatibility metadata, not bundle requirements.
 
-## Classification ownership (content schema 9)
+## Classification ownership
 
 Profiles personalize **Document naming** (Report Names/Form Names) and **Summaries**
-(topics and minute guidance), not structural recognition. RecordPrep's packaged
-neutral definitions and four start detectors apply regardless of profile and to
+(Report digest topics), not structural recognition. RecordPrep's packaged
+recognition-v3 definitions and five start detectors apply regardless of profile and to
 unassigned work. There is no classification-reference menu action or window;
 classification rules are maintained in application source through the coding agent.
 Standardized hearing notices and separate service proofs are not forms for start,
 naming or Forms TOC purposes; qualifying Notice of Appeal forms remain forms.
-Explicit profile create/save now produces schema 10 (also omitting minutes), without rewriting historical
+Explicit profile Create/Save/Reset produces schema 14, without rewriting historical
 snapshots or naming catalogs. Saved output and Resume behavior are unchanged; only
 explicit Basic/downstream work applies the new rules to existing classifications.
 See [application-owned classification](application-classification.md).
@@ -53,8 +55,8 @@ bundle for that application/specialty identity, including all guidance, approved
 names, topics and unsaved edits. Cancel changes nothing. Custom copies and retired
 General are excluded. Reset retains personal ownership and previous revisions,
 advances the same selected profile, and does not enable automatic future updates.
-It runs no model and writes no Model settings or prepared output. The current
-Dependency bundle is the restored, exact pre-editorial 1.6.0 baseline.
+It runs no model and writes no Model settings or prepared output. The installed bundles are Dependency 1.17.0 and Criminal 1.0.0; Reset preserves their
+exact shipped bytes, rather than projecting an older baseline through an editor.
 See [reset semantics](practice-profiles.md#reset-to-bundled-prompts) and
 [validation](bundled-reset-validation.md).
 

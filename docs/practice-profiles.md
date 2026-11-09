@@ -1,12 +1,12 @@
 # Shipped practice profiles and personal settings
 
-**Current ownership (Dependency 1.17.0 / schema 14):** profiles customize Report
+**Current ownership (Dependency 1.17.0 / Criminal 1.0.0 / schema 14 / API 1):** profiles customize Report
 Names, Form Names and Report digest topics only. Hearing topics are now fixed,
 practice-neutral application rules, including Appearances; historical hearing
 catalogs remain readable but inert. Motion naming/topics and minutes are also
 application-owned. See [hearing ownership](application-hearing-topics.md) and
 [motion naming ownership](application-motion-naming.md). These current boundaries
-supersede historical hearing/motion editor descriptions below.
+leave historical hearing/motion resources readable but inactive.
 
 RecordPrep ships **California Juvenile Dependency** and **California Criminal Law**.
 Dependency remains the initial application selection and default starting profile
@@ -29,7 +29,7 @@ Current content schema **14** retains two expandable Profile settings groups:
 only). Hearing topics are application-owned and inspected through About summaries,
 not edited. Minute summaries use the [fixed application method](application-minutes.md),
 regardless of profile or historical custom guidance. Inspect **Minute-order summary**
-through either topic page's **About summaries → View full prompts…**, with no draft
+through the report-topic page's **About summaries → View full prompts…**, with no draft
 selector. No minute editor or extra menu/reference window is added. Approved naming cards retain stable IDs and optional
 descriptions; legacy naming v1–v4 stays supported. These catalogs supply naming only,
 not structural recognition or start checks. Save/reset and summary behavior are unchanged.
@@ -52,8 +52,8 @@ summary resources and semantics. Missing/stale audits remain visible.
 
 [Application-owned classification](application-classification.md) is authoritative
 for classification ownership, private checkpoints, compatibility
-and [validation limits](application-classification-validation.md). The older schema
-and editable-recognition descriptions below are historical, not current settings.
+and [validation limits](application-classification-validation.md). Dated validation
+reports describe their tested revisions, not necessarily current settings.
 Accepted revisions and saved output are never migrated or automatically regenerated.
 
 ## Historical bundled Dependency baseline
@@ -67,7 +67,7 @@ used the then-current editor representation: schema 6, no retired instruction re
 or attendance policy, and the current replacement for exact historical minute defaults.
 It does not restore retired fields or change the shared summarization method.
 
-All current editable resources were compared with the saved profile after the
+At that promotion, all editable resources were compared with the saved profile after the
 same read-only normalization used by Profile settings and matched. Public tests
 pin the promoted resource bytes without reading personal settings. Private
 registries, snapshots and prepared cases are untouched. Personal profiles remain
@@ -75,7 +75,9 @@ supported; a later personal edit or bundled update can make them differ again.
 
 The proposed 1.6.1 editorial rewrite was reverted at Jesse's request. At that time the bundle
 again matched the complete pre-edit 1.6.0 snapshot byte-for-byte, including its
-original wording and formatting. Current Dependency is 1.11.0/schema 10; Reset to bundled explicitly creates a new draft of that shipped revision. See
+original wording and formatting. That restoration was Dependency 1.11.0/schema 10;
+current Reset restores the exact installed bundle (now Dependency 1.17.0 or Criminal 1.0.0).
+See
 [reset and restoration validation](bundled-reset-validation.md).
 
 ## Choose, edit, save
@@ -92,7 +94,7 @@ selection, never the bundle. A failed storage transaction retains the current ch
 Profile settings opens in an independent, non-modal window with minimize, maximize
 and close controls. It can be moved/resized independently while the main app stays
 usable. Active work or changing cases still blocks stale settings application.
-The window opens on boxed expandable Classification and Summaries destinations.
+The window opens on boxed expandable Document naming and Summaries destinations.
 Choosing a page opens its retained editor with Back/Save controls and a prompt-page
 chooser, not a permanent sidebar. The header uses Model settings' flat toolbar
 styling and shares the window background.
@@ -120,7 +122,7 @@ regenerated. Reusing the name creates a new identity; old open drafts
 cannot resurrect a deleted identity. Stale profile/default/case state or active
 work blocks deletion without repairing private files.
 
-Profile settings opens at its expandable destination home. Its only main categories are **Classification**
+Profile settings opens at its expandable destination home. Its only main categories are **Document naming**
 and **Summaries**. Case Overview remains a pipeline step, not a settings category.
 One fixed, practice-neutral method reads all summaries completely and supplies Focus
 with central parties, record-bounded procedural posture, chronological material events,
@@ -128,16 +130,15 @@ neutral principal disputes and record scope/gaps. It preserves allegations versu
 findings, uncertainty and identity-only participant metadata; it has no word/event
 quotas, assumed appeal or outside legal analysis. Historical overview instructions
 are ignored, not rewritten. The five-section format and nonauthoritative disclaimer
-remain unchanged. Every Classification page has a collapsed **About classification** disclosure in the ordinary page scroller. It expands to its full natural height, pushing editors below it, and explains classification and date/name extraction. It ends with the display-only progression **Page types → First pages → Dates & names → Table of contents → Boundaries**; this is not navigation or live progress. There is no pinned explainer or separate capped explanation scroller.
-RT and CT page types come first, followed by First pages, Report Names,
-and Form Names, without child indentation or date editors. Subtitles identify
-pipeline stages, not matching precedence. Retained expandable recognition cards
-show friendly names, a small read-only output key and full-width wrapped text.
+remain unchanged. Each naming page has a collapsed **About classification** disclosure in the ordinary page scroller. It expands to its full natural height, pushing editors below it, and explains classification and date/name extraction. It ends with the display-only progression **Page types → First pages → Dates & names → Table of contents → Boundaries**; this is not navigation or live progress. There is no pinned explainer or separate capped explanation scroller.
+Document naming contains only Report Names and Form Names, using retained stable-ID
+cards with full-width wrapped editors. There are no RT/CT, first-page or date editors.
+Structural recognition and first-page rules are application-owned.
 
-Each classification task combines its fixed method with relevant recognition data.
+Each classification task uses the fixed application recognition method.
 There is no Common guidance editor or hidden shared instruction block in newly saved
-profiles. Report Names/Form Names supply naming-only data. Put page-specific
-specialty rules in the relevant structural page-type card. Advanced selects hearing,
+profiles. Report Names/Form Names supply naming-only data; they cannot change
+structural classification or first-page recognition. Advanced selects hearing,
 minute-order, form and report start checks from Basic’s types; Dates uses marked
 hearing/minute-order first pages. Names reads report name/date and form names only
 from marked first pages. Both named and unnamed report starts terminate preceding
@@ -146,22 +147,18 @@ a separate hearing-name prompt. Correction stages retain their existing position
 TOC and document boundaries use these classification results.
 
 Structural page types and response keys are application-owned, shared across legal
-fields. Profiles customize recognition clues, not category names. Each Basic editor
-shows the supported RT or CT labels from the same definition used by the runtime
-validator. Advanced returns `first_page: yes/no`; Python adds `RT_body_first_page`,
+fields. Profiles customize neither recognition clues nor category names. The runtime uses
+the shared taxonomy and rejects invented or cross-side labels. Advanced returns `first_page: yes/no`; Python adds `RT_body_first_page`,
 `CT_minute_order_first_page`, `CT_form_first_page` or `CT_report_first_page`. Dates returns `date` or an empty
 string. Naming uses separate approved names, not new page types. Certificates,
 motions, notices and proofs of service remain recognized structural categories.
 
-The editor warns as you type when an RT_/CT_/CR_ label reference is unsupported for
-the current task. This is advisory token checking, not semantic proof: comparisons
-and negations can intentionally mention other labels, and prose-only contradictions
-may go undetected. Warnings do not block Save, rewrite guidance, reject historical
-profiles or loosen runtime validation. Review a warning before running a case.
+Historical recognition prose remains literal in accepted snapshots, but is not
+compiled, edited or fingerprinted as current instructions. Compatibility readers
+and advisory token lint do not loosen runtime taxonomy validation.
 
 Create a profile by copying California Juvenile Dependency or any other available
-profile, then tailoring its instructions, digest topics and approved report/form
-names. The copy retains the base's actual language and formatting; it is not
+profile, then tailoring its report digest topics and approved report/form names. The copy retains the base's actual language and formatting; it is not
 neutralized automatically. Review and replace Dependency-specific guidance when
 creating a different specialty. California Criminal Law is now bundled separately;
 choose it explicitly rather than assuming a Dependency copy is neutralized.
@@ -175,7 +172,9 @@ revisions and case data remain byte-preserved and readable; an internal compatib
 archive supports historical minute defaults and schema-1 readers/editing only.
 No private profile is migrated or deleted, and no prepared output is regenerated.
 
-Summaries has a naturally expanding **About summaries** disclosure on each of exactly two pages: **Hearing digest topics** and **Report digest topics**. Fixed minute instructions remain in their existing full-prompts selector, not an editable page. There is no pinned breadcrumb or internal title; the explanation ends with the linear overview **Each hearing /
+Summaries has one editable destination, **Report digest topics**, with a naturally
+expanding **About summaries** disclosure. Fixed hearing, motion and minute methods
+remain in the existing full-prompts selector, not editable pages. There is no pinned breadcrumb or internal title; the explanation ends with the linear overview **Each hearing /
 report → Topic digest + quotes → Narrative section → Hearing / report summary**.
 Stage 1 reads each complete hearing or report across all its pages; after the digests
 are ready, Stage 2 synthesizes hearing by hearing or report by report, producing
@@ -241,8 +240,8 @@ entries](minute-plain.md). See [earlier compact entries and validation](minute-c
 All pages may supply attendance evidence;
 counsel alone establishes neither presence nor absence. Unclear attendance and
 missing/unclear future settings remain explicit; no reporting-status sentence is
-added. Exact former bundled minute prompts resolve to the new default without
-rewriting private snapshots; genuinely custom minute prose remains unchanged. The shared explainer ends
+added. Historical minute prose, including former defaults and custom text, remains stored
+unchanged but is inert for every new run. The shared explainer ends
 with the distinction between topic-organized digests and narrative sections.
 Restored contracts mark profile-bound digests and narratives regeneration-pending;
 existing output stays untouched until an explicit summary run.
@@ -256,7 +255,9 @@ Minute orders use only the current order, not this index or a profile role catal
 use stable-ID approved-name cards. Each has an editable canonical name and optional
 description/matching instructions, including any required form heading/code. The
 same structured names supply the model prompt and Python's exact membership check.
-For current v4 cards no naming-mode selector, technical rule editor, or special Markdown syntax is needed. Historical v1/v2 resources instead expose their complete JSON, v3 its literal prose; there is no guessed splitting or automatic conversion.
+Current naming5 cards offer fixed/source-title modes; absent mode means fixed.
+Dynamic matches carry rule IDs; actual source titles propagate downstream. No
+technical JSON editor or special Markdown syntax is needed for ordinary cards. Historical v1/v2 resources instead expose their complete JSON, v3 its literal prose; there is no guessed splitting or automatic conversion.
 Dependency retains its reviewed names and form codes; copies inherit them until
 you edit them for the new specialty. **Only successfully named reports enter
 the report TOC and standalone report-summary worklist.** Any profile without approved
@@ -287,9 +288,10 @@ while preserving paragraph breaks and structured blocks such as lists. This is
 initial display formatting only: opening or browsing does not change saved guidance
 or mark the profile dirty. Editing a topic makes its displayed text the draft;
 only the normal Save flow persists that draft.
-Topics guide capture from each complete hearing or report, not required headings
-in the narrative. New structured RecordPrep profiles use content schema 8, without Common guidance, the four
-extra summary instruction resources, role catalogs, participant or overview instructions. Explicit editing upgrades only a draft; historical
+Report topics guide capture from each complete report, not required narrative
+headings. Hearing topics are fixed. New RecordPrep profiles use schema 14, without
+classification tasks, hearing/motion topics, motion naming, minute instructions,
+Common guidance, extra summary instructions, roles, participant or overview instructions. Explicit editing upgrades only a draft; historical
 accepted revisions are never rewritten. Focus's neutral research method has no
 editable guidance or search priorities; document labels supply navigation, not
 automatic evidence authority.
@@ -306,7 +308,7 @@ its name or creation base. Independent custom copies and retired General have no
 reset target. California Criminal Law has its own exact-identity reset target through this same action.
 
 Cancel (also the default/close response) changes nothing. **Reset and Save**
-replaces all Classification and Summaries guidance, approved names, topic catalogs
+replaces all Document naming and Summaries guidance, approved names, report topics
 and unsaved edits with the installed bundle, and **saves immediately**. This is an
 explicit exception to draft-until-Save behavior; no second Save is needed. Model
 settings, cases and generated output do not change, and no model runs.
@@ -412,7 +414,8 @@ profile wins and is never repeatedly overlaid.
 Empty overrides inherit public guidance. Genuine prose is retained without
 unnecessary stripping. Historical built-ins are recognized so retired output
 instructions are not reattached as personal guidance. RecordPrep preserves
-report/form guidance and hearing/report topics. Classification and minute prose are app-owned and are not imported. Retired date/caption, extra-summary and attendance inputs are not imported into fresh candidates; already accepted historical resource bytes remain readable and unchanged. Ambiguous naming prose is retained with a
+report/form guidance and report topics only. Hearing, motion, classification and
+minute prose are app-owned and are not imported. Retired date/caption, extra-summary and attendance inputs are not imported into fresh candidates; already accepted historical resource bytes remain readable and unchanged. Ambiguous naming prose is retained with a
 focused review notice: prose does not invent approved-title/catalog rules.
 Focus does not load historical profile/legacy prompt guidance into new research;
 old private stores and saved answers remain untouched. No credentials, endpoints, paths, commands or
@@ -462,7 +465,9 @@ and participant instructions; historical schemas 1–3 remain readable, and all 
 retired fields are inert in every stage's prompts and component fingerprints.
 Schema 5 additionally removes overview instructions. Overview compilation selects
 no profile resources; it follows the application method and runtime summary inputs.
-Schema 6 removes Common guidance from stored resources. Explicit editing and Save
+The following schema-6-to-8 details describe historical formats/adapters, not
+current editable controls or active recognition authority. Schema 6 removes Common
+guidance from stored resources. Explicit editing and Save
 omit its field and file; no hidden backup or automatic distribution into task prompts
 is created. Existing immutable schemas 1–5 remain readable, but their common text is
 never compiled or fingerprinted. Only the current task's guidance is composed with
@@ -507,9 +512,11 @@ report freshness requires explicit rerunning under the new complete-source contr
 Profiles cannot weaken evidence, citations, source scope, tools, output schema or
 publication safeguards.
 
-New participant schema 4 (with 2/3 compatibility), source-map schema 3,
-digest format 2/row 3/metadata 5, minute checkpoint 4 (with 1–3 compatibility)
-and historical Focus saved-answer schema 2 remain descriptive reader contracts,
+Current participants use schema 4 (2/3 readable), source maps schema 3, fixed
+hearing/motion digests Markdown3/row4/meta6, and minute envelopes schema 5
+(checkpoints 1–4 readable). Reports retain profile-bound Markdown2/row3/meta5 and
+unassigned Markdown1/row2/meta4. These and historical Focus saved-answer schema 2
+are descriptive reader contracts,
 while new Focus answers use saved schema 3 / context schema 2 for its fixed method,
 not instruction authority. Legacy readers and frozen fixtures remain intact.
 Old private snapshots and generated output are never rewritten on inspection.

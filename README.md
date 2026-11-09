@@ -1,6 +1,6 @@
 # RecordPrep
 
-<img src="recordprep_icon.svg" alt="RecordPrep icon" width="96" align="right">
+<img src="recordprep_icon.svg" alt="RecordPrep icon" width="128" align="right">
 
 A Linux desktop app for preparing court-record PDFs for
 [Focus](https://github.com/jessemcg/focus), using the

@@ -12,12 +12,6 @@ for AI preparation stages.
 - Identify hearing participants and create hearing, report, motion-paper, and minute-order summaries.
 - Customize preparation with bundled or personal practice profiles.
 
-## Motions
-
-[Motion-paper preparation](docs/motions-workflow.md)
-cover independent titles/dates, boundaries, summaries and Focus publication. Existing
-bundles/profiles are not migrated; legacy Resume skips unavailable motion preparation.
-
 ## Install
 
 RecordPrep is intentionally distributed as source rather than a Flatpak or Debian

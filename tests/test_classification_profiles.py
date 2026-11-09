@@ -109,6 +109,7 @@ class ClassificationProfileTests(unittest.TestCase):
         worker._append_boundary_entry = lambda *args: ui.RecordPrepWindow._append_boundary_entry(worker, *args)
         worker._classify_image = lambda *args: ui.RecordPrepWindow._classify_image(worker, *args)
         worker._classify_image_with_page_type = lambda *args: ui.RecordPrepWindow._classify_image_with_page_type(worker, *args)
+        worker._classify_image_with_first_page = lambda *args: ui.RecordPrepWindow._classify_image_with_first_page(worker, *args)
         worker._run_classifier_jobs = lambda jobs, workers: [function(*args) for function, args in jobs]
         prompts = []
         def response(request, **kwargs):
@@ -306,6 +307,52 @@ class ClassificationProfileTests(unittest.TestCase):
         with self.assertRaises(InterruptedError):
             ui.RecordPrepWindow._classify_image_with_page_type(
                 worker, self.settings, "0001.txt", self.root / "image_pages/0001.png")
+        worker._classify_image.assert_called_once()
+
+    def test_advanced_retries_invalid_answers_for_all_five_tasks(self):
+        ui, worker = self._basic_worker()
+        for task in ("first_hearing", "first_minute", "first_form", "first_report", "first_motion"):
+            settings = self.settings | {"profile_kind": task}
+            for invalid in ('not JSON', '[]', '{}', '{"first_page":"unknown"}',
+                            '{"first_page":1}', '{"is_first_page":"yes"}'):
+                with self.subTest(task=task, invalid=invalid), patch.object(
+                    ui, "_post_json_with_retries",
+                    side_effect=[invalid, invalid, '{"first_page":false}'],
+                ) as request:
+                    result = ui.RecordPrepWindow._classify_image_with_first_page(
+                        worker, settings, "0001.txt", self.root / "image_pages/0001.png")
+                    self.assertEqual(result, {"file_name": "0001.txt", "first_page": "no"})
+                    self.assertEqual(request.call_count, 3)
+
+    def test_advanced_exhaustion_is_bounded_and_content_free(self):
+        ui, worker = self._basic_worker()
+        with patch.object(ui, "_post_json_with_retries",
+                          return_value='{"first_page":"PRIVATE RESPONSE CONTENT"}') as request:
+            with self.assertRaises(RuntimeError) as error:
+                ui.RecordPrepWindow._classify_image_with_first_page(
+                    worker, self.settings | {"profile_kind": "first_report"},
+                    "0001.txt", self.root / "image_pages/0001.png")
+        self.assertEqual(request.call_count, 3)
+        for text in ("0001.txt", "report first-page check", "after 3 attempts", "Retry Classification advanced"):
+            self.assertIn(text, str(error.exception))
+        self.assertNotIn("PRIVATE RESPONSE CONTENT", str(error.exception))
+
+    def test_advanced_does_not_retry_operational_errors_or_ignore_stop(self):
+        from recordprep.classification_profiles import ClassifierResponseError
+        ui, worker = self._basic_worker()
+        settings = self.settings | {"profile_kind": "first_motion"}
+        for error in (OSError("source unavailable"), ValueError("invalid configuration"),
+                      RuntimeError("transport failed"), ui.StopRequested()):
+            worker._classify_image = Mock(side_effect=error)
+            with self.assertRaises(type(error)):
+                ui.RecordPrepWindow._classify_image_with_first_page(
+                    worker, settings, "0001.txt", self.root / "image_pages/0001.png")
+            worker._classify_image.assert_called_once()
+        worker._classify_image = Mock(side_effect=ClassifierResponseError("invalid response"))
+        worker._raise_if_stop_requested = Mock(side_effect=[None, ui.StopRequested()])
+        with self.assertRaises(ui.StopRequested):
+            ui.RecordPrepWindow._classify_image_with_first_page(
+                worker, settings, "0001.txt", self.root / "image_pages/0001.png")
         worker._classify_image.assert_called_once()
 
     def test_structural_response_contract_cannot_be_changed_by_guidance(self):

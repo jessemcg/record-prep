@@ -5403,6 +5403,35 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             f"after {max_attempts} attempts."
         )
 
+    def _classify_image_with_first_page(
+        self,
+        settings: dict[str, Any],
+        filename: str,
+        image_path: Path,
+        max_attempts: int = 3,
+    ) -> dict[str, str]:
+        task = settings.get("profile_kind")
+        labels = {
+            "first_hearing": "hearing", "first_minute": "minute order",
+            "first_form": "form", "first_report": "report", "first_motion": "motion",
+        }
+        if task not in labels:
+            raise ValueError("Advanced classification requires a first-page task.")
+        for _attempt in range(max_attempts):
+            self._raise_if_stop_requested()
+            try:
+                return self._classify_image(settings, filename, image_path)
+            except ClassifierResponseError:
+                # Retry invalid answers only, never operational errors or Stop.
+                # Do not include provider prose in the final diagnostic.
+                continue
+        raise RuntimeError(
+            f"Classification advanced returned an invalid first_page answer for {filename} "
+            f"({labels[task]} first-page check) after {max_attempts} attempts. "
+            "Prior output preserved. Retry Classification advanced; if it persists, "
+            "check the classifier model in Model settings."
+        )
+
     def _run_classifier_jobs(
         self,
         jobs: list[tuple[Callable[..., dict[str, str]], tuple[Any, ...]]],
@@ -7143,7 +7172,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         "CT_form_first_page": "first_form", "CT_report_first_page": "first_report",
                         "CT_motion_first_page": "first_motion"}[updated_type]
                 payload = classification_run.payload(payload, task)
-                jobs.append((self._classify_image, (payload, file_name, image_path)))
+                jobs.append((self._classify_image_with_first_page, (payload, file_name, image_path)))
                 metadata.append((entry, updated_type, truthy_keys))
 
             updates = 0

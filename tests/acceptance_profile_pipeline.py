@@ -84,6 +84,7 @@ for scenario, profile in profiles:
             worker._append_boundary_entry = lambda *args: ui.RecordPrepWindow._append_boundary_entry(worker, *args)
             worker._classify_image = lambda *args: ui.RecordPrepWindow._classify_image(worker, *args)
             worker._classify_image_with_page_type = lambda *args: ui.RecordPrepWindow._classify_image_with_page_type(worker, *args)
+            worker._classify_image_with_first_page = lambda *args: ui.RecordPrepWindow._classify_image_with_first_page(worker, *args)
             worker._run_classifier_jobs = lambda jobs, workers: [function(*args) for function,args in jobs]
             def response(request, **kwargs):
                 payload = json.loads(request.data)

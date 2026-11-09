@@ -62,7 +62,7 @@ def normalize_classifier(payload, kind: str) -> dict[str, str]:
     elif key == "first_page":
         value = {"yes": "yes", "true": "yes", "no": "no", "false": "no"}.get(value.casefold(), "")
         if not value:
-            raise ValueError("First-page classification is unresolved; prior output preserved.")
+            raise ClassifierResponseError("First-page classification requires yes or no; prior output preserved.")
     elif key == "date":
         from .document_naming import _date_value
         value = _date_value(value) or ""

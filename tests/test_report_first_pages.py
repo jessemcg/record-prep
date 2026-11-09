@@ -125,6 +125,7 @@ class ReportPipelineTests(unittest.TestCase):
         self.worker._append_boundary_entry=lambda *a:ui.RecordPrepWindow._append_boundary_entry(self.worker,*a)
         self.worker._classify_image=lambda *a:ui.RecordPrepWindow._classify_image(self.worker,*a)
         self.worker._classify_image_with_page_type=lambda *a:ui.RecordPrepWindow._classify_image_with_page_type(self.worker,*a)
+        self.worker._classify_image_with_first_page=lambda *a:ui.RecordPrepWindow._classify_image_with_first_page(self.worker,*a)
         self.worker._run_classifier_jobs=lambda jobs,workers:[f(*args) for f,args in jobs]
         self.kinds={};self.starts=set();self.names={};self.calls=[];self.first_answer=None
         self.prompts={classifier_prompt(self.profile,kind)[0]:kind for kind in KINDS}
@@ -329,6 +330,9 @@ class ReportPipelineTests(unittest.TestCase):
         previous=self.write_rows('advanced',[{'file_name':'0001.txt','page_type':'CT_report'}])
         before=(previous.read_bytes(),previous.stat().st_mtime_ns);self.first_answer='unclear'
         self.assertFalse(self.ui.RecordPrepWindow._run_step_advanced(self.worker))
+        self.assertEqual([task for task, _ in self.calls].count('first_report'), 3)
+        self.assertTrue(any('0001.txt (report first-page check) after 3 attempts' in str(call)
+                            for call in self.worker.show_toast.call_args_list))
         self.assertEqual(before,(previous.read_bytes(),previous.stat().st_mtime_ns))
 
     def test_unassigned_old_checkpoints_cannot_skip_new_checks_or_reuse_old_run_names(self):

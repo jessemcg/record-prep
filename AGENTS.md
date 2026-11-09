@@ -1,5 +1,26 @@
 # RecordPrep Agent Notes
 
+## Application-owned hearing topics (current)
+
+Read docs/application-hearing-topics.md. All hearing digest topics and narrative
+instructions are fixed and practice-neutral for every assignment. Appearances
+covers parties, express absences, personal versus counsel/representative attendance;
+never infer absence from silence. Keep stable serialized `parent_appearances` ID,
+but new title is Appearances. Other five topics retain their substance. No hearing
+topic editor or profile/config hearing prose in prompts/fingerprints/initialization.
+Only report digest topics, Report Names and Form Names remain profile-owned.
+Dependency 1.17.0/schema14 omits hearings (plus prior retired resources); schemas1–13
+stay literal/readable. Explicit Create/Save/Reset only, no private migration.
+New hearing digests use application metadata, row4/Markdown3/meta6, no profile
+instruction authority. Historical row2/3 and Markdown1/2 retain their recorded
+headings/catalogs. Never relabel old hearing rows as current; explicit generation
+re-extracts them. Canonical hearing skills are identical across assignments and
+inspector/preflight/staging; fixed inspection ignores unrelated invalid drafts.
+Report methods/catalogs unchanged; preserve existing motion changes. Both shared
+contract/artifact readers match Focus byte-for-byte; compatible consumer first only
+if publication authorized. No automatic reruns, new provider pass or quality gate.
+This section supersedes older hearing-topic ownership/schema statements below.
+
 ## Useful knowledge-work output (current)
 
 Usefulness, not perfection, governs model-authored summaries and reviews. Imperfect
@@ -15,9 +36,12 @@ do not mistake an application grammar bug for defective model work. See
 
 ## Motions workflow (current)
 
-Read docs/motions-workflow.md. Dependency 1.15.0 uses content schema 12/profile API 1:
-retain motion_naming eligibility; omit motions. Every new motion summary uses fixed
-Request / Reasons, ignoring historical profile/config motion prose. Schemas 1–11/
+Read docs/motions-workflow.md. Dependency 1.16.0 uses content schema 13/profile API 1:
+omit motion_naming and motions. Motion naming/eligibility/exclusions are fixed application
+rules for every profile and unassigned work; historical catalogs never affect prompts,
+validation or fingerprints. Remove Motion Names only; Report Names/Form Names stay
+profile-owned. Existing private snapshots remain literal and untouched. Every new motion summary uses fixed
+Request / Reasons, ignoring historical profile/config motion prose. Schemas 1–12/
 naming 1–5 remain readable; explicit Create/Save/Reset only. Recognition v2 preserves
 physical papers, source IDs, actual titles and filed/document/unknown dates.
 Organize motion papers precedes Build TOC, with its own native guard/private candidate,

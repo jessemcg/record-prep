@@ -383,7 +383,7 @@ class CategoryContractTests(unittest.TestCase):
             "hearings",
             guidance=config_one.guidance + "\n\nAdditional guidance.\n",
         )
-        self.assertNotEqual(config_one.fingerprint, config_two.fingerprint)
+        self.assertEqual(config_one.fingerprint, config_two.fingerprint)  # Personal hearing prose is inert.
         self.assertIn(
             sa.SUMMARY_CONTENT_CONTRACT_VERSION,
             list(config_one.fingerprint_payload().values()),
@@ -809,7 +809,7 @@ class MarkdownStoreTests(unittest.TestCase):
             self.assertEqual(meta["complete"], False)
             self.assertEqual(meta["total"], 2)
             self.assertEqual(meta["completed"], 1)
-            self.assertEqual(meta["schema_version"], sa.SUMMARY_FACTS_META_SCHEMA_VERSION)
+            self.assertEqual(meta["schema_version"], 6)
             self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
             self.assertFalse(
                 sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
@@ -828,7 +828,7 @@ class MarkdownStoreTests(unittest.TestCase):
             sa.publish_digests(root, "hearings", items, _extraction_config(), rows)
             meta = sa.load_digest_meta(root, "hearings")
             self.assertEqual(meta["complete"], True)
-            self.assertEqual(meta["schema_version"], sa.SUMMARY_FACTS_META_SCHEMA_VERSION)
+            self.assertEqual(meta["schema_version"], 6)
 
             # Simulated crash between Markdown and metadata writes self-heals.
             meta_path = sa.summary_digest_meta_path(root, "hearings")
@@ -864,7 +864,7 @@ class MarkdownStoreTests(unittest.TestCase):
                 ),
             )
             _ordered, stale = sa.reconcile_digest_rows(rows, reguided)
-            self.assertEqual(stale, ["hearing:0001"])
+            self.assertEqual(stale, [])  # Personal hearing prose is inert.
 
     def test_stale_fingerprint_and_removed_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -976,7 +976,7 @@ class MarkdownStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError) as context:
                 sa.parse_digest_markdown(
                     text.replace(
-                        '"format_version": 1',
+                        '"format_version": 3',
                         '"format_version": 99',
                     ),
                     "hearings",
@@ -1116,52 +1116,25 @@ class LegacyDigestMigrationTests(unittest.TestCase):
         )
         return sa.build_work_items(root, _extraction_config())
 
-    def test_migration_preserves_rows_with_zero_extraction(self) -> None:
+    def test_historical_hearing_rows_stay_literal_and_require_explicit_adoption(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             items = self._bundle(root)
-            legacy_rows = [
-                synthetic_facts_row(
-                    "hearings",
-                    start=1,
-                    end=1,
-                    generation_sha256=items[0].generation_sha256,
-                ),
-                synthetic_facts_row(
-                    "hearings",
-                    start=2,
-                    end=2,
-                    ordinal=2,
-                    generation_sha256="stale" * 16,
-                ),
-            ]
-            write_legacy_digest_jsonl(root, "hearings", legacy_rows)
-
-            migrated = sa.migrate_legacy_digest_jsonl(root, "hearings")
-            self.assertIsNotNone(migrated)
-            self.assertEqual(migrated, legacy_rows)
-            # The runner publishes through the normal Markdown path.
-            sa.publish_digests(root, "hearings", items, _extraction_config(), migrated)
-            # Reconciled against current items: only the stale row re-extracts.
-            ordered, pending = sa.validate_digest_state(
-                root, "hearings", items, _extraction_config()
-            )
-            self.assertEqual(pending, ["hearing:0002"])
-            self.assertEqual(ordered, legacy_rows)
-            # Migrated rows are byte-identical through the Markdown store.
-            self.assertEqual(
-                sa.load_digest_markdown(root, "hearings"), legacy_rows
-            )
-            # A rerun never re-migrates: Markdown is authoritative.
-            self.assertIsNone(sa.migrate_legacy_digest_jsonl(root, "hearings"))
-
-            # Success cleanup removes only the obsolete JSONL.
-            removed = sa.cleanup_legacy_digest_jsonl(root, "hearings")
-            self.assertEqual(removed, ["hearings_digests_SynCase.jsonl"])
-            self.assertFalse(
-                sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
-            )
-            self.assertTrue(sa.summary_digest_meta_path(root, "hearings").exists())
+            legacy_rows = [synthetic_facts_row('hearings', start=i.start_page, end=i.end_page,
+                           ordinal=i.ordinal, generation_sha256=i.generation_sha256, historical=True) for i in items]
+            write_legacy_digest_jsonl(root, 'hearings', legacy_rows)
+            path = sa.legacy_summary_digest_jsonl_path(root, 'hearings')
+            before = path.read_bytes()
+            loaded = sa.migrate_legacy_digest_jsonl(root, 'hearings')
+            self.assertEqual(loaded, legacy_rows)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertFalse(sa.summary_digest_path(root, 'hearings').exists())
+            # Matching hashes alone cannot bless old ownership as current.
+            self.assertTrue(all(not sa._row_is_current(items, loaded, i.item_id) for i in items))
+            text = sa.serialize_digest_markdown('hearings', 'SynCase', loaded)
+            self.assertEqual(sa.parse_digest_markdown(text, 'hearings', 'SynCase'), legacy_rows)
+            self.assertIn('Parent Appearances', text)
+            self.assertEqual(path.read_bytes(), before)
 
     def test_inconsistent_legacy_pair_is_preserved_and_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1218,8 +1191,8 @@ class LegacyDigestMigrationTests(unittest.TestCase):
             ]
             write_legacy_digest_jsonl(root, "hearings", rows)
             migrated = sa.migrate_legacy_digest_jsonl(root, "hearings")
-            sa.publish_digests(root, "hearings", items, _extraction_config(), migrated)
-            stored = sa.load_digest_markdown(root, "hearings")
+            text = sa.serialize_digest_markdown('hearings', 'SynCase', migrated)
+            stored = sa.parse_digest_markdown(text, 'hearings', 'SynCase')
             quote_id = rows[0]["categories"][0]["digest"]["evidence"][0]["quote_id"]
             sections = [
                 sa.SynthesisSectionCandidate(
@@ -1779,12 +1752,10 @@ class SettingsTests(unittest.TestCase):
         resolution = sa.resolve_phase_guidance(
             "hearings", "extract", similar_custom
         )
-        self.assertEqual(resolution.origin, "custom")
-        self.assertEqual(resolution.custom_guidance, similar_custom)
-        self.assertEqual(
-            resolution.immutable_guidance,
-            sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE,
-        )
+        self.assertEqual(resolution.origin, "default")
+        self.assertEqual(resolution.custom_guidance, '')
+        self.assertEqual(resolution.stored_text, similar_custom)
+        self.assertEqual(resolution.immutable_guidance, sa.default_guidance('hearings', 'extract'))
 
         # Custom text is preserved byte-for-byte, including whitespace, and
         # the stored representation is never rewritten.
@@ -1792,14 +1763,16 @@ class SettingsTests(unittest.TestCase):
         resolution = sa.resolve_phase_guidance(
             "hearings", "extract", custom_with_whitespace
         )
-        self.assertEqual(resolution.origin, "custom")
-        self.assertEqual(resolution.custom_guidance, custom_with_whitespace)
+        self.assertEqual(resolution.origin, "default")
+        self.assertEqual(resolution.custom_guidance, '')
+        self.assertEqual(resolution.stored_text, custom_with_whitespace)
         custom_synthesis = "A genuinely custom synthesis prompt."
         resolution = sa.resolve_phase_guidance(
             "hearings", "synthesize", custom_synthesis
         )
-        self.assertEqual(resolution.origin, "custom")
-        self.assertEqual(resolution.custom_guidance, custom_synthesis)
+        self.assertEqual(resolution.origin, "default")
+        self.assertEqual(resolution.custom_guidance, '')
+        self.assertEqual(resolution.stored_text, custom_synthesis)
 
     def test_moved_direct_api_prompt_constants_match_summary_agents(self) -> None:
         """The GTK aliases and the migration registry share one source text."""
@@ -1895,7 +1868,7 @@ class SettingsTests(unittest.TestCase):
                     return_value=json.loads(config_path.read_text(encoding="utf-8")),
                 ):
                     settings = load_summarize_settings()
-                self.assertEqual(settings["hearings_prompt"], custom)
+                self.assertEqual(settings["hearings_prompt"], '')
                 self.assertEqual(settings["reports_prompt"], "")
 
     def test_retired_stage_settings_are_not_created_or_used(self) -> None:
@@ -2323,8 +2296,9 @@ raise SystemExit(3)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 calls = [json.loads(line) for line in log.read_text().splitlines()
                          if '--version' not in line and 'rpc' not in line]
-                self.assertEqual(len(calls), 1)
-                self.assertIn('recordprep_finish_summary', calls[0]['argv'][calls[0]['argv'].index('--tools') + 1])
+                self.assertEqual(len(calls), 0 if kind == 'hearings' else 1)
+                if calls:
+                    self.assertIn('recordprep_finish_summary', calls[0]['argv'][calls[0]['argv'].index('--tools') + 1])
                 self.assertEqual(before, [p.read_bytes() for p in artifacts])
 
     def test_hearings_stage_end_to_end_with_fake_pi(self) -> None:
@@ -2619,22 +2593,17 @@ raise SystemExit(3)
                 for line in log.read_text(encoding="utf-8").splitlines()
                 if "--version" not in line and "rpc" not in line
             ]
-            # Migration is lossless: no extraction children ran at all, and
-            # exactly one synthesis child consumed the converted Markdown.
-            self.assertEqual(len(invocations), 1)
-            self.assertIn(
-                "recordprep_finish_summary",
-                invocations[0]["argv"][
-                    invocations[0]["argv"].index("--tools") + 1
-                ],
-            )
+            # Explicit adoption re-extracts both historical hearing rows, then
+            # synthesizes once. Legacy topics are never relabeled as current.
+            self.assertEqual(len(invocations), 3)
+            self.assertIn('recordprep_finish_summary', invocations[-1]['argv'][invocations[-1]['argv'].index('--tools') + 1])
             self.assertFalse(
                 sa.legacy_summary_digest_jsonl_path(root, "hearings").exists()
             )
             self.assertTrue(sa.summary_digest_path(root, "hearings").is_file())
-            self.assertEqual(
-                sa.load_digest_markdown(root, "hearings"), legacy_rows
-            )
+            current = sa.load_digest_markdown(root, 'hearings')
+            self.assertEqual([r['schema_version'] for r in current], [4, 4])
+            self.assertTrue(all(r['application_metadata'] == sa.application_summary_metadata('hearings') for r in current))
             self.assertEqual(
                 pi_bundle.validate_pi_step_outputs("create_hearing_summaries", root),
                 [],

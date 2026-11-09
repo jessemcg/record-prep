@@ -40,7 +40,7 @@ class HearingEditorialTests(unittest.TestCase):
         self.assertEqual(resolution.custom_guidance, '')
         self.assertIn(sp.HEARING_READABILITY, resolution.immutable_guidance)
         custom = '  Synthetic personal emphasis.\n\n'
-        self.assertEqual(sa.resolve_phase_guidance('hearings', 'synthesize', custom).custom_guidance, custom)
+        self.assertEqual(sa.resolve_phase_guidance('hearings', 'synthesize', custom).custom_guidance, '')
 
     def test_hearing_core_changes_do_not_change_reports_or_extraction(self):
         profile = bundled('general')

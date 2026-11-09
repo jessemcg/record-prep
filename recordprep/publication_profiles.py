@@ -20,7 +20,9 @@ def provenance(profile, root, project_dir):
     components = {"classification": component(profile, "basic"), "naming": component(profile, "names")}
     for kind in ("hearings", "reports"):
         for phase in ("extract", "synthesize"):
-            components.update(compile_summary(profile, kind, phase).provenance["components"])
+            compiled = compile_summary(profile, kind, phase)
+            stage = ("hearing" if kind == "hearings" else "report") + ("_extraction" if phase == "extract" else "_synthesis")
+            components[stage] = compiled.component_sha256
     components["minutes"] = minutes.application_contract(project_dir)["component_sha256"]
     components.update(compile_native(profile, "overview", project_dir)[1]["components"])
     if not is_ct_only(root):

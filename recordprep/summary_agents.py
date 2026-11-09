@@ -145,13 +145,23 @@ def _category_descriptions(kind: str, *, reload: bool = False) -> dict[str, str]
     return _CATEGORY_DESCRIPTIONS_CACHE[kind]
 
 
+def application_summary_metadata(kind):
+    if kind == "hearings":
+        from .hearing_guidance import application_metadata
+    elif kind == "motions":
+        from .motion_guidance import application_metadata
+    else:
+        return None
+    return application_metadata()
+
+
 def summary_category_definitions(
     kind: str, *, reload: bool = False
 ) -> tuple[CategoryDefinition, ...]:
     """Code-owned category identities with resource-loaded guidance prose."""
-    if kind == "motions":
-        from .motion_guidance import application_catalog
-        return tuple(CategoryDefinition(t["id"], t["title"], t["guidance"]) for t in application_catalog())
+    if kind in ("hearings", "motions"):
+        from .summary_profiles import summary_topics
+        return tuple(CategoryDefinition(t["id"], t["title"], t["guidance"]) for t in summary_topics(None, kind))
     contracts = summary_categories.category_contracts(kind)
     descriptions = _category_descriptions(kind, reload=reload)
     return tuple(
@@ -1039,6 +1049,9 @@ _DEFAULT_GUIDANCE: dict[tuple[str, str], str] = {
 
 def default_guidance(kind: str, phase: str) -> str:
     """The immutable current built-in guidance contract for one phase."""
+    if kind == "hearings":
+        from .hearing_guidance import application_guidance
+        return application_guidance(phase)
     if kind == "motions":
         from .summary_profiles import summary_core
         return summary_core(kind, phase)
@@ -1087,8 +1100,10 @@ def resolve_phase_guidance(
     """
     immutable = default_guidance(kind, phase)
     raw = str(stored_prompt or "")
-    if kind == "motions":
-        return GuidanceResolution(kind, phase, raw, "default", immutable, "")
+    if kind in ("hearings", "motions"):
+        historical = HISTORICAL_BUILTIN_GUIDANCE.get((kind, phase), ())
+        origin = "migrated" if raw in historical or raw.strip() in historical else "default"
+        return GuidanceResolution(kind, phase, raw, origin, immutable, "")
     text = raw.strip()
     if not text or text == immutable:
         return GuidanceResolution(kind, phase, raw, "default", immutable, "")
@@ -1306,7 +1321,7 @@ def _item_page_text_map(text_dir, item):
 
 
 def _source_ranges_text(row):
-    if row.get("schema_version") == 4:
+    if row.get("schema_version") == 4 and row.get("kind") == "motions":
         return ", ".join(f"{m['start_page']}-{m['end_page']}" for m in row["members"])
     return f"{int(row['start_page'])}-{int(row['end_page'])}"
 
@@ -1580,9 +1595,8 @@ class ExtractionConfig:
     runtime_contract_sha256: str = ""
 
     def __post_init__(self):
-        if self.kind == "motions":
-            from .motion_guidance import application_guidance
-            object.__setattr__(self, "guidance", application_guidance("extract"))
+        if self.kind in ("hearings", "motions"):
+            object.__setattr__(self, "guidance", default_guidance(self.kind, "extract"))
             object.__setattr__(self, "additional_guidance", "")
         if self.profile is not None:
             # One validated contract per frozen configuration, never a global
@@ -1606,7 +1620,7 @@ class ExtractionConfig:
             "kind": self.kind,
             "categories": [definition.identifier for definition in self.definitions],
             **({"profile_component": self._profile_component}
-               if self.profile is not None and self.kind != "motions" else {}),
+               if self.profile is not None and self.kind == "reports" else {}),
             "runtime_contract_sha256": self.runtime_contract_sha256,
             "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
             # The effective per-category guidance text is part of the
@@ -1693,7 +1707,7 @@ def build_work_items(
 ) -> list[SummaryWorkItem]:
     """Build ordered, boundary-validated complete-document work items."""
     metadata = load_digest_meta(root, config.kind)
-    if config.kind != "motions" and metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
+    if config.kind == "reports" and metadata is not None and metadata.get("schema_version") == 5 and config.profile is None:
         raise ValueError("Profile-era summaries require explicit profile-aware generation; prior output preserved.")
     kind = config.kind
     if kind not in SUMMARY_KINDS:
@@ -2049,8 +2063,9 @@ def canonicalize_extraction_candidate(
     never exclude source pages or discard a category digest.
     """
     kind = item.kind
-    profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None and kind != "motions" else None
-    expected_ids = (["request", "reasons"] if kind == "motions" else
+    profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None and kind == "reports" else None
+    application = application_summary_metadata(kind)
+    expected_ids = ([e["id"] for e in application["category_catalog"]] if application is not None else
                     [e["id"] for e in profile_metadata["category_catalog"]] if profile_metadata is not None
                     else list(SUMMARY_CATEGORY_IDS[kind]))
     flags: list[str] = []
@@ -2205,9 +2220,10 @@ def canonicalize_extraction_candidate(
     }
     if profile_metadata is not None:
         row.update(schema_version=3, profile_metadata=profile_metadata)
+    if kind == "hearings":
+        row.update(schema_version=4, application_metadata=application)
     if kind == "motions":
-        from .motion_guidance import application_metadata
-        row.update(schema_version=4, application_metadata=application_metadata(),
+        row.update(schema_version=4, application_metadata=application,
                    anchor_page=item.anchor_page or int(item.item_id.split(":")[1]), members=list(item.members) or [
                        {"paper_id": item.item_id, "start_page": item.start_page, "end_page": item.end_page,
                         "source_title": item.label, "date": "", "date_basis": item.date_basis, "naming_rule_id": "", "role": "lead"}],
@@ -2459,8 +2475,9 @@ def _row_metadata_payload(row: dict[str, Any]) -> dict[str, Any]:
         "input_sha256": str(row.get("input_sha256")),
         "generation_sha256": str(row.get("generation_sha256")),
         "quality_flags": list(row.get("quality_flags") or []),
-        **({k: row[k] for k in ("application_metadata", "members", "anchor_page", "group_metadata")}
-           if row.get("schema_version") == 4 else {}),
+        **({"application_metadata": row["application_metadata"]} if row.get("schema_version") == 4 else {}),
+        **({k: row[k] for k in ("members", "anchor_page", "group_metadata")}
+           if row.get("schema_version") == 4 and row.get("kind") == "motions" else {}),
     }
 
 
@@ -2512,11 +2529,12 @@ def _row_category_contracts(row: dict[str, Any]):
     if type(version) is not int or version not in (2, 3, 4):
         raise ValueError("Unsupported digest row schema version.")
     if version == 4:
-        from .profile_artifacts import motion_application_metadata
-        if kind != "motions" or "profile_metadata" in row:
-            raise ValueError("Application motion row has invalid ownership.")
-        metadata = motion_application_metadata(row.get("application_metadata"))
-        _validate_motion_row_members(row)
+        from .profile_artifacts import summary_application_metadata
+        if "profile_metadata" in row:
+            raise ValueError("Application summary row has invalid ownership.")
+        metadata = summary_application_metadata(row.get("application_metadata"), kind)
+        if kind == "motions":
+            _validate_motion_row_members(row)
         return tuple(summary_categories.CategoryContract(e["id"], e["title"]) for e in metadata["category_catalog"])
     if version == 2:
         if "profile_metadata" in row:
@@ -2637,10 +2655,10 @@ def serialize_digest_markdown(
     application_metadata = (application_metadata or getattr(rows, "application_metadata", None)
                             or (rows[0].get("application_metadata") if rows else None))
     if application_metadata is not None:
-        from .profile_artifacts import motion_application_metadata
-        if kind != "motions" or profile_metadata is not None:
-            raise ValueError("Invalid application motion document ownership.")
-        motion_application_metadata(application_metadata)
+        from .profile_artifacts import summary_application_metadata
+        if profile_metadata is not None or getattr(rows, "profile_metadata", None) is not None:
+            raise ValueError("Invalid application summary document ownership.")
+        summary_application_metadata(application_metadata, kind)
     if profile_metadata is None:
         profile_metadata = getattr(rows, "profile_metadata", None)
     if profile_metadata is None and rows:
@@ -2768,10 +2786,10 @@ def parse_digest_markdown(
     application_metadata = None
     definitions = summary_categories.CATEGORY_CONTRACTS[kind]
     if format_version == 3:
-        from .profile_artifacts import motion_application_metadata
-        if kind != "motions" or "profile_metadata" in header:
-            raise ValueError("Invalid application motion digest document.")
-        application_metadata = motion_application_metadata(header.get("application_metadata"))
+        from .profile_artifacts import summary_application_metadata
+        if "profile_metadata" in header:
+            raise ValueError("Invalid application summary digest document.")
+        application_metadata = summary_application_metadata(header.get("application_metadata"), kind)
         definitions = tuple(summary_categories.CategoryContract(e["id"], e["title"]) for e in application_metadata["category_catalog"])
     if format_version == 2:
         profile_metadata = digest_profile_metadata(header.get("profile_metadata"), kind)
@@ -2821,7 +2839,7 @@ def parse_digest_markdown(
                 f"line {cursor}: document label disagrees with its heading; {preserved}"
             )
         _take_blank()
-        if row_version == 4:
+        if row_version == 4 and kind == "motions":
             _validate_motion_row_members(row_meta)
             _take("Source pages: " + _source_ranges_text(row_meta), "exact member source ranges")
             start_page, end_page = row_meta["start_page"], row_meta["end_page"]
@@ -2966,7 +2984,8 @@ def parse_digest_markdown(
         if profile_metadata is not None:
             row["profile_metadata"] = digest_profile_metadata(profile_metadata, kind)
         if row_version == 4:
-            row.update({k: row_meta[k] for k in ("members", "anchor_page", "group_metadata")})
+            if kind == "motions":
+                row.update({k: row_meta[k] for k in ("members", "anchor_page", "group_metadata")})
             row["application_metadata"] = application_metadata
             if row_meta.get("application_metadata") != application_metadata:
                 raise ValueError("Motion row contract disagrees with document.")
@@ -3111,7 +3130,7 @@ def validate_digest_row(row: dict[str, Any], kind: str | None = None) -> list[st
                     f"category {category_id}: evidence has unexpected or missing keys"
                 )
                 continue
-            if row.get("schema_version") == 4 and not (type(quote.get("file_page")) is int and any(
+            if row.get("schema_version") == 4 and kind == "motions" and not (type(quote.get("file_page")) is int and any(
                     member["start_page"] <= quote["file_page"] <= member["end_page"] for member in row["members"])):
                 issues.append("Motion evidence page is outside exact member spans.")
             if not str(quote.get("quote_id") or "").startswith(item_id + "/"):
@@ -3120,6 +3139,11 @@ def validate_digest_row(row: dict[str, Any], kind: str | None = None) -> list[st
                     "this item"
                 )
     return issues
+
+
+def _row_ownership_current(row, kind):
+    application = application_summary_metadata(kind)
+    return application is None or (row.get('schema_version') == 4 and row.get('application_metadata') == application)
 
 
 def reconcile_digest_rows(
@@ -3144,9 +3168,9 @@ def reconcile_digest_rows(
         # Copy even on read-only freshness checks; historical callers own rows.
         row = dict(row, ordinal=item.ordinal)
         ordered.append(row)
-        if str(row.get("generation_sha256")) != item.generation_sha256 or int(
-            row.get("end_page") or 0
-        ) != item.end_page:
+        if (not _row_ownership_current(row, item.kind)
+                or str(row.get("generation_sha256")) != item.generation_sha256
+                or int(row.get("end_page") or 0) != item.end_page):
             stale.append(item.item_id)
     return ordered, stale
 
@@ -3265,9 +3289,8 @@ def build_digest_meta(
             rows_by_id=rows_by_id,
         )
     )
-    from .motion_guidance import application_metadata
-    application = application_metadata() if kind == "motions" else None
-    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind != "motions" else None
+    application = application_summary_metadata(kind)
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind == "reports" else None
     return {
         "artifact": SUMMARY_FACTS_META_ARTIFACT,
         "schema_version": 6 if application is not None else 5 if profile_metadata is not None else SUMMARY_FACTS_META_SCHEMA_VERSION,
@@ -3331,6 +3354,8 @@ def _row_is_current(
     )
     if row is None:
         return False
+    if not _row_ownership_current(row, item.kind):
+        return False
     return str(row.get("generation_sha256")) == item.generation_sha256
 
 
@@ -3348,16 +3373,15 @@ def publish_digests(
     is always written before its derived metadata sidecar.
     """
     existing = load_digest_meta(root, kind)
-    from .motion_guidance import application_metadata
-    application = application_metadata() if kind == "motions" else None
-    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind != "motions" else None
-    if kind == "motions":
+    application = application_summary_metadata(kind)
+    profile_metadata = extraction_metadata(config.profile, kind) if config.profile is not None and kind == "reports" else None
+    if application is not None:
         expected = {item.item_id: item for item in items}
-        rows = DigestRows([row for row in rows if row.get("schema_version") == 4
+        rows = DigestRows([row for row in rows if _row_ownership_current(row, kind)
                            and row.get("item_id") in expected
                            and row.get("generation_sha256") == expected[row["item_id"]].generation_sha256],
                           application_metadata=application)
-    if profile_metadata is None and kind != "motions" and (getattr(rows, "profile_metadata", None) is not None
+    if profile_metadata is None and kind == "reports" and (getattr(rows, "profile_metadata", None) is not None
             or any(row.get("schema_version") == 3 for row in rows)
             or (existing is not None and existing.get("schema_version") == 5)):
         raise ValueError("Profile-era digests require a profile-aware publisher; prior output preserved.")
@@ -3983,14 +4007,13 @@ def build_final_meta(
     quality_flags: Sequence[str] | None = None,
     *, profile: ProfileSnapshot | None = None,
 ) -> dict[str, Any]:
-    from .motion_guidance import application_metadata
-    application = application_metadata() if kind == "motions" else None
-    profile_metadata = extraction_metadata(profile, kind) if profile is not None and kind != "motions" else None
+    application = application_summary_metadata(kind)
+    profile_metadata = extraction_metadata(profile, kind) if profile is not None and kind == "reports" else None
     meta: dict[str, Any] = {
         "artifact": SUMMARY_FINAL_META_ARTIFACT,
         "schema_version": 6 if application is not None else 5 if profile is not None else SUMMARY_FINAL_META_SCHEMA_VERSION,
         **({"application_metadata": application, "entries": [_row_metadata_payload(row) for row in rows]} if application is not None else {}),
-        **({"profile_provenance": compile_summary(profile, kind, "synthesize").provenance} if profile is not None and kind != "motions" else {}),
+        **({"profile_provenance": compile_summary(profile, kind, "synthesize").provenance} if profile is not None and kind == "reports" else {}),
         "kind": kind,
         "item_ids": [str(row.get("item_id")) for row in rows],
         "digest_markdown_sha256": digest_markdown_sha256(
@@ -4045,18 +4068,18 @@ def validate_final_meta(
         issues.append(f"the {kind} summary metadata kind is invalid.")
     if meta.get("schema_version") == 6:
         try:
-            from .profile_artifacts import motion_application_metadata
-            motion_application_metadata(meta.get("application_metadata"))
-            if kind != "motions" or meta.get("markdown_format_version") != 3 or not isinstance(meta.get("entries"), list):
-                raise ValueError("Invalid motion metadata.")
+            from .profile_artifacts import summary_application_metadata
+            summary_application_metadata(meta.get("application_metadata"), kind)
+            if meta.get("markdown_format_version") != 3 or not isinstance(meta.get("entries"), list):
+                raise ValueError("Invalid application summary metadata.")
             if ([entry.get("item_id") for entry in meta["entries"]] != meta.get("item_ids")
                     or len(set(meta.get("item_ids", []))) != len(meta.get("item_ids", []))
-                    or meta.get("heading_targets") != motion_heading_targets(final_text, meta["entries"])):
+                    or (kind == "motions" and meta.get("heading_targets") != motion_heading_targets(final_text, meta["entries"]))):
                 raise ValueError("Inconsistent motion entry metadata.")
             for entry in meta["entries"]:
-                _validate_motion_row_members(entry)
+                _row_category_contracts(entry)
         except (ValueError, TypeError, KeyError, AttributeError):
-            issues.append("Invalid application-owned motion metadata.")
+            issues.append("Invalid application-owned summary metadata.")
     if meta.get("schema_version") == 5:
         if meta.get("markdown_format_version") != 2:
             issues.append(f"the {kind} profile summary must reference Markdown format 2.")
@@ -4205,8 +4228,8 @@ def summary_stage_settings(project_dir: Path, kind: str) -> dict[str, str]:
         "synthesize_provider": "",
         "synthesize_model": "",
         "synthesize_thinking": "",
-        "extract_prompt": "" if kind == "motions" else raw_value(f"summarize_{kind}_prompt"),
-        "synthesize_prompt": "" if kind == "motions" else raw_value(f"summarize_{kind}_synthesis_prompt"),
+        "extract_prompt": "" if kind in ("hearings", "motions") else raw_value(f"summarize_{kind}_prompt"),
+        "synthesize_prompt": "" if kind in ("hearings", "motions") else raw_value(f"summarize_{kind}_synthesis_prompt"),
     }
 
 
@@ -4235,7 +4258,7 @@ def effective_extraction_config(project_dir: Path, kind: str, *, profile: Profil
         profile=profile,
         runtime_contract_sha256=sha256_json({str(path.relative_to(project_dir)): _resource_sha256(path)
             for path in (project_dir / "SYSTEM.md",
-                         project_dir / "resources/profile-summary-extract.md" if profile is not None and kind != "motions" else
+                         project_dir / "resources/profile-summary-extract.md" if profile is not None and kind == "reports" else
                          project_dir / "skills" / {"hearings": "recordprep-extract-hearing", "reports": "recordprep-extract-report", "motions": "recordprep-extract-motion"}[kind] / "SKILL.md",
                          project_dir / "extensions/recordprep-summary-tools.ts")}),
     )
@@ -4269,11 +4292,11 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "reports": "recordprep-synthesize-reports",
         "motions": "recordprep-synthesize-motions",
     }
-    compiled = compile_summary(profile, kind, "synthesize") if profile is not None and kind != "motions" else None
+    compiled = compile_summary(profile, kind, "synthesize") if profile is not None and kind == "reports" else None
     return {
         "kind": kind,
         "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + (
-            {"hearings": HEARING_QUOTE_CASE_GUIDANCE, "reports": REPORT_QUOTE_CASE_GUIDANCE,
+            {"hearings": "", "reports": REPORT_QUOTE_CASE_GUIDANCE,
              "motions": ""}[kind]),
         "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
         **({"profile_component": compiled.component_sha256} if compiled is not None else {}),
@@ -4283,10 +4306,9 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
         "content_contract": SUMMARY_SYNTHESIS_CONTRACT_VERSION,
         "skill_delivery": summary_prompts.SKILL_DELIVERY_CONTRACT,
         "skill_sha256": _resource_sha256(
-            (project_dir / "resources/profile-summary-synthesize.md") if profile is not None and kind == "hearings" else
             (project_dir / "skills" / skill_names[kind] / "SKILL.md")
         ),
-        **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None or kind == "motions" else {}),
+        **({"system_sha256": _resource_sha256(project_dir / "SYSTEM.md")} if profile is not None or kind in ("hearings", "motions") else {}),
         "extension_sha256": _resource_sha256(
             project_dir / "extensions" / "recordprep-summary-tools.ts"
         ),
@@ -4338,7 +4360,7 @@ def summary_stage_freshness_issues(
         except (ValueError, OSError) as exc:
             return [str(exc)]
     # Legacy generation cannot establish freshness for profile-era output.
-    if kind != "motions" and profile is None and any(meta is not None and meta.get("schema_version") == 5
+    if kind == "reports" and profile is None and any(meta is not None and meta.get("schema_version") == 5
            for meta in (load_digest_meta(root, kind), load_final_meta(root, kind))):
         return [f"the {label} profile-dependent freshness requires explicit profile-aware generation."]
 
@@ -4370,7 +4392,7 @@ def summary_stage_freshness_issues(
                         f"the {label} digest row {item.item_id} is missing; "
                         "regeneration-pending."
                     )
-                elif str(row.get("generation_sha256")) != item.generation_sha256:
+                elif not _row_ownership_current(row, kind) or str(row.get("generation_sha256")) != item.generation_sha256:
                     issues.append(
                         f"the {label} digest row {item.item_id} is stale; "
                         "regeneration-pending."

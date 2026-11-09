@@ -14,7 +14,7 @@ for AI preparation stages.
 
 ## Motions
 
-[Motion-paper preparation and explicit profile adoption](docs/motions-workflow.md)
+[Motion-paper preparation](docs/motions-workflow.md)
 cover independent titles/dates, boundaries, summaries and Focus publication. Existing
 bundles/profiles are not migrated; legacy Resume skips unavailable motion preparation.
 
@@ -88,7 +88,9 @@ work without resetting it. Open the resulting bundle in Focus.
 
 RecordPrep includes a **California Juvenile Dependency** profile that you can
 customize or use as a starting point for other practice areas. Profiles customize
-naming and hearing/report topics. Minute summaries use a fixed, practice-neutral method,
+report/form naming and report digest topics. Hearing topics—including practice-neutral
+Appearances—and motion naming, eligibility and summaries use fixed application rules.
+See [hearing-topic ownership](docs/application-hearing-topics.md). Minute summaries use a fixed, practice-neutral method,
 inspectable through **View full prompts…**. Existing output changes only on explicit
 generation. Classification rules are maintained in the application source, not user settings.
 See the [user guide](docs/workflow.md) for details.

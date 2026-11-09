@@ -57,6 +57,9 @@ def historical_snapshot(profile, version=3):
     files = dict(profile.files)
     manifest = profile.manifest
     manifest["schema_version"] = version
+    if version < 14 and 'hearings' not in manifest['resources']:
+        manifest['resources']['hearings'] = 'hearings.json'
+        files['hearings.json'] = (Path(__file__).parent / 'fixtures/structured_classification_baseline/hearings.json').read_bytes()
     if version < 11:
         for name in ("motion_naming", "motions"):
             path = manifest["resources"].pop(name, None)
@@ -549,7 +552,7 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result.draft.ref.application, api.APPLICATION)
                     for stage in contract.STAGE_RESOURCES[api.APPLICATION]:
                         compiled = contract.compile_stage_profile(result.draft, stage, core_contract=b"synthetic core")
-                        if stage in ("minutes", "motion_extraction", "motion_synthesis", "participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
+                        if stage in ("hearing_extraction", "hearing_synthesis", "minutes", "motion_naming", "motion_extraction", "motion_synthesis", "participants", "overview", "classification", "classification_basic", "classification_advanced", "classification_corrected", "classification_dates", "case_name"):
                             self.assertEqual(compiled.resources, ())
                         else:
                             self.assertTrue(compiled.resources)

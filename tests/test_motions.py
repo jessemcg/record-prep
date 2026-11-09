@@ -17,8 +17,9 @@ from test_structured_classification import bundle
 class MotionTests(unittest.TestCase):
     def test_current_bundle_and_strict_resources(self):
         profile = bundle()
-        self.assertEqual(profile.manifest['schema_version'], 12)
-        self.assertEqual(profile.ref.version, '1.15.0')
+        self.assertEqual(profile.manifest['schema_version'], 14)
+        self.assertEqual(profile.ref.version, '1.17.0')
+        self.assertNotIn('motion_naming', profile.manifest['resources'])
         contract = compile_motion_naming(profile)
         self.assertIn('1,024', contract.prompt)
         self.assertIn('filed', contract.prompt)
@@ -26,8 +27,12 @@ class MotionTests(unittest.TestCase):
         for change in ({'schema_version': 2}, {'extra': 'not allowed'},
                        {'motions': [{'id': 'motion-papers', 'name': 'Paper', 'guidance': '', 'naming_mode': 'invented'}]}):
             files = dict(profile.files)
-            path = profile.manifest['resources']['motion_naming']
-            files[path] = json_bytes(profile.resource('motion_naming') | change)
+            from recordprep.motion_guidance import NEUTRAL_MOTION_NAMING
+            manifest = profile.manifest
+            manifest['schema_version'] = 12
+            manifest['resources']['motion_naming'] = 'motion-naming.json'
+            files['profile.json'] = json_bytes(manifest)
+            files['motion-naming.json'] = json_bytes(NEUTRAL_MOTION_NAMING | change)
             with self.assertRaises(ProfileError):
                 validate_contents(tuple(files.items()), 'recordprep')
 
@@ -72,8 +77,9 @@ class MotionTests(unittest.TestCase):
         return {'file_name': f'{page:04d}.txt', 'page_type': 'CT_motion_first_page' if first else 'CT_motion',
                 'motion_first_page': 'yes' if first else 'no', **({'name': name, 'naming_rule_id': 'motion-papers', 'date_basis': 'unknown'} if first else {})}
 
-    def test_old_profile_no_implicit_selection_or_writes(self):
-        profile = bundle()
+    def test_old_profile_uses_application_rules_without_writes(self):
+        from test_practice_profiles import historical_snapshot
+        profile = historical_snapshot(bundle(), version=13)
         files, manifest = dict(profile.files), profile.manifest
         for name in ('motions', 'motion_naming'):
             if name in manifest['resources']:
@@ -82,13 +88,13 @@ class MotionTests(unittest.TestCase):
         files['profile.json'] = json_bytes(manifest)
         old = validate_contents(tuple(files.items()), 'recordprep')
         original = old.files
-        self.assertFalse(compile_motion_naming(old).rules)
+        self.assertEqual(compile_motion_naming(old), compile_motion_naming(None))
         from recordprep.profile_workflows import ProfileEditor
         editor = ProfileEditor(old)
         self.assertEqual(editor.snapshot().files, original)
         editor.use_current_schema()
-        self.assertEqual(editor.snapshot().manifest['schema_version'], 12)
-        self.assertEqual(editor.resources['motion_naming']['motions'], [])
+        self.assertEqual(editor.snapshot().manifest['schema_version'], 14)
+        self.assertNotIn('motion_naming', editor.resources)
         self.assertEqual(old.files, original)
         self.assertTrue(compile_motion_naming(None).rules)
 

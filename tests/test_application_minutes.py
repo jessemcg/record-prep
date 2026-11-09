@@ -182,7 +182,7 @@ class ApplicationMinuteTests(unittest.TestCase):
             current = editor.snapshot()
             # Schema projection preserves each editor's own naming catalog.
             self.assertEqual(json_bytes(current.resource('naming')), naming_before)
-            self.assertEqual(current.manifest['schema_version'], 12)
+            self.assertEqual(current.manifest['schema_version'], 14)
             self.assertNotIn('minutes', current.manifest['resources'])
             self.assertNotIn('minutes', editor.resources)
             self.assertNotIn('minutes.md', dict(current.files))
@@ -195,7 +195,7 @@ class ApplicationMinuteTests(unittest.TestCase):
             with self.assertRaises(ProfileError):
                 validate_contents(tuple(bad.items()), 'recordprep')
         self.assertEqual(old.files, original)
-        for name in ('hearings.json', 'reports.json', 'policies.json', 'case-name.md'):
+        for name in ('reports.json', 'policies.json', 'case-name.md'):
             self.assertEqual(dict(bundle().files)[name], dict(old.files)[name])
 
     def test_fixed_inspection_ignores_invalid_unrelated_draft(self):

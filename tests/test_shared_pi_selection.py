@@ -54,7 +54,7 @@ class SharedPiSelectionTests(unittest.TestCase):
                     for kind, phase, skill in cases:
                         settings = minutes.stage_config(project)[0] if kind == 'minutes' else runner._summary_stage_settings(project, kind)
                         if kind != 'minutes':
-                            self.assertEqual(settings[phase + '_prompt'], guidance)
+                            self.assertEqual(settings[phase + '_prompt'], '' if kind == 'hearings' else guidance)
                         capacity = sp.resolve_stage_capacity(settings, phase, pi_settings_path(project), models=[
                             pi.PiModel(provider='synthetic', model_id='accounts/models/shared', name='Shared', context_window=1000000)])
                         self.assertTrue(capacity.known)

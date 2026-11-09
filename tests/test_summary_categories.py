@@ -32,9 +32,9 @@ class CategoryResourceTests(unittest.TestCase):
             [definition.identifier for definition in definitions],
             list(sa.SUMMARY_CATEGORY_IDS["hearings"]),
         )
-        self.assertEqual(definitions[0].title, "Parent Appearances")
+        self.assertEqual(definitions[0].title, "Appearances")
         resource = summary_categories.summary_category_resource_path("hearings")
-        self.assertIn("Which parents personally appeared", definitions[0].guidance)
+        self.assertIn("Which parties appeared", definitions[0].guidance)
         self.assertEqual(resource.name, "hearings.md")
 
     def _write_resource(self, directory: Path, kind: str, text: str) -> Path:
@@ -112,7 +112,7 @@ class CategoryResourceTests(unittest.TestCase):
                 changed = {kind: fingerprint(kind) for kind in ("hearings", "reports")}
             finally:
                 sa._CATEGORY_DESCRIPTIONS_CACHE.clear()
-        self.assertNotEqual(changed["hearings"], base["hearings"])
+        self.assertEqual(changed["hearings"], base["hearings"])  # Historical resource is inert.
         self.assertEqual(changed["reports"], base["reports"])
 
     def test_runner_extraction_config_never_reattaches_retired_builtins(self) -> None:
@@ -149,20 +149,20 @@ class CategoryResourceTests(unittest.TestCase):
                 "hearings",
                 {},
             )
-            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
+            self.assertEqual(config.guidance, sa.default_guidance('hearings', 'extract'))
             self.assertEqual(config.additional_guidance, "")
 
-            # Custom text is byte-for-byte subordinate additional guidance.
+            # Historical custom text is preserved on disk but inactive.
             custom = "  Keep digests near 200 words.\n"
             config = runner._extraction_config(
                 config_with(custom), "hearings", {}
             )
-            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
-            self.assertEqual(config.additional_guidance, custom)
+            self.assertEqual(config.guidance, sa.default_guidance('hearings', 'extract'))
+            self.assertEqual(config.additional_guidance, '')
 
             # An empty stored prompt uses the immutable contract only.
             config = runner._extraction_config(config_with(""), "hearings", {})
-            self.assertEqual(config.guidance, sa.DEFAULT_HEARING_EXTRACTION_GUIDANCE)
+            self.assertEqual(config.guidance, sa.default_guidance('hearings', 'extract'))
             self.assertEqual(config.additional_guidance, "")
 
 

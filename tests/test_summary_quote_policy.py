@@ -48,8 +48,9 @@ class QuotePolicyTests(unittest.TestCase):
                 self.assertIn(policy.EXTRACTION_QUOTE_GUIDANCE.strip(), resolved.immutable_guidance)
             custom = '  Personal focus.\r\nKeep this byte-for-byte.  \n'
             resolved = sa.resolve_phase_guidance(kind, 'extract', custom)
-            self.assertEqual(resolved.origin, 'custom')
-            self.assertEqual(resolved.custom_guidance, custom)
+            self.assertEqual(resolved.origin, 'default' if kind == 'hearings' else 'custom')
+            self.assertEqual(resolved.custom_guidance, '' if kind == 'hearings' else custom)
+            self.assertEqual(resolved.stored_text, custom)
         with tempfile.TemporaryDirectory() as td:
             _root, project = fixture(Path(td), 1)
             for profile in (None, bundle()):

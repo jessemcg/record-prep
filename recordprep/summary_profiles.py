@@ -1,4 +1,4 @@
-"""Specialty-neutral summary contracts and topic-only profile composition.
+"""Fixed hearing/motion methods and report-topic-only profile composition.
 
 Behavioral baseline: 7921736 (before profile-driven preparation). See
 ``docs/summary-contract-reconciliation.md`` for intentional differences.
@@ -303,9 +303,10 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
     stage = {"hearings": "hearing", "reports": "report", "motions": "motion"}[kind] + ("_extraction" if phase == "extract" else "_synthesis")
     core = summary_core(kind, phase)
     from .profile_contract import json_bytes
-    if kind == "motions":
-        from .motion_guidance import application_fingerprint
-        return SummaryProfile(core, application_fingerprint(phase), {},
+    if kind in ("hearings", "motions"):
+        from . import hearing_guidance, motion_guidance
+        method = hearing_guidance if kind == "hearings" else motion_guidance
+        return SummaryProfile(method.application_guidance(phase), method.application_fingerprint(phase), {},
                               tuple((e["id"], e["title"], e["guidance"]) for e in summary_topics(snapshot, kind)))
     defaults = ()
     compiled = compile_stage_profile(snapshot, stage, core_contract=core.encode("utf-8") + (json_bytes(summary_topics(snapshot, kind)) if defaults else b""))
@@ -316,6 +317,9 @@ def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> Summary
 
 
 def summary_topics(snapshot, kind):
+    if kind == "hearings":
+        from .hearing_guidance import application_catalog
+        return application_catalog()
     if kind == "motions":
         from .motion_guidance import MOTION_TOPICS
         from copy import deepcopy
@@ -334,6 +338,9 @@ def summary_guidance(core, resources):
 def draft_summary_guidance(catalog, kind, phase):
     """Literal incomplete drafts may be inspected without validating unrelated fields."""
     from .profile_contract import json_bytes
+    if kind == "hearings":
+        from .hearing_guidance import application_guidance
+        return application_guidance(phase)
     if kind == "motions":
         return summary_core(kind, phase)
     return summary_guidance(summary_core(kind, phase), ((kind, json_bytes(catalog)),))
@@ -347,18 +354,21 @@ def profile_skill_text(project_dir: Path, skill_name: str, phase: str) -> str:
     from .profile_contract import read_file_at
     import os
     fd = os.open(project_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    report_synthesis = (phase == "synthesize" and skill_name == "recordprep-synthesize-reports") or skill_name in {"recordprep-extract-motion", "recordprep-synthesize-motions"}
-    relative = f"skills/{skill_name}/SKILL.md" if report_synthesis else f"resources/profile-summary-{phase}.md"
+    canonical_skill = (phase == "synthesize" and skill_name == "recordprep-synthesize-reports") or skill_name in {"recordprep-extract-motion", "recordprep-synthesize-motions", "recordprep-extract-hearing", "recordprep-synthesize-hearings"}
+    relative = f"skills/{skill_name}/SKILL.md" if canonical_skill else f"resources/profile-summary-{phase}.md"
     try:
         template = read_file_at(fd, relative).decode("utf-8")
     finally:
         os.close(fd)
-    # Reports use the visible canonical skill unchanged in both modes. Keeping
-    # this selection here also gives preflight the exact staged text.
-    return template if report_synthesis else template.replace("{{skill_name}}", skill_name)
+    # Fixed hearing/motion skills and report synthesis share canonical files
+    # across assignments. Preflight and inspection see the exact staged text.
+    return template if canonical_skill else template.replace("{{skill_name}}", skill_name)
 
 
 def extraction_metadata(snapshot: ProfileSnapshot, kind: str) -> dict:
+    if kind == "hearings":
+        from .hearing_guidance import application_metadata
+        return application_metadata()
     if kind == "motions":
         from .motion_guidance import application_metadata
         return application_metadata()

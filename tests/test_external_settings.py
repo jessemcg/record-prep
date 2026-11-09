@@ -71,10 +71,12 @@ class ExternalSettingsTests(unittest.TestCase):
         current['minutes']['thinking'] = 'low'
         # Frozen pre-installer fixture remains historical. Reviewed aggregates
         # retain editorial/minute contracts and the longer advisory quote policy.
+        # Fixed hearing topics and canonical hearing skills now replace profile/custom
+        # hearing guidance; historical baseline files remain untouched.
         # The extraction extension is also a legitimate synthesis dependency.
         changed_contracts = {
-            'extraction': 'b8fc2da5bbe04486ce6497df9dc5df8fe56ff6977cbf4c3e6df87f09ce698529',
-            'synthesis': 'e0da3e648845187449639c276daa04d792cce29ac6129e2bef2417cc0462ccf2',
+            'extraction': 'f11328ab4cf786a7bb1f5d10c464d5e075cb576d68a97fa2bdc6c927f15ff0d8',
+            'synthesis': '50a9cf70b4c66be01a8382bcf8f6715beb982ddadaa9d57440423cb690346dff',
             'minutes': '4fecbf5c56e1fdd1dd59b6b44a76d5a4452cdf573ae0c7505b10f7560c3bdcd1',
         }
         for key, value in current.items():

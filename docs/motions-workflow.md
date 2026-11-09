@@ -1,14 +1,22 @@
 # Motion papers and logical entries
 
-Dependency **1.15.0**, content schema **12**, retains `profile_api: 1` and the
-profile-owned `motion_naming` eligibility catalog. New profiles omit `motions`:
-all new motion digests use the application's **Request** (`request`) and
-**Reasons** (`reasons`) method, for assigned, historical, custom and unassigned work.
-Schemas 1–11 and naming formats 1–5 remain readable. Opening settings never migrates
-private profiles or bundles. Only explicit Create/Save/Reset publishes schema 12.
-Historical motion topics/configuration prose stay at rest but supply no current
-instructions, prompt inspection text or generation fingerprints. Hearing/report
-topics and the fixed minute method are unchanged.
+See [application-owned motion naming](application-motion-naming.md) for ownership,
+adoption and validation details. Report/form naming remains profile-owned.
+
+Dependency **1.17.0**, content schema **14**, retains `profile_api: 1`.
+The subsequent [hearing-topic ownership](application-hearing-topics.md) change
+also removes hearing topics from profile instructions; report topics stay profile-owned.
+Motion naming/eligibility, exclusions, organization and summaries are application-owned
+for assigned, historical, custom and unassigned work. Fixed rules preserve physical
+source titles and dates, keep qualifying standardized request forms in Forms, and
+exclude neutral reports. Report Names and Form Names remain profile-owned.
+New profiles omit both `motion_naming` and `motions`; Profile settings has no Motion
+Names editor. All new motion digests use the application's **Request** (`request`)
+and **Reasons** (`reasons`) method.
+Schemas 1–13 and naming formats 1–5 remain readable. Opening settings never migrates
+private profiles or bundles. Only explicit Create/Save/Reset publishes schema 14.
+Historical motion naming catalogs, topics and configuration prose stay at rest but supply no current
+instructions, prompt inspection text or generation fingerprints. Report topics and the fixed minute method are unchanged by motion ownership.
 
 ## Physical recognition stays separate
 

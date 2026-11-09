@@ -213,7 +213,8 @@ class UnifiedSettingsTests(unittest.TestCase):
         w, store = self.profile_window()
         keys = [key for key, _, _ in CLASSIFICATION_PAGES]
         self.assertEqual(list(w.nav_rows)[:len(keys)], keys)
-        self.assertEqual(keys, ['report-naming', 'form-naming', 'motion-naming'])
+        self.assertEqual(keys, ['report-naming', 'form-naming'])
+        self.assertNotIn('motion_naming', w.editor.resources)
         self.assertNotIn("classification", w.pages)
         self.assertNotIn("Common guidance", [row.get_title() for row in w.nav_rows.values()])
         chooser_before = list(w._navigation._prompt_keys)
@@ -231,7 +232,7 @@ class UnifiedSettingsTests(unittest.TestCase):
                 self.assertEqual(w._navigation.view.get_visible_page().get_tag(), key)
                 if key.endswith('-naming'):
                     plural = key.removesuffix('-naming') + 's'
-                    owner = w.editor.resources['motion_naming' if plural == 'motions' else 'naming']
+                    owner = w.editor.resources['naming']
                     detail = 'topic:naming-' + plural + ':' + owner[plural][0]['id']
                     w._topic_expanders[detail].set_expanded(True)
                 view = next(x for x in descendants(w.pages[key]) if isinstance(x, Gtk.TextView))
@@ -353,26 +354,26 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertNotEqual(w.editor.base.ref, base)
         self.assertIn("second revision", store.load_profile_snapshot(w.editor.base.ref).resource("naming")["reports"][0]["guidance"])
         self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "report-naming")
-        topic = w.editor.resources["hearings"][0]
-        key = "topic:hearings:" + topic["id"]
+        topic = w.editor.resources["reports"][0]
+        key = "topic:reports:" + topic["id"]
         original = topic["guidance"]
-        w._select_page("hearings-topics")
+        w._select_page("reports-topics")
         drain()
         topic_buffer = w._topic_editors[key].get_child().get_buffer()
         self.assertEqual(topic_buffer.get_text(*topic_buffer.get_bounds(), True), topic_editor_text(original))
         self.assertEqual(topic["guidance"], original)
         topic_buffer.insert_at_cursor(" topic revision ")
-        values = w.editor.resources["hearings"]
+        values = w.editor.resources["reports"]
         values[0], values[1] = values[1], values[0]
         self.assertTrue(w._save())
         topic_buffer.insert_at_cursor(" after save ")
-        self.assertIn("after save", next(v for v in w.editor.resources["hearings"] if v["id"] == topic["id"])["guidance"])
+        self.assertIn("after save", next(v for v in w.editor.resources["reports"] if v["id"] == topic["id"])["guidance"])
         self.assertTrue(w._save())
         self.assertFalse(w._dirty())
-        self.assertIn("after save", next(v for v in store.load_profile_snapshot(w.editor.base.ref).resource("hearings") if v["id"] == topic["id"])["guidance"])
+        self.assertIn("after save", next(v for v in store.load_profile_snapshot(w.editor.base.ref).resource("reports") if v["id"] == topic["id"])["guidance"])
         self.assertEqual(w._navigation.view.get_navigation_stack().get_n_items(), 2)
         self.assertFalse(any(key.startswith("topic:") for key in w._navigation.pages))
-        summary = next(x for x in descendants(w.pages["hearings-topics"])
+        summary = next(x for x in descendants(w.pages["reports-topics"])
                        if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
         content = summary.get_child()
         self.assertIsInstance(content.get_first_child(), Gtk.Button)
@@ -382,13 +383,13 @@ class UnifiedSettingsTests(unittest.TestCase):
 
     def test_topic_catalog_native_rename_reorder_remove_and_add(self):
         w, store = self.profile_window()
-        w._select_page("hearings-topics")
+        w._select_page("reports-topics")
         drain()
-        values = w.editor.resources["hearings"]
+        values = w.editor.resources["reports"]
         original = values[0]
-        key = "topic:hearings:" + original["id"]
+        key = "topic:reports:" + original["id"]
         w._topic_expanders[key].set_expanded(True)
-        entry = next(x for x in descendants(w.pages["hearings-topics"])
+        entry = next(x for x in descendants(w.pages["reports-topics"])
                      if isinstance(x, Gtk.Entry) and x.get_text() == original["title"])
         card = entry.get_ancestor(Gtk.Expander)
         card.set_expanded(True)
@@ -403,26 +404,26 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertTrue(card.get_expanded())
         self.assertTrue(buffer.get_can_undo())
         self.assertIn("retained edit", buffer.get_text(*buffer.get_bounds(), True))
-        entry = next(x for x in descendants(w.pages["hearings-topics"])
+        entry = next(x for x in descendants(w.pages["reports-topics"])
                      if isinstance(x, Gtk.Entry) and x.get_text() == "Renamed topic α")
         next(x for x in descendants(entry.get_parent()) if isinstance(x, Gtk.Button) and x.get_label() == "Remove").emit("clicked")
         self.assertNotIn(key, w._navigation.pages)
         self.assertNotIn(key, w._topic_editors)
         count = len(values)
-        next(x for x in descendants(w.pages["hearings-topics"]) if isinstance(x, Gtk.Button) and x.get_label() == "Add topic").emit("clicked")
+        next(x for x in descendants(w.pages["reports-topics"]) if isinstance(x, Gtk.Button) and x.get_label() == "Add topic").emit("clicked")
         self.assertEqual(len(values), count + 1)
-        self.assertIn("topic:hearings:" + values[-1]["id"], w._topic_editors)
+        self.assertIn("topic:reports:" + values[-1]["id"], w._topic_editors)
         self.assertFalse(any(key.startswith("topic:") for key in w._navigation.pages))
         self.assertTrue(w._save())
-        self.assertEqual(len(store.load_profile_snapshot(w.editor.base.ref).resource("hearings")), len(values))
+        self.assertEqual(len(store.load_profile_snapshot(w.editor.base.ref).resource("reports")), len(values))
 
     def test_summaries_inline_explanations_and_display_only_unwrapping(self):
         w, store = self.profile_window()
         literal = "Read the complete\nsource carefully.\n\nKeep attribution\nand uncertainty."
-        w.editor.resources["hearings"][0]["guidance"] = literal
+        w.editor.resources["reports"][0]["guidance"] = literal
         w._render()
         originals = copy.deepcopy(w.editor.resources)
-        for kind in ("hearings", "reports"):
+        for kind in ("reports",):
             page = kind + "-topics"
             w.nav_rows[page].emit("activated")
             drain()
@@ -443,7 +444,7 @@ class UnifiedSettingsTests(unittest.TestCase):
             self.assertFalse(any(isinstance(x, Gtk.Button) and x.get_label() == "Edit instructions"
                                  for x in descendants(w.pages[page])))
         self.assertNotIn('minutes', w.pages)
-        for page in ("hearings-topics", "reports-topics"):
+        for page in ("reports-topics",):
             disclosure = next(x for x in descendants(w.pages[page])
                               if isinstance(x, Gtk.Expander) and x.get_label() == "About summaries")
             text = disclosure.get_child().get_last_child().get_text()
@@ -458,10 +459,11 @@ class UnifiedSettingsTests(unittest.TestCase):
         self.assertFalse(store.registry_path.exists())
         self.assertTrue(w._save())
         saved = store.load_profile_snapshot(w.editor.base.ref)
-        self.assertEqual(saved.resource("hearings")[0]["guidance"], literal)
-        w._select_page("hearings-topics")
-        self.assertIsInstance(w.pages["hearings-topics"], Gtk.ScrolledWindow)
-        disclosure = next(x for x in descendants(w.pages["hearings-topics"]) if isinstance(x, Gtk.Expander))
+        self.assertEqual(saved.resource("reports")[0]["guidance"], literal)
+        self.assertNotIn('hearings-topics', w.pages)
+        w._select_page("reports-topics")
+        self.assertIsInstance(w.pages["reports-topics"], Gtk.ScrolledWindow)
+        disclosure = next(x for x in descendants(w.pages["reports-topics"]) if isinstance(x, Gtk.Expander))
         self.assertIsInstance(disclosure.get_child(), Gtk.Box)
         disclosure.set_expanded(True)
         self.assertIn(SUMMARY_EXPLANATION, '\n'.join(x.get_text() for x in descendants(disclosure.get_child()) if isinstance(x, Gtk.Label)))

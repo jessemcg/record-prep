@@ -1,7 +1,8 @@
 """Pure, practice-neutral application-owned motion contracts.
 
-Motion Names remains profile-owned eligibility/physical source naming. Historical
-six-topic resources are compatibility data only; they never instruct new work.
+Motion eligibility, physical source naming, organization and summaries are fixed.
+Historical naming and six-topic resources are compatibility data only; they never
+instruct new work. Report and form naming remain independently profile-owned.
 """
 from copy import deepcopy
 import hashlib

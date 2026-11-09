@@ -24,7 +24,7 @@ class ReportContractTests(unittest.TestCase):
     def test_fourth_task_and_stage_local_fingerprints(self):
         from dataclasses import replace
         from recordprep.recognition_contract import load_recognition
-        b=bundle();self.assertEqual(b.manifest['schema_version'],12)
+        b=bundle();self.assertEqual(b.manifest['schema_version'],14)
         self.assertNotIn('classification_tasks', b.manifest['resources'])
         before={stage:component(b,stage) for stage in ('basic','advanced','dates','names')}
         frozen=load_recognition()
@@ -47,7 +47,7 @@ class ReportContractTests(unittest.TestCase):
         self.assertNotIn('Detention Report',classifier_prompt(old,'ct')[0])
         self.assertIn('Check each page independently',classifier_prompt(old,'first_report')[0])
         draft=editable_profile(old)
-        self.assertEqual(draft.manifest['schema_version'],12)
+        self.assertEqual(draft.manifest['schema_version'],14)
         self.assertNotIn('classification_tasks', draft.resources)
         self.assertIn('Custom footer-only', old.resource('classification_tasks')['page_types']['ct']['CT_report'])
         self.assertEqual(old.files,before)
@@ -67,7 +67,7 @@ class ReportContractTests(unittest.TestCase):
         old=e.snapshot();before=old.files
         draft=editable_profile(old)
         self.assertNotIn('classification_tasks',draft.resources)
-        self.assertEqual(draft.manifest['schema_version'],12)
+        self.assertEqual(draft.manifest['schema_version'],14)
         saved=draft.snapshot()
         self.assertNotIn('Custom whole-task',classifier_prompt(saved,'ct')[0])
         self.assertIn('Custom whole-task',old.resource('classification_tasks')['ct'])

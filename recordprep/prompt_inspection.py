@@ -23,7 +23,7 @@ NAMING_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] in {"repor
 SUMMARY_TASKS = (("hearings-extract", "Hearing digest"), ("hearings-synthesize", "Hearing narrative"),
                  ("reports-extract", "Report digest"), ("reports-synthesize", "Report narrative"),
                  ("motion-organization", "Organize motion papers"), ("motions-extract", "Motion digest"), ("motions-synthesize", "Motion narrative"), ("minutes", "Minute-order summary"))
-FIXED_SUMMARY_TASKS = {"minutes", "motion-organization", "motions-extract", "motions-synthesize"}
+FIXED_SUMMARY_TASKS = {"minutes", "motion-organization", "motions-extract", "motions-synthesize", "hearings-extract", "hearings-synthesize"}
 TOOLS = {"extract": ("recordprep_get_source", "recordprep_submit_extraction"),
          "synthesize": ("recordprep_get_facts", "recordprep_submit_summary_section", "recordprep_finish_summary", "recordprep_synthesis_scratchpad"),
          "minutes": ("recordprep_get_minute_source", "recordprep_submit_minute_summary")}
@@ -108,7 +108,7 @@ def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=Tr
     if task in dict(FIXED_TASKS):
         # Application rules remain inspectable even when a draft/store is invalid.
         return Inspection((("System message", classifier_document(task, contract).render()), PAGE_IMAGE_COMPONENT))
-    if task in FIXED_SUMMARY_TASKS:
+    if task in FIXED_SUMMARY_TASKS or task == "motion":
         # Fixed inspection never depends on unrelated draft validity or resources.
         return _inspect_prompt({}, task, project_dir)
     if draft is not None:
@@ -135,11 +135,8 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
                            ("Guard source", (project_dir / "extensions/recordprep-motion-organization-tools.ts").read_text()),
                            ("Runtime data placeholders", "Exact inventory, original source pages with component identities, and private candidate path.")))
     if task == "motion":
-        from .document_naming import source_title_document
-        naming = resources.get("motion_naming", {"schema_version": 1, "motions": []})
-        if template:
-            naming = {"schema_version": 1, "motions": [{"id": "⟪stable internal ID⟫", "name": "⟪fallback name⟫", "guidance": "⟪eligibility description⟫", "naming_mode": "source_title"}]}
-        return Inspection((("System message", source_title_document(naming, "motion").render()), PAGE_IMAGE_COMPONENT))
+        from .document_naming import compile_motion_naming
+        return Inspection((("System message", compile_motion_naming(None).prompt), PAGE_IMAGE_COMPONENT))
     if task in dict(CLASSIFICATION_TASKS):
         if task in ("report", "form"):
             naming = effective_resource(resources["naming"], "naming")
@@ -177,8 +174,8 @@ def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=T
                  ("hearings", "synthesize"): "recordprep-synthesize-hearings", ("reports", "synthesize"): "recordprep-synthesize-reports",
                  ("motions", "extract"): "recordprep-extract-motion", ("motions", "synthesize"): "recordprep-synthesize-motions"}[(kind, phase)]
         skill_text = profile_skill_text(project_dir, skill, phase)
-        from .motion_guidance import MOTION_TOPICS
-        catalog = MOTION_TOPICS if kind == "motions" else resources.get(kind, []) if not template else [{"id": "⟪topic-id⟫", "title": "⟪topic name⟫", "guidance": "⟪topic instructions⟫"}]
+        from .summary_profiles import summary_topics
+        catalog = summary_topics(None, kind) if kind in ("hearings", "motions") else resources.get(kind, []) if not template else [{"id": "⟪topic-id⟫", "title": "⟪topic name⟫", "guidance": "⟪topic instructions⟫"}]
         guidance = draft_summary_guidance(catalog, kind, phase)
         if phase == "extract":
             config = SimpleNamespace(guidance=guidance, additional_guidance="", definitions=[SimpleNamespace(identifier=c.get("id", ""), guidance=c.get("guidance", "")) for c in catalog])

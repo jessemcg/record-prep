@@ -36,6 +36,22 @@ def motion_application_metadata(value: Any) -> dict:
     return value
 
 
+def summary_application_metadata(value: Any, kind: str) -> dict:
+    """Instruction-free ownership descriptors for fixed hearing/motion summaries."""
+    if kind == "motions":
+        return motion_application_metadata(value)
+    _require(kind == "hearings", "unsupported_kind", "application_summary")
+    _object(value, {"application_contract", "category_catalog"}, "hearing")
+    _require(value["application_contract"] == "recordprep-hearing-topics-1",
+             "unsupported_contract", "hearing")
+    _require(descriptors(value["category_catalog"]) == (
+        ("parent_appearances", "Appearances"), ("evidence_considered", "Evidence Considered"),
+        ("testimony", "Testimony"), ("disputed_legal_issues", "Disputed Legal Issues"),
+        ("party_positions_and_reasons", "Party Positions and Reasons"),
+        ("court_orders_and_reasons", "Court Orders and Reasons")), "invalid_catalog", "hearing")
+    return value
+
+
 def validate_motion_groups(value: Any) -> dict:
     """Instruction-free, exact-membership navigation metadata. No store lookup."""
     _object(value, {"artifact", "schema_version", "organization_contract", "inventory", "input_sha256",

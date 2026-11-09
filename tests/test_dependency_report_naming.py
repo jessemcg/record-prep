@@ -53,7 +53,7 @@ class DependencyReportNamingTests(unittest.TestCase):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.15.0',12,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.17.0',14,1))
         n = b.resource('naming'); historical = old.resource('naming')
         self.assertEqual(n['schema_version'],5)
         self.assertEqual(n['reports'][0]['naming_mode'], 'source_title')
@@ -65,12 +65,11 @@ class DependencyReportNamingTests(unittest.TestCase):
         self.assertIn(PRIOR_AGENCY_BASELINE, api.KNOWN_BASELINES)
         self.assertEqual(len(prior.resource('naming')['reports']), 17)
         for filename, content in prior.files:
-            if filename not in ('profile.json', 'naming.json'):
+            if filename not in ('profile.json', 'naming.json', 'hearings.json'):
                 self.assertEqual(dict(b.files)[filename], content, filename)
         self.assertEqual(n['forms'],historical['forms']); self.assertEqual(len(n['forms']),6)
         for name,digest in {
             'case-name.md':'ac60cda00e130e635e15cb7be406317b18a24c0416b7abf2a904b8792dfa016a',
-            'hearings.json':'b58714f8d33a0117663de58de7d9b083ccf86ca1153cc897409ef05628c7ed8a',
             'reports.json':'f0ee91c592bcd555ba3b8e3f36f9835a9664b194a46195bdb8a02615c2d81c37',
             'policies.json':'ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356',
         }.items():

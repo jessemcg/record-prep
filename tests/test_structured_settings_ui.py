@@ -24,11 +24,11 @@ class StructuredSettingsUITests(unittest.TestCase):
         e.resources['classification_tasks']['rt']=raw
         e.resources['naming']['report_guidance']+=' Unrecognized custom recognition.'
         old=e.snapshot();w.editor=editable_profile(old);w._render()
-        self.assertEqual(w.editor.manifest['schema_version'],12)
+        self.assertEqual(w.editor.manifest['schema_version'],14)
         self.assertNotIn('classification_tasks', w.editor.resources)
         self.assertEqual(old.resource('classification_tasks')['rt'],raw)
         self.assertEqual(w.editor.resources['naming'],old.resource('naming'))
-        topic='topic:hearings:'+w.editor.resources['hearings'][0]['id']
+        topic='topic:reports:'+w.editor.resources['reports'][0]['id']
         scroll=w._topic_editors[topic];card=w._topic_expanders[topic];card.set_expanded(True)
         self.assertTrue(w._save());previous=w.editor.base.ref
         self.assertNotIn('classification_tasks', store.load_profile_snapshot(previous).manifest['resources'])
@@ -44,7 +44,7 @@ class StructuredSettingsUITests(unittest.TestCase):
         old=e.snapshot();draft=editable_profile(old)
         self.assertNotIn('classification_tasks', draft.resources)
         self.assertEqual(draft.resources['naming'],old.resource('naming'))
-        self.assertEqual(draft.manifest['schema_version'],12)
+        self.assertEqual(draft.manifest['schema_version'],14)
         self.assertEqual(old.resource('classification_tasks').get('schema_version'),None)
 
     def test_catalog_editing_keeps_ct_independent_and_first_pages_has_four_cards(self):
@@ -188,6 +188,26 @@ class StructuredSettingsUITests(unittest.TestCase):
                 self.assertIsNotNone(current.snapshot)
                 self.assertFalse(current.status.get_text(),current.status.get_text())
 
+    def test_hearing_topics_removed_and_fixed_inspection_ignores_invalid_report_draft(self):
+        w, store = self.profile_window()
+        self.assertNotIn('hearings-topics', w.nav_rows)
+        self.assertNotIn('hearings', w.editor.resources)
+        self.assertIn('reports-topics', w.nav_rows)
+        w.editor.resources['reports'][0]['guidance'] = ''
+        w._inspect_prompts('Summaries')
+        inspector = w.prompt_inspector
+        self.addCleanup(dispose, inspector)
+        from recordprep.hearing_guidance import application_guidance
+        for phase in ('extract', 'synthesize'):
+            inspector.selector.set_selected(next(i for i, (key, _) in enumerate(inspector.tasks) if key == 'hearings-' + phase))
+            drain()
+            self.assertFalse(inspector.mode.get_visible())
+            self.assertFalse(inspector.mode_note.get_visible())
+            self.assertFalse(inspector.status.get_text())
+            buffer = inspector.text.get_buffer()
+            self.assertIn(application_guidance(phase), buffer.get_text(*buffer.get_bounds(), True))
+        self.assertFalse(store.registry_path.exists())
+
     def test_frozen_invalid_inspector_does_not_discover_or_write(self):
         w,store=self.profile_window()
         w.editor.resources['naming']['reports'][0]['name']=''
@@ -200,3 +220,12 @@ class StructuredSettingsUITests(unittest.TestCase):
             self.assertIn('validation issue',inspector.status.get_text())
             self.assertEqual(w.editor.resources,before);self.assertFalse(store.registry_path.exists())
             self.assertEqual(inspector.resources,before)
+            from recordprep.document_naming import compile_motion_naming
+            inspector.selector.set_selected(next(i for i, (key, _) in enumerate(inspector.tasks) if key == 'motion'))
+            drain()
+            self.assertFalse(inspector.mode.get_visible())
+            self.assertFalse(inspector.mode_note.get_visible())
+            self.assertFalse(inspector.status.get_text())
+            text = inspector.text.get_buffer()
+            self.assertIn(compile_motion_naming(None).prompt, text.get_text(*text.get_bounds(), True))
+            self.assertEqual(w.editor.resources, before)

@@ -83,7 +83,7 @@ class ProfileGenerationTests(unittest.TestCase):
     def test_narrative_contract_uses_only_topics_for_profile_guidance(self):
         for name in ("general", "california_dependency"):
             profile = bundled(name)
-            for kind in ("hearings", "reports"):
+            for kind in ("reports",):
                 with self.subTest(profile=name, kind=kind):
                     compiled = compile_summary(profile, kind, "synthesize")
                     self.assertIn("one cohesive narrative section", compiled.prompt)

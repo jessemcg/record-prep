@@ -171,7 +171,7 @@ Use the date tied to the report itself or to its hearing, such as a field labele
 
 
 def source_title_document(naming: dict, kind: str):
-    """Eligibility is profile-owned; title extraction is practice-neutral."""
+    """Render report/form profile rules or fixed application motion rules."""
     from .prompt_document import PromptDocument, PromptSection
     keys = ('"name", "date", "date_basis", and "rule_id"' if kind == "motion" else
             '"name", "date", and "rule_id"' if kind == "report" else '"name" and "rule_id"')
@@ -200,7 +200,7 @@ For forms, follow the description's required heading/code evidence on this same 
                **({"date_basis": "unknown"} if kind == "motion" else {}), "rule_id": ""}
     return PromptDocument((PromptSection("instructions", instructions),
                            PromptSection("evidence and uncertainty", mechanics),
-                           PromptSection("matching rules", catalog_text(naming, kind), "profile"),
+                           PromptSection("matching rules", catalog_text(naming, kind), "fixed" if kind == "motion" else "profile"),
                            PromptSection("JSON", "Valid JSON example: " + json.dumps(example))))
 
 
@@ -288,22 +288,20 @@ def compile_naming_profile(snapshot: ProfileSnapshot, kind: str) -> NamingContra
 
 
 def compile_motion_naming(snapshot: ProfileSnapshot | None) -> NamingContract:
-    """Independent resource; old naming prose never becomes motion eligibility.
+    """Fixed application rules for every profile and unassigned work.
 
-    Unassigned work uses an explicitly identified fixed neutral method, not a
-    hidden Dependency lookup. Older assigned profiles have an empty selection.
+    The snapshot argument is compatibility-only; historical motion catalogs never
+    supply eligibility, titles, validation rules or freshness dependencies.
     """
     from .motion_guidance import NEUTRAL_MOTION_NAMING
-    naming = (NEUTRAL_MOTION_NAMING if snapshot is None else
-              snapshot.resource("motion_naming") if "motion_naming" in snapshot.manifest["resources"]
-              else {"schema_version": 1, "motions": []})
+    naming = NEUTRAL_MOTION_NAMING
     prompt = source_title_document(naming, "motion").render()
-    identity = "recordprep-neutral-motion-naming-v1" if snapshot is None else "motion-naming-v1"
+    identity = "recordprep-application-motion-naming-v2"
     component = hashlib.sha256((identity + prompt).encode()).hexdigest()
     rules = tuple((entry["id"], entry.get("naming_mode", "fixed"), entry["name"])
                   for entry in naming["motions"])
     return NamingContract("motion", "matched_rules", tuple(entry["name"] for entry in naming["motions"]),
-                          prompt, snapshot.ref if snapshot else None, component,
+                          prompt, None, component,
                           hashlib.sha256(prompt.encode()).hexdigest(), rules)
 
 

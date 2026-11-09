@@ -54,7 +54,6 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
                 from .structured_guidance import _BASE
                 naming = json.loads((_BASE / "naming.json").read_bytes())
                 editor.resources["naming"] = naming
-                editor.manifest["schema_version"] = 12
             if naming.get("schema_version") == 3:
                 # Preserve previous prose verbatim, without pretending arbitrary
                 # prose supplies a machine-verifiable list of approved names.
@@ -66,7 +65,7 @@ def legacy_customization_editor(config: Mapping[str, object], *, categories=None
                 "Your previous naming instructions are included. Review the approved names within those instructions."
             )
     if categories is not None:
-        for kind in ("hearings", "reports"):
+        for kind in ("reports",):
             supplied = categories.get(kind, {})
             for entry in editor.resources[kind]:
                 value = supplied.get(entry["id"])
@@ -91,7 +90,7 @@ def initial_candidate(base, *, config=None, categories=None):
         config = _read_config()
     if categories is None:
         from .summary_categories import load_category_descriptions
-        categories = {kind: load_category_descriptions(kind) for kind in ("hearings", "reports")}
+        categories = {kind: load_category_descriptions(kind) for kind in ("reports",)}
     editor = legacy_customization_editor(config, categories=categories, base=base)
     snapshot = editor.snapshot()
     return (snapshot, REVIEW_NOTICE) if snapshot.ref != base.ref else None

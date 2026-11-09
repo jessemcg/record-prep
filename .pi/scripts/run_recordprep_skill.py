@@ -1396,7 +1396,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     settings = _summary_stage_settings(project_dir, kind)
     extraction_config = (sa.effective_extraction_config(project_dir, kind, profile=profile) if profile is not None
                          else _extraction_config(project_dir, kind, settings))
-    if ((profile is not None or kind == "motions") and not sa.validate_summary_agent_outputs(root, kind)
+    if ((profile is not None or kind in ("hearings", "motions")) and not sa.validate_summary_agent_outputs(root, kind)
             and not sa.summary_stage_freshness_issues(root, kind, project_dir=project_dir, profile=profile)):
         _line(f"[{kind}] selected profile components and outputs are current; no model calls.")
         return 0
@@ -1461,7 +1461,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
             # Legacy v2 digest JSONL converts losslessly to Markdown under the
             # lock before validation; Markdown is authoritative once present.
             migrated = sa.migrate_legacy_digest_jsonl(root, kind)
-            if migrated is not None:
+            if migrated is not None and kind not in ("hearings", "motions"):
                 _line(
                     f"[{kind}] converting legacy digest JSONL to Markdown "
                     f"({len(migrated)} rows) without model calls."
@@ -1594,7 +1594,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 **({"profile": profile} if profile is not None else {}),
             )
             check_selection()
-            if profile is not None or kind == "motions":
+            if profile is not None or kind in ("hearings", "motions"):
                 current_extraction = sa.effective_extraction_config(project_dir, kind, profile=profile)
                 current_items = sa.build_work_items(root, current_extraction)
                 if (current_extraction.fingerprint != extraction_config.fingerprint

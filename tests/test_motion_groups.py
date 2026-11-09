@@ -218,9 +218,12 @@ class GroupedMotionTests(unittest.TestCase):
         self.assertEqual((self.root / mg.PATH).read_bytes(), before)
 
     def test_fixed_topics_and_fingerprints_ignore_all_profile_and_config_prose(self):
-        profile = bundle()
+        from test_practice_profiles import historical_snapshot
+        profile = historical_snapshot(bundle(), version=13)
         files, manifest = dict(profile.files), profile.manifest
         manifest['schema_version'] = 11
+        manifest['resources']['motion_naming'] = 'historical-motion-naming.json'
+        files['historical-motion-naming.json'] = json_bytes({'schema_version': 1, 'motions': []})
         manifest['resources']['motions'] = 'historical-motions.json'
         files['historical-motions.json'] = json_bytes([{'id': 'canary', 'title': 'CANARY', 'guidance': 'CANARY CUSTOM MOTION METHOD'}])
         files['profile.json'] = json_bytes(manifest)
@@ -239,9 +242,9 @@ class GroupedMotionTests(unittest.TestCase):
             self.assertNotIn('CANARY', inspected.display_text())
             self.assertFalse(any('DRAFT' in issue for issue in inspected.issues))
 
-    def test_schema12_rejects_motion_topics_old_snapshots_literal(self):
+    def test_current_schema_rejects_motion_topics_old_snapshots_literal(self):
         current = bundle()
-        self.assertEqual(current.manifest['schema_version'], 12)
+        self.assertEqual(current.manifest['schema_version'], 14)
         self.assertNotIn('motions', current.manifest['resources'])
         files, manifest = dict(current.files), current.manifest
         manifest['resources']['motions'] = 'motions.json'

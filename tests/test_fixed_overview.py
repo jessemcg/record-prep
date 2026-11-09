@@ -38,7 +38,7 @@ class FixedOverviewTests(unittest.TestCase):
     def test_new_profiles_omit_overview_and_reject_reintroduced_resource(self):
         for name in ("general", "california_dependency"):
             profile = bundled(name)
-            self.assertIn(profile.manifest["schema_version"], (6, 7, 8, 9, 10, 11, 12))
+            self.assertIn(profile.manifest["schema_version"], (6, 7, 8, 9, 10, 11, 12, 13, 14))
             self.assertNotIn("overview", profile.manifest["resources"])
             self.assertNotIn("overview.md", dict(profile.files))
         old = historical_snapshot(bundled("general"), 4)

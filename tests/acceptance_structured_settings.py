@@ -64,7 +64,7 @@ def run(*_):
         w.present();return
     def check():
         assert list(w.nav_groups)==['Document naming','Summaries']
-        assert list(w.nav_rows)==['report-naming','form-naming','motion-naming','hearings-topics','reports-topics']
+        assert list(w.nav_rows)==['report-naming','form-naming','reports-topics']
         assert not w._recognition_cards and 'classification_tasks' not in w.editor.resources
         assert not hasattr(w,'_classification_reference')
         for key in ('report-naming','form-naming'):

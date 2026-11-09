@@ -22,13 +22,18 @@ from .profile_contract import CLASSIFICATION_PAGE_TYPES, CLASSIFICATION_FIRST_PA
 SUMMARY_PROGRESSION = "Each hearing / report → Topic digest + quotes → Narrative section → Hearing / report summary"
 SUMMARY_EXPLANATION = (
     "This app uses a two-stage, agentic, topic-guided summarization technique. In the first stage, the agent analyzes "
-    "each hearing or report one at a time. For each hearing or report, the agent collects information on each topic "
-    "provided by the user and builds a digest that includes short direct quotes taken verbatim from the source text. "
+    "each hearing or report one at a time. Hearing topics are fixed, practice-neutral application rules; report "
+    "topics are supplied by the selected profile. The agent builds a digest for each topic, including short direct "
+    "quotes taken verbatim from the source text. "
     "This ensures that the length of the final summary is determined by the amount of relevant information contained "
     "in the source text, not merely its length.\n\n"
     "In the second stage, the agent separately analyzes all digests for the hearings and the reports. For each, the "
     "agent synthesizes the digests into a cohesive narrative with short direct quotes mixed in. "
     "The short direct quotes become links when displayed in the Focus app.\n\n"
+    "Hearing summaries use a fixed, application-owned method: identify party appearances, evidence considered, "
+    "sworn testimony, disputed issues, party positions and reasons, and the court’s actual orders and reasons. "
+    "The narrative brings these together around the hearing’s substantive issues and outcomes, preserving "
+    "attribution and uncertainty. Report digest topics remain profile-owned.\n\n"
     "Motion summaries use a fixed Request and Reasons method: each motion, opposition and reply stays separate, "
     "with its own clearly linked supporting papers grouped into the same entry. The narrative explains who wants "
     "what and why, integrating relevant declaration evidence into the reasons. These topics are application-owned.\n\n"
@@ -59,7 +64,6 @@ CLASSIFICATION_EXPLANATION = (
 CLASSIFICATION_PAGES = (
     ("report-naming", "Report Names", "Names"),
     ("form-naming", "Form Names", "Names"),
-    ("motion-naming", "Motion Names", "Names"),
 )
 
 
@@ -393,10 +397,10 @@ class ProfileEditorWindow(Adw.Window):
         box.append(expander)
 
     def _topic_catalog(self, group, values, *, kind=None):
-        kind = kind or ("hearings" if values is self.editor.resources["hearings"] else "reports")
-        naming = kind in {"naming-reports", "naming-forms", "naming-motions"}
+        kind = kind or "reports"
+        naming = kind in {"naming-reports", "naming-forms"}
         title_key = "name" if naming else "title"
-        noun = "Report" if kind == "naming-reports" else "Motion" if kind == "naming-motions" else "Form" if naming else "Topic"
+        noun = "Report" if kind == "naming-reports" else "Form" if naming else "Topic"
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
         # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
@@ -443,8 +447,7 @@ class ProfileEditorWindow(Adw.Window):
                         def change_mode(widget, _pspec, value=value):
                             if not self._installing:
                                 if widget.get_selected() == 1:
-                                    if kind != "naming-motions":
-                                        self.editor.resources["naming"]["schema_version"] = 5
+                                    self.editor.resources["naming"]["schema_version"] = 5
                                     value["naming_mode"] = "source_title"
                                 else:
                                     value.pop("naming_mode", None)
@@ -574,10 +577,6 @@ class ProfileEditorWindow(Adw.Window):
         self._page_body.append(scroll)
 
     def _classification_contents(self, key, title):
-        if key == "motion-naming":
-            self._explanation(self._page_body, "Document naming")
-            self._topic_catalog(self._group(title), self.editor.resources["motion_naming"]["motions"], kind="naming-motions")
-            return
         naming = self.editor.resources["naming"]
         self._explanation(self._page_body, "Document naming")
         if naming.get("schema_version") in (4, 5):
@@ -596,7 +595,7 @@ class ProfileEditorWindow(Adw.Window):
             self._page("Document naming", key, title)
             self.nav_rows[key].set_subtitle(stage)
             self._classification_contents(key, title)
-        for kind, title in (("hearings", "Hearing"), ("reports", "Report")):
+        for kind, title in (("reports", "Report"),):
             self._page("Summaries", kind + "-topics", title + " digest topics")
             self._explanation(self._page_body, "Summaries")
             self._topic_catalog(self._group(title + " digest topics"), self.editor.resources[kind], kind=kind)

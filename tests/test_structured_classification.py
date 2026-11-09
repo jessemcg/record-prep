@@ -57,7 +57,7 @@ class StructuredClassificationTests(unittest.TestCase):
         self.assertEqual(len(t['first_pages']), 5)
         self.assertNotIn('CFS 6.7', json.dumps(t))
         self.assertNotIn('DCFS 4216', json.dumps(t))
-        for path in ('hearings.json','reports.json'):
+        for path in ('reports.json',):
             self.assertEqual(dict(bundle().files)[path], (BASE/path).read_bytes())
         self.assertNotIn('date_hearing', t)
         self.assertNotIn('apply in order', json.dumps(t))
@@ -108,7 +108,7 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_exact_adapters_preserve_original_reference(self):
         old=legacy(); before=old.files
         for kind,_ in CLASSIFICATION_TASKS:
-            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind not in {'report', 'motion'})
+            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind != 'report')
         self.assertEqual(old.files,before)
         e=ProfileEditor(old); e.resources['classification_tasks']['rt']+=' Custom prose.'
         value=effective_resource(e.resources['classification_tasks'],'classification_tasks')
@@ -158,13 +158,14 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_all_inspections_offline_literal_invalid_draft(self):
         e=ProfileEditor(bundle()); literal='α {"x": 1} {{quote:hearing:0001/orders/1}}'
         e.resources['naming']['reports'][0]['guidance']=literal
-        e.resources['hearings'][0]['guidance']=literal
+        e.resources['reports'][0]['guidance']=literal
         for task,_ in (*CLASSIFICATION_TASKS,*SUMMARY_TASKS):
             with self.subTest(task=task):
                 view=inspect_prompt(e.resources,task,ROOT/'.pi',template=False,snapshot=e.snapshot())
                 self.assertEqual(view.issues,())
                 self.assertTrue(view.display_text())
-        self.assertIn(literal,inspect_prompt(e.resources,'hearings-extract',ROOT/'.pi',template=False).display_text())
+        self.assertIn(literal,inspect_prompt(e.resources,'reports-extract',ROOT/'.pi',template=False).display_text())
+        self.assertNotIn(literal,inspect_prompt(e.resources,'hearings-extract',ROOT/'.pi',template=False).display_text())
         self.assertNotIn(literal,inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False).components[0][1])
         self.assertEqual(classifier_prompt(e.snapshot(),'rt')[0],inspect_prompt(e.resources,'rt',ROOT/'.pi',template=False).components[0][1])
         e.resources['naming']['reports'][0]['name']=''
@@ -249,13 +250,17 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_summary_shared_guidance_and_launch_bytes(self):
         b=bundle()
         golden=json.loads((ROOT/'tests/fixtures/summary-inspection-golden.json').read_bytes())
-        # Keep the frozen historical fixture intact; only extraction's policy
-        # and staged template advance. Synthesis remains byte-identical.
+        # Keep frozen historical fixtures intact. Hearings now use fixed neutral
+        # topics and canonical skills; report contracts remain unchanged.
         golden.update({
             'hearings-extract': {
-                'component_sha256': 'e22cc70d2b9b316028f36b03ec5b57178bd9d9217a521a33a03f9c473cc9a9ae',
-                'prompt_sha256': '57c2baa8703beae1146ada2493b816a8664b78ad71f36b9f7af4635214b154f2',
-                'staged_skill_sha256': '1fc88305fe14c03cbdbd2f5b1dfe615b535f69d6051b4bfe18717d6f3b6f6c79'},
+                'component_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
+                'prompt_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
+                'staged_skill_sha256': '3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492'},
+            'hearings-synthesize': {
+                'component_sha256': 'c26217e574214dcd61d97444db3bc9d13fbd5073f2ab08e3de5c10095db5e079',
+                'prompt_sha256': 'c26217e574214dcd61d97444db3bc9d13fbd5073f2ab08e3de5c10095db5e079',
+                'staged_skill_sha256': 'd460706d6d40b1289d3f60eaef504df8563372801fc0da0ffa424776a2c0b3ee'},
             'reports-extract': {
                 'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
                 'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',
@@ -264,7 +269,7 @@ class StructuredClassificationTests(unittest.TestCase):
         for kind in ('hearings','reports'):
             for phase in ('extract','synthesize'):
                 c=compile_summary(b,kind,phase)
-                self.assertEqual(c.prompt,draft_summary_guidance(b.resource(kind),kind,phase))
+                self.assertEqual(c.prompt,draft_summary_guidance(b.resource(kind) if kind == 'reports' else [],kind,phase))
                 self.assertEqual(c.component_sha256,golden[kind+'-'+phase]['component_sha256'])
                 self.assertEqual(hashlib.sha256(c.prompt.encode()).hexdigest(),golden[kind+'-'+phase]['prompt_sha256'])
                 from recordprep.summary_profiles import profile_skill_text

@@ -243,7 +243,7 @@ class SummaryToolsExtensionTests(unittest.TestCase):
         third = deepcopy(first)
         third.update(item_id='hearing:0003', ordinal=3, start_page=3, end_page=3)
         historical = [first, third]
-        items = [SimpleNamespace(item_id=r['item_id'], ordinal=i, generation_sha256=r['generation_sha256'],
+        items = [SimpleNamespace(kind=r['kind'], item_id=r['item_id'], ordinal=i, generation_sha256=r['generation_sha256'],
                                  end_page=r['end_page']) for i, r in enumerate(historical, 1)]
         rows, stale = sa.reconcile_digest_rows(historical, items)
         self.assertEqual(stale, [])

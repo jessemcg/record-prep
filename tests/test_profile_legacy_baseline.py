@@ -55,6 +55,11 @@ class LegacyProfileBaselineTests(unittest.TestCase):
             practice_profiles.bundled_profile_directory("california_dependency"))
         self.assertEqual(result.issues, ())
         for kind, expected in self.fixture["categories"].items():
+            if kind == 'hearings':
+                self.assertNotIn(kind, result.draft.manifest['resources'])
+                from recordprep.hearing_guidance import application_catalog
+                self.assertEqual(application_catalog()[1:], expected[1:])
+                continue
             current = result.draft.resource(kind)
             for actual, historical in zip(current, expected, strict=True):
                 if actual["id"] == "agency_recommendations":

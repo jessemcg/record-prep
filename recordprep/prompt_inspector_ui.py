@@ -64,7 +64,7 @@ class PromptInspector(Adw.Window):
 
     def _refresh(self, *_args):
         task = self.tasks[self.selector.get_selected()][0]
-        fixed = task in FIXED_SUMMARY_TASKS
+        fixed = task in FIXED_SUMMARY_TASKS or task == "motion"
         self.mode.set_visible(not fixed)
         self.mode_note.set_visible(not fixed and self.mode.get_selected() == 1)
         try:

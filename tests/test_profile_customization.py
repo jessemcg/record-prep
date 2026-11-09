@@ -61,7 +61,7 @@ class PrivateCustomizationTests(unittest.TestCase):
             self.assertTrue(loaded.resource("naming")["report_guidance"].endswith(config["classify_names_report_prompt"]))
             self.assertIn("- **Detention Report**", loaded.resource("naming")["report_guidance"])
             self.assertIn("naming", editor.review_notices)
-            self.assertEqual(loaded.resource("hearings")[0]["guidance"], categories["hearings"]["parent_appearances"])
+            self.assertNotIn('hearings', loaded.manifest['resources'])
             self.assertEqual(config, before)
 
     def test_missing_empty_historical_defaults_and_shared_precedence(self):
@@ -83,7 +83,7 @@ class PrivateCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store = api.ProfileStore("recordprep", config_root=Path(temporary) / "config", data_root=Path(temporary) / "data")
             def resolve(base):
-                return initial_candidate(base, config={}, categories={"hearings": {base.resource('hearings')[0]['id']: 'Synthetic previous hearing focus.'}})
+                return initial_candidate(base, config={}, categories={"reports": {base.resource('reports')[0]['id']: 'Synthetic previous report focus.'}})
             first = api.profile_catalog(store=store, customization=resolve)[0]
             self.assertIn("previous", first.notice)
             ref = store.managed_save(first.snapshot, expected_head=None, expected_default=None, personal=True)

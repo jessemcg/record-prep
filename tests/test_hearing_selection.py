@@ -70,7 +70,7 @@ class ParagraphTests(unittest.TestCase):
                            ('synthesize', sa.PREVIOUS_HEARING_READABILITY_GUIDANCE)]:
             self.assertEqual(sa.resolve_phase_guidance('hearings', phase, old).origin, 'migrated')
             custom = '  Genuine custom guidance.\n\n'
-            self.assertEqual(sa.resolve_phase_guidance('hearings', phase, custom).custom_guidance, custom)
+            self.assertEqual(sa.resolve_phase_guidance('hearings', phase, custom).custom_guidance, '')
         self.assertNotIn(HEARING_QUOTE_COVERAGE, compile_summary(profile, 'reports', 'extract').prompt)
 
 

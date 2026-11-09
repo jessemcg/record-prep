@@ -76,7 +76,7 @@ per-category guidance. Follow that guidance completely.
    or require a quote in every paragraph. Useful out-of-range quotations remain
    exceptions: length checks are advisory, never a discard or extra-pass trigger.
 5. Attribution rules: preserve participant attribution and testimony
-   distinctions; counsel-only appearances are not parent appearances; Q/A
+   distinctions; counsel-only appearances do not establish a party's personal presence; Q/A
    formatting alone does not establish testimony; unsworn colloquy is
    evidence, not testimony; never present a proposed or recommended finding
    or order as if the court made it.

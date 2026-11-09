@@ -180,7 +180,7 @@ class ProfileEditor:
         from .profile_contract import (RETIRED_SUMMARY_RESOURCES, RETIRED_PARTICIPANT_RESOURCES,
                                        RETIRED_OVERVIEW_RESOURCES)
         retired = (RETIRED_SUMMARY_RESOURCES | RETIRED_PARTICIPANT_RESOURCES |
-                   RETIRED_OVERVIEW_RESOURCES | {"classification", "classification_tasks", "minutes", "motions"})
+                   RETIRED_OVERVIEW_RESOURCES | {"classification", "classification_tasks", "minutes", "motions", "motion_naming", "hearings"})
         for name in retired:
             self.manifest["resources"].pop(name, None)
             self.resources.pop(name, None)
@@ -188,9 +188,7 @@ class ProfileEditor:
             from .case_name_prompt import CASE_NAME_PROMPT
             self.manifest["resources"]["case_name"] = "case-name.md"
             self.resources["case_name"] = CASE_NAME_PROMPT
-        self.resources.setdefault("motion_naming", {"schema_version": 1, "motions": []})
-        self.manifest["resources"].setdefault("motion_naming", "motion-naming.json")
-        self.manifest["schema_version"] = 12
+        self.manifest["schema_version"] = 14
 
     def snapshot(self) -> ProfileSnapshot:
         originals = dict(self.base.files)

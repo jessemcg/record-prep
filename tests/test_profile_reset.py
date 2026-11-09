@@ -2,6 +2,8 @@
 import copy
 from dataclasses import asdict
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
@@ -94,7 +96,7 @@ class ProfileResetTests(unittest.TestCase):
         prior = w.editor.base.ref
         prior_files = store.load_profile_snapshot(prior).files
         w.editor.resources["naming"]["forms"][0]["name"] = ""
-        w.editor.resources["hearings"][0]["guidance"] = ""
+        w.editor.resources["reports"][0]["guidance"] = ""
         self.confirm(w)
         self.assertEqual(w.message.get_text(), "Profile reset to bundled prompts and saved.")
         self.assertFalse(w._dirty())
@@ -137,7 +139,7 @@ class ProfileResetTests(unittest.TestCase):
         rt_buffer = next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView)).get_buffer()
         rt_buffer.set_text("Synthetic dirty report naming")
         rt_buffer.select_range(rt_buffer.get_iter_at_offset(5), rt_buffer.get_iter_at_offset(2))
-        values = w.editor.resources["hearings"]
+        values = w.editor.resources["reports"]
         surviving = values[0]
         missing = values.pop(1)
         surviving["title"] = "Synthetic renamed"
@@ -148,24 +150,24 @@ class ProfileResetTests(unittest.TestCase):
         w._render()
         w._topic_expanders['topic:naming-reports:' + w.editor.resources['naming']['reports'][0]['id']].set_expanded(True)
         rt_buffer = next(x for x in descendants(w.pages["report-naming"]) if isinstance(x, Gtk.TextView)).get_buffer()
-        detail = "topic:hearings:" + surviving["id"]
+        detail = "topic:reports:" + surviving["id"]
         card = w._topic_expanders[detail]
         card.set_expanded(True)
         buffer = w._topic_editors[detail].get_child().get_buffer()
-        w._select_page("hearings-topics")
+        w._select_page("reports-topics")
         w.nav_groups["Summaries"].set_expanded(True)
         with patch.object(w, "_render", side_effect=AssertionError("rebuild")):
             self.confirm(w)
         self.assertEqual(w.editor.snapshot().files, self.bundle.files)
-        self.assertIs(w.editor.resources["hearings"], values)
+        self.assertIs(w.editor.resources["reports"], values)
         self.assertIs(values[0], surviving)
         self.assertIs(w._topic_expanders[detail], card)
         self.assertTrue(card.get_expanded())
         self.assertTrue(w.nav_groups["Summaries"].get_expanded())
-        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "hearings-topics")
+        self.assertEqual(w._navigation.view.get_visible_page().get_tag(), "reports-topics")
         self.assertIs(w._topic_editors[detail].get_child().get_buffer(), buffer)
-        self.assertNotIn("topic:hearings:personal-only", w._topic_editors)
-        self.assertIn("topic:hearings:" + missing["id"], w._topic_editors)
+        self.assertNotIn("topic:reports:personal-only", w._topic_editors)
+        self.assertIn("topic:reports:" + missing["id"], w._topic_editors)
         self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), topic_editor_text(values[0]["guidance"]))
         self.assertFalse(w._dirty())
         self.assertTrue(buffer.get_can_undo())
@@ -183,6 +185,18 @@ class ProfileResetTests(unittest.TestCase):
         self.assertEqual(reopened.snapshot().files, saved.files)
 
     def test_selection_viewport_and_navigation_survive_shorter_replacement(self):
+        # Gtk.init_check can succeed behind GNOME's lock screen, where frame
+        # callbacks stop. This assertion needs a drawing compositor, not merely
+        # a display connection. Keep all assertions unchanged when unlocked.
+        if shutil.which('gdbus'):
+            try:
+                state = subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.gnome.ScreenSaver',
+                    '--object-path', '/org/gnome/ScreenSaver', '--method', 'org.gnome.ScreenSaver.GetActive'],
+                    capture_output=True, text=True, timeout=2)
+                if state.returncode == 0 and state.stdout.strip() == '(true,)':
+                    self.skipTest('GNOME session locked: viewport frame-clock check needs an unlocked desktop')
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         w, _ = self.window()
         w._select_page("report-naming")
         drain()

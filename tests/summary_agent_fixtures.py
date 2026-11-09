@@ -26,6 +26,7 @@ def synthetic_facts_row(
     facts: dict[str, Any] | None = None,
     generation_sha256: str = "g" * 64,
     input_sha256: str = "i" * 64,
+    historical: bool = False,
 ) -> dict[str, Any]:
     """Build one canonical digest row.
 
@@ -36,9 +37,10 @@ def synthetic_facts_row(
     if item_id is None:
         item_id = f"{sa.SUMMARY_ITEM_PREFIXES[kind]}:{start:04d}"
     categories: list[dict[str, Any]] = []
-    # This helper deliberately writes historical row schema 2. Its catalog
-    # must not advance when application-owned motion topics change.
-    for definition in sa.summary_categories.category_contracts(kind):
+    # Explicit historical fixtures keep the old catalog and ownership verbatim.
+    application = sa.application_summary_metadata(kind) if kind == 'hearings' and not historical else None
+    definitions = sa.summary_category_definitions(kind) if application else sa.summary_categories.category_contracts(kind)
+    for definition in definitions:
         entry: dict[str, Any] = {"id": definition.identifier, "digest": None}
         if facts and definition.identifier in facts:
             digest_texts: list[str] = []
@@ -68,7 +70,8 @@ def synthetic_facts_row(
         categories.append(entry)
     return {
         "artifact": sa.SUMMARY_FACTS_ARTIFACT,
-        "schema_version": sa.SUMMARY_FACTS_SCHEMA_VERSION,
+        "schema_version": 4 if application else sa.SUMMARY_FACTS_SCHEMA_VERSION,
+        **({'application_metadata': application} if application else {}),
         "kind": kind,
         "item_id": item_id,
         "ordinal": ordinal,
@@ -92,13 +95,15 @@ def write_facts_bundle(
     """Publish a canonical Markdown digest document and metadata sidecar."""
     markdown_path = sa.summary_digest_path(root, kind)
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    application = rows[0].get('application_metadata') if rows else sa.application_summary_metadata(kind)
     markdown_text = sa.serialize_digest_markdown(
-        kind, sa.summary_case_stem(root), list(rows)
+        kind, sa.summary_case_stem(root), list(rows), application_metadata=application
     )
     markdown_path.write_text(markdown_text, encoding="utf-8")
     meta = {
         "artifact": sa.SUMMARY_FACTS_META_ARTIFACT,
-        "schema_version": sa.SUMMARY_FACTS_META_SCHEMA_VERSION,
+        "schema_version": 6 if application else sa.SUMMARY_FACTS_META_SCHEMA_VERSION,
+        **({'application_metadata': application, 'entries': [sa._row_metadata_payload(row) for row in rows]} if application else {}),
         "kind": kind,
         "expected_item_ids": [row["item_id"] for row in rows],
         "completed": len(rows),
@@ -107,7 +112,7 @@ def write_facts_bundle(
         "source_boundary_fingerprint": "b" * 64,
         "extraction_config_sha256": "e" * 64,
         "digest_markdown_sha256": sa.digest_markdown_sha256(markdown_text),
-        "markdown_format_version": sa.SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
+        "markdown_format_version": 3 if application else sa.SUMMARY_DIGEST_MARKDOWN_FORMAT_VERSION,
         "quality_flags": {},
         "complete": complete,
     }
@@ -125,6 +130,9 @@ def write_legacy_digest_jsonl(
     schema_version: int = 2,
 ) -> None:
     """Publish a retired v2 digest JSONL plus its v2 sidecar (migration tests)."""
+    rows = [dict(row, schema_version=2) for row in rows]
+    for row in rows:
+        row.pop('application_metadata', None)
     jsonl_path = sa.legacy_summary_digest_jsonl_path(root, kind)
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
     jsonl_path.write_text(

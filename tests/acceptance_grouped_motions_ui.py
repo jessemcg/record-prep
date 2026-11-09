@@ -89,7 +89,7 @@ store = api.ProfileStore('recordprep', config_root=root / 'profiles', data_root=
 settings = ProfileEditorWindow(main, editor, store, expected_head=None, can_modify=lambda: True,
                                preview=lambda _: None, on_saved=Mock())
 settings.present(); drain()
-assert set(settings.pages) == {'report-naming', 'form-naming', 'motion-naming', 'hearings-topics', 'reports-topics'}
+assert set(settings.pages) == {'report-naming', 'form-naming', 'reports-topics'}
 assert 'motions' not in editor.resources
 original = copy.deepcopy(editor.resources['naming'])
 editor.resources['naming'] = {'schema_version': 999, 'canary': 'INVALID-UNRELATED-MOTION-DRAFT'}

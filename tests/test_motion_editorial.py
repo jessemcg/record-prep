@@ -21,9 +21,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def historical_custom_profile():
-    current = bundle()
+    from test_practice_profiles import historical_snapshot
+    current = historical_snapshot(bundle(), version=13)
     files, manifest = dict(current.files), current.manifest
     manifest['schema_version'] = 11
+    manifest['resources']['motion_naming'] = 'historical-motion-naming.json'
+    files['historical-motion-naming.json'] = json_bytes({'schema_version': 1, 'motions': []})
     manifest['resources']['motions'] = 'historical-motions.json'
     files['historical-motions.json'] = json_bytes([
         {'id': 'boilerplate', 'title': 'CANARY',

@@ -145,7 +145,7 @@ class OwnershipTests(unittest.TestCase):
                     self.assertEqual(components(changed), baseline)
                     for other in ('hearings','reports'):
                         for phase in ('extract','synthesize'):
-                            self.assertEqual(compile_summary(snapshot,other,phase).component_sha256 == compile_summary(changed,other,phase).component_sha256, kind != other)
+                            self.assertEqual(compile_summary(snapshot,other,phase).component_sha256 == compile_summary(changed,other,phase).component_sha256, kind != other or kind == 'hearings')
 
     def test_exact_allowlist_and_unknown_active_mutation_matrix(self):
         from recordprep.structured_guidance import _BASE, structured_resources

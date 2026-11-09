@@ -70,7 +70,7 @@ class ReportEditorialTests(unittest.TestCase):
                     self.assertEqual(config['renderer_version'], 'recordprep-report-renderer-8')
                     source.write_text(contents)
             # Hearing profile staging remains the existing generic template.
-            self.assertIn('# Digest synthesis', sp.profile_skill_text(project, 'recordprep-synthesize-hearings', 'synthesize'))
+            self.assertEqual((project / 'skills/recordprep-synthesize-hearings/SKILL.md').read_text(), sp.profile_skill_text(project, 'recordprep-synthesize-hearings', 'synthesize'))
 
     def test_actual_report_child_stages_canonical_skill_and_old_rendering_reruns_synthesis_only(self):
         for specialty in (None, 'general', 'california_dependency'):

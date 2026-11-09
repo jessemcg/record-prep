@@ -1,5 +1,13 @@
 # Shipped practice profiles and personal settings
 
+**Current ownership (Dependency 1.17.0 / schema 14):** profiles customize Report
+Names, Form Names and Report digest topics only. Hearing topics are now fixed,
+practice-neutral application rules, including Appearances; historical hearing
+catalogs remain readable but inert. Motion naming/topics and minutes are also
+application-owned. See [hearing ownership](application-hearing-topics.md) and
+[motion naming ownership](application-motion-naming.md). These current boundaries
+supersede historical hearing/motion editor descriptions below.
+
 RecordPrep ships **California Juvenile Dependency**, the initial application selection
 and default starting profile for **Create profiles**. Any available saved profile
 can be used as a base, including future specialties such as California Criminal Law. Profiles are independent of bundles;

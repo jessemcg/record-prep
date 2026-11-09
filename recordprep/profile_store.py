@@ -21,7 +21,7 @@ from .profile_contract import (
 )
 
 
-BUILTIN_SPECIALTIES = frozenset({"general-court-record", "california-juvenile-dependency"})
+BUILTIN_SPECIALTIES = frozenset({"general-court-record", "california-juvenile-dependency", "california-criminal-law"})
 
 
 def _check_directory(path: Path, *, private: bool = False) -> None:

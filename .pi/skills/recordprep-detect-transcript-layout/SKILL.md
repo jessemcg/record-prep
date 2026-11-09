@@ -61,7 +61,20 @@ Write, replacing a prior result only after validation:
    inside a hearing, an order, or a motion are **not** section evidence.
    Reject them unless context (volume title, certification, index entries,
    formatting change) supports a structural classification.
-4. **Locate the boundary for mixed records.** For an RT→CT record, find the
+4. **Identify the outer collection and locate the boundary.** Use covers,
+   indexes, clerk certification, outer pagination and neighboring pages to
+   distinguish a record collection from documents enclosed within it. Once a
+   reliable CT start is established, embedded preliminary-hearing transcripts,
+   interview transcripts, reporter covers/certificates, internal indexes and Q/A
+   pages do not reopen RT or shift that boundary. Ignore their transcript-like
+   appearance for the split decision, not their source content: preserve every
+   page. A CT-only collection remains CT-only despite enclosed verbatim
+   proceedings. A hearing date or the word preliminary alone determines neither
+   side; a genuinely standalone RT of a preliminary hearing is still RT.
+   Do not silently swallow a distinct RT volume merely because an earlier page
+   mentioned CT. Conflicting outer-collection evidence, an uncertain boundary,
+   or genuinely separate CT→RT/interleaved collections require `needs_review`.
+   For an RT→CT record, find the
    first **reliable** CT page (volume title, clerk certification, or first
    compiled document with an index), then verify the preceding RT/end-matter
    pages. `rt_end_file_page` is the last RT page and
@@ -79,12 +92,14 @@ Write, replacing a prior result only after validation:
    - RT-only: RT evidence spans the full record and CT is absent →
      `mode: "rt_only"`, `rt_end_file_page == input_page_count`,
      no `ct_start_file_page`.
-   - CT-only: CT evidence spans the full record and RT is absent →
+   - CT-only: outer CT evidence spans the full record and no separate RT
+     collection is present (embedded transcripts do not count as one) →
      `mode: "ct_only"`, `ct_start_file_page: 1`, no `rt_end_file_page`.
    - Split: reliable RT range then reliable CT start, adjacent inside the page
      count → `mode: "split"` with `rt_end_file_page` and
      `ct_start_file_page == rt_end_file_page + 1`.
-   - No reliable type evidence, multiple transitions, or unsupported ordering
+   - No reliable outer type evidence, multiple genuine collection transitions,
+     conflicting outer-collection evidence, or unsupported ordering
      → `status: "needs_review"` with a warning explaining what is ambiguous.
 7. **Publish only the artifact.** Prepare the finalized draft:
    ```bash

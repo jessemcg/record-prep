@@ -8,9 +8,12 @@ application-owned. See [hearing ownership](application-hearing-topics.md) and
 [motion naming ownership](application-motion-naming.md). These current boundaries
 supersede historical hearing/motion editor descriptions below.
 
-RecordPrep ships **California Juvenile Dependency**, the initial application selection
-and default starting profile for **Create profiles**. Any available saved profile
-can be used as a base, including future specialties such as California Criminal Law. Profiles are independent of bundles;
+RecordPrep ships **California Juvenile Dependency** and **California Criminal Law**.
+Dependency remains the initial application selection and default starting profile
+for **Create profiles**; either bundle and any available saved profile can be a base.
+Criminal 1.0.0 is an editable [first draft](california-criminal-profile.md) with one
+probation-report rule, twelve source-title form rules and nine report topics.
+Profiles are independent of bundles;
 see [application profiles and portable storage](application-profiles.md) for the
 current selection, Save, resume and synchronization contract. Dependency is a complete public specialty, useful
 without anyone's private configuration. Focus now uses one fixed specialty-neutral
@@ -21,19 +24,24 @@ outside bundles; historical case pins no longer authorize instructions.
 
 ## Current settings and fixed classification
 
-Dependency **1.11.0**, content schema **10**, retains two expandable Profile settings
-groups: **Document naming** (Report Names/Form Names) and **Summaries** (hearing/report
-digest topics only). Minute summaries use the [fixed application method](application-minutes.md),
+Current content schema **14** retains two expandable Profile settings groups:
+**Document naming** (Report Names/Form Names) and **Summaries** (Report digest topics
+only). Hearing topics are application-owned and inspected through About summaries,
+not edited. Minute summaries use the [fixed application method](application-minutes.md),
 regardless of profile or historical custom guidance. Inspect **Minute-order summary**
 through either topic page's **About summaries → View full prompts…**, with no draft
 selector. No minute editor or extra menu/reference window is added. Approved naming cards retain stable IDs and optional
 descriptions; legacy naming v1–v4 stays supported. These catalogs supply naming only,
 not structural recognition or start checks. Save/reset and summary behavior are unchanged.
 
-All 15 page-type definitions and four start-task clue sets belong to RecordPrep.
+All 15 page-type definitions and five start-task clue sets belong to RecordPrep.
+Recognition v3 admits bounded procedural instruments whether standardized or custom-written,
+and keeps embedded transcripts inside the established outer CT collection. See
+[application recognition](application-classification.md).
 There is no classification-reference menu action, window or dedicated prompt-inspector
 mode. Classification rules are maintained in application source through the coding
-agent, not end-user settings. The output JSON keys and model prompts are unchanged.
+agent, not end-user settings. The output JSON keys are unchanged; recognition wording changes explicit-run identities,
+not saved output, badges or Resume.
 Standardized hearing notices and separate service proofs are excluded from form-start,
 naming and Forms TOC; qualifying Notice of Appeal forms remain CT_form. Dates are unchanged.
 
@@ -155,7 +163,8 @@ Create a profile by copying California Juvenile Dependency or any other availabl
 profile, then tailoring its instructions, digest topics and approved report/form
 names. The copy retains the base's actual language and formatting; it is not
 neutralized automatically. Review and replace Dependency-specific guidance when
-creating a different specialty. California Criminal Law is not yet bundled.
+creating a different specialty. California Criminal Law is now bundled separately;
+choose it explicitly rather than assuming a Dependency copy is neutralized.
 
 **General Court Record is retired.** It is absent from selection and starting-profile
 lists, including previously accepted or edited copies of that built-in identity.
@@ -294,7 +303,7 @@ file or case.
 On the Profile settings home, **Bundled prompts → Reset to bundled…** is shown
 only for the edited profile's exact shipped application/specialty identity, not
 its name or creation base. Independent custom copies and retired General have no
-reset target. Future shipped specialties use the same action.
+reset target. California Criminal Law has its own exact-identity reset target through this same action.
 
 Cancel (also the default/close response) changes nothing. **Reset and Save**
 replaces all Classification and Summaries guidance, approved names, topic catalogs

@@ -1,7 +1,7 @@
 # Application-owned classification
 
-This is the current contract (Dependency **1.14.0**, content schema **11**, unchanged
-`profile_api: 1`). It supersedes the editable-classification portions of
+This is the current recognition-v3 contract (content schema **14**, unchanged
+`profile_api: 1`; Dependency **1.17.0**, Criminal **1.0.0**). It supersedes the editable-classification portions of
 [structured classification](structured-classification.md), older settings reports
 and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
 
@@ -14,8 +14,9 @@ end-user settings. The page image remains a separate request attachment, not tex
 added to the system prompt. This UI removal does not change classification prompts,
 fingerprints, validation, saved output or Resume, and requires no regeneration.
 
-Profile settings has only **Document naming** (Report Names, Form Names and Motion Names)
-and **Summaries** (hearing/report digest topics). Motion and minute instructions remain
+Profile settings has only **Document naming** (Report Names and Form Names)
+and **Summaries** (Report digest topics). Hearing and motion topics/naming are fixed
+application methods. Motion and minute instructions remain
 application-owned, available in the existing summary full-prompt inspection. See [Motions](motions-workflow.md). Naming and summary
 inspection still freezes the unsaved draft and offers its existing template/draft
 views. Save, kept
@@ -27,8 +28,8 @@ paragraph, repeated catalog-entry hint or a classification-reference link.
 
 ## Purpose, not a checklist
 
-`recordprep/resources/classification/recognition-v1.json` is the single packaged
-recognition resource. Definitions explain document purpose, identifying clues,
+`recordprep/resources/classification/recognition-v3.json` is the selected packaged
+recognition resource (JSON schema 1). v1/v2 remain byte-preserved historical resources. Definitions explain document purpose, identifying clues,
 continuations/endings, and important near neighbors. Clues are not compulsory
 headings, codes, signatures, layouts or a decision cascade. Best fit compares the
 whole taxonomy; no practice-specific name catalog or form-code allowlist determines
@@ -45,7 +46,7 @@ a page type. Each model request sees **one image**, not unseen adjacent pages.
 | CT_index | Document index — navigation through the record, not an embedded substantive table |
 | CT_minute_order | Minute order — court/clerk record of proceedings and judicial action |
 | CT_report | Court-directed report — authored information/assessment prepared for the court, including table/signature continuations |
-| CT_form | Court form — recognizable standardized court forms, subject to the notice/service exclusions below |
+| CT_form | Court form / bounded procedural instrument — standardized or custom-written, subject to the exclusions below |
 | CT_certificate | Record certificate — distinct authentication/completeness of the record or copies |
 | CT_motion | Motion / application — requested judicial action and recognizable support/argument |
 | CT_notice | **Hearing notice** — primary purpose of notifying a party of a scheduled/continued/rescheduled hearing |
@@ -53,7 +54,7 @@ a page type. Each model request sees **one image**, not unseen adjacent pages.
 | CT_other | Other CT material — remaining records/exhibits/correspondence/raw results and orders fitting no other definition |
 
 No Basic key or first-page marker was added, removed or renamed. Advanced still
-uses `first_page: yes/no` and the four existing `*_first_page` markers. It checks
+uses `first_page: yes/no` and the five existing `*_first_page` markers. It checks
 all eligible report pages independently; unnamed and adjacent report starts still
 end earlier ranges. JSON validation, exact-name rules, stage order and the fixed
 hearing/minute date wording and date normalization are unchanged. Report naming
@@ -64,6 +65,42 @@ then extracts their own first-page titles using the practice-neutral Source titl
 naming approach. The category name is only the missing-title fallback. See [report naming](dependency-report-naming.md);
 this catalog change never enters Basic or first-page prompts.
 
+### Bounded procedural instruments, including custom-written documents
+
+CT_form includes criminal charging pleadings, plea/rights/counsel-waiver instruments,
+verdict/special-finding sheets, written jury instructions/sets, written stipulations,
+jury/juror communications and court responses, appellate notices/probable-cause
+instruments and abstracts, whether standardized, custom-written or handwritten.
+Other qualifying standardized forms remain eligible. No form code is mandatory.
+Unused/unsigned verdicts are still documents, not evidence that a verdict was returned;
+submitted instructions do not establish that they were given. Repeated titles,
+new instruction numbers inside a packet and signature endings do not alone start a
+new instrument. An integral probable-cause section of an appeal packet is not
+automatically separate; independently identified instruments remain separate.
+
+This is universal application recognition, not a Criminal-catalog lookup. It does
+not redefine all pleadings/correspondence/exhibits as forms: motion advocacy, neutral
+reports, investigative records, hearing notices, service proofs, actual minutes and
+record-authentication certificates keep their own categories. A motion to amend an
+information remains CT_motion; the amended information itself is CT_form. A distinct
+written agreement is a stipulation, not advocacy merely because it is free-form.
+See the [Criminal first draft](california-criminal-profile.md) for naming-only scope.
+
+### Embedded transcripts stay inside the outer CT collection
+
+Layout detection uses outer covers/indexes, clerk certification, pagination and
+neighbors, not hearing dates or the word preliminary alone. An established CT
+collection may enclose preliminary-hearing/interview transcripts, reporter covers,
+certificates, internal indexes and Q/A pages. Those remain CT-side, normally CT_other,
+without RT hearing starts; their front matter is not the outer CT cover/index.
+CT-only stays CT-only despite verbatim proceedings. Standalone RT of a preliminary
+hearing stays RT. Conflicting outer evidence, an uncertain boundary or genuinely
+separate CT→RT/interleaved collections still require review; never swallow a distinct
+RT volume based on an incidental CT reference. Preserve every source page. Numbering
+uses supported outer CT citation pagination, not enclosed reporter or docket overlays;
+unresolved values remain ambiguous/missing, not invented. No layout/schema/parser
+heuristic or hearing-summary method is added.
+
 ### Hearing notices, service proofs and other forms
 
 A standardized hearing-notice form stays **CT_notice**. An integral service block
@@ -73,8 +110,9 @@ certificate in the same packet. Neither type enters form-start detection, form
 naming or the Forms TOC. Old descriptive `name` fields on such pages are not an
 eligibility grant and are not silently cleaned up.
 
-A qualifying **Notice of Appeal** form remains **CT_form**: taking an appeal is not
-notifying a party of a hearing. Other qualifying request/order/status/address forms
+An actual **Notice of Appeal** remains **CT_form**, even when custom-written:
+taking an appeal is not notifying a party of a hearing. A notice merely announcing
+its filing or transcript preparation does not itself initiate appellate review. Other qualifying request/order/status/address forms
 also remain forms. A clerk's distinct record-authentication certificate is different
 from a mailing certificate; an integral minute-order attestation/mailing ending need
 not detach into either. Court-directed reports are distinguished from underlying
@@ -134,8 +172,10 @@ and all existing artifact formats remain unchanged.
 
 Badges and Resume remain **output-presence based**. Existing classifications and
 TOCs remain as saved. To adopt the new definitions for an existing bundle, the user
-must explicitly run Basic and the desired downstream stages; this incurs new image
-model work. Merely selecting/saving a profile, updating the
+must explicitly run **Basic → Advanced → Dates → Names → Agent correction** and
+rebuild affected downstream outputs; this incurs new image-model work. A wrong outer
+layout requires a separate safe bundle/recovery workflow, never a forced protected
+split change or reset of the original. Merely selecting/saving a profile, updating the
 application, or resuming does not reclassify, remove historical named forms or
 rebuild a TOC. No automatic regeneration or saved-output cleanup is performed.
 

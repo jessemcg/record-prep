@@ -13,7 +13,7 @@ from .profile_contract import (
 from .profile_store import ProfileStore
 
 APPLICATION = "recordprep"
-BUNDLED_PROFILES = ("california_dependency",)
+BUNDLED_PROFILES = ("california_dependency", "california_criminal")
 DEFAULT_PROFILE_ID = "california-juvenile-dependency"
 # Retired identities remain readable, but never appear as choices or bases.
 RETIRED_PROFILE_IDS = frozenset({"general-court-record"})

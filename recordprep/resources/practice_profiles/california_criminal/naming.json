@@ -1,0 +1,85 @@
+{
+  "schema_version": 5,
+  "reports": [
+    {
+      "id": "report-probation",
+      "name": "Probation Report",
+      "naming_mode": "source_title",
+      "guidance": "Select a distinct report or written update prepared by, or clearly presented as the report of, a county probation department/agency or its probation officer for court consideration. Include preplea, presentence/sentencing, disposition, supplemental, addendum, progress, violation, restitution, and postjudgment reports when authorship and purpose qualify; these examples are not a closed title list. Include short memoranda and one-page updates. Neither a sentencing recommendation, substantial narrative, the word report, nor a particular county, code, or letterhead is mandatory. Use the document's own first-page title, preserving meaningful qualifiers, for example PREPLEA REPORT, DISPOSITION, or ADDENDUM. Probation Report is only the fallback when eligibility is established but no title is discernible. Determine eligibility from the visible evidence on the supplied first page: probation-officer attribution, court identification, introductory wording, and agency identification can support the decision, but are not mandatory fields. Do not infer authorship solely from probation stationery or attachment placement. Exclude independent police reports, interview transcripts, medical/psychological reports, victim-completed statements, and letters merely forwarded by probation. Police accounts and interviews recounted within probation's own report do not make that report ineligible. Also exclude motions/sentencing briefs, charging papers, minutes, and judicial orders. Preserve distinct starts even when titles or dates match; internal headings and repeated footers do not establish new reports. If authorship or court-directed report purpose is uncertain, leave the name empty. Never use the fallback to hide uncertain eligibility."
+    }
+  ],
+  "forms": [
+    {
+      "id": "form-information",
+      "name": "Information",
+      "naming_mode": "source_title",
+      "guidance": "Select the criminal information itself, including amended or superseding versions, identified by its accusatory function and opening title/charging allegations. Exclude motions seeking amendment and narrative references to an information. Use the document's own first-page title with meaningful qualifiers and count identifiers. No standardized template or form code is required. Use Information only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-complaint",
+      "name": "Criminal Complaint",
+      "naming_mode": "source_title",
+      "guidance": "Select the felony or misdemeanor criminal complaint itself and amendments, identified by its accusatory function and opening charging allegations. Preserve the actual title, such as Felony Complaint Amendment 1. Exclude civil complaints, police incident reports, and incidental references to a complaint. No standardized template or form code is required. Use Criminal Complaint only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-indictment",
+      "name": "Indictment",
+      "naming_mode": "source_title",
+      "guidance": "Select the criminal indictment itself, including amended or superseding versions. Identify the accusatory instrument, not grand-jury testimony, an index entry, or a narrative mention. Preserve the source title and meaningful qualifiers/count identifiers. No standardized template or form code is required. Use Indictment only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-verdict",
+      "name": "Verdict",
+      "naming_mode": "source_title",
+      "guidance": "Select verdict and special finding forms, including count/enhancement findings and unused/unsigned forms. Naming identifies the document, not proof that a printed verdict was returned. Preserve the document's own first-page title, count identifiers, and explicitly titled status or proposed variants; do not invent signed or returned status from printed verdict language. No standardized template or form code is required. Use Verdict only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-notice-of-appeal",
+      "name": "Notice of Appeal",
+      "naming_mode": "source_title",
+      "guidance": "Select the actual notice initiating appellate review, including local or custom-written versions. Exclude notices merely announcing its filing, transcript preparation, or a scheduled hearing. Preserve the document's own first-page title and meaningful qualifiers. No standardized template or form code is required. An integral probable-cause section does not automatically create a separate document. Use Notice of Appeal only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-abstract-of-judgment",
+      "name": "Abstract of Judgment",
+      "naming_mode": "source_title",
+      "guidance": "Select determinate or indeterminate abstracts of judgment, including amended/corrected abstracts and their integral continuations. Exclude minute orders and references to an abstract. Preserve the source title and meaningful qualifiers. A continuation does not itself establish a new start. No standardized template or form code is required. Use Abstract of Judgment only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-jury-instructions",
+      "name": "Jury Instructions",
+      "naming_mode": "source_title",
+      "guidance": "Select written instruction documents or sets: submitted/proposed, given, refused/withdrawn, modified, or supplemental. Preserve the source title, instruction/count identifiers when part of that title, and expressly titled status; do not infer that all submitted instructions were given. A new instruction number inside an established packet is not by itself a new document start. Exclude oral instructions already in the reporter's transcript and incidental references. No standardized template or form code is required. Use Jury Instructions only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-stipulation",
+      "name": "Written Stipulation",
+      "naming_mode": "source_title",
+      "guidance": "Select a distinct written agreement/stipulation concerning facts, evidence, procedure, or other case matters, identified by its agreement language and parties' assent. Exclude oral stipulations and mere references; advocacy seeking a ruling remains motion work, not a stipulation merely because it discusses one. Preserve the source title and meaningful qualifiers. No standardized template or form code is required. Use Written Stipulation only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-jury-communication",
+      "name": "Jury Communication",
+      "naming_mode": "source_title",
+      "guidance": "Select written juror/jury requests, questions, notes, readback requests, and court responses, including handwritten documents. Identify the actual written communication, not an incidental mention. Exclude generic summons/questionnaires and oral exchanges already in the reporter's transcript. Preserve the source title and meaningful qualifiers; keep independently identified communications separate. No standardized template or form code is required. Use Jury Communication only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-plea",
+      "name": "Plea and Rights Waiver",
+      "naming_mode": "source_title",
+      "guidance": "Select written plea agreements/forms and associated rights waivers, including guilty/no-contest plea instruments. Exclude motions to withdraw a plea and oral plea transcripts. Preserve the document's own first-page title and meaningful qualifiers without inferring that blank terms were accepted. No standardized template or form code is required. Use Plea and Rights Waiver only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-counsel-waiver",
+      "name": "Waiver of Counsel",
+      "naming_mode": "source_title",
+      "guidance": "Select written waiver-of-counsel/self-representation advisement instruments, including Faretta waivers. Distinguish the written instrument from a contested motion or hearing transcript and from an incidental reference to waiver. Preserve the source title and meaningful qualifiers; naming alone does not establish an effective waiver. No standardized template or form code is required. Use Waiver of Counsel only for a clearly matching but untitled document."
+    },
+    {
+      "id": "form-probable-cause",
+      "name": "Probable Cause Request or Certificate",
+      "naming_mode": "source_title",
+      "guidance": "Select the appellate probable-cause request/certificate instrument, including a recorded grant/denial when present. Preserve its own first-page title and expressly titled status; do not infer grant from a request or blank signature area. Exclude police probable-cause narratives and incidental references. An integral section of a Notice of Appeal packet is not automatically a separate document; keep independently identified instruments separate. No standardized template or form code is required. Use Probable Cause Request or Certificate only for a clearly matching but untitled document."
+    }
+  ]
+}

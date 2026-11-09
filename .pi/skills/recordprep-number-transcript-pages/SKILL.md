@@ -39,7 +39,11 @@ replace the final path.
 3. Build RT and CT sequences independently. Prefer candidates that continue
    neighboring record pages.
 4. Reject dates, addresses, case or statute numbers, form IDs, numbered
-   paragraphs, exhibit labels, and internal `Page X of Y` numbering.
+   paragraphs, exhibit labels, and internal `Page X of Y` numbering. In an
+   established CT collection, enclosed reporter pagination is not the outer CT
+   citation sequence; federal docket overlay numbers are not official record
+   pagination. Prefer the supported outer sequence and keep unresolved choices
+   honestly `ambiguous` or `missing`, never invent CT numbers.
 5. Inspect neighboring text for ambiguity; inspect the target and adjacent PNGs
    only when text evidence is insufficient.
 6. Record forward gaps and suspicious drops/resets rather than hiding them.
@@ -274,6 +278,14 @@ RT refers to the available excerpts of the reporter’s transcript of the Januar
 
 Material review note: RT: Pages 19–23 and additional cover-listed proceedings are
 absent; verify coverage before describing the complete source.
+
+### Embedded reporter numbers and docket overlays
+
+Evidence: an established CT includes a preliminary-hearing transcript. Neighboring
+outer CT pages are 210 and 212; the enclosed page bears outer CT 211, reporter
+page 7, and federal docket overlay page 54. Use CT 211, not RT 7 or CT 54. The
+embedded proceedings do not start an RT series. If the outer number cannot be
+supported, retain an ambiguous/missing entry instead of manufacturing CT 211.
 
 ### Conflicting dates and unresolved identity
 

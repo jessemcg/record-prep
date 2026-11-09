@@ -38,7 +38,7 @@ class ManagedProfilesTests(unittest.TestCase):
     def test_fresh_catalog_and_inspection_have_no_side_effects(self):
         catalog = self.catalog()
         self.assertEqual([item.snapshot.manifest["display_name"] for item in catalog],
-                         ["California Juvenile Dependency"])
+                         ["California Juvenile Dependency", "California Criminal Law"])
         for item in catalog:
             self.assertFalse(item.personal)
             for resource in item.snapshot.manifest["resources"]:
@@ -132,7 +132,7 @@ class ManagedProfilesTests(unittest.TestCase):
             return source if name == "third" else original(name)
         with patch.object(api, "BUNDLED_PROFILES", (*api.BUNDLED_PROFILES, "third")), patch.object(api, "bundled_profile_directory", side_effect=directory):
             catalog = self.catalog()
-            self.assertEqual(len(catalog), 2)
+            self.assertEqual(len(catalog), len(api.BUNDLED_PROFILES))
             third = catalog[-1].snapshot
             self.assertEqual(third.ref, snapshot.ref)
             for stage in contract.STAGE_RESOURCES[PACKAGE]:

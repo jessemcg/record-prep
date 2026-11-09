@@ -16,6 +16,7 @@ class ProfileRetirementTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.store = api.ProfileStore('recordprep', config_root=self.root / 'config', data_root=self.root / 'data')
         self.dependency = api.validate_profile_directory(api.bundled_profile_directory('california_dependency')).draft
+        self.criminal = api.validate_profile_directory(api.bundled_profile_directory('california_criminal')).draft
         self.retired = api.validate_profile_directory(api.bundled_profile_directory('general')).draft
 
     def tree(self):
@@ -31,8 +32,8 @@ class ProfileRetirementTests(unittest.TestCase):
                                        expected_default=registry['default'], **kwargs)
 
     def test_fresh_default_and_new_profile_base_are_dependency_without_writes(self):
-        self.assertEqual(api.BUNDLED_PROFILES, ('california_dependency',))
-        self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref])
+        self.assertEqual(api.BUNDLED_PROFILES, ('california_dependency', 'california_criminal'))
+        self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref, self.criminal.ref])
         self.assertEqual(api.default_profile_candidate(store=self.store).ref, self.dependency.ref)
         editor = ProfileEditor.create(self.catalog()[0].snapshot, 'California Criminal Law')
         for name in self.dependency.manifest['resources']:
@@ -48,7 +49,7 @@ class ProfileRetirementTests(unittest.TestCase):
                 retired = editor.snapshot()
                 self.save(retired, personal=personal, use_for_new_cases=True)
                 before = self.tree()
-                self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref])
+                self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref, self.criminal.ref])
                 self.assertEqual(api.default_profile_candidate(store=self.store).ref, self.dependency.ref)
                 self.assertEqual(self.store.load_profile_snapshot(retired.ref).files, retired.files)
                 self.assertEqual(self.store.read_registry()['default'], asdict(retired.ref))
@@ -64,7 +65,7 @@ class ProfileRetirementTests(unittest.TestCase):
         self.save(custom, personal=True)
         before = self.tree()
         self.assertEqual(api.default_profile_candidate(store=self.store).ref, dependency.ref)
-        self.assertEqual({c.snapshot.ref for c in self.catalog()}, {dependency.ref, custom.ref})
+        self.assertEqual({c.snapshot.ref for c in self.catalog()}, {dependency.ref, self.criminal.ref, custom.ref})
         self.assertEqual(self.tree(), before)
         self.store.set_default(custom.ref)
         before = self.tree()
@@ -76,7 +77,7 @@ class ProfileRetirementTests(unittest.TestCase):
         before = self.tree()
         with patch.object(self.store, 'load_profile_snapshot', side_effect=AssertionError('Retired snapshot read')):
             self.assertEqual(api.default_profile_candidate(store=self.store).ref, self.dependency.ref)
-            self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref])
+            self.assertEqual([c.snapshot.ref for c in self.catalog()], [self.dependency.ref, self.criminal.ref])
         self.assertEqual(self.tree(), before)
 
 

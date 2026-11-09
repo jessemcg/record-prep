@@ -7,8 +7,8 @@ from pathlib import Path
 from .profile_contract import (CLASSIFICATION_FIRST_PAGE_TYPES, CLASSIFICATION_PAGE_TYPES,
                                _json, _object, _text)
 
-RESOURCE = Path(__file__).parent / "resources/classification/recognition-v2.json"
-CONTRACT_ID = "recordprep-recognition-v2"
+RESOURCE = Path(__file__).parent / "resources/classification/recognition-v3.json"
+CONTRACT_ID = "recordprep-recognition-v3"
 
 
 @dataclass(frozen=True)

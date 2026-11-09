@@ -1,0 +1,47 @@
+[
+  {
+    "id": "criminal_charges_and_case_posture",
+    "title": "Criminal Charges and Case Posture",
+    "guidance": "Material counts, statutory offenses, enhancements/prior allegations, amendments, pleas, convictions, dismissals/acquittals, and the report's procedural purpose as actually described. Distinguish pending charges from admitted or proved matters; preserve conditional preplea language. Include actual prior rulings only when the report records them as such. Maintain report-date perspective: do not import later events into an earlier report. Across all topics, use null when there is no material responsive content and place each development in its best topic once, with enough context to understand it rather than repeating the offense account. Read the complete eligible report, including recommendations and proposed findings/orders at the end; those sections are not excluded."
+  },
+  {
+    "id": "defendant_circumstances",
+    "title": "Circumstances of the Defendant",
+    "guidance": "Material age/youth, family/support, education, employment, military service, housing, language/cognitive needs, physical/mental health, trauma, substance use, treatment, rehabilitation, and alternatives described in the report. Attribute diagnoses and opinions; identify old information reused in a later report. Avoid incidental identifying data and unsupported causal conclusions. Capture only source-supported, material circumstances, not a mandatory biographical checklist."
+  },
+  {
+    "id": "allegation_interviews_and_evidence",
+    "title": "Allegations, Interviews, and Evidence",
+    "guidance": "Material offense/arrest accounts, defendant and witness statements, police accounts, observations, records, physical/digital evidence, and corroboration or discrepancies recounted within the eligible probation report. Preserve who said what and important layers of attribution. Distinguish interviews from sworn testimony, allegation from finding, and first-hand observation from the report's summary of another source. Independently authored investigative attachments do not become probation's report through placement."
+  },
+  {
+    "id": "prior_record_and_supervision",
+    "title": "Prior Record and Supervision",
+    "guidance": "Material adult convictions, juvenile adjudications, arrests/pending/dismissed charges, prior sentences, probation/parole performance, violations, and custody conduct described in the report. Keep disposition and evidentiary status distinct: do not turn an arrest into a conviction or a reported violation into an adjudicated violation. Preserve qualifications and the report's own account rather than independently resolving record conflicts."
+  },
+  {
+    "id": "victim_impact",
+    "title": "Victim Impact",
+    "guidance": "Reported physical/psychological harm, safety concerns, nonfinancial consequences, and victims' expressed sentencing or protective preferences. Attribute each position; different victims' positions may differ. Nonresponse does not establish absence of harm. Put financial amounts and payment issues in Restitution and Financial Obligations rather than repeating them here."
+  },
+  {
+    "id": "sentencing_recommendation_and_reasons",
+    "title": "Sentencing Recommendation and Supporting Reasons",
+    "guidance": "Probation's recommended disposition, sentence components, conditions, treatment/supervision alternatives, and supporting reasons. Include attributed probation-eligibility analysis, aggravation/mitigation, risk/needs assessments, and contrary considerations. Preserve whether factors are asserted, admitted, or found true when the report states that. Keep recommendations and proposed findings/orders separate from actual judicial action, including recommendations late in the report. Preserve conditional recommendations. Do not independently calculate the lawful sentence or transplant juvenile-specific placement rules into adult sentencing."
+  },
+  {
+    "id": "custody_and_credits",
+    "title": "Custody and Credits",
+    "guidance": "Material custody periods/status, actual/conduct credit figures, stated calculations, disputed credits, and overlaps with other cases/sentences when described. Distinguish proposed, calculated, and awarded credits. Do not recalculate, silently reconcile conflicting figures, or interpret missing credits as zero. Keep source attribution and disputed status clear."
+  },
+  {
+    "id": "restitution_and_financial_obligations",
+    "title": "Restitution and Financial Obligations",
+    "guidance": "Victim losses/restitution, restitution fines, other fines/fees/assessments, ability-to-pay information, proposed hearings, and disputed or undetermined amounts described in the report. Distinguish each obligation and its requested, recommended, or ordered status; preserve reserved jurisdiction or deferred determinations. Do not apply current law to correct historical recommendations or invent an amount for an unresolved obligation."
+  },
+  {
+    "id": "disputed_issues_and_information_limits",
+    "title": "Disputed Issues and Information Limits",
+    "guidance": "Material objections/corrections and competing positions recorded in the report; missing interviews/records, outdated source material, pending responses, and consequential internal inconsistencies. No defendant interview does not establish lack of remorse. Identify uncertainty without deciding credibility, constitutional error, preservation, prejudice, or appellate merit. Keep each development in its best topic once; use this topic for material information limits or disputes not already adequately captured with their substantive topic."
+  }
+]

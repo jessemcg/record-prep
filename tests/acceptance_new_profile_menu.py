@@ -105,11 +105,11 @@ with patch.object(api, "profile_store", return_value=store), \
     actions(dialog)
     bases = [item for item in descendants(dialog) if isinstance(item, manager_ui.ProfileSelector)]
     assert len(bases) == 1
-    assert bases[0].names == ["California Juvenile Dependency"]
+    assert bases[0].names == ["California Juvenile Dependency", "California Criminal Law"]
     assert bases[0].get_selected() == 0
     click(dialog, "Cancel")
     assert not store.registry_path.exists()
-    resource = "research" if package == "focus" else "minutes"
+    resource = "research" if package == "focus" else "case_name"
     editor.editor.resources[resource] += "\nSynthetic unsaved menu draft.\n"
     if package == "recordprep":
         menu_button.popup()
@@ -135,7 +135,7 @@ with patch.object(api, "profile_store", return_value=store), \
     assert editor.editor.manifest["display_name"] == "Synthetic menu specialty"
     dependency = api.validate_profile_directory(api.bundled_profile_directory("california_dependency")).draft
     base_editor = manager_ui.editable_profile(dependency)
-    for resource in ("classification_tasks", "hearings", "reports", "naming"):
+    for resource in base_editor.resources:
         assert editor.editor.resources[resource] == base_editor.resources[resource]
     assert editor._dirty() and not store.registry_path.exists()
     assert editor._save()

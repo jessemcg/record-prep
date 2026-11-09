@@ -86,8 +86,8 @@ Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared
 work without resetting it. Open the resulting bundle in Focus.
 
-Customize the included **California Juvenile Dependency** profile or use it as a
-starting point for another practice area. See the [user guide](docs/workflow.md).
+Customize the bundled **California Juvenile Dependency** or **California Criminal Law**
+profile, or use either as a starting point. See the [user guide](docs/workflow.md).
 
 AI preparation may send record text and page images to configured providers.
 Review their confidentiality terms before using sensitive records, and verify

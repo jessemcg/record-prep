@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as temporary:
         os.environ[key] = str(root / key)
     store = store_module.ProfileStore(package, config_root=root / 'private-config', data_root=root / 'private-data')
     candidates = api.profile_catalog(store=store)
-    assert [item.snapshot.manifest['display_name'] for item in candidates] == ['California Juvenile Dependency']
+    assert [item.snapshot.manifest['display_name'] for item in candidates] == ['California Juvenile Dependency', 'California Criminal Law']
     assert all(not item.personal and not item.notice for item in candidates)
     assert not store.registry_path.exists()
     for candidate in candidates:
@@ -60,12 +60,15 @@ with tempfile.TemporaryDirectory() as temporary:
             from focus.research_profiles import compile_research
             assert compile_research(snapshot).skill
         editor = workflow.ProfileEditor(snapshot)
-        key = 'minutes' if package == 'recordprep' else 'answer_guidance'
-        editor.resources[key] += '\nSynthetic installed-wheel customization.\n'
+        key = 'naming' if package == 'recordprep' else 'answer_guidance'
+        if package == 'recordprep':
+            editor.resources[key]['reports'][0]['guidance'] += '\nSynthetic installed-wheel customization.\n'
+        else:
+            editor.resources[key] += '\nSynthetic installed-wheel customization.\n'
         ref = editor.managed_save(store, expected_head=None, expected_default=None,
                                   can_modify=lambda: True, validate=lambda draft: draft,
                                   use_for_new_cases=False, personal=True)
-        assert 'Synthetic installed-wheel customization' in store.load_profile_snapshot(ref).resource(key)
+        assert 'Synthetic installed-wheel customization' in str(store.load_profile_snapshot(ref).resource(key))
     for loaded in list(sys.modules.values()):
         file = getattr(loaded, '__file__', None)
         if file and ('/RecordPrep/recordprep/' in file or '/Focus/focus/' in file):

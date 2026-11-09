@@ -1,5 +1,17 @@
 # RecordPrep Agent Notes
 
+## California Criminal Law first draft (current)
+
+Read docs/california-criminal-profile.md and docs/california-criminal-validation.md.
+Criminal1.0.0/schema14/API1 owns only Report Names/Form Names/report topics (1/12/9).
+Dependency remains default/base; its five resources and historical recognition-v1/v2
+stay unchanged. Recognition-v3 universally admits bounded custom procedural instruments,
+not all pleadings/exhibits; correction uses the same contract. Outer CT contains embedded
+transcripts (normally CT_other), without reopening RT; preserve all source pages and
+honest review/numbering uncertainty. No private migration, automatic rerun, paid semantic
+evaluation or quality gate. Explicit adoption only; badges/Resume stay presence-based.
+This note supersedes older single-bundle/standardized-only/v1-v2 recognition statements.
+
 ## Application-owned hearing topics (current)
 
 Read docs/application-hearing-topics.md. All hearing digest topics and narrative

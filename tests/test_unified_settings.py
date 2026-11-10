@@ -308,9 +308,9 @@ class UnifiedSettingsTests(unittest.TestCase):
         for detail in (
             "Detect transcript layout",
             "only RT or only CT pages",
-            "This allows the app to know the boundary of each hearing, minute order, report, and form.",
-            "for each form, only the name is extracted",
-            "This ensures that only relevant reports and forms are identified.",
+            "This identifies the boundary of each hearing, minute order, report, motion paper, and procedural filing.",
+            "for each procedural filing, only the name is extracted",
+            "This ensures that only relevant reports and procedural filings are named.",
         ):
             self.assertIn(detail, text)
         explanation.set_expanded(True)

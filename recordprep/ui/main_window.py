@@ -4072,7 +4072,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_six_row = Adw.ActionRow(
             title="Build TOC",
-            subtitle="Compile a table of contents for forms, reports, motions, minute orders, and hearings.",
+            subtitle="Compile a table of contents for procedural filings, reports, motions, minute orders, and hearings.",
         )
         self.step_six_row.set_activatable(False)
         self._attach_step_controls(

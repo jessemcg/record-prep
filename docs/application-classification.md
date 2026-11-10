@@ -1,7 +1,7 @@
 # Application-owned classification
 
-This is the current recognition-v3 contract (content schema **14**, unchanged
-`profile_api: 1`; Dependency **1.17.0**, Criminal **1.0.0**). It supersedes the editable-classification portions of
+This is the current recognition-v4 contract (content schema **14**, unchanged
+`profile_api: 1`; Dependency **1.19.0**, Criminal **1.1.0**). It supersedes the editable-classification portions of
 [structured classification](structured-classification.md), older settings reports
 and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
 
@@ -14,7 +14,7 @@ end-user settings. The page image remains a separate request attachment, not tex
 added to the system prompt. This UI removal does not change classification prompts,
 fingerprints, validation, saved output or Resume, and requires no regeneration.
 
-Profile settings has only **Document naming** (Report Names and Form Names)
+Profile settings has only **Document naming** (Report Names and Procedural Filing Names)
 and **Summaries** (Report digest topics). Hearing and motion topics/naming are fixed
 application methods. Motion and minute instructions remain
 application-owned, available in the existing summary full-prompt inspection. See [Motions](motions-workflow.md). Naming and summary
@@ -26,10 +26,13 @@ not application definitions, model settings or case output. About classification
 retains the pipeline explanation and progression, without the extra ownership/policy
 paragraph, repeated catalog-entry hint or a classification-reference link.
 
+See [Procedural filings](procedural-filings.md) for the function-first motion/form
+boundary, compatibility and explicit adoption of recognition-v4.
+
 ## Purpose, not a checklist
 
-`recordprep/resources/classification/recognition-v3.json` is the selected packaged
-recognition resource (JSON schema 1). v1/v2 remain byte-preserved historical resources. Definitions explain document purpose, identifying clues,
+`recordprep/resources/classification/recognition-v4.json` is the selected packaged
+recognition resource (JSON schema 1). v1/v2/v3 remain byte-preserved historical resources. Definitions explain document purpose, identifying clues,
 continuations/endings, and important near neighbors. Clues are not compulsory
 headings, codes, signatures, layouts or a decision cascade. Best fit compares the
 whole taxonomy; no practice-specific name catalog or form-code allowlist determines
@@ -46,9 +49,9 @@ a page type. Each model request sees **one image**, not unseen adjacent pages.
 | CT_index | Document index — navigation through the record, not an embedded substantive table |
 | CT_minute_order | Minute order — court/clerk record of proceedings and judicial action |
 | CT_report | Court-directed report — authored information/assessment prepared for the court, including table/signature continuations |
-| CT_form | Court form / bounded procedural instrument — standardized or custom-written, subject to the exclusions below |
+| CT_form | Procedural filings — bounded non-motion procedural instruments, standardized or custom-written |
 | CT_certificate | Record certificate — distinct authentication/completeness of the record or copies |
-| CT_motion | Motion / application — requested judicial action and recognizable support/argument |
+| CT_motion | Motion / application — substantive requests within an existing proceeding, including standardized forms and status/participation requests, plus recognizable support/argument |
 | CT_notice | **Hearing notice** — primary purpose of notifying a party of a scheduled/continued/rescheduled hearing |
 | CT_proof_of_service | Proof of service — distinct proof/dedicated page documenting delivery or attempted delivery |
 | CT_other | Other CT material — remaining records/exhibits/correspondence/raw results and orders fitting no other definition |

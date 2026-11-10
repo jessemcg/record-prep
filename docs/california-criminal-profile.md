@@ -1,6 +1,6 @@
 # California Criminal Law — first bundled draft
 
-RecordPrep includes **California Criminal Law 1.0.0** (`california-criminal-law`),
+RecordPrep includes **California Criminal Law 1.1.0** (`california-criminal-law`),
 content schema 14 / profile API 1. It is an editable first draft for an appellate
 attorney reviewing California criminal records, particularly felony conviction
 and sentencing appeals. **California Juvenile Dependency remains the default**
@@ -49,7 +49,12 @@ Existing report-date wording and normalization are unchanged. Unnamed starts sti
 terminate earlier ranges. Independent attachments do not extend a named report's
 summary range; matching titles/dates do not merge separate reports.
 
-## Form Names: twelve source-title families
+## Procedural Filing Names: eleven source-title families
+
+Version 1.1.0 removes the Probable Cause Request or Certificate card. Its structural
+classification remains unchanged; it is no longer selected for a standalone named
+entry by this bundled catalog. Existing saved profiles and prepared output are not
+rewritten.
 
 All cards use source titles, preserving amended/corrected qualifiers, count identifiers
 and expressly titled proposed/refused variants. No form code is required. A card's
@@ -69,7 +74,6 @@ never authorize a fallback.
 | form-jury-communication | Jury Communication | Written jury/juror questions, notes, requests and court responses, including handwritten ones; not summons/questionnaires |
 | form-plea | Plea and Rights Waiver | Written plea agreements/forms and rights waivers; not withdrawal motions or oral transcripts |
 | form-counsel-waiver | Waiver of Counsel | Written self-representation/counsel-waiver advisements, including Faretta; not a contested motion |
-| form-probable-cause | Probable Cause Request or Certificate | Appellate request/certificate instrument; a request or blank signature does not prove grant |
 
 A new instruction number inside a packet, repeated title or signature ending does
 not itself start a new document. An integral probable-cause section of a Notice of

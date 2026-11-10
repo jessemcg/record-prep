@@ -1,6 +1,30 @@
 # Dependency report naming
 
-## Current: source titles for selected agency reports (1.13.0)
+## Current: procedural-filing catalog (1.19.0)
+
+JV-180 is removed from the former Form Names catalog, now **Procedural Filing Names**.
+Its substantive request is classified/named as a motion under the shared function-first
+rules. Five procedural-filing cards remain; the case-plan exclusion below is retained.
+See [Procedural filings](procedural-filings.md).
+
+## Case plans excluded (introduced in 1.18.0)
+
+The agency-report naming rule excludes child welfare case plans, explicitly including
+**CHILD WELFARE SERVICES CASE PLAN** and updated/amended versions. Agency authorship,
+court submission, or a separate title/date does not make these qualifying reports.
+The model is instructed to return an empty name and rule ID, not the fallback name.
+An otherwise qualifying agency report remains eligible when it discusses or attaches
+a case plan. Source pages remain intact; this naming-only exclusion prevents separate
+report entries/boundaries and standalone report summaries when followed by the model.
+It does not redact case-plan information from the source or from a parent report.
+
+No classification taxonomy, form rules, summary topics or historical snapshots change.
+Saved personal profiles and existing bundle output are not automatically updated:
+explicitly adopt the new bundled guidance and rerun Names and affected downstream
+stages to apply it. Offline tests check prompt delivery and empty-name handling, not
+model classification accuracy.
+
+## Source titles for selected agency reports (introduced in 1.13.0)
 
 The single agency-report description remains the eligibility rule, but qualifying
 reports now retain their actual cover/first-page title. **Child Welfare Agency

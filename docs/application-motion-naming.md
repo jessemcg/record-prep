@@ -7,8 +7,10 @@ and dated validation below are historical evidence, not a description of current
 
 Motion rules are universal, not an area-of-law preference. Recognition, physical
 source naming and dates, eligibility/exclusions, grouping and Request/Reasons
-summaries are application-owned. Qualifying standardized request forms remain
-Forms even when they request relief. Neutral reports remain Reports.
+summaries are application-owned. Standardized substantive requests within an existing proceeding now qualify as
+motion papers under recognition-v4, including status/participation requests. Initiating
+pleadings and non-motion procedural filings remain distinct. Neutral reports remain
+Reports. See [Procedural filings](procedural-filings.md).
 
 **Report Names and Form Names remain profile-owned.** Their catalogs, descriptions,
 fixed/source-title options, editors, Save/Reset behavior and naming JSON are unchanged.

@@ -11,12 +11,17 @@ import json
 from .summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
 
 MOTION_ELIGIBILITY = (
-    "Free-form motions, motion-like applications or requests, oppositions, replies, "
+    "Motions, applications, petitions or other requests for substantive relief or a determination "
+    "of status, recognition or participation rights within an existing proceeding, oppositions, replies, "
     "supplemental briefs, points and authorities, and separately titled supporting "
     "declarations, regardless of filing party. Include a combined notice-and-motion "
     "whose substantive purpose is requesting relief. Preserve each physical paper's "
     "own start, source title and date; logical organization is a separate stage. "
-    "Standardized qualifying court request forms remain Forms. Exclude standalone hearing notices, "
+    "Standardized forms, custom-written and handwritten requests are equally eligible. "
+    "Requests to change an existing order or recognize status or participation rights qualify. "
+    "Initiating pleadings commencing a proceeding and non-motion procedural filings "
+    "(administrative record/contact updates, waivers, agreements, verdict sheets, jury instructions "
+    "and jury communications) remain outside motion naming. Exclude standalone hearing notices, "
     "service proofs, court rulings/minute orders and neutral court-directed reports. "
     "Agency-authored advocacy can qualify; neutral agency reports remain Reports. "
     "Separately reproduced exhibits retain their own classification. A running title "
@@ -124,8 +129,10 @@ Preserve amended, renewed and supplemental distinctions when separate/changed fi
 A separately filed opposition or reply never supports the moving paper. Supplements
 join only when expressly supplementing that position; otherwise remain separate.
 Ambiguous/unlinked papers and papers supporting several independent requests stay
-visible singletons with relationship notes, never guessed or duplicated. Do not absorb
-unselected fragments, service proofs, neutral reports, minute orders, forms or exhibits.
+visible singletons with relationship notes, never guessed or duplicated. Standardized substantive requests classified as motion papers are eligible lead requests;
+their printed format is not a reason to exclude them or their expressly linked support.
+Do not absorb unselected fragments, service proofs, neutral reports, minute orders,
+non-motion procedural filings or exhibits.
 Filing roles: motion/application, opposition, reply, supplement, unresolved supporting paper.
 Generate short reader-facing names from the relevant full source: filing role plus
 practical request/position, e.g. Motion to compel police records; Motion to stay eviction;

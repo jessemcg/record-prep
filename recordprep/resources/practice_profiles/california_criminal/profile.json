@@ -5,7 +5,7 @@
   "application": "recordprep",
   "display_name": "California Criminal Law",
   "description": "Criminal-appellate document naming and probation-report digest guidance for California records.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "required_capabilities": [
     "preparation-v1"
   ],

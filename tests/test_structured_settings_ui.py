@@ -51,7 +51,7 @@ class StructuredSettingsUITests(unittest.TestCase):
         from recordprep.classification_profiles import classifier_prompt
         w,store=self.profile_window()
         self.assertEqual(w.nav_rows['report-naming'].get_title(),'Report Names')
-        self.assertEqual(w.nav_rows['form-naming'].get_title(),'Form Names')
+        self.assertEqual(w.nav_rows['form-naming'].get_title(),'Procedural Filing Names')
         before=classifier_prompt(w.editor.snapshot(),'ct')
         self.assertFalse(w._recognition_cards)
         self.assertNotIn('first-pages',w.pages)

@@ -74,12 +74,6 @@
       "name": "Waiver of Counsel",
       "naming_mode": "source_title",
       "guidance": "Select written waiver-of-counsel/self-representation advisement instruments, including Faretta waivers. Distinguish the written instrument from a contested motion or hearing transcript and from an incidental reference to waiver. Preserve the source title and meaningful qualifiers; naming alone does not establish an effective waiver. No standardized template or form code is required. Use Waiver of Counsel only for a clearly matching but untitled document."
-    },
-    {
-      "id": "form-probable-cause",
-      "name": "Probable Cause Request or Certificate",
-      "naming_mode": "source_title",
-      "guidance": "Select the appellate probable-cause request/certificate instrument, including a recorded grant/denial when present. Preserve its own first-page title and expressly titled status; do not infer grant from a request or blank signature area. Exclude police probable-cause narratives and incidental references. An integral section of a Notice of Appeal packet is not automatically a separate document; keep independently identified instruments separate. No standardized template or form code is required. Use Probable Cause Request or Certificate only for a clearly matching but untitled document."
     }
   ]
 }

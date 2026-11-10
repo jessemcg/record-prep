@@ -49,21 +49,21 @@ CLASSIFICATION_EXPLANATION = (
     "First, the image model classifies the RT pages and CT pages into page types.\n\n"
     "For RT pages, the most important page type is the RT body page type, which contains verbatim proceedings, including continuous speech without new speaker labels. "
     "Once RT body pages are identified, the image model re-examines each one to determine whether it is the first page "
-    "of a hearing. For CT pages, the most important page types are minute orders, reports, and forms. As with RT body "
+    "of a hearing. For CT pages, the most important page types are minute orders, reports, motions, and procedural filings. As with RT body "
     "pages, once these page types are identified, the image model re-examines each page to determine whether it is the "
-    "first page of a minute order, report, or form. This allows the app to know the boundary of each hearing, "
-    "minute order, report, and form.\n\n"
-    "The image model also re-examines the first page of each hearing, minute order, report, and form to extract "
+    "first page of a minute order, report, motion paper, or procedural filing. This identifies the boundary of each hearing, "
+    "minute order, report, motion paper, and procedural filing. Standardized requests for substantive relief or status/participation rights within an existing proceeding are motion papers, not procedural filings merely because they use forms.\n\n"
+    "The image model also re-examines the first page of each hearing, minute order, report, motion paper, and procedural filing to extract "
     "information. For each hearing and minute order, only the date is extracted. For each report, the name and date "
-    "are extracted; for each form, only the name is extracted. Reports and forms must match a rule in "
-    "the profile’s user-editable Report Names or Form Names list. Fixed-name rules return the catalog name; "
-    "source-title rules return the document’s own first-page title, using the catalog name only when no title is discernible. Reports and forms without an accepted name are omitted from "
+    "are extracted; for each procedural filing, only the name is extracted. Motion papers use application-owned source-title and date rules. Reports and procedural filings must match a rule in "
+    "the profile’s user-editable Report Names or Procedural Filing Names list. Fixed-name rules return the catalog name; "
+    "source-title rules return the document’s own first-page title, using the catalog name only when no title is discernible. Reports and procedural filings without an accepted name are omitted from "
     "the table of contents, and unnamed reports are excluded from standalone report summaries. "
-    "This ensures that only relevant reports and forms are identified."
+    "This ensures that only relevant reports and procedural filings are named."
 )
 CLASSIFICATION_PAGES = (
     ("report-naming", "Report Names", "Names"),
-    ("form-naming", "Form Names", "Names"),
+    ("form-naming", "Procedural Filing Names", "Names"),
 )
 
 
@@ -400,7 +400,7 @@ class ProfileEditorWindow(Adw.Window):
         kind = kind or "reports"
         naming = kind in {"naming-reports", "naming-forms"}
         title_key = "name" if naming else "title"
-        noun = "Report" if kind == "naming-reports" else "Form" if naming else "Topic"
+        noun = "Report" if kind == "naming-reports" else "Procedural filing" if naming else "Topic"
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         group.add(holder)
         # Retain each inline disclosure/editor by stable ID across reorder/add/remove.
@@ -515,7 +515,7 @@ class ProfileEditorWindow(Adw.Window):
 
     def _fixed_cards(self, owner, keys, *, read_only=False):
         titles = {"first_hearing": "Hearing first page", "first_minute": "Minute-order first page",
-                  "first_form": "Form first page", "first_report": "Report first page", "RT_body": "Hearing body"}
+                  "first_form": "Procedural filing first page", "first_report": "Report first page", "RT_body": "Hearing body"}
         for key in keys:
             card = Gtk.Expander()
             title = titles.get(key, friendly(key.removeprefix("RT_").removeprefix("CT_")))

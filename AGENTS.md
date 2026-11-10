@@ -36,9 +36,9 @@ Keep README minimal; implementation details and validation belong in `docs/`.
 
 ## Current ownership and compatibility
 
-Current content schema is **14**, profile API **1**: bundled Dependency **1.17.0**
-and Criminal **1.0.0**. Profile settings has exactly three editable destinations:
-**Report Names**, **Form Names**, **Report digest topics**, grouped under Document
+Current content schema is **14**, profile API **1**: bundled Dependency **1.19.0**
+and Criminal **1.1.0**. Profile settings has exactly three editable destinations:
+**Report Names**, **Procedural Filing Names**, **Report digest topics**, grouped under Document
 naming and Summaries. Hearing topics, motion naming/topics, minutes, classification,
 dates, participants, caption and overview are application-owned for every assignment,
 including custom, historical and unassigned contexts. Historical profile/config prose
@@ -46,8 +46,8 @@ for retired methods stays literal/readable but never supplies instructions or ha
 Only explicit Create/Save/Reset publishes current revisions; no private migration.
 
 - Dependency is the initial selection and new-profile base; both bundled profiles
-  and available saved profiles can be bases. Criminal has 1 report rule / 12 form
-  rules / 9 report topics; Dependency has 1 / 6 / 12. Preserve shipped resource bytes
+  and available saved profiles can be bases. Criminal has 1 report rule / 11 procedural-filing
+  rules / 9 report topics; Dependency has 1 / 5 / 12. Preserve shipped resource bytes
   and legal scope absent a concrete authorized change. See
   `docs/california-criminal-profile.md`, `docs/dependency-report-naming.md`.
 - General Court Record is retired from selection/bases, including edited built-in
@@ -155,12 +155,13 @@ case overview → deterministic source map. See `docs/workflow.md`.
   candidate, first three source pages only. Python checks selection/source/resources/
   model/prior output before atomic publication. Invalid/unknown/Stop preserves old name.
   Retired caption API/config/profile prose stays inert; no automatic bundle renaming.
-- Recognition-v3 owns the taxonomy and five start checks, including bounded custom
+- Recognition-v4 owns the taxonomy and five start checks, including bounded custom
   procedural instruments, not all pleadings/exhibits. Embedded transcripts stay in outer
   CT (normally CT_other), never reopening RT. RT_body/CT_notice display as Hearing body/
   Hearing notice without key changes. Preserve certificate/motion/notice/service labels;
   use CLASSIFICATION_PAGE_TYPES, rejecting invented/cross-side labels. Hearing notices
   and service proofs are not Forms; qualifying Notice of Appeal forms remain Forms.
+- Substantive requests within an existing proceeding are motion papers even on standardized forms, including status/participation requests. Non-motion procedural filings retain legacy CT_form/form IDs; initiating pleadings and administrative updates are not motions merely for requesting relief. Recognition-v1/v2/v3 remain historical resources.
 - Report/form catalogs are naming-only; no page/start injection or CT catalog previews.
   Basic uses structural recognition. Advanced checks every report page independently;
   Names requires complete first-page checks and reads marked starts only. All starts,

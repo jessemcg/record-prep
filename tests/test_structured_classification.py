@@ -66,8 +66,8 @@ class StructuredClassificationTests(unittest.TestCase):
         from test_document_naming import BUNDLED_REPORT_TITLES, FORM_RULES
         b = bundle(); n = b.resource('naming')
         self.assertEqual(tuple(e['name'] for e in n['reports']), BUNDLED_REPORT_TITLES)
-        self.assertEqual(len(n['forms']), 6)
-        for card, (name,heading,code) in zip(n['forms'], FORM_RULES):
+        self.assertEqual(len(n['forms']), 5)
+        for card, (name,heading,code) in zip(n['forms'], (r for r in FORM_RULES if r[2] != 'JV-180')):
             self.assertEqual(card['name'],name)
             self.assertIn(heading,card['guidance']); self.assertIn(code,card['guidance'])
         self.assertNotIn('Parential', json.dumps(n))
@@ -108,7 +108,7 @@ class StructuredClassificationTests(unittest.TestCase):
     def test_exact_adapters_preserve_original_reference(self):
         old=legacy(); before=old.files
         for kind,_ in CLASSIFICATION_TASKS:
-            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind != 'report')
+            self.assertEqual(classifier_prompt(old,kind) == classifier_prompt(bundle(),kind), kind not in ('report', 'form'))
         self.assertEqual(old.files,before)
         e=ProfileEditor(old); e.resources['classification_tasks']['rt']+=' Custom prose.'
         value=effective_resource(e.resources['classification_tasks'],'classification_tasks')

@@ -33,7 +33,7 @@ TOPICS = ('criminal_charges_and_case_posture', 'defendant_circumstances',
           'restitution_and_financial_obligations', 'disputed_issues_and_information_limits')
 FORMS = ('information', 'complaint', 'indictment', 'verdict', 'notice-of-appeal',
          'abstract-of-judgment', 'jury-instructions', 'stipulation', 'jury-communication',
-         'plea', 'counsel-waiver', 'probable-cause')
+         'plea', 'counsel-waiver')
 
 
 def criminal():
@@ -41,14 +41,19 @@ def criminal():
 
 
 def cases():
-    return json.loads((ROOT/'tests/fixtures/criminal-documents-fictional.json').read_bytes())
+    rows = json.loads((ROOT/'tests/fixtures/criminal-documents-fictional.json').read_bytes())
+    # Keep the original 1.0 fixture intact; current catalog no longer selects this paper.
+    for row in rows:
+        if row['id'] == 'separate-probable-cause':
+            row.update(reply='', rule_id='', name='')
+    return rows
 
 
 class CriminalCatalogTests(unittest.TestCase):
     def test_shape_stable_ids_and_source_title_contracts(self):
         profile = criminal()
         self.assertEqual((profile.manifest['version'], profile.manifest['schema_version'],
-                          profile.manifest['profile_api']), ('1.0.0', 14, 1))
+                          profile.manifest['profile_api']), ('1.1.0', 14, 1))
         self.assertEqual(set(profile.manifest['resources']), {'naming', 'reports', 'policies', 'case_name'})
         self.assertEqual(profile.resource('policies'), {})
         naming = profile.resource('naming')
@@ -72,6 +77,17 @@ class CriminalCatalogTests(unittest.TestCase):
                 self.assertFalse(view.issues)
                 self.assertEqual(view.components[0][1], contract.prompt)
         self.assertIn(DATE_RULE, compile_naming_profile(profile, 'report').prompt)
+
+    def test_probable_cause_card_removed_without_changing_structural_recognition(self):
+        profile = criminal()
+        contract = compile_naming_profile(profile, 'form')
+        self.assertNotIn('form-probable-cause', contract.prompt)
+        self.assertNotIn('Probable Cause Request or Certificate', contract.allowed_names)
+        result = contract.normalize({'name': 'REQUEST FOR CERTIFICATE OF PROBABLE CAUSE',
+                                     'rule_id': 'form-probable-cause'})
+        self.assertEqual((result.name, result.rule_id), ('', ''))
+        self.assertEqual(len(profile.resource('naming')['forms']), 11)
+        self.assertIn('appellate probable-cause', classifier_prompt(profile, 'ct')[0])
 
     def test_eligibility_and_topic_guardrails_delivered_without_new_methods(self):
         profile = criminal()
@@ -139,8 +155,8 @@ class CriminalCatalogTests(unittest.TestCase):
             'resources/classification/recognition-v2.json':'6eab77900d4b5b22dba2b8ef6881d6a1b3d2f3e915c41b63ad0fdcbdcb3af7d0',
             'profile_contract.py':'19a0338331c5a924d28c386eb5ac488d163824e44fe186381fff3ccaef0fe35c',
             'profile_artifacts.py':'087bb081fcc96d5940513948f87c4a0eb710b11188966069db3f042fcb1f6784',
-            'resources/practice_profiles/california_dependency/profile.json':'35770359f38ae86b58008f36d976ccd73ca1aa7e8223bd5752e41decf0d52e0b',
-            'resources/practice_profiles/california_dependency/naming.json':'87908963abe477eabd160363a4c8f4cfb9f3804247e4de7b47e52a7e57f03af9',
+            'resources/practice_profiles/california_dependency/profile.json':'7b54d606c4a9ede6d4c3ce60d9d7bb9a7fbec54472de475beb910d4fcfe2697c',
+            'resources/practice_profiles/california_dependency/naming.json':'02db3fbf84816c39d75caf873d04e7686ae02003661ffd08f4cf1246697be955',
         }
         for path, digest in pins.items():
             self.assertEqual(hashlib.sha256((ROOT/'recordprep'/path).read_bytes()).hexdigest(), digest, path)
@@ -282,7 +298,7 @@ class CriminalPipelineTests(unittest.TestCase):
 class EmbeddedTranscriptTests(unittest.TestCase):
     def test_resource_and_skill_clarifications_delivered(self):
         contract = load_recognition()
-        self.assertEqual(contract.identity,'recordprep-recognition-v3')
+        self.assertEqual(contract.identity,'recordprep-recognition-v4')
         definitions = dict(contract.descriptions('ct'))
         for text in ('custom-written or handwritten', 'unused/unsigned', 'written stipulations',
                      'court responses', 'Motion advocacy', 'record-authentication'):

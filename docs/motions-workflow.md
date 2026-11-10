@@ -3,13 +3,13 @@
 See [application-owned motion naming](application-motion-naming.md) for ownership,
 adoption and validation details. Report/form naming remains profile-owned.
 
-Dependency **1.17.0**, content schema **14**, retains `profile_api: 1`.
+Dependency **1.19.0**, content schema **14**, retains `profile_api: 1`.
 The subsequent [hearing-topic ownership](application-hearing-topics.md) change
 also removes hearing topics from profile instructions; report topics stay profile-owned.
 Motion naming/eligibility, exclusions, organization and summaries are application-owned
 for assigned, historical, custom and unassigned work. Fixed rules preserve physical
-source titles and dates, keep qualifying standardized request forms in Forms, and
-exclude neutral reports. Report Names and Form Names remain profile-owned.
+source titles and dates, include standardized substantive requests, and exclude
+neutral reports. Report Names and Procedural Filing Names remain profile-owned.
 New profiles omit both `motion_naming` and `motions`; Profile settings has no Motion
 Names editor. All new motion digests use the application's **Request** (`request`)
 and **Reasons** (`reasons`) method.
@@ -21,8 +21,10 @@ instructions, prompt inspection text or generation fingerprints. Report topics a
 ## Physical recognition stays separate
 
 Basic recognizes motions/applications, oppositions, replies, supplemental briefs,
-points and authorities and separately titled supporting declarations. Qualifying
-standardized court request forms remain Forms. Standalone notices, service proofs,
+points and authorities and separately titled supporting declarations. Standardized
+requests for substantive relief or status/participation rights within an existing
+proceeding are motion papers. Initiating pleadings and non-motion procedural filings
+remain outside motions. See [Procedural filings](procedural-filings.md). Standalone notices, service proofs,
 court rulings/minute orders, neutral agency/court reports and reproduced exhibits
 keep their classifications. Advocacy can qualify regardless of author; agency
 authorship alone does not establish advocacy.

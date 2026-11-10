@@ -53,7 +53,7 @@ class DependencyReportNamingTests(unittest.TestCase):
         b = bundle(); old = previous_bundle()
         self.assertEqual(old.ref.content_sha256, PREVIOUS)
         self.assertIn(PREVIOUS, api.KNOWN_BASELINES)
-        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.17.0',14,1))
+        self.assertEqual((b.manifest['version'], b.manifest['schema_version'], b.manifest['profile_api']), ('1.19.0',14,1))
         n = b.resource('naming'); historical = old.resource('naming')
         self.assertEqual(n['schema_version'],5)
         self.assertEqual(n['reports'][0]['naming_mode'], 'source_title')
@@ -67,7 +67,9 @@ class DependencyReportNamingTests(unittest.TestCase):
         for filename, content in prior.files:
             if filename not in ('profile.json', 'naming.json', 'hearings.json'):
                 self.assertEqual(dict(b.files)[filename], content, filename)
-        self.assertEqual(n['forms'],historical['forms']); self.assertEqual(len(n['forms']),6)
+        self.assertEqual(n['forms'], [c for c in historical['forms'] if c['id'] != 'form-04'])
+        self.assertEqual(len(n['forms']), 5)
+        self.assertNotIn('JV-180', str(n['forms']))
         for name,digest in {
             'case-name.md':'ac60cda00e130e635e15cb7be406317b18a24c0416b7abf2a904b8792dfa016a',
             'reports.json':'f0ee91c592bcd555ba3b8e3f36f9835a9664b194a46195bdb8a02615c2d81c37',
@@ -98,6 +100,23 @@ class DependencyReportNamingTests(unittest.TestCase):
             self.assertIn(text, prompt)
         self.assertNotIn('Identify a separately titled', prompt)
 
+    def test_case_plan_exclusion_reaches_prompt_without_excluding_parent_report(self):
+        contract = compile_naming_profile(bundle(), 'report')
+        for text in (
+            'Exclude child welfare case plans',
+            'CHILD WELFARE SERVICES CASE PLAN',
+            'updated or amended versions',
+            'even when prepared by the agency, submitted to the court',
+            'return an empty name and an empty rule_id',
+            'do not use the fallback report name',
+            'does not disqualify an otherwise qualifying agency report merely because it discusses or attaches a case plan',
+        ):
+            self.assertIn(text, contract.prompt)
+        # Offline contract check, not a claim that a model obeys the exclusion.
+        result = contract.normalize({'name': '', 'date': '', 'rule_id': ''})
+        self.assertEqual((result.name, result.rule_id), ('', ''))
+        self.assertIn('name_unresolved', result.quality_flags)
+
     def test_footer_evidence_rule_date_bytes_and_form_prompt_preserved(self):
         b = bundle(); prompt = compile_naming_profile(title_catalog_bundle(),'report').prompt
         for text in ('own visible title or identifying wording', 'interpreted with the catalog descriptions',
@@ -112,8 +131,8 @@ class DependencyReportNamingTests(unittest.TestCase):
         self.assertEqual(mechanics.count(DATE_RULE),1)
         self.assertNotIn('must appear as a prominent heading',prompt)
         self.assertEqual(NAMING_CONTRACT_VERSION,2)
-        self.assertEqual(hashlib.sha256(compile_naming_profile(b,'form').prompt.encode()).hexdigest(),
-                         '1d9d3511f75c78b80c87ee53b40a83b8a2901b73063511a76f84c28a514b24fb')
+        self.assertNotIn('JV-180', compile_naming_profile(b, 'form').prompt)
+        self.assertIn('JV-100', compile_naming_profile(b, 'form').prompt)
 
     def test_descriptions_only_in_report_naming_and_stage_identities(self):
         b = bundle()

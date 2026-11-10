@@ -206,14 +206,14 @@ class PromptNamingTests(unittest.TestCase):
         resource = draft.resource("naming")
         self.assertEqual(set(resource), {"schema_version", "reports", "forms"})
         self.assertEqual(resource["schema_version"], 5)
-        for kind, expected in (("report", BUNDLED_REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES))):
+        for kind, expected in (("report", BUNDLED_REPORT_TITLES), ("form", tuple(r[0] for r in FORM_RULES if r[2] != 'JV-180'))):
             contract = naming.compile_naming_profile(draft, kind)
             self.assertEqual(contract.allowed_names, expected)
             self.assertEqual(contract.mode, "matched_rules" if kind == "report" else "approved_titles")
             self.assertEqual(tuple(entry['name'] for entry in resource[kind + 's']), expected)
             self.assertNotIn("APPROVED CATALOG", contract.prompt)
             self.assertEqual(contract.normalize({"name": "Unapproved name", **({"date": ""} if kind == "report" else {})}).name, "")
-        for _name, heading, code in FORM_RULES:
+        for _name, heading, code in (r for r in FORM_RULES if r[2] != 'JV-180'):
             self.assertIn(heading, json.dumps(resource['forms']))
             self.assertIn(code, json.dumps(resource['forms']))
         self.assertNotIn("must be visible", resource['forms'][0]['guidance'])

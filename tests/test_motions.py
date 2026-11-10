@@ -18,7 +18,7 @@ class MotionTests(unittest.TestCase):
     def test_current_bundle_and_strict_resources(self):
         profile = bundle()
         self.assertEqual(profile.manifest['schema_version'], 14)
-        self.assertEqual(profile.ref.version, '1.17.0')
+        self.assertEqual(profile.ref.version, '1.19.0')
         self.assertNotIn('motion_naming', profile.manifest['resources'])
         contract = compile_motion_naming(profile)
         self.assertIn('1,024', contract.prompt)

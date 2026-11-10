@@ -15,8 +15,8 @@ from .structured_guidance import effective_resource
 CLASSIFICATION_TASKS = (
     ("rt", "RT page types"), ("ct", "CT page types"),
     ("first_hearing", "Hearing first page"), ("first_minute", "Minute-order first page"),
-    ("first_form", "Form first page"), ("first_report", "Report first page"), ("first_motion", "Motion first page"), ("date_hearing", "Hearing dates"),
-    ("date_minute", "Minute-order dates"), ("report", "Report Names"), ("form", "Form Names"), ("motion", "Motion Names"),
+    ("first_form", "Procedural filing first page"), ("first_report", "Report first page"), ("first_motion", "Motion first page"), ("date_hearing", "Hearing dates"),
+    ("date_minute", "Minute-order dates"), ("report", "Report Names"), ("form", "Procedural Filing Names"), ("motion", "Motion Names"),
 )
 FIXED_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] not in {"report", "form", "motion"})
 NAMING_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] in {"report", "form", "motion"})

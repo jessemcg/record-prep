@@ -49,13 +49,14 @@ with patch.object(api,'profile_store',return_value=store), \
     assert not store.registry_path.exists()
     assert [c.snapshot.ref.specialty_id for c in manager.candidates] == [api.DEFAULT_PROFILE_ID,'california-criminal-law']
     assert manager.selector.get_selected()==0
-    for identity, counts in ((api.DEFAULT_PROFILE_ID,(1,6,12)),('california-criminal-law',(1,12,9))):
+    for identity, counts in ((api.DEFAULT_PROFILE_ID,(1,5,12)),('california-criminal-law',(1,11,9))):
         manager.selector._choose(next(i for i,c in enumerate(manager.options) if c.snapshot.ref.specialty_id==identity))
         drain()
         assert api.default_profile_candidate(store=store).ref.specialty_id==identity
         editor = manager._edit();drain()
         base = api.bundled_profile_for_identity(api.APPLICATION,identity)
         assert set(editor.pages)=={'report-naming','form-naming','reports-topics'}
+        assert editor.nav_rows['form-naming'].get_title() == 'Procedural Filing Names'
         assert len(editor.editor.resources['reports'])==counts[2]
         assert len(editor.editor.resources['naming']['reports'])==counts[0]
         assert len(editor.editor.resources['naming']['forms'])==counts[1]
@@ -114,7 +115,7 @@ with patch.object(api,'profile_store',return_value=store), \
         first = 'topic:naming-'+kind+':'+editor.editor.resources['naming'][kind][0]['id']
     editor._topic_expanders[first].set_expanded(True)
     drain()
-    print('CRIMINAL/DEPENDENCY GTK ACCEPTANCE PASSED: choices, bases, 3 destinations, 1/12/9 cards, prompt parity, Save/Reset/history',flush=True)
+    print('CRIMINAL/DEPENDENCY GTK ACCEPTANCE PASSED: choices, bases, 3 destinations, 1/11/9 cards, prompt parity, Save/Reset/history',flush=True)
     if os.environ.get('CRIMINAL_PROFILE_HOLD'):
         loop = GLib.MainLoop()
         parent.connect('close-request',lambda *_:(loop.quit(),False)[1])

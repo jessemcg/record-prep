@@ -74,8 +74,14 @@ verification if the selected agent cannot read an image: leave it unresolved.
    explicit document/signature date, never a hearing or service date. Preserve
    date_basis filed/document/unknown; unresolved dates have unknown basis.
    Removing a motion start removes its name/rule/date/date-basis metadata.
-   Forms, standalone notices/service proofs, neutral reports, exhibits and
-   actual rulings retain their own classifications, not motion-family guesses.
+   Classify by function, not printed format: standardized substantive requests
+   within an existing proceeding, including requests to change orders or determine
+   status or participation rights, are motion papers. Correct a consequential
+   CT_form label when the source establishes that function; use Motion Names,
+   not a procedural-filing naming card, for the recovered motion start.
+   Initiating pleadings and non-motion procedural filings, standalone notices/service
+   proofs, neutral reports, exhibits and actual rulings retain their own classifications,
+   not motion-family guesses.
    Never migrate historical unmarked report classifications; flag such needs.
 6. Deprioritize isolated unnamed material that neither changes a selected document's
    extent nor hides an eligible document. Unnamed report starts still terminate a

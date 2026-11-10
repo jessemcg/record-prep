@@ -114,9 +114,9 @@ class FixedOverviewTests(unittest.TestCase):
     def test_logical_groups_and_last_ruling_date_in_both_methods(self):
         for resource in ('resources/profile-overview.md', 'skills/recordprep-create-case-overview/SKILL.md'):
             text = ' '.join((PROJECT / '.pi' / resource).read_text().split())
-            for phrase in ('grouped motion and its clearly linked supporting papers as one logical request',
-                           'do not split support merely because it has a separate title',
-                           'Keep motion, opposition, reply and genuinely independent requests separate',
+            for phrase in ('Preserve supplied motion-packet grouping without assuming one substantive request or common support',
+                           'classification continuity can place independent requests, opposition and reply in one entry',
+                           'Keep their party attribution and differing positions distinct',
                            'last supplied ruling that establishes it', 'not merely a later filing',
                            'earlier status was independently confirmed at the later filing date',
                            'Consolidate overlapping missing-outcome qualifications'):

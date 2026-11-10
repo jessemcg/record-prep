@@ -54,7 +54,8 @@ bounds = build_motion_boundaries(rows, 0)
 if grouped:
     from recordprep import motion_groups as mg
     inventory = mg.inventory_from_boundaries(bounds)
-    value = mg.normalize_candidate({'groups': [
+    from motion_fixtures import historical_artifact
+    value = historical_artifact({'groups': [
         {'lead_paper_id': 'motion:0005', 'member_paper_ids': ['motion:0001', 'motion:0005', 'motion:0007'],
          'filing_role': 'motion/application', 'display_title': 'Motion to compel inspection', 'filing_party': 'Owner',
          'purpose': 'Compel inspection', 'evidence': 'Fictional express relationship.'},

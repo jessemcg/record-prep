@@ -26,8 +26,8 @@ class PromptSDKTests(unittest.TestCase):
                 skill_name=parts[1][0].split(': ',1)[1]
                 skill=root/skill_name/'SKILL.md';skill.parent.mkdir();skill.write_text(parts[1][1])
                 phase='minutes' if task=='minutes' else task.split('-')[1]
-                extension={'extract':'recordprep-summary-tools.ts','synthesize':'recordprep-summary-synthesis-tools.ts','minutes':'recordprep-profile-minute-tools.ts', 'organization':'recordprep-motion-organization-tools.ts'}[phase]
-                tools = ['read', 'write', 'edit'] if phase == 'organization' else list(TOOLS[phase])
+                extension={'extract':'recordprep-summary-tools.ts','synthesize':'recordprep-summary-synthesis-tools.ts','minutes':'recordprep-profile-minute-tools.ts'}[phase]
+                tools = list(TOOLS[phase])
                 plan={'system':parts[0][1],'skill':str(skill),'extension':str(ROOT/'.pi/extensions'/extension),'tools':tools,'launch':parts[2][1]}
                 path=root/'plan.json';path.write_text(json.dumps(plan));capture=root/'capture.json'
                 env=os.environ.copy()

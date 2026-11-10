@@ -49,8 +49,8 @@ class MotionEditorialTests(unittest.TestCase):
                            'counsel/firm/contact details', 'digest prose, quote selections and',
                            'not a prose checklist', 'not a sequence of component',
                            'substantive scope, conditions, alternative', 'material contrary evidence',
-                           'negation, attribution and qualification', 'Separate opposition example',
-                           'Separate reply example'):
+                           'negation, attribution and qualification', 'Opposition position within the supplied entry',
+                           'Reply position within the supplied entry', 'do not re-segment', 'opposing positions'):
                 self.assertIn(phrase, text)
             for obsolete in ('only when needed to distinguish', 'Keep any omitted detail if material'):
                 self.assertNotIn(obsolete, text)

@@ -29,7 +29,6 @@ PROFILE_MINUTE_EXTENSION_NAME = "recordprep-profile-minute-tools.ts"
 PROFILE_NATIVE_EXTENSION_NAME = "recordprep-profile-native-tools.ts"
 CASE_NAME_EXTENSION_NAME = "recordprep-case-name-tools.ts"
 CLASSIFICATION_REVIEW_EXTENSION_NAME = "recordprep-classification-review-tools.ts"
-MOTION_ORGANIZATION_EXTENSION_NAME = "recordprep-motion-organization-tools.ts"
 MINUTE_SKILL_NAME = "recordprep-summarize-minutes"
 MINUTE_STEP_ID = "create_minute_order_summaries"
 
@@ -89,7 +88,6 @@ STAGES = {
     stage.step_id: stage
     for stage in (
         SkillStage("infer_case", "Infer case", "recordprep-infer-case", "read,write,edit"),
-        SkillStage("organize_motion_papers", "Organize motion papers", "recordprep-organize-motion-papers", "read,write,edit"),
         SkillStage("correct_classification_agent", "Correct classification with agent", "recordprep-correct-classification", "read,write,edit"),
         SkillStage(
             "detect_transcript_layout",
@@ -221,7 +219,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         issues.append(f"{MINUTE_SKILL_NAME}/SKILL.md is missing.")
     if not (project_dir / "extensions" / MINUTE_EXTENSION_NAME).is_file():
         issues.append(f"extensions/{MINUTE_EXTENSION_NAME} is missing.")
-    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME, MOTION_ORGANIZATION_EXTENSION_NAME):
+    for name in (PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME):
         if not (project_dir / "extensions" / name).is_file():
             issues.append(f"extensions/{name} is missing.")
     for name in ("profile-summary-extract.md", "profile-summary-synthesize.md", "profile-participants.md", "profile-overview.md"):
@@ -235,7 +233,7 @@ def _resource_issues(project_dir: Path) -> list[str]:
         path.name
         for path in extension_dir.iterdir()
         if path.is_file() or path.is_dir()
-    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME, MOTION_ORGANIZATION_EXTENSION_NAME}:
+    } != {AUTO_EXIT_EXTENSION_NAME, SUMMARY_EXTENSION_NAME, SYNTHESIS_EXTENSION_NAME, MINUTE_EXTENSION_NAME, PROFILE_MINUTE_EXTENSION_NAME, PROFILE_NATIVE_EXTENSION_NAME, CASE_NAME_EXTENSION_NAME, CLASSIFICATION_REVIEW_EXTENSION_NAME}:
         issues.append(
             "unexpected project-local PI extension resources are present."
         )
@@ -1733,14 +1731,12 @@ def _run_minute_stage(root: Path, project_dir: Path) -> int:
     return 0
 
 
-def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organization_locked=False) -> int:
+def _run_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
     global _active_process
 
-    if stage.step_id == "organize_motion_papers" and not _organization_locked:
+    if stage.step_id == "organize_motion_papers":
         from recordprep import motion_organization as organization
-        return organization.run_stage(root, project_dir,
-            lambda: _run_stage(stage, root, project_dir, _organization_locked=True),
-            check_stop=_check_stop, log=_line)
+        return organization.run_stage(root, check_stop=_check_stop, log=_line)
 
     if stage.step_id == "correct_classification_agent":
         review_started_at = time.monotonic()
@@ -1816,7 +1812,7 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
                 "input_sha256": overview_input_digest(root), "runtime_sha256": native_runtime_digest(project_dir, "overview"),
                 "profile_provenance": compile_native(profile, native_kind, project_dir)[1]})
             native_guidance, _native_provenance = compile_native(profile, native_kind, project_dir)
-    pi_command = _resolve_pi_command() if stage.step_id in {"infer_case", "correct_classification_agent", "organize_motion_papers"} else _pi_command()
+    pi_command = _resolve_pi_command() if stage.step_id in {"infer_case", "correct_classification_agent"} else _pi_command()
     _check_pi_version(pi_command)
     cache_root = Path(
         os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
@@ -1826,10 +1822,6 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
     workspace = Path(tempfile.mkdtemp(prefix="skill.", dir=workspace_parent))
     try:
         review_guard = None
-        organization_guard = None
-        if stage.step_id == "organize_motion_papers":
-            from recordprep import motion_organization as organization
-            organization_before_staging = organization.capture(root, project_dir)[1]
         if stage.step_id == "correct_classification_agent":
             from recordprep import classification_review as review
             review_before_staging = review.capture(root, project_dir)[2]
@@ -1861,14 +1853,6 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
         native_extension_args = []
         native_tools = stage.tools
         caption_guard = None
-        if stage.step_id == "organize_motion_papers":
-            organization_guard, organization_ref, candidate_path, access_spec, stage_prompt = organization.stage_inputs(root, project_dir, workspace)
-            if organization_guard != organization_before_staging:
-                raise ValueError("Motion inputs changed during staging; no model work started.")
-            env["RECORDPREP_MOTION_ORGANIZATION_ACCESS_SPEC"] = str(access_spec)
-            guard_extension = staged_pi / "extensions" / organization.EXTENSION
-            shutil.copy2(project_dir / "extensions" / organization.EXTENSION, guard_extension)
-            native_extension_args = ["--extension", str(guard_extension)]
         if stage.step_id == "correct_classification_agent":
             review_guard, review_ref, candidate_path, access_spec, stage_prompt = review.stage_inputs(root, project_dir, workspace)
             if review_guard != review_before_staging:
@@ -1996,8 +1980,6 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
             from recordprep.case_profiles import case_profile_publication
             with case_profile_publication(root, profile.ref):
                 pass  # Recheck explicit selection after staging, before paid work.
-        if organization_guard is not None and organization.capture(root, project_dir)[1] != organization_guard:
-            raise ValueError("Motion inputs changed before launch; no model work started.")
         if caption_guard is not None and caption.capture(root, project_dir)[1] != caption_guard:
             raise ValueError("Case or inputs changed before inference; no model work started.")
         if review_guard is not None:
@@ -2110,12 +2092,6 @@ def _run_stage(stage: SkillStage, root: Path, project_dir: Path, *, _organizatio
                 preserve_review_attempt()
                 raise
             _line(f"Classification review saved: {changed} corrected pages; {unresolved} findings need review; {time.monotonic()-review_started_at:.1f}s elapsed. Evidence/coverage limitations and retained proposals are advisory: use View review or classification/agent-review.json.")
-        if organization_guard is not None:
-            result = organization.publish(root, project_dir, organization_guard, organization_ref, candidate_path, check_stop=_check_stop)
-            from recordprep.motion_groups import count_text
-            _line(f"Motion organization saved: {count_text(len(result['groups']), 'entry', 'entries')} / "
-                  f"{count_text(len(result['inventory']), 'physical paper')}; review coverage {result['coverage_status']}. "
-                  "Use View grouping for advisory findings.")
         if caption_guard is not None:
             def check_caption_stop():
                 if _stopped:
@@ -2200,12 +2176,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         _line("RecordPrep sequential PI resources are valid.")
         return 0
-    known_stages = {*STAGES, *SUMMARY_STAGE_KINDS, MINUTE_STEP_ID}
+    known_stages = {*STAGES, *SUMMARY_STAGE_KINDS, MINUTE_STEP_ID, "organize_motion_papers"}
     if len(args) != 1 or args[0] not in known_stages:
         choices = ", ".join(sorted(known_stages))
         _line(f"Usage: {Path(sys.argv[0]).name} <{choices}>")
         return 2
     try:
+        if args[0] == "organize_motion_papers":
+            from recordprep.motion_organization import run_stage
+            return run_stage(_case_bundle(), check_stop=_check_stop, log=_line)
         if args[0] == MINUTE_STEP_ID:
             return _run_minute_stage(_case_bundle(), project_dir)
         if args[0] in SUMMARY_STAGE_KINDS:
@@ -2221,8 +2200,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return _run_summary_stage(stage, _case_bundle(), project_dir)
         return _run_stage(STAGES[args[0]], _case_bundle(), project_dir)
+    except _StopRequested:
+        _line("Preparation stopped; prior output preserved.")
+        return 130
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        _line(f"\033[31mRecordPrep PI stage failed:\033[0m {exc}")
+        _line(f"\033[31mRecordPrep preparation stage failed:\033[0m {exc}")
         return 2
 
 

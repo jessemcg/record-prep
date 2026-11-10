@@ -207,8 +207,8 @@ already-prepared bundle with complete source pages.
 
 5. Classify RT/CT pages.
 6. Run Advanced → Dates → Names → **Correct classification with agent**. The earlier deterministic correction stage is removed. The agent reviews consequential boundaries using the shared Pi agent, preserves Names inputs, publishes separate `*_dates_names_corrected.jsonl` finals (including zero-change reviews), and records applied changes/unresolved findings. Legacy filenames remain readable without renaming; a failed or stopped new review blocks stale-final fallback. See [classification agent correction](classification-agent-correction.md).
-7. Organize motion papers, then build/correct the TOC for forms, reports, logical motions, minute orders and hearings. Classification Names includes report, form and physical motion-paper names.
-8. Find hearing, report, motion-paper and minute-order boundaries, then **Filter boundary entries** to omit ineligible entries, retaining named single-page reports and all original source pages. Its completion total includes removed motion entries.
+7. **Organize motion papers** uses Python, with no model calls: from a recognized named motion start, group all adjacent motion-classified pages until another classification or missing page. Later independent motions, opposition/reply, different titles/dates/parties and unnamed internal starts stay in that packet. The first paper supplies the headline/date/anchor; physical papers remain independent. Review grouping, then build/correct the TOC. See [motion workflow](motions-workflow.md).
+8. Find hearing, report, physical motion-paper and minute-order boundaries, then **Filter boundary entries**. Current schema-2 motion packets retain included unnamed internal components; unresolved standalone motion fragments remain omitted. Named single-page reports and all original source pages remain. Explicitly rebuilding boundaries is required before grouped summaries/maps if saved spans do not match the new inventory.
 
 **Modify TOC**, beside Correct TOC, becomes available once the TOC is built;
 you can edit and save it while boundaries, numbering, and summaries run. Editing

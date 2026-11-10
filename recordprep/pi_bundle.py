@@ -25,7 +25,6 @@ PI_STEP_IDS = (
     "detect_transcript_layout",
     "infer_case",
     "correct_classification_agent",
-    "organize_motion_papers",
     "number_transcript_pages",
     "build_participant_index",
     "create_case_overview",

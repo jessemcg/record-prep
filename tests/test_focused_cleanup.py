@@ -56,7 +56,7 @@ class FocusedCleanupTests(unittest.TestCase):
             text = guidance.application_guidance(phase)
             for phrase in ('same narrow purpose', 'Exclude hearing dates/times/departments',
                            'street or mailing addresses', 'case/court', 'incident/tracking identifiers',
-                           'not a prose checklist', 'Separate opposition example', 'Separate reply example',
+                           'not a prose checklist', 'Opposition position within the supplied entry', 'Reply position within the supplied entry',
                            'excluding privileged advice'):
                 self.assertIn(phrase, text)
             self.assertNotIn('only when needed to distinguish', text)

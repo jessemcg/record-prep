@@ -1,21 +1,19 @@
-"""Logical motion entries over immutable physical paper identities/ranges.
+"""Contract-aware motion context over immutable physical paper identities.
 
-No mechanical merging by proximity. The organization agent proposes relationships;
-Python normalizes proposals independently, retains singletons and owns publication.
+Schema 2 is deterministic classification continuity; schema 1 remains historical
+relationship metadata. Readers never migrate either policy or saved output.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
-from pathlib import Path
 
-from .motion_guidance import ORGANIZATION_CONTRACT
-from .profile_artifacts import validate_motion_groups
+from .profile_artifacts import validate_motion_groups, MOTION_CONTINUITY_EXPLANATION
 
 ARTIFACT = "recordprep-motion-groups"
 PATH = "artifacts/motion_groups.json"
-ROLES = {"motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"}
+ORGANIZATION_CONTRACT = "recordprep-motion-organization-2"
+CONTINUITY_NOTE = MOTION_CONTINUITY_EXPLANATION
 
 
 def digest(value):
@@ -27,7 +25,7 @@ def text(value, fallback="", limit=1024):
                             and all(c.isprintable() for c in value)) else fallback
 
 
-def inventory_from_boundaries(rows):
+def inventory_from_boundaries(rows, *, allow_unnamed=False):
     result, seen = [], set()
     for row in rows:
         if not isinstance(row, dict):
@@ -37,10 +35,15 @@ def inventory_from_boundaries(rows):
         except (KeyError, TypeError, ValueError):
             raise ValueError("Invalid physical motion range; prior output preserved.") from None
         identifier = f"motion:{start:04d}"
+        for key in ("motion_name", "motion_date", "naming_rule_id"):
+            raw = row.get(key, "")
+            if not isinstance(raw, str) or len(raw) > 1024 or not all(c.isprintable() for c in raw):
+                raise ValueError("Invalid physical motion metadata; prior output preserved.")
         title = text(row.get("motion_name"))
         basis = row.get("motion_date_basis", "unknown")
-        if (start < 1 or end < start or not title or identifier in seen
-                or not isinstance(basis, str) or basis not in {"filed", "document", "unknown"}):
+        if (start < 1 or end < start or (not title and not allow_unnamed) or identifier in seen
+                or not isinstance(basis, str) or basis not in {"filed", "document", "unknown"}
+                or ("motion_id" in row and row["motion_id"] != identifier)):
             raise ValueError("Invalid/overlapping physical motion inventory; prior output preserved.")
         seen.add(identifier)
         result.append({"paper_id": identifier, "start_page": start, "end_page": end,
@@ -52,13 +55,22 @@ def inventory_from_boundaries(rows):
     return result
 
 
+def boundaries_from_inventory(inventory):
+    return [{"start_page": f"{p['start_page']:04d}", "end_page": f"{p['end_page']:04d}",
+             "motion_id": p["paper_id"], "motion_name": p["source_title"], "motion_date": p["date"],
+             "motion_date_basis": p["date_basis"],
+             "motion_label": f"{p['date']} - {p['source_title']}" if p["date"] else p["source_title"],
+             **({"naming_rule_id": p["naming_rule_id"]} if p["naming_rule_id"] else {})} for p in inventory]
+
+
 def source_fingerprint(root, inventory):
-    # Safe reads reject links, special files, missing pages and changed inventories.
     from .case_name_stage import _read
     hashes = {}
     for paper in inventory:
         for page in range(paper["start_page"], paper["end_page"] + 1):
             name = f"text_pages/{page:04d}.txt"
+            if name in hashes:
+                raise ValueError("Duplicate motion source membership; prior output preserved.")
             hashes[name] = hashlib.sha256(_read(root / name, 16 * 1024 * 1024)).hexdigest()
     return digest({"inventory": inventory, "sources": hashes}), hashes
 
@@ -74,106 +86,20 @@ def singleton(paper, note="Not linked to a lead paper; retained as a standalone 
             "relationship_to": "", "relationship_notes": note}
 
 
-def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
-    """Reject contradictory proposals locally, never discard selected papers.
-
-    All proposals sharing a duplicate assignment are rejected, not first-wins.
-    Relationship evidence is reviewable prose, not an evidence-matching gate.
-    """
+def canonical_packets(inventory, packets, findings, input_sha256, *, inputs=None):
     by_id = {p["paper_id"]: p for p in inventory}
-    findings, proposals, counts = [], [], {}
-    good_output = isinstance(candidate, dict) and isinstance(candidate.get("groups"), list)
-    # Review coverage is independent of advisory prose and unresolved relationships.
-    # Only rejected membership work or automatic fallback makes accounting incomplete.
-    coverage_problem = not good_output
-    raw = candidate["groups"] if good_output else []
-    if not good_output and inventory:
-        findings.append("Successful agent returned no usable grouping candidate; singleton coverage is incomplete.")
-    for index, value in enumerate(raw, 1):
-        members = value.get("member_paper_ids") if isinstance(value, dict) else None
-        lead = value.get("lead_paper_id") if isinstance(value, dict) else None
-        problems = []
-        if not isinstance(value, dict):
-            problems.append("group must be an object")
-        if not isinstance(members, list) or not members:
-            problems.append("member_paper_ids must be a nonempty list")
-        elif any(not isinstance(m, str) for m in members):
-            problems.append("member_paper_ids contains a non-string ID")
-        else:
-            if len(members) != len(set(members)):
-                problems.append("member_paper_ids contains duplicate IDs")
-            if any(m not in by_id for m in members):
-                problems.append("member_paper_ids contains unknown inventory IDs")
-        if not isinstance(lead, str) or lead not in by_id:
-            problems.append("lead_paper_id must identify an inventory paper")
-        elif not isinstance(members, list) or lead not in members:
-            problems.append("lead_paper_id is not a member")
-        if problems:
-            coverage_problem = True
-            findings.append(f"Group proposal {index} rejected: {'; '.join(problems)}. Affected papers remain standalone.")
-            # Known IDs in malformed proposals also participate in duplicate checks.
-            for m in members if isinstance(members, list) else []:
-                if isinstance(m, str) and m in by_id:
-                    counts[m] = counts.get(m, 0) + 1
-            continue
-        proposals.append(value)
-        for member in members:
-            counts[member] = counts.get(member, 0) + 1
-    groups, assigned = [], set()
-    for proposal in proposals:
-        members = proposal["member_paper_ids"]
-        if any(counts[m] != 1 for m in members):
-            coverage_problem = True
-            findings.append("Duplicate membership proposals rejected; affected papers remain standalone.")
-            continue
-        lead = by_id[proposal["lead_paper_id"]]
-        group = singleton(lead, "")
-        filing_role = text(proposal.get("filing_role"))
-        if filing_role not in ROLES:
-            filing_role = "unresolved supporting paper"
-            findings.append(f"Group {lead['paper_id']}: missing or invalid filing_role; membership retained with unresolved role.")
-        ordered = sorted(members, key=lambda m: by_id[m]["start_page"])
-        roles = {}
-        for component in proposal.get("components", []) if isinstance(proposal.get("components"), list) else []:
-            if isinstance(component, dict) and component.get("paper_id") in ordered:
-                roles[component["paper_id"]] = text(component.get("role"), "support", 160)
-        group.update(member_paper_ids=ordered, filing_role=filing_role,
-                     components=[{"paper_id": m, "role": roles.get(m, "lead" if m == lead["paper_id"] else "support"),
-                                  "start_page": by_id[m]["start_page"], "end_page": by_id[m]["end_page"]} for m in ordered],
-                     display_title=lead["source_title"],
-                     filing_party=text(proposal.get("filing_party")), purpose=text(proposal.get("purpose")),
-                     relationship_notes=text(proposal.get("relationship_notes"), text(proposal.get("evidence"))),
-                     relationship_to=text(proposal.get("relationship_to")))
-        # The lead's recorded date owns the entry; recover only an unknown lead date.
-        basis = proposal.get("date_basis")
-        if isinstance(basis, str) and basis in {"filed", "document"} and not lead["date"]:
-            from .document_naming import _date_value
-            candidate_date = proposal.get("date")
-            recovered = _date_value(candidate_date) if isinstance(candidate_date, str) else None
-            if recovered:
-                group.update(date=recovered, date_basis=basis)
-            else:
-                findings.append("Optional date recovery unavailable; original lead date and basis retained.")
+    groups = []
+    for members in packets:
+        lead = by_id[members[0]]
+        group = singleton(lead, CONTINUITY_NOTE)
+        group.update(filing_role="motion packet", member_paper_ids=list(members),
+                     components=[{"paper_id": m, "role": "lead" if i == 0 else "continuation",
+                                  "start_page": by_id[m]["start_page"], "end_page": by_id[m]["end_page"]}
+                                 for i, m in enumerate(members)])
         groups.append(group)
-        assigned.update(ordered)
-    for paper in inventory:
-        if paper["paper_id"] not in assigned:
-            coverage_problem = True
-            groups.append(singleton(paper))
-            findings.append("Unassigned or unresolved physical paper retained as a standalone entry.")
-    group_ids = {g["group_id"] for g in groups}
-    for group in groups:
-        if group["relationship_to"] and (group["relationship_to"] not in group_ids or group["relationship_to"] == group["group_id"]):
-            group["relationship_to"] = ""
-            findings.append("Unresolved relationship reference omitted; source paper retained.")
-    if isinstance(candidate, dict) and isinstance(candidate.get("findings"), list):
-        findings.extend(text(f) for f in candidate["findings"] if text(f))
-    result = {"artifact": ARTIFACT, "schema_version": 1, "organization_contract": ORGANIZATION_CONTRACT,
-              "inventory": copy.deepcopy(inventory), "input_sha256": input_sha256,
-              "inputs": inputs or {}, "groups": sorted(groups, key=lambda g: g["anchor_page"]),
-              "findings": list(dict.fromkeys(findings)),
-              "coverage_status": "complete" if (not inventory or (good_output and not coverage_problem
-                  and assigned == set(by_id) and candidate.get("coverage_status") == "complete")) else "incomplete"}
+    result = {"artifact": ARTIFACT, "schema_version": 2, "organization_contract": ORGANIZATION_CONTRACT,
+              "inventory": inventory, "input_sha256": input_sha256, "inputs": inputs or {},
+              "groups": groups, "findings": findings, "coverage_status": "complete"}
     validate_motion_groups(result)
     return result
 
@@ -195,31 +121,58 @@ def load(root):
     return value
 
 
-def current_groups(root, boundaries, *, verify_classification=True):
-    """Missing/stale is legacy singleton mode; corrupt canonical data raises.
+def resolve_context(root, boundaries=None, *, verify_classification=True):
+    """Return inventory, groups, warning, and current saved artifact (or None).
 
-    Membership must match both saved physical boundaries and resolved selection.
-    Does not consult model/profile settings or rewrite anything.
+    Without saved boundaries this resolves classification selection for TOC/boundary
+    rebuilding. With boundaries, a current v2 selection must match exactly: consumers
+    may not silently lose unnamed components. Stale/missing grouping uses named-only
+    singleton compatibility, never unnamed singleton fabrication.
     """
-    inventory = inventory_from_boundaries(boundaries)
+    from .motion_organization import selected_inventory, MotionPreparationUnavailable
     value = load(root)
-    if value is None:
-        return [singleton(p) for p in inventory], "Grouping unavailable; using physical entries. Run Organize motion papers to adopt grouped entries."
-    fingerprint, _ = source_fingerprint(root, inventory)
-    stale = value["inventory"] != inventory or value["input_sha256"] != fingerprint
+    continuous = value is not None and value["schema_version"] == 2
+    selected = None
+    classification = None
     if verify_classification:
-        from .motion_organization import selected_inventory, MotionPreparationUnavailable
         try:
-            selected, _ = selected_inventory(root)
+            selected, classification = selected_inventory(root, continuous=continuous)
         except MotionPreparationUnavailable:
-            # Historical preparation absence allows singleton compatibility.
-            # Corrupt/unreadable present classification remains a genuine failure.
+            pass
+    if selected is None and boundaries is None:
+        raise MotionPreparationUnavailable("Motion preparation unavailable; run final classification and naming.")
+    fallback_boundaries = boundaries if continuous else [b for b in (boundaries or [])
+        if text(b.get("motion_name")) and b.get("naming_status") != "unresolved"]
+    candidate = selected if selected is not None else inventory_from_boundaries(fallback_boundaries, allow_unnamed=continuous)
+    stale = value is None or (verify_classification and selected is None)
+    if value is not None:
+        fingerprint, _ = source_fingerprint(root, candidate)
+        stale |= candidate != value["inventory"] or fingerprint != value["input_sha256"]
+        if continuous and verify_classification:
+            stale |= classification != value["inputs"].get("classification")
+    if not stale:
+        if boundaries is not None and inventory_from_boundaries(boundaries, allow_unnamed=continuous) != candidate:
+            if continuous:
+                raise ValueError("Motion boundaries do not match the current motion packet inventory. Run Find boundaries → Filter boundary entries before summaries or source map.")
             stale = True
         else:
-            stale |= selected != inventory
-    if stale:
-        return [singleton(p) for p in inventory], "Grouping is stale; using current physical entries. Rerun Organize motion papers."
-    return value["groups"], ""
+            return candidate, value["groups"], "", value
+    # Preserve historical saved-boundary behavior, but exclude unnamed standalone fragments.
+    if boundaries is not None:
+        named = [b for b in boundaries if text(b.get("motion_name")) and b.get("naming_status") != "unresolved"]
+        inventory = inventory_from_boundaries(named)
+    elif continuous:
+        inventory, _ = selected_inventory(root, continuous=False)
+    else:
+        inventory = candidate
+    warning = ("Grouping unavailable; using named physical entries. Run Organize motion papers to adopt packets."
+               if value is None else "Grouping is stale; using named physical entries. Rerun Organize motion papers.")
+    return inventory, [singleton(p) for p in inventory], warning, None
+
+
+def current_groups(root, boundaries, *, verify_classification=True):
+    _, groups, warning, _ = resolve_context(root, boundaries, verify_classification=verify_classification)
+    return groups, warning
 
 
 def count_text(count, singular, plural=None):
@@ -229,12 +182,16 @@ def count_text(count, singular, plural=None):
 def review_text(value):
     validate_motion_groups(value)
     papers = {p["paper_id"]: p for p in value["inventory"]}
-    lines = ["Motion grouping", f"Review coverage: {value['coverage_status']}",
+    continuous = value["schema_version"] == 2
+    lines = ["Motion grouping", ("Selected-inventory accounting: " if continuous else "Review coverage: ") + value['coverage_status'],
              f"{count_text(len(value['groups']), 'entry', 'entries')} / {count_text(len(papers), 'physical paper')}", ""]
+    if continuous:
+        lines.extend([CONTINUITY_NOTE, "Complete accounts for selected components only; it is not legal relationship review or inclusion of every motion fragment.", ""])
     for group in value["groups"]:
         lines.append(group["display_title"])
         lines.append(f"  {group['filing_role']}; lead source page {group['anchor_page']}; {group['group_id']}")
-        lines.append("  Filing party: " + (group["filing_party"] or "Unknown"))
+        if not continuous:
+            lines.append("  Filing party: " + (group["filing_party"] or "Unknown"))
         lines.append(f"  Date: {group['date'] or 'Unknown'} ({group['date_basis']})")
         if group["purpose"]:
             lines.append("  Purpose: " + group["purpose"])
@@ -242,9 +199,9 @@ def review_text(value):
         roles = {part["paper_id"]: part["role"] for part in group["components"]}
         for member in group["member_paper_ids"]:
             paper = papers[member]
-            lines.append(f"    {roles[member]}: {paper['source_title']} — source pages {paper['start_page']}–{paper['end_page']}")
+            lines.append(f"    {roles[member]}: {paper['source_title'] or 'Unnamed motion paper'} — source pages {paper['start_page']}–{paper['end_page']}")
         if group["relationship_notes"]:
-            lines.append("  Relationship explanation: " + group["relationship_notes"])
+            lines.append(("  Grouping explanation: " if continuous else "  Relationship explanation: ") + group["relationship_notes"])
         if group["relationship_to"]:
             lines.append("  Related entry: " + group["relationship_to"])
         lines.append("")

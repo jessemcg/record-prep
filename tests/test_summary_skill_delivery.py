@@ -45,8 +45,6 @@ class SummarySkillDeliveryTests(unittest.TestCase):
         minute_plans = []
         for profile in (None, bundle()):
             for task, _label in SUMMARY_TASKS:
-                if task == 'motion-organization':
-                    continue  # Native stage, covered separately by organization guard/SDK tests.
                 with self.subTest(profile=profile is not None, task=task), tempfile.TemporaryDirectory() as temporary:
                     base = Path(temporary)
                     root, project = fixture(base, 1)
@@ -111,8 +109,10 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                             from recordprep.motion_guidance import application_guidance
                             self.assertIn(application_guidance(phase), message)
                             self.assertIn('Exclude hearing dates/times/departments', message)
-                            self.assertIn('Separate opposition example', message)
-                            self.assertIn('Separate reply example', message)
+                            self.assertIn('Opposition position within the supplied entry', message)
+                            self.assertIn('do not re-segment', message)
+                            self.assertIn('opposing positions', message)
+                            self.assertIn('Reply position within the supplied entry', message)
                             self.assertNotIn('only when needed to distinguish', message)
                         observed.append(child.workspace)
                         # No synthetic candidate is published; the runner must clean staging.

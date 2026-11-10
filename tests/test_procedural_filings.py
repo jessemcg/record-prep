@@ -6,9 +6,8 @@ import unittest
 from recordprep import practice_profiles as api
 from recordprep.classification_profiles import classifier_prompt, component
 from recordprep.document_naming import compile_motion_naming
-from recordprep.motion_guidance import ORGANIZATION_GUIDANCE
-from recordprep.motion_pages import build_motion_boundaries
-from recordprep.motion_groups import inventory_from_boundaries, normalize_candidate
+from recordprep.motion_pages import build_motion_boundaries, continuous_selection
+from recordprep.motion_groups import inventory_from_boundaries, canonical_packets
 from recordprep.recognition_contract import load_recognition, RecognitionContract
 from recordprep.profile_editor_ui import CLASSIFICATION_PAGES, CLASSIFICATION_EXPLANATION
 
@@ -34,7 +33,6 @@ class ProceduralFilingTests(unittest.TestCase):
         self.assertIn('Standardized request forms use this same check', classifier_prompt(None, 'first_motion')[0])
         naming = compile_motion_naming(None).prompt
         self.assertIn('Standardized forms, custom-written and handwritten requests are equally eligible', naming)
-        self.assertIn('Standardized substantive requests classified as motion papers are eligible lead requests', ORGANIZATION_GUIDANCE)
         self.assertIn(('form-naming', 'Procedural Filing Names', 'Names'), CLASSIFICATION_PAGES)
         self.assertIn('procedural filings', CLASSIFICATION_EXPLANATION)
 
@@ -66,11 +64,8 @@ class ProceduralFilingTests(unittest.TestCase):
                 inventory = inventory_from_boundaries(build_motion_boundaries(rows, -1))
                 self.assertEqual([(p['start_page'], p['end_page']) for p in inventory], [(1, 2), (3, 3)])
                 self.assertEqual(inventory[0]['source_title'], title)
-                proposal = {'lead_paper_id': 'motion:0001',
-                    'member_paper_ids': ['motion:0001', 'motion:0003'],
-                    'filing_role': 'motion/application', 'display_title': title,
-                    'evidence': 'Synthetic request expressly references the attached supporting declaration.'}
-                saved = normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
+                _, packets, findings = continuous_selection(rows)
+                saved = canonical_packets(inventory, packets, findings, 'a' * 64)
                 self.assertEqual(len(saved['groups']), 1)
                 self.assertEqual(saved['groups'][0]['member_paper_ids'], ['motion:0001', 'motion:0003'])
                 self.assertEqual(saved['inventory'], inventory)

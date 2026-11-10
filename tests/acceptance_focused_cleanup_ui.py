@@ -123,7 +123,8 @@ inventory = mg.inventory_from_boundaries(physical)
 proposal = {'lead_paper_id': 'motion:0005', 'member_paper_ids': [p['paper_id'] for p in inventory],
             'filing_role': 'motion/application', 'display_title': 'Motion to compel inspection',
             'filing_party': 'Applicant Vale', 'relationship_notes': 'The papers expressly support the same inspection request.'}
-value = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete',
+from motion_fixtures import historical_artifact
+value = historical_artifact({'groups': [proposal], 'coverage_status': 'complete',
     'findings': ['<b>Fictional advisory note; literal text, not markup.</b>']}, inventory, 'a' * 64)
 value['coverage_status'] = 'incomplete'  # Historical review is displayed as saved.
 (bundle / mg.PATH).write_text(json.dumps(value))

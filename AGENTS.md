@@ -184,20 +184,28 @@ case overview → deterministic source map. See `docs/workflow.md`.
   recovery, no silent fallback. Retain useful safe candidates after abnormal exit, not
   full sessions. Review unresolved first, plain text only, read-only counts/no apply.
   See `docs/classification-agent-correction.md` and `docs/classification-review.md`.
-- Motion flow: immutable physical inventory → restricted candidate → independent Python
-  normalization → locked guarded atomic grouping → existing consumers. Lead ID/anchor,
-  exact member spans (even preceding/nonadjacent support), separate motion/opposition/
-  reply. Default continuous supporting paperwork to the lead when request/party/position
-  agree; independent filings and non-motion categories end the packet. Nonadjacent support
-  requires express linkage; never mechanically merge CT_motion runs. Ambiguous support stays
-  singleton. Use the lead inventory title and known date; recover only unknown lead dates.
-  Invalid optional roles retain membership with an unresolved-role finding. Membership
-  rejection diagnostics identify the field/reason without raw model values. Optional model
-  metadata is advisory, not a coverage/quality gate. Stale grouping warns/singletons;
-  corrupt stores and Stop/source/model/race/publication failures preserve prior output.
-  Resume skips historical missing preparation honestly; explicit work hashes resources.
-  Source-map physical documents/counts remain physical; groups/aliases are reader context.
-  See `docs/motions-workflow.md`, `docs/application-motion-naming.md`.
+- Motion organization is zero-model Python: final classification → pure continuous
+  selection → canonical schema2 / organization-contract2 packets → locked guarded atomic
+  publication. From an explicit named lead include every adjacent CT_motion/first-page
+  page until another classification or numerical gap, regardless of later names, parties,
+  dates, opposition/reply or independent requests. Every explicit start remains a physical
+  component; empty-title internal components stay included. Omit leading fragments/unnamed
+  starts with page/count findings, never borrow a later title or bridge interruptions.
+  First component owns ID/anchor/title/date/basis; unknown dates stay unknown. Neutral
+  motion packet role, lead/continuation roles, empty inferred relationship metadata.
+  Complete means selected-inventory accounting, not legal review or all-fragment coverage.
+  Shared validator preserves schema1 nonadjacent/pre-lead membership, historical names,
+  dates and Review coverage wording. No loading-time migration. One contract-aware resolver
+  serves TOC, boundaries/filter, summaries and maps. Current schema2 boundary mismatch blocks
+  summaries/maps with rebuild instructions; stale/missing groups warn/named-only singletons.
+  Explicit Find boundaries retains unnamed packet components; grouping never writes spans.
+  One summary section per packet explains all requests/reasons with party attribution and
+  opposing positions; never infer substantive support from continuity or re-segment packets.
+  Safe reads, Stop/selection/source/prior/resource/race guards preserve prior output. No Pi
+  preflight, skill staging, prompt picker or metrics for organization. Resume/badges remain
+  presence-based; explicit adoption requires organization → TOC → boundaries/filter → motion
+  summaries → editions/dependent overview/map. Source-map documents/counts stay physical;
+  logical entry count is separate. See `docs/motions-workflow.md` and ownership docs.
 - TOC correction retains first known minute date, never collapses unknown dates. Actual
   ranges/inputs still govern explicit work; narrowly reviewed compatibility may reuse
   unchanged participant work after boundary rebuilding, never metadata repair.

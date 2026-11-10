@@ -1,6 +1,6 @@
 # Application-owned motion naming
 
-Current writers use schema 14 / API 1 (Dependency 1.17.0 / Criminal 1.0.0).
+Current writers use schema 14 / API 1 (Dependency 1.19.0 / Criminal 1.1.0).
 [Hearing topics](application-hearing-topics.md) are fixed too; Report Names,
 Form Names and Report digest topics remain profile-owned. The schema-13 transition
 and dated validation below are historical evidence, not a description of current writers.
@@ -29,8 +29,13 @@ Explicit Create/Save/Reset now produces schema 14 through the existing guarded w
 Opening settings does not rewrite any accepted snapshot. The legacy report/form
 customization adapter retains the current envelope rather than downgrading it.
 The byte-identical profile contract in Focus accepts the new format without adding
-research instructions or profile management. Its historical artifact contract is
-unchanged. Publish the compatible consumer first if publication is authorized.
+research instructions or profile management. The later grouping schema-2 extension
+accepts unnamed internal components and enforces deterministic classification continuity;
+schema-1 artifact semantics remain intact. Organization now uses Python without model
+settings or prompts; Request/Reasons extraction and synthesis still use the shared model.
+See [motion workflow](motions-workflow.md) for selection, historical compatibility and
+explicit boundary/summary adoption. Publish the compatible consumer first only if
+publication is separately authorized.
 
 ## Adoption
 

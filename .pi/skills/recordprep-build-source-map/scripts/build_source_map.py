@@ -314,7 +314,13 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
     )
     documents: list[dict[str, Any]] = []
     for doc_type, file_name in specifications:
-        for index, item in enumerate(read_json_list(root / "artifacts" / file_name), start=1):
+        entries = read_json_list(root / "artifacts" / file_name)
+        if doc_type == "motion" and (root / "artifacts" / file_name).is_file():
+            from recordprep.motion_groups import resolve_context
+            inventory, _, _, _ = resolve_context(root, entries)
+            selected_ids = {p["paper_id"] for p in inventory}
+            entries = [item for item in entries if f"motion:{page_number(item.get('start_page')):04d}" in selected_ids]
+        for index, item in enumerate(entries, start=1):
             start = page_number(item.get("start_page"))
             end = page_number(item.get("end_page"))
             start_page = pages_by_number.get(start, {})
@@ -323,7 +329,7 @@ def boundary_documents(root: Path, pages_by_number: dict[int, dict[str, Any]]) -
             report_id = str(item.get("report_id") or "").strip()
             label = str(
                 item.get("motion_label") or item.get("motion_name") or item.get("report_label") or item.get("report_name") or date
-                or f"{doc_type.replace('_', ' ').title()} {index}"
+                or ("Unnamed motion paper" if doc_type == "motion" else f"{doc_type.replace('_', ' ').title()} {index}")
             ).strip()
             doc_id = str(item.get("id") or item.get("motion_id") or report_id or (f"motion:{start:04d}" if doc_type == "motion" else f"{doc_type}:{index:04d}"))
             documents.append({
@@ -527,6 +533,8 @@ def build_source_map(root: Path, *, preparation: dict | None = None,
     if saved_groups is not None:
         boundary_path = root / "artifacts/motion_boundaries.json"
         if not boundary_path.is_file():
+            if saved_groups["schema_version"] == 2:
+                raise ValueError("Motion packet boundaries are missing. Run Find boundaries → Filter boundary entries before source map.")
             warnings.append("Motion grouping has no saved physical boundaries; rerun Find boundaries.")
         else:
             selected_groups, grouping_warning = current_groups(root, json.loads(boundary_path.read_text(encoding="utf-8")))

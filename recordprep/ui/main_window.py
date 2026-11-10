@@ -58,7 +58,6 @@ from recordprep.classifier_prompts import classifier_document
 from recordprep.report_pages import REPORT_TYPES, REPORT_FIRST_FIELD, report_detection_mode, report_check_signature, report_ranges
 from recordprep.motion_pages import MOTION_TYPES, MOTION_FIRST_FIELD, motion_detection_mode, motion_check_signature, motion_ranges
 from recordprep.document_naming import compile_motion_naming
-from recordprep.motion_pages import build_motion_boundaries
 from recordprep.pi_bundle import (
     PARTICIPANT_TEMPLATE_WARNING,
     pi_step_complete,
@@ -4058,7 +4057,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_motion_organization_row = Adw.ActionRow(
             title="Organize motion papers",
-            subtitle="Group each filing with its own supporting papers and name the request.",
+            subtitle="Group continuous motion-classified pages from a named lead; no model calls.",
         )
         self.step_motion_organization_row.set_activatable(False)
         grouping_button = Gtk.Button(label="View grouping", valign=Gtk.Align.CENTER)
@@ -7872,8 +7871,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     )
             from recordprep.motion_pages import motion_preparation_available
             if motion_preparation_available(root_dir, basic_entries):
-                from recordprep.motion_groups import current_groups
-                groups, grouping_warning = current_groups(root_dir, build_motion_boundaries(basic_entries, split_page))
+                from recordprep.motion_groups import resolve_context
+                _, groups, grouping_warning, _ = resolve_context(root_dir)
                 motion_lines = [_format_toc_line(_format_report_label(g["display_title"], _summary_agents.format_label_date(g["date"])),
                                                f"{g['anchor_page']:04d}") for g in groups]
                 if grouping_warning:
@@ -8057,7 +8056,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             minutes_boundaries: list[dict[str, str]] = []
             from recordprep.motion_pages import motion_preparation_available
             motion_ready = motion_preparation_available(root_dir, payload_entries)
-            motion_boundaries = build_motion_boundaries(payload_entries, split_page) if motion_ready else []
+            from recordprep.motion_groups import output_fingerprint
+            boundary_grouping_sha256 = output_fingerprint(root_dir)
+            motion_boundaries = []
+            if motion_ready:
+                from recordprep.motion_groups import resolve_context, boundaries_from_inventory
+                motion_inventory, _, grouping_warning, _ = resolve_context(root_dir)
+                motion_boundaries = boundaries_from_inventory(motion_inventory)
+                if grouping_warning:
+                    GLib.idle_add(self.show_toast, grouping_warning)
             entries: list[tuple[str, str, int]] = []
             for entry in payload_entries:
                 file_name = _extract_entry_value(entry, "file_name", "filename")
@@ -8178,7 +8185,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "hearing_boundaries.json": hearing_boundaries, "report_boundaries.json": report_boundaries,
                 "minutes_boundaries.json": filtered_minutes,
                 **({"motion_boundaries.json": motion_boundaries} if motion_ready else {}),
-            })
+            }, grouping_sha256=boundary_grouping_sha256)
             total_boundaries = (
                 len(hearing_boundaries)
                 + len(report_boundaries)
@@ -8244,6 +8251,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             report_entries = _load_json_entries(report_path)
             motion_path = derived_dir / "motion_boundaries.json"
             motion_entries = _load_json_entries(motion_path) if motion_path.is_file() else None
+            from recordprep.motion_groups import output_fingerprint
+            boundary_grouping_sha256 = output_fingerprint(root_dir)
             if not hearing_entries and not report_entries and not motion_entries:
                 GLib.idle_add(
                     self.show_toast,
@@ -8272,8 +8281,17 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     report_removed += 1
                     continue
                 filtered_reports.append(entry)
+            retained_ids = set()
+            if motion_entries is not None:
+                from recordprep.motion_groups import resolve_context
+                inventory, _, warning, current = resolve_context(root_dir, motion_entries)
+                if current is not None and current["schema_version"] == 2:
+                    retained_ids = {p["paper_id"] for p in inventory}
+                if warning:
+                    GLib.idle_add(self.show_toast, warning)
             motion_payload = ({"motion_boundaries.json": [row for row in motion_entries
-                               if str(row.get("motion_name") or "").strip() and row.get("naming_status") != "unresolved"]}
+                               if row.get("motion_id") in retained_ids or
+                               (str(row.get("motion_name") or "").strip() and row.get("naming_status") != "unresolved")]}
                               if motion_entries is not None else {})
             motion_removed = (len(motion_entries) - len(motion_payload["motion_boundaries.json"])
                               if motion_entries is not None else 0)
@@ -8281,7 +8299,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
                 "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
                 **motion_payload,
-            })
+            }, grouping_sha256=boundary_grouping_sha256)
             removed = hearing_removed + report_removed + motion_removed
         except StopRequested:
             success = None
@@ -8333,7 +8351,34 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         )
 
     def _run_step_motion_organization(self) -> bool:
-        return self._run_pi_skill_step("organize_motion_papers", self.step_motion_organization_row)
+        """Ordinary Python step: deliberately independent of Pi and VTE."""
+        success = False
+        try:
+            self._raise_if_stop_requested()
+            root = self._resolve_case_root()
+            if root is None:
+                raise ValueError("Choose PDF files or select a saved case first.")
+            selected = tuple(self.selected_pdfs)
+
+            def check_stop():
+                self._raise_if_stop_requested()
+                if self._resolve_case_root() != root or tuple(self.selected_pdfs) != selected:
+                    raise ValueError("Case selection changed; prior grouping preserved.")
+
+            from recordprep.motion_organization import run_stage
+            run_stage(root, check_stop=check_stop,
+                      log=lambda message: GLib.idle_add(self.show_toast, message, "INFO"))
+            success = True
+        except StopRequested:
+            success = None
+        except Exception as exc:
+            GLib.idle_add(self.show_toast, f"Organize motion papers failed: {exc}")
+        finally:
+            GLib.idle_add(self.step_motion_organization_row.set_sensitive, True)
+            GLib.idle_add(self._finish_step, self.step_motion_organization_row, success)
+            GLib.idle_add(self._stop_status_if_idle)
+            GLib.idle_add(self._stop_button_if_idle)
+        return success is True
 
     def _show_motion_grouping(self, _button) -> None:
         root = self._resolve_case_root()
@@ -8350,7 +8395,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             try:
                 from recordprep.motion_organization import selected_inventory
                 from recordprep.motion_groups import source_fingerprint
-                inventory, _ = selected_inventory(root)
+                inventory, _ = selected_inventory(root, continuous=value["schema_version"] == 2)
                 fingerprint, _ = source_fingerprint(root, inventory)
                 if value["inventory"] != inventory or value["input_sha256"] != fingerprint:
                     contents = "Saved grouping is stale. Current work uses physical singletons until you explicitly organize again.\n\n" + contents

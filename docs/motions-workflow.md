@@ -1,187 +1,141 @@
 # Motion papers and logical entries
 
-See [application-owned motion naming](application-motion-naming.md) for ownership,
-adoption and validation details. Report/form naming remains profile-owned.
+Motion recognition, naming and Request/Reasons summaries are application-owned;
+report/form naming and report topics remain profile-owned. Profile content schema
+14 / API 1, bundled Dependency 1.19.0 and Criminal 1.1.0 are unchanged by this work.
+See [application-owned naming](application-motion-naming.md) and
+[procedural filings](procedural-filings.md). No taxonomy or profile migration occurs.
 
-Dependency **1.19.0**, content schema **14**, retains `profile_api: 1`.
-The subsequent [hearing-topic ownership](application-hearing-topics.md) change
-also removes hearing topics from profile instructions; report topics stay profile-owned.
-Motion naming/eligibility, exclusions, organization and summaries are application-owned
-for assigned, historical, custom and unassigned work. Fixed rules preserve physical
-source titles and dates, include standardized substantive requests, and exclude
-neutral reports. Report Names and Procedural Filing Names remain profile-owned.
-New profiles omit both `motion_naming` and `motions`; Profile settings has no Motion
-Names editor. All new motion digests use the application's **Request** (`request`)
-and **Reasons** (`reasons`) method.
-Schemas 1–13 and naming formats 1–5 remain readable. Opening settings never migrates
-private profiles or bundles. Only explicit Create/Save/Reset publishes schema 14.
-Historical motion naming catalogs, topics and configuration prose stay at rest but supply no current
-instructions, prompt inspection text or generation fingerprints. Report topics and the fixed minute method are unchanged by motion ownership.
+## Deterministic classification continuity (grouping schema 2)
 
-## Physical recognition stays separate
+**Organize motion papers** is an ordinary Python step after final classification
+and before Build TOC. It needs no Pi executable, model, credentials, skill, VTE
+terminal or provider call. The old runner command dispatches to the same Python
+publisher before model/resource preflight. There is no candidate workspace or repair
+pass. View grouping is a read-only plain-text account of saved entries and components.
 
-Basic recognizes motions/applications, oppositions, replies, supplemental briefs,
-points and authorities and separately titled supporting declarations. Standardized
-requests for substantive relief or status/participation rights within an existing
-proceeding are motion papers. Initiating pleadings and non-motion procedural filings
-remain outside motions. See [Procedural filings](procedural-filings.md). Standalone notices, service proofs,
-court rulings/minute orders, neutral agency/court reports and reproduced exhibits
-keep their classifications. Advocacy can qualify regardless of author; agency
-authorship alone does not establish advocacy.
+Starting at an explicitly detected, named motion start, include **every following
+adjacent motion-classified page** until another classification or missing numerical
+page interrupts the run. Both `CT_motion` and `CT_motion_first_page` belong to the
+run. A later motion, opposition, reply, different party, date or title does not split
+it. A later unnamed first-page marker starts an internal component and remains included
+without naming/model calls. No inferred legal relationship can override continuity.
 
-Advanced checks **every** motion page, recording `motion_first_page: yes/no`.
-Names uses explicit starts and source-title eligibility, preserving actual titles,
-amended/supplemental distinctions and filed/document/unknown date basis. A running
-heading, date, counsel, page-number restart or adjacency alone proves neither a new
-paper nor a relationship. Titles retain the existing 1,024-character structural
-limit without truncation; this is not a short-title quota. Unknown eligibility stays
-unnamed; an eligible but unreadable title can use its catalog fallback. Names and
-Dates remain independently usable. Agent classification correction retains its
-existing advisory review and raw-candidate safeguards.
+Each explicit start still defines a physical paper: its own ID, source title (possibly
+empty internally), date/date basis and exact contiguous range remain independent.
+The earliest component supplies the packet's `motion:<start-page>` ID, navigation
+anchor, title and date. Unknown lead dates remain unknown; organization never recovers
+dates from text or borrows a later title. Source files/classifications are not rewritten.
+“Unnamed motion paper” is presentation text only, never an invented source title.
 
-`artifacts/motion_boundaries.json` remains an inventory of **physical**, contiguous
-papers. IDs remain `motion:<source-start-page>` (at least four digits), independent
-of ordinals. Unnamed starts terminate earlier papers; gaps/orphan bodies are never
-silently appended. Individual names, dates, classifications and ranges are not
-rewritten to implement grouping.
+Leading body fragments and unnamed starts before a usable named lead are omitted from
+logical entries, with concise page/count findings. No later title is applied backward.
+Service proofs, reports, exhibits, orders, blank/other classifications and missing
+classifications break the run. Fragments beyond an interruption are never attached
+backward. This fixes grouping, not classification or every legal attachment.
 
-## Organize motion papers
+The pure `motion_pages.continuous_selection` helper validates identities, duplicate
+records and complete first-page checks before returning ordered physical components,
+ordered packet membership and omitted-fragment findings. The final-classification
+family comes from `classification_files.final_paths`, including its interrupted-review
+and incomplete-final safeguards. Historical named-only selection remains explicit and
+separate; loading an old grouping never applies the new selection policy.
 
-The native **Organize motion papers** stage runs after final classification and
-before Build TOC, using the shared Agent model/reasoning and its own canonical
-skill/restricted tool guard. Python supplies the immutable inventory and exact
-staged source files. The agent proposes relationships; Python retains the lead title/date;
-it cannot invent physical IDs/ranges, execute a shell or write canonical outputs.
-**View grouping** is a read-only plain-text review of entries, members and findings.
+`artifacts/motion_groups.json` now writes schema **2**, organization contract
+`recordprep-motion-organization-2`. Every selected component occurs exactly once;
+members have exact adjacent, nonoverlapping ranges; adjacent selected packets cannot
+remain split. The neutral filing role is **motion packet**, with `lead` / `continuation`
+component roles and empty inferred party, purpose and relationship-reference fields.
+The explanation states classification continuity, not a finding of substantive support.
 
-`artifacts/motion_groups.json` schema 1 records the organization contract, inventory,
-source/input fingerprints, model/resource identity, logical groups, findings and
-honest review coverage, independently of advisory notes. For a nonempty inventory,
-complete requires an explicit complete candidate and every paper accepted exactly once,
-without malformed/contradictory membership, duplicate assignments or automatic fallback.
-Reviewed ambiguous singletons and omitted/normalized invalid optional metadata
-may have complete review coverage; that is not semantic certainty.
-Missing or explicitly incomplete candidates remain incomplete. Saved historical statuses
-are displayed as saved, never recalculated on viewing. The review separates components,
-relationship explanations and notes, with entry/physical-paper counts.
+**Selected-inventory accounting: complete** means deterministic accounting for the
+selected inventory only. It is not legal relationship review, semantic certainty, or
+inclusion of every motion-classified fragment. View grouping displays that distinction.
 
-Inventory dates/date bases can originate in image recognition. A text-only organization
-run must not equate an OCR omission with an absent stamp or downgrade known filed-date
-metadata. Genuine conflicting evidence belongs in an attributed advisory note.
+Publication retains the organization lock, root identity, safe reads, Stop checks,
+source/classification/policy/implementation/prior-output guards and unique-temp atomic
+replacement. Only selected source pages enter the source fingerprint; implementation
+resources include selection and shared validation, not model preferences, skill prose,
+profiles or unrelated summary guidance. Unchanged schema-2 results retain bytes/mtime.
+Unsafe paths, missing/unreadable selected pages, corrupt canonical stores, concurrent
+runs, changed inputs, Stop and failed publication preserve prior output. Checked-zero
+selection is zero-call. Unnamed-only motion fragments are reported as fragments, not
+misrepresented as no motion pages.
 
-Each group has the lead's existing ID, a separate lead-page
-navigation anchor, exact ordered components, role, title, source-supported party,
-purpose/date/date basis and optional relationships. Components need not be adjacent
-and support can precede the lead. Never use an enclosing range as source scope.
+## One contract-aware context for consumers
 
-Default to one logical entry for a lead and its continuous supporting declarations,
-separate statements and memoranda. Consistent request, party and position suffice
-without an express cross-reference in every component. A component title, physical
-start or page-number restart does not create a separate TOC entry. Another independent
-filing or a non-motion category ends the packet. Independent motions, oppositions and
-replies remain **separate entries**, even back-to-back; conflicting requests, parties
-or positions override continuity. Non-adjacent support requires express source linkage;
-intervening unselected pages never enter the source scope. This is an agent instruction,
-not a Python merge of every uninterrupted CT_motion run.
+`motion_groups.resolve_context` selects the applicable physical inventory and groups.
+TOC and boundary rebuilding use final classifications plus the saved grouping contract.
+Summaries and source maps additionally require saved physical boundaries to match a
+current schema-2 inventory exactly; mismatch instructs **Find boundaries → Filter
+boundary entries** rather than silently dropping components.
 
-Python uses the lead's inventory source title and known date/date basis, ignoring
-proposed replacement names or dates. Only an unknown lead date may be recovered from
-the lead itself. Supporting names/ranges remain physical inventory, not separate TOC
-entries. Historical saved titles remain as recorded until explicit organization.
+- Build TOC emits one title/date line per packet at its lead anchor, never separate
+  continuation headings.
+- Find boundaries explicitly publishes original physical spans plus included unnamed
+  internal components. Organization itself never overwrites boundaries. Named IDs and
+  ranges remain stable. Filter boundary entries retains validated packet components,
+  while still excluding unresolved standalone papers; report/form filtering is unchanged.
+- Motion extraction uses exactly the members, once per work item, with no duplicate
+  standalone continuation item. Hashes, quotation verification and context preflight
+  follow exact member pages, including historical nonadjacent scopes.
+- Source maps keep physical documents, IDs, ranges and aliases. `counts.motions` is
+  physical; `counts.motion_entries` is logical. Shared validation checks packet aliases,
+  exact page membership and counts against that same inventory. Runtime inputs are
+  omitted from published reader context. Focus only validates descriptive metadata;
+  its research method is unchanged.
 
-Missing/invalid optional filing roles retain valid membership with an unresolved-role
-finding; they no longer reject the whole group. Unknown IDs, non-string IDs, duplicate
-members and invalid/nonmember leads still reject membership with specific numbered
-proposal diagnostics (without echoing raw model values). Duplicate assignments across
-proposals still reject all affected groups. Unlinked/ambiguous papers remain singletons;
-useful independent proposals survive rejected proposals. No mandatory paid repair pass.
+Missing/stale grouping warns and uses historical **named-only** physical singletons,
+without inventing unnamed titles or rewriting grouping. Corrupt grouping fails closed.
 
-The stage uses its own lock, private candidate, Stop handling, guarded source/model/
-resource/selection/prior-output checks and atomic publication. Genuine failures,
-unsafe paths, corrupt canonical stores, races or failed publication preserve prior
-outputs. A successful child with unusable content yields flagged singleton coverage.
-Unchanged current inputs reuse the saved result without a model call; checked zero
-selection publishes an empty result without a model call.
+## Request / Reasons summaries
 
-## Summarization and navigation
+Produce one summary section per supplied packet; never re-segment it. Explain the
+requests and reasons of **all included filings**, keeping party attribution and distinct
+or opposing positions within that section. A continuation is not presumed to support
+the lead. Independent back-to-back requests intentionally can share the first headline.
+Historical schema-1 groups can retain nonadjacent support, including support preceding
+a lead; their exact member scope, not an enclosing interval, governs extraction.
 
-Build TOC uses each current logical title and **lead anchor**, not the lowest member
-page. Extraction reads exactly the selected components, integrating declaration
-evidence into **Request / Reasons**, not an independent supporting-fact inventory.
-The narrative answers **who wants what, and why**, distinguishing allegations,
-arguments and requested relief from actual court findings; it does not infer a
-later ruling or use external legal research. **Both extraction and synthesis** select
-only what the filing party requests or opposes and its reasons. Opposition entries
-explain the opposed request, the result sought instead and the grounds for resisting
-it; replies explain the position maintained or changed and the answer to the objection.
-Substantive scope, conditions, alternatives and consequential qualifications remain.
+Request/Reasons topics, source-exact best-effort quote verification, boilerplate
+exclusions, all-null handling, useful extraction retention and digest-prose fallback
+remain. There is no extra paid repair/review pass. Fixed motion prompts remain inspectable
+for extraction and synthesis; organization has no model prompt and is absent from the
+prompt picker. See [best-effort handling](summary-best-effort.md) and
+[quotation policy](summary-quotation-policy.md).
 
-Digest prose, its quotation bank and final narrative exclude hearing dates/times/
-departments, street/mailing addresses, case/court numbers, incident/tracking identifiers,
-counsel/contact details and caption/notice/service/signature boilerplate. No general
-"needed to distinguish the filing" exception remains. Navigation metadata stays intact
-and Python still supplies headings. Supporting papers explain grounds, not a sequence
-of component accounts or a factual/procedural inventory. A contested timing, notice,
-informal-resolution or sanctions ground is explained as a contention and consequence,
-not a chronology of contacts or compliance recitals. A substantive deadline/duration
-that is itself relief or a disputed ground is not routine hearing-calendar information.
-Quotes anchor relief or reasons for/against it, retaining wording, negation, attribution
-and qualifications. Selection starts in extraction because digest prose is also the
-fallback final summary. Synthesis must not reintroduce excluded particulars from older
-digests, labels or metadata. Fictional motion/opposition/reply examples teach selection,
-not source facts or length limits. See [selection validation](motion-selection-validation.md).
-Motion, opposition and reply are never collapsed into one narrative.
-Quote verification, hashes, overlap checks and
-preflight payloads use exact member pages, excluding unrelated intervening pages.
+New packet metadata extends existing row **4**, Markdown **3**, digest/final meta **6**
+structures with the `motion packet` role and empty-title internal members. Packet-specific
+lead/date/role/continuity invariants apply only to those rows. Historical roles, metadata,
+headings and six-topic readers retain their recorded paths. Member metadata and updated
+guidance fingerprints prevent incompatible digest reuse. Editions retain physical source
+links and lead heading anchors. Existing context-capacity safeguards remain; oversized
+packets fail preflight honestly, never silently split or trigger paid repair calls.
 
-New motion digests use Markdown format **3**, row schema **4**, digest/final metadata
-schema **6**, fixed instruction-free application metadata, and exact member/anchor
-metadata. Historical Markdown 1/2, row 2/3 and metadata remain readable with the
-frozen historical six-topic catalog; old artifacts are never relabeled current.
-Final output remains `summaries/motions_sum_<case>.txt`. Best-effort quote matching,
-all-null handling, useful extraction retention and digest-prose synthesis fallback
-remain authoritative: see [best-effort handling](summary-best-effort.md). There is no
-mandatory repair/review pass or editorial quality gate.
+## Historical records and deliberate adoption
 
-Motion digest/final pairs are staged before replacement and ordinary second-file
-replacement failures roll back the first, preserving prior bytes/mtime. This is not
-a claim of crash-atomic multi-file transactions: canonical hashes detect interrupted
-pairs. Existing Stop/source/store/publication safeguards remain separate from content
-quality. Summary editions retain the fixed Letter layout and add validated heading
-links to lead anchors; quote links still search physical source text.
+Schema **1** / `recordprep-motion-organization-1` retains its saved relationships,
+nonadjacent/pre-lead support, historical names/dates and coverage statuses. View grouping
+keeps the exact **Review coverage** terminology for those records. New maximal-continuity
+rules never validate or migrate schema-1 output. Unknown version/contract pairs fail closed.
 
-Source-map `documents` stay physical. Current grouping adds descriptive aliases,
-per-page logical context, optional `files.motion_groups`, and `counts.motion_entries`;
-`counts.motions` remains the physical paper count. Published grouping omits runtime
-input details. Focus reads the contracts/context without adopting preparation
-instructions, changing research policy or requiring a profile.
+Installing code changes no private settings, profiles, source pages, classifications,
+bundles or outputs. Badges and Resume remain presence-based; historical preparation
+absence is not checked-zero. Existing prepared bundles can skip missing organization
+on Resume with the existing adoption message. Only a successful explicit organization
+publication replaces an older grouping artifact.
 
-## Historical bundles and explicit adoption
+To adopt deliberately:
 
-Missing grouping is supported singleton behavior. Readable stale grouping warns and
-falls back to the current physical singleton inventory without rewriting the saved
-artifact. Corrupt grouping is not silently treated as valid or absent. Badges and
-Resume remain presence-based; changed settings alone do not trigger regeneration.
-Already-prepared legacy bundles without grouping skip organization on automatic
-Resume with an adoption message. Fresh pipelines include the new stage.
+1. Run **Organize motion papers** (no model calls), then **View grouping**.
+2. Rebuild/correct TOC; run **Find boundaries → Filter boundary entries** to retain
+   unnamed internal components in saved physical boundaries.
+3. Explicitly create motion summaries; refresh summary editions, dependent overview as
+   appropriate, and source map.
 
-To adopt deliberately: run **Organize motion papers**, review grouping, then rebuild
-TOC and explicitly create motion summaries. Refresh dependent editions/overview/map
-as needed. No upstream source reset, private migration or automatic paid run occurs.
-Historical missing motion preparation is not zero motions; explicit execution explains
-the prerequisite. Checked-zero motion preparation uses zero organization, extraction
-and synthesis model calls.
-
-For the request-and-reasons selection follow-up, explicitly **Create motion summaries**
-to adopt the new extraction and synthesis instructions. Existing digest fingerprints
-are intentionally not reused as current selection; no saved artifact is cleared,
-rewritten or relabeled by installing the change. No profile reset/save or hearing,
-report, minute, classification or boundary rerun is needed solely for it. Refresh the
-motion edition and dependent overview/source map after new output as appropriate.
-The organization method and membership rules are unchanged; its existing conservative
-resource identity nevertheless hashes the whole `motion_guidance.py` module, so a
-separately requested organization run may re-review rather than reuse its old receipt.
-That does not force organization or alter saved groups, presence badges or Resume.
+Do not rerun OCR, classification, naming, hearing/report/minute summaries or participants
+solely for this change. A classification defect is a separate task. This implementation
+does not authorize regenerating a real bundle or making paid calls.
 
 ## Continuous-packet follow-up validation (2026-11-10)
 
@@ -210,16 +164,12 @@ then rebuild TOC and regenerate motion summaries and dependent editions/overview
 Installing this change never rewrites old groups, physical boundaries or summaries.
 No Focus/shared-schema, launcher, classification or source-text changes are required.
 
-## Validation and publication
+The preceding dated report is historical evidence for the earlier model-driven method,
+not acceptance of schema 2. See [deterministic validation](deterministic-motions-validation.md)
+for this implementation's actual results and limitations.
 
-Use disposable checkouts/environments with isolated HOME/XDG/Pi state, synthetic
-sources and offline/scripted providers. Select each callee with the absolute
-UvEnvironments helper and explicit `--project` / `--environment`. Run RecordPrep's
-full unittest and Focus's full pytest suites, actual SDK skill expansion and guard
-checks, resources/skill/audit/package checks, shared-file parity and GTK acceptance.
-Scripted results establish mechanics, not live editorial/grouping quality. See
-[grouped-motion validation](grouped-motions-validation.md) for actual results.
+## Publication boundary
 
-No dependencies, entry points, launchers, deployed applications, private settings or
-real bundles are changed. If publication is separately authorized, publish compatible
-**Focus before RecordPrep**, in separate commits.
+No dependencies, entry points, application IDs, launchers or XREMAP contracts change.
+Both READMEs remain unchanged. Only if separately authorized, publish compatible **Focus
+before RecordPrep**, in separate commits. Older readers cannot understand schema-2 groups.

@@ -22,8 +22,8 @@ FIXED_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] not in {"re
 NAMING_TASKS = tuple(item for item in CLASSIFICATION_TASKS if item[0] in {"report", "form", "motion"})
 SUMMARY_TASKS = (("hearings-extract", "Hearing digest"), ("hearings-synthesize", "Hearing narrative"),
                  ("reports-extract", "Report digest"), ("reports-synthesize", "Report narrative"),
-                 ("motion-organization", "Organize motion papers"), ("motions-extract", "Motion digest"), ("motions-synthesize", "Motion narrative"), ("minutes", "Minute-order summary"))
-FIXED_SUMMARY_TASKS = {"minutes", "motion-organization", "motions-extract", "motions-synthesize", "hearings-extract", "hearings-synthesize"}
+                 ("motions-extract", "Motion digest"), ("motions-synthesize", "Motion narrative"), ("minutes", "Minute-order summary"))
+FIXED_SUMMARY_TASKS = {"minutes", "motions-extract", "motions-synthesize", "hearings-extract", "hearings-synthesize"}
 TOOLS = {"extract": ("recordprep_get_source", "recordprep_submit_extraction"),
          "synthesize": ("recordprep_get_facts", "recordprep_submit_summary_section", "recordprep_finish_summary", "recordprep_synthesis_scratchpad"),
          "minutes": ("recordprep_get_minute_source", "recordprep_submit_minute_summary")}
@@ -124,16 +124,6 @@ def inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=Tr
 
 def _inspect_prompt(resources: dict, task: str, project_dir: Path, *, template=True, snapshot=None) -> Inspection:
     resources = copy.deepcopy(resources)
-    if task == "motion-organization":
-        from .motion_guidance import ORGANIZATION_GUIDANCE
-        from .skill_commands import skill_launch
-        skill = "recordprep-organize-motion-papers"
-        return Inspection((("Application system instructions", (project_dir / "SYSTEM.md").read_text()),
-                           ("Staged skill: " + skill, (project_dir / "skills" / skill / "SKILL.md").read_text()),
-                           ("Launch message (before Pi skill expansion)", skill_launch(skill, ORGANIZATION_GUIDANCE)),
-                           ("Restricted tools", "read, write, edit — exact staged inventory/source/skill reads and private candidate only. No shell or canonical output access."),
-                           ("Guard source", (project_dir / "extensions/recordprep-motion-organization-tools.ts").read_text()),
-                           ("Runtime data placeholders", "Exact inventory, original source pages with component identities, and private candidate path.")))
     if task == "motion":
         from .document_naming import compile_motion_naming
         return Inspection((("System message", compile_motion_naming(None).prompt), PAGE_IMAGE_COMPONENT))

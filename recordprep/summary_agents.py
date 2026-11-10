@@ -1720,15 +1720,15 @@ def build_work_items(
     entries = _load_boundary_entries(root, kind)
     motion_inventory = {}
     if kind == "motions":
-        from .motion_groups import current_groups, inventory_from_boundaries
-        motion_inventory = {p["paper_id"]: p for p in inventory_from_boundaries(entries)}
+        from .motion_groups import resolve_context
+        inventory, entries, grouping_warning, _ = resolve_context(root, entries)
+        motion_inventory = {p["paper_id"]: p for p in inventory}
         from bisect import bisect_left, bisect_right
         available = sorted({int(path.stem) for path in text_dir.glob("*.txt") if path.stem.isdigit()})
         for paper in motion_inventory.values():
             start, end = paper["start_page"], paper["end_page"]
             if bisect_right(available, end) - bisect_left(available, start) != end - start + 1:
                 raise ValueError("Selected motion source pages are missing; prior output preserved.")
-        entries, grouping_warning = current_groups(root, entries)
         if grouping_warning:
             import warnings
             warnings.warn(grouping_warning, stacklevel=2)
@@ -2498,7 +2498,7 @@ def _validate_motion_row_members(row):
     metadata = row["group_metadata"]
     fields = {"filing_role", "filing_party", "purpose", "date", "date_basis", "relationship_to", "relationship_notes"}
     if (set(metadata) != fields or any(not isinstance(v, str) or len(v) > 1024 or not all(c.isprintable() for c in v) for v in metadata.values())
-            or metadata["filing_role"] not in {"motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"}
+            or metadata["filing_role"] not in {"motion packet", "motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"}
             or metadata["date_basis"] not in {"filed", "document", "unknown"}
             or (metadata["relationship_to"] and re.fullmatch(r"motion:\d{4,}", metadata["relationship_to"]) is None)):
         raise ValueError("Invalid instruction-free motion row metadata.")
@@ -2513,7 +2513,22 @@ def _validate_motion_row_members(row):
         boundaries.append(dict(start_page=member["start_page"], end_page=member["end_page"], motion_name=member["source_title"], motion_date=member["date"], motion_date_basis=member["date_basis"]))
         if member["paper_id"] != f"motion:{int(member['start_page']):04d}":
             raise ValueError("Invalid motion member identity.")
-    inventory_from_boundaries(boundaries)
+    packet = metadata["filing_role"] == "motion packet"
+    inventory_from_boundaries(boundaries, allow_unnamed=packet)
+    if packet:
+        from .profile_artifacts import MOTION_CONTINUITY_EXPLANATION
+        lead = members[0]
+        if (not lead["source_title"] or row.get("anchor_page") != lead["start_page"]
+                or any(m["role"] != ("lead" if i == 0 else "continuation") for i, m in enumerate(members))
+                or any(left["end_page"] + 1 != right["start_page"] for left, right in zip(members, members[1:]))
+                or metadata["date"] != lead["date"] or metadata["date_basis"] != lead["date_basis"]
+                or metadata["relationship_notes"] != MOTION_CONTINUITY_EXPLANATION
+                or any(metadata[k] for k in ("filing_party", "purpose", "relationship_to"))):
+            raise ValueError("Invalid motion packet membership or lead metadata.")
+        display_date = format_label_date(lead["date"])
+        label = f"{display_date} - {lead['source_title']}" if display_date else lead["source_title"]
+        if row.get("label") != label:
+            raise ValueError("Motion packet title must belong to its first component.")
     if (any(type(row.get(k)) is not int for k in ("anchor_page", "start_page", "end_page"))
             or row.get("anchor_page") not in [m["start_page"] for m in members]
             or row.get("item_id") != f"motion:{row['anchor_page']:04d}"

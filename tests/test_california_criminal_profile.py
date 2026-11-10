@@ -150,11 +150,12 @@ class CriminalCatalogTests(unittest.TestCase):
                 self.assertIsNone(api.bundled_profile_for_identity(api.APPLICATION, copy.ref.specialty_id))
 
     def test_historical_and_shared_bytes_unchanged(self):
+        # profile_artifacts now adds grouping schema2; its historical semantics
+        # and new contract are covered by motion tests, not the former byte pin.
         pins = {
             'resources/classification/recognition-v1.json':'4c564fc3a40fc01fecadce36cc01f91ea8b8732d6d0d07a214a033d73543fb8e',
             'resources/classification/recognition-v2.json':'6eab77900d4b5b22dba2b8ef6881d6a1b3d2f3e915c41b63ad0fdcbdcb3af7d0',
             'profile_contract.py':'19a0338331c5a924d28c386eb5ac488d163824e44fe186381fff3ccaef0fe35c',
-            'profile_artifacts.py':'087bb081fcc96d5940513948f87c4a0eb710b11188966069db3f042fcb1f6784',
             'resources/practice_profiles/california_dependency/profile.json':'7b54d606c4a9ede6d4c3ce60d9d7bb9a7fbec54472de475beb910d4fcfe2697c',
             'resources/practice_profiles/california_dependency/naming.json':'02db3fbf84816c39d75caf873d04e7686ae02003661ffd08f4cf1246697be955',
         }

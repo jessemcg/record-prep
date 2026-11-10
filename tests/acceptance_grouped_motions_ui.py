@@ -96,22 +96,21 @@ assert 'motions' not in editor.resources
 original = copy.deepcopy(editor.resources['naming'])
 editor.resources['naming'] = {'schema_version': 999, 'canary': 'INVALID-UNRELATED-MOTION-DRAFT'}
 settings._inspect_prompts('Summaries'); inspector = settings.prompt_inspector
-for task in ('motion-organization', 'motions-extract', 'motions-synthesize'):
+assert 'motion-organization' not in dict(inspector.tasks)
+for task in ('motions-extract', 'motions-synthesize'):
     inspector.selector.set_selected(next(i for i, (key, _) in enumerate(inspector.tasks) if key == task))
     inspector._refresh(); drain()
     text = inspector.text.get_buffer().get_text(*inspector.text.get_buffer().get_bounds(), True)
     assert text == inspect_prompt({}, task, resource_root()).display_text()
     assert 'INVALID-UNRELATED-MOTION-DRAFT' not in text
-    if task != 'motion-organization':
-        assert 'Request' in text and 'Reasons' in text
-    else:
-        assert 'ORGANIZE SELECTED PHYSICAL MOTION PAPERS' in text
+    assert 'Request' in text and 'Reasons' in text
+    assert 'do not re-segment' in text
     assert not inspector.status.get_text() and not inspector.mode.get_visible() and not inspector.text.get_editable()
 assert inventory() == before and not store.registry_path.exists()
 capture(inspector, 'fixed-motion-prompts')
 print(json.dumps({'mechanics': 'PASS', 'pid': os.getpid(), 'root': str(root),
                   'checks': ['native grouping row', 'real TOC lead anchor', 'read-only members', 'two editable summary pages',
-                             'three fixed inspectors', 'invalid unrelated draft isolated', 'no settings/bundle writes during inspection']}), flush=True)
+                             'two fixed motion inspectors', 'invalid unrelated draft isolated', 'no settings/bundle writes during inspection']}), flush=True)
 hold = int(os.environ.get('MOTION_UI_HOLD_MS', '0'))
 if hold: drain(hold / 1000)
 inspector.destroy(); editor.resources['naming'] = original

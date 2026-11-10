@@ -1,6 +1,6 @@
 ---
 name: recordprep-synthesize-motions
-description: Write one cohesive request-and-reasons narrative section per organized motion entry, keeping motion, opposition and reply separate and integrating each entry's own supporting papers.
+description: Write one request-and-reasons section per supplied motion packet, preserving all included filings, party attribution and distinct or opposing positions.
 ---
 
 # Synthesize the motions summary
@@ -11,6 +11,13 @@ recordprep_synthesis_scratchpad to retain orientation across compaction and retr
 submitted sections when needed. Work incrementally and submit each entry through
 recordprep_submit_summary_section; finish with recordprep_finish_summary. Python
 orders and publishes sections, with saved digest-prose fallback for missing output.
+
+Produce one section per supplied packet; do not re-segment it. Classification continuity
+can include independent motions, opposition and reply, different parties and dates,
+and unnamed internal papers. Explain all included requests and reasons with distinct
+party attribution and opposing positions within that section. Never assume a continuation
+supports the lead merely because it is grouped with it. Historical entries may have
+exact nonadjacent member scopes; use only their supplied evidence.
 
 Answer only what the party requests or opposes and why, in short focused paragraphs.
 Open with the filing party, practical relief and target. For an opposition open with
@@ -32,7 +39,7 @@ If timeliness, notice, informal resolution or sanctions are an actual ground or
 requested relief, explain the contention and its consequence, not contact/filing/service
 chronologies or compliance recitals. Preserve the meaning of a substantive deadline
 or duration that is itself relief or a disputed ground, not routine calendar details.
-Consolidate repetitions. Keep motion, opposition and reply separate. Preserve material
+Consolidate repetitions without flattening different positions. Preserve material
 concessions, counterevidence, limitations, uncertainty and attribution. Do not grade
 counsel's strategy, add independent legal analysis, manufacture an opposition from
 another party's account or transform relief sought into a ruling. No external research.

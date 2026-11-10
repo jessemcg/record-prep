@@ -52,13 +52,21 @@ def summary_application_metadata(value: Any, kind: str) -> dict:
     return value
 
 
+MOTION_CONTINUITY_EXPLANATION = (
+    "Grouped by uninterrupted motion classification, not a finding that all papers "
+    "support the same request. Distinct or opposing positions remain distinct."
+)
+
+
 def validate_motion_groups(value: Any) -> dict:
     """Instruction-free, exact-membership navigation metadata. No store lookup."""
     _object(value, {"artifact", "schema_version", "organization_contract", "inventory", "input_sha256",
                     "inputs", "groups", "findings", "coverage_status"}, "motion_groups")
     _require(value["artifact"] == "recordprep-motion-groups" and type(value["schema_version"]) is int
-             and value["schema_version"] == 1 and value["organization_contract"] == "recordprep-motion-organization-1",
+             and (value["schema_version"], value["organization_contract"]) in (
+                 (1, "recordprep-motion-organization-1"), (2, "recordprep-motion-organization-2")),
              "unsupported_version", "motion_groups")
+    continuous = value["schema_version"] == 2
     _require(isinstance(value["input_sha256"], str) and DIGEST.fullmatch(value["input_sha256"]) is not None,
              "invalid_digest", "motion_groups")
     _require(isinstance(value["inputs"], dict) and isinstance(value["coverage_status"], str) and value["coverage_status"] in {"complete", "incomplete"},
@@ -79,8 +87,10 @@ def validate_motion_groups(value: Any) -> dict:
                  "duplicate_id", "motion_groups")
         for key in ("source_title", "date", "naming_rule_id"):
             label(paper[key])
-        _require(bool(paper["source_title"]) and isinstance(paper["date_basis"], str) and paper["date_basis"] in {"filed", "document", "unknown"},
+        _require((continuous or bool(paper["source_title"])) and isinstance(paper["date_basis"], str) and paper["date_basis"] in {"filed", "document", "unknown"},
                  "invalid_fields", "motion_groups")
+        if continuous:
+            _require(paper["source_title"] == paper["source_title"].strip(), "invalid_label", "motion_groups")
         papers[paper["paper_id"]] = paper
         previous = end
     assigned, ids, previous = set(), set(), 0
@@ -105,14 +115,33 @@ def validate_motion_groups(value: Any) -> dict:
             _require(component["paper_id"] == member and all(type(component[k]) is int and component[k] == papers[member][k] for k in ("start_page", "end_page")),
                      "invalid_range", "motion_groups")
             label(component["role"], 160)
-        _require(isinstance(group["filing_role"], str) and group["filing_role"] in {"motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"}
+        _require(isinstance(group["filing_role"], str) and group["filing_role"] in ({"motion packet"} if continuous else {"motion/application", "opposition", "reply", "supplement", "unresolved supporting paper"})
                  and isinstance(group["date_basis"], str) and group["date_basis"] in {"filed", "document", "unknown"}, "invalid_fields", "motion_groups")
         for key in ("display_title", "filing_party", "purpose", "date", "relationship_to", "relationship_notes"):
             label(group[key])
         _require(bool(group["display_title"]), "invalid_label", "motion_groups")
+        if continuous:
+            _require(members[0] == lead and bool(papers[lead]["source_title"]), "invalid_lead", "motion_groups")
+            _require(group["display_title"] == papers[lead]["source_title"]
+                     and group["date"] == papers[lead]["date"]
+                     and group["date_basis"] == papers[lead]["date_basis"], "invalid_lead_metadata", "motion_groups")
+            _require(group["relationship_notes"] == MOTION_CONTINUITY_EXPLANATION,
+                     "invalid_explanation", "motion_groups")
+            _require(all(not group[k] for k in ("filing_party", "purpose", "relationship_to")),
+                     "invalid_relationship", "motion_groups")
+            _require(all(c["role"] == ("lead" if i == 0 else "continuation") for i, c in enumerate(components)),
+                     "invalid_role", "motion_groups")
+            _require(all(papers[left]["end_page"] + 1 == papers[right]["start_page"]
+                         for left, right in zip(members, members[1:])), "invalid_continuity", "motion_groups")
         assigned.update(members)
         ids.add(lead)
     _require(assigned == set(papers), "incomplete_membership", "motion_groups")
+    if continuous:
+        _require(value["coverage_status"] == "complete", "incomplete_accounting", "motion_groups")
+        ordered_members = [m for g in groups for m in g["member_paper_ids"]]
+        _require(ordered_members == list(papers), "invalid_order", "motion_groups")
+        _require(all(papers[left["member_paper_ids"][-1]]["end_page"] + 1 < right["anchor_page"]
+                     for left, right in zip(groups, groups[1:])), "split_continuity", "motion_groups")
     _require(all(not g["relationship_to"] or (g["relationship_to"] in ids and g["relationship_to"] != g["group_id"]) for g in groups),
              "invalid_reference", "motion_groups")
     _require(isinstance(value["findings"], list), "invalid_fields", "motion_groups")
@@ -225,6 +254,7 @@ def source_map_profile_metadata(payload: Any) -> dict | None:
     _require(isinstance(payload, dict), "invalid_fields", "source_map")
     if "motion_groups" in payload:
         grouping = validate_motion_groups(payload["motion_groups"])
+        continuous = grouping["schema_version"] == 2
         _require(grouping["inputs"] == {}, "unexpected_instruction_data", "motion_groups")
         documents = payload.get("documents", [])
         _require(isinstance(documents, list), "invalid_fields", "source_map")
@@ -239,27 +269,47 @@ def source_map_profile_metadata(payload: Any) -> dict | None:
         by_member = {member: group for group in grouping["groups"] for member in group["member_paper_ids"]}
         intervals = sorted((part["start_page"], part["end_page"], group) for group in grouping["groups"] for part in group["components"])
         starts = [start for start, _end, _group in intervals]
+        inventory_by_id = {p["paper_id"]: p for p in grouping["inventory"]}
         for identifier, document in physical.items():
             group = by_member[identifier]
+            if continuous:
+                paper = inventory_by_id[identifier]
+                aliases = document.get("aliases")
+                _require(isinstance(aliases, list) and all(isinstance(a, str) for a in aliases)
+                         and {identifier, group["group_id"], group["display_title"]}.issubset(aliases)
+                         and document.get("motion_name") == paper["source_title"]
+                         and document.get("motion_date") == paper["date"]
+                         and document.get("motion_date_basis") == paper["date_basis"]
+                         and "motion_group_id" in document, "invalid_alias", "motion_groups")
             if "motion_group_id" in document:
                 _require(document["motion_group_id"] == group["group_id"]
                          and document.get("motion_entry_title") == group["display_title"], "invalid_alias", "motion_groups")
         pages = payload.get("pages", [])
         _require(isinstance(pages, list), "invalid_fields", "source_map")
+        covered = set()
         for page in pages:
-            if not isinstance(page, dict) or "motion_entries" not in page:
+            if not isinstance(page, dict) or (not continuous and "motion_entries" not in page):
                 continue
             number = page.get("file_page")
             _require(type(number) is int, "invalid_range", "motion_groups")
             position = bisect_right(starts, number) - 1
             group = intervals[position][2] if position >= 0 and number <= intervals[position][1] else None
             descriptor = [{key: group[key] for key in ("group_id", "display_title", "anchor_page", "member_paper_ids")}] if group else []
-            _require(page["motion_entries"] == descriptor, "invalid_alias", "motion_groups")
+            _require(page.get("motion_entries", []) == descriptor, "invalid_alias", "motion_groups")
+            if continuous and group is not None:
+                _require(number not in covered, "duplicate_page", "motion_groups")
+                covered.add(number)
+                component = next(c for c in group["components"] if c["start_page"] <= number <= c["end_page"])
+                _require(isinstance(page.get("document_ids"), list) and component["paper_id"] in page["document_ids"],
+                         "invalid_membership", "motion_groups")
+        if continuous:
+            _require(len(covered) == sum(p["end_page"] - p["start_page"] + 1 for p in grouping["inventory"]),
+                     "incomplete_membership", "motion_groups")
         counts = payload.get("counts", {})
         _require(isinstance(counts, dict), "invalid_fields", "source_map")
         for key, expected in (("motions", len(physical)), ("motion_entries", len(grouping["groups"]))):
-            if key in counts:
-                _require(type(counts[key]) is int and counts[key] == expected, "invalid_count", "motion_groups")
+            if continuous or key in counts:
+                _require(type(counts.get(key)) is int and counts[key] == expected, "invalid_count", "motion_groups")
     version = payload.get("schema_version", 1)
     _require(type(version) is int and version in (1, 2, 3), "unsupported_version", "source_map")
     if version < 3:

@@ -27,7 +27,7 @@ def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
             "naming_component": component(profile, "names")}
 
 
-def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, payloads: dict):
+def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, payloads: dict, *, grouping_sha256=None):
     if set(payloads) not in (set(FILES), set(LEGACY_FILES)) or any(not isinstance(value, list) for value in payloads.values()):
         raise ValueError("Invalid application boundary publication contract.")
     if profile is not None:
@@ -35,6 +35,9 @@ def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, pay
             raise ValueError("Preparation selection or classifier inputs changed; prior boundaries preserved.")
     outputs = {name: json.dumps(value, indent=2) for name, value in payloads.items()}
     with case_profile_publication(root, profile.ref if profile is not None else None):
+        from .motion_groups import output_fingerprint
+        if grouping_sha256 is not None and output_fingerprint(root) != grouping_sha256:
+            raise ValueError("Motion grouping changed; prior boundaries preserved.")
         for name, text in outputs.items():
             _atomic_write(root / "artifacts" / name, text)
         if profile is not None:

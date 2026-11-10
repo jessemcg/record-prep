@@ -5,16 +5,14 @@
     ".pi/extensions/recordprep-summary-synthesis-tools.ts": "a63e513a0f997616de3e888d9e7375ad1f2604b63066a7f94da2bf42d722fcd8",
     ".pi/extensions/recordprep-profile-minute-tools.ts": "755775e5589586d380db4eb2df97ad713061e6a92807810db1346125893178f3",
     ".pi/extensions/recordprep-minute-tools.ts": "9abbd80a5b77ae32e932122fb78baef078aae6304249401ac19172c936778e05",
-    ".pi/extensions/recordprep-motion-organization-tools.ts": "2f4bbc81780f91a81b35298ee0377a5bb1b7c3e5b0c631adb2e464b51b4f314f",
     ".pi/skills/recordprep-extract-hearing/SKILL.md": "3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492",
     ".pi/skills/recordprep-extract-report/SKILL.md": "f9a987a71260e08e34422660c8735a77b77ad809657ddd60ca363289ac8795b5",
     ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "61e7b23ba424c5185244f5a589e358e6436e394f3444301e443ea94f83c93670",
     ".pi/skills/recordprep-synthesize-reports/SKILL.md": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a",
     ".pi/skills/recordprep-summarize-minutes/SKILL.md": "072ec2a476e44f377cb062782d79460349e1e750ae8b509925b0869649801af3",
-    ".pi/skills/recordprep-extract-motion/SKILL.md": "ec62ba049a5f3ba04acfe6a5ca02fb989b8a2caabdd218b283d441ba8b9520fc",
-    ".pi/skills/recordprep-synthesize-motions/SKILL.md": "2dd78953ad95822fe3260f885d2dbf19c7f5dacfe3c8201e8552769f9cea2af7",
-    ".pi/skills/recordprep-organize-motion-papers/SKILL.md": "918b262aab0e9aa5ede3fd1e007fb00f137a9dfe0cded061812847f9d1e157e7",
-    ".pi/scripts/run_recordprep_skill.py": "ae191475a3fa57aa8b16c2ed371514a54cae7e44cdc0fa084d96a9074dbbddb1",
+    ".pi/skills/recordprep-extract-motion/SKILL.md": "08e1d2eeeed30766556b77c9c4828c41f223d6f25b30e3ce2ea9f71c167064d3",
+    ".pi/skills/recordprep-synthesize-motions/SKILL.md": "7c2fb066ea6d5288cb909fd858932c62097e486531b2ce945e2c7e66a3e4cf0a",
+    ".pi/scripts/run_recordprep_skill.py": "b42a6342da1558500d53788ac425e146d820f9db81bb81dc719b6ba2d2dceb81",
     "recordprep/summary_prompts.py": "fc1deeca80b4cc739ede9f1e0c2948a3aaed00c2312c9b77c1eafa474f0e07fb",
     "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
     ".pi/SYSTEM.md": "4a1e0ab27b51392c6b56234c8173cab99f453ab904d7ae2a0a7ba19a5986425f",
@@ -434,8 +432,7 @@
           }
         }
       }
-    ],
-    "recordprep-motion-organization-tools.ts": []
+    ]
   },
   "skill_command_audit": {
     "sdk_version": "1.5.2",
@@ -448,8 +445,7 @@
       "recordprep-synthesize-reports",
       "recordprep-summarize-minutes",
       "recordprep-extract-motion",
-      "recordprep-synthesize-motions",
-      "recordprep-organize-motion-papers"
+      "recordprep-synthesize-motions"
     ]
   }
 }

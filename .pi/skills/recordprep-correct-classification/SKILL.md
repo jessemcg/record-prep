@@ -23,7 +23,7 @@ Never concatenate a whole transcript or sweep all images. Do not claim visual
 verification if the selected agent cannot read an image: leave it unresolved.
 
 1. Read the worklist's priorities first: selected-report opening/ending neighbors
-   and hearing/minute starts are priority 1; potentially eligible unnamed report
+   and hearing/minute starts (including undated minute candidates) are priority 1; potentially eligible unnamed report
    starts and named forms are priority 2. These are metadata hints, not decisions.
    Same-date starts may be separate orders. Scan every metadata block once for
    additional consequential anomalies, including missed eligible documents and
@@ -39,7 +39,19 @@ verification if the selected agent cannot read an image: leave it unresolved.
    establish continuity; adjacent and one-page reports can be distinct.
 3. Verify consequential starts. A minute order's page two, repeated caption or
    running date must not create another minute order. Distinguish a form from an
-   actual clerk/court minute record using the current definitions. Verify hearing
+   actual clerk/court minute record using the current definitions. Inspect minute
+   ending-neighbor hints too: a separately identifiable order/form does not become
+   a continuation through adjacency. A Minute Order heading is strong evidence,
+   not mandatory; recognizable hearing identification/personnel/appearances and
+   recorded proceedings/action can establish a minute record without that phrase.
+   Dated/signed findings templates, proposed or authorization orders do not become
+   minutes merely by recording orders or incorporation by reference. Correct a
+   confirmed false minute to its appropriate nonminute type, not merely a minute
+   body label that could absorb it into a preceding range. During this same pass,
+   recover a readable proceeding/minute date under current minute-date rules,
+   including top-of-page hearing fields and after recovering a missed minute start.
+   Never borrow dates from neighbors or guess to make a candidate eligible.
+   Missing dates alone do not establish a false minute. Verify hearing
    openings rather than treating a volume cover or recurring heading as a hearing.
    Explicitly inspect the worklist's RT transition checks: a body after a cover or
    index may be a missed start, and consecutive starts may be either a false
@@ -86,7 +98,8 @@ verification if the selected agent cannot read an image: leave it unresolved.
 6. Deprioritize isolated unnamed material that neither changes a selected document's
    extent nor hides an eligible document. Unnamed report starts still terminate a
    preceding named report: an unnamed page can matter at a boundary. Hearing and
-   dated minute-order selection also matter. Do not relabel notices/service proofs
+   all minute candidates also matter, including undated ones: omission must not
+   hide a false start, type repair, range interruption or supported date recovery. Do not relabel notices/service proofs
    as forms based on old conventions; current rules govern.
 7. Apply an impact gate before further source reads, changes or unresolved items:
    identify the selected document start/range affected, the false hearing/minute
@@ -112,6 +125,13 @@ needs no taxonomy cleanup. A named report cut at page 20 by two misclassified
 internal pages deserves image checks because pages 21 onward could be omitted.
 A clearly identified form with conflicting signature/filing dates can cease being
 a false minute-order start without choosing a replacement date.
+
+Python adds deterministic minute_date_unresolved notes to the new receipt for
+remaining minute candidates without recognized dates after accepted corrections.
+They will be omitted only when downstream selections are explicitly rebuilt;
+source text, images and classification rows remain available. Missing dates are
+an eligibility limitation, not proof of misclassification. Do not perform a
+second pass or broad cleanup of unselected attachments for this policy.
 
 No changes is a valid outcome after completing the review.
 This is an advisory knowledge-work pass, not a guarantee of perfect classification.

@@ -44,7 +44,10 @@ class ProceduralFilingTests(unittest.TestCase):
         self.assertIn('Qualifying standardized court request forms', dict(historical.descriptions('ct'))['CT_motion'])
         for stage in ('basic', 'advanced'):
             self.assertNotEqual(component(None, stage, contract=historical), component(None, stage))
-        self.assertEqual(component(None, 'dates', contract=historical), component(None, 'dates'))
+        # Current minute dates reuse the v5 minute definition; hearings stay frozen.
+        self.assertNotEqual(component(None, 'dates', contract=historical), component(None, 'dates'))
+        self.assertEqual(classifier_prompt(None, 'date_hearing', contract=historical)[0],
+                         classifier_prompt(None, 'date_hearing')[0])
 
     def test_standardized_requests_and_support_reach_one_group_with_exact_pages(self):
         # Authored classifications/model proposals exercise downstream plumbing, not AI judgment.

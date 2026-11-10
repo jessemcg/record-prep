@@ -155,13 +155,13 @@ case overview → deterministic source map. See `docs/workflow.md`.
   candidate, first three source pages only. Python checks selection/source/resources/
   model/prior output before atomic publication. Invalid/unknown/Stop preserves old name.
   Retired caption API/config/profile prose stays inert; no automatic bundle renaming.
-- Recognition-v4 owns the taxonomy and five start checks, including bounded custom
+- Recognition-v5 owns the taxonomy and five start checks, including bounded custom
   procedural instruments, not all pleadings/exhibits. Embedded transcripts stay in outer
   CT (normally CT_other), never reopening RT. RT_body/CT_notice display as Hearing body/
   Hearing notice without key changes. Preserve certificate/motion/notice/service labels;
   use CLASSIFICATION_PAGE_TYPES, rejecting invented/cross-side labels. Hearing notices
   and service proofs are not Forms; qualifying Notice of Appeal forms remain Forms.
-- Substantive requests within an existing proceeding are motion papers even on standardized forms, including status/participation requests. Non-motion procedural filings retain legacy CT_form/form IDs; initiating pleadings and administrative updates are not motions merely for requesting relief. Recognition-v1/v2/v3 remain historical resources.
+- Substantive requests within an existing proceeding are motion papers even on standardized forms, including status/participation requests. Non-motion procedural filings retain legacy CT_form/form IDs; initiating pleadings and administrative updates are not motions merely for requesting relief. Recognition-v1/v2/v3/v4 remain byte-preserved historical resources.
 - Report/form catalogs are naming-only; no page/start injection or CT catalog previews.
   Basic uses structural recognition. Advanced checks every report page independently;
   Names requires complete first-page checks and reads marked starts only. All starts,
@@ -206,7 +206,20 @@ case overview → deterministic source map. See `docs/workflow.md`.
   presence-based; explicit adoption requires organization → TOC → boundaries/filter → motion
   summaries → editions/dependent overview/map. Source-map documents/counts stay physical;
   logical entry count is separate. See `docs/motions-workflow.md` and ownership docs.
-- TOC correction retains first known minute date, never collapses unknown dates. Actual
+- New TOC/boundary selections use minute_selection.py / dated-minute-selection-1:
+  construct explicit CT start + adjacent body ranges before requiring a recognized
+  start date, in every profile context. Omitted starts still cut earlier ranges;
+  no gap/omission bridging or inferred starts/dates. Activity reports counts/ranges,
+  not source prose. Missing dates mean ineligible, not proven nonminutes. Separate
+  same-day candidates remain separate boundaries; only TOC correction deduplicates.
+  Explicit Filter boundary entries also filters saved minutes, including minute-only
+  input, preserving retained metadata. Historical readers never re-filter on load.
+  Agent review/impact projection retains all candidates, adds ending-neighbor hints
+  and post-correction omission notes to new receipts. Recognition distinguishes
+  actual proceeding records from separate order/templates; minute headings are
+  strong evidence, never compulsory. Minute dates can use top hearing fields;
+  hearing guidance/date/summary methods stay unchanged. See docs/dated-minute-selection.md.
+- TOC correction retains first known minute date, never collapses historical unknown dates. Actual
   ranges/inputs still govern explicit work; narrowly reviewed compatibility may reuse
   unchanged participant work after boundary rebuilding, never metadata repair.
 - Transcript numbering normalizes citations to PREFIX N / PREFIX:N, never p./pp.

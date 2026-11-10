@@ -91,6 +91,66 @@ class ReviewTests(unittest.TestCase):
         self.assertTrue(step_outputs_present("correct_classification_agent", self.root))
         self.assertFalse((self.root / review.PENDING).exists())
 
+    def test_minute_repairs_survive_and_new_notes_describe_post_correction_only(self):
+        # One undated candidate is recoverable; a separate false minute is a form.
+        # A newly missed start stays undated and receives the deterministic note.
+        self.rows[3]['date'] = ''
+        self.rows[4]['date'] = ''
+        self.rows[2]['page_type'] = 'CT_minute_order'
+        self.rows[2].pop('report_first_page')
+        self.output.write_text(''.join(json.dumps(r)+'\n' for r in self.rows))
+        changes = [
+            {'file_name':'0004.txt','before':{'date':''}, 'after':{'date':'March 5, 2026'},
+             'impact':'date_or_name','reason':'Identifying top hearing field supplies the recorded proceeding date.',
+             'evidence':['0004.txt']},
+            {'file_name':'0005.txt','before':{'page_type':'CT_minute_order_first_page','date':''},
+             'after':{'page_type':'CT_form','date':None},'impact':'document_identity',
+             'reason':'A separately identified findings template is not a hearing minute record.',
+             'evidence':['0004.txt','0005.txt']},
+            {'file_name':'0003.txt','before':{'page_type':'CT_minute_order'},
+             'after':{'page_type':'CT_minute_order_first_page'},'impact':'missed_document',
+             'reason':'A fresh minute record begins here but its date is not readable.',
+             'evidence':['0002.txt','0003.txt']},
+        ]
+        guard, ref, candidate, _, _ = self.prepared(changes)
+        before = self.output.read_bytes(), self.output.stat().st_mtime_ns
+        self.assertEqual(review.publish(self.root,self.project,guard,ref,candidate),(3,0))
+        saved = review.saved_review(self.root)
+        notes = [n for n in saved['review']['warnings'] if n['code']=='minute_date_unresolved']
+        self.assertEqual([n['file_name'] for n in notes],['0003.txt'])
+        self.assertIn('0003–0003',review.review_details(saved))
+        self.assertIn('will be omitted when downstream selections are rebuilt',notes[0]['reason'])
+        self.assertEqual((self.output.read_bytes(),self.output.stat().st_mtime_ns),before)
+        # Reading the receipt never adds new notes or rewrites historical metadata.
+        path = self.root / review.RECEIPT
+        frozen = path.read_bytes(), path.stat().st_mtime_ns
+        review.review_details(review.saved_review(self.root))
+        self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),frozen)
+
+    def test_recovered_minute_start_can_recover_date_in_the_same_patch(self):
+        change = {'file_name':'0003.txt',
+                  'before':{'page_type':'CT_report','report_first_page':'no','date':None},
+                  'after':{'page_type':'CT_minute_order_first_page','report_first_page':None,'date':'March 5, 2026'},
+                  'impact':'missed_document',
+                  'reason':'A fresh hearing record and its identifying date field establish a missed minute opening.',
+                  'evidence':['0002.txt','0003.txt']}
+        guard,ref,candidate,_,_ = self.prepared([change])
+        self.assertEqual(review.publish(self.root,self.project,guard,ref,candidate),(1,0))
+        final = [json.loads(line) for line in self.final_output.read_text().splitlines()]
+        self.assertEqual(final[2]['date'],'March 5, 2026')
+        self.assertEqual(final[2]['page_type'],'CT_minute_order_first_page')
+        notes = review.saved_review(self.root)['review']['warnings']
+        self.assertFalse(any(note['code']=='minute_date_unresolved' for note in notes))
+
+    def test_minute_helper_is_guarded_before_review_publication(self):
+        guard, ref, candidate, _, _ = self.prepared()
+        resource = Path(review.__file__).with_name('minute_selection.py')
+        self.assertIn(review._sha(resource.read_bytes()),guard['runtime'])
+        guard['runtime'][-1] = 'changed helper identity'
+        with self.assertRaisesRegex(ValueError,'inputs changed'):
+            review.publish(self.root,self.project,guard,ref,candidate)
+        self.assertFalse(self.final_output.exists())
+
     def test_no_changes_preserves_bytes_and_records_review(self):
         before = self.output.read_bytes(), self.output.stat().st_mtime_ns
         guard, ref, candidate, _, _ = self.prepared()

@@ -119,7 +119,8 @@ class ClassificationProfileTests(unittest.TestCase):
                 return json.dumps({"page_type": {"report": "CT_report", "minutes": "CT_minute_order"}.get(kind, kind)})
             if 'Return {"first_page": "yes"}' in prompt:
                 return json.dumps({"first_page": "yes"})
-            if 'Ignore headers, footers' in prompt:
+            from recordprep.classifier_prompts import DATE_TASKS
+            if any(task in prompt for task in DATE_TASKS.values()):
                 return json.dumps({"date": date_value})
             return json.dumps({"name": "Independent Report", "date": "January 2, 2026"})
         with patch.object(ui.GLib, "idle_add"), patch.object(ui, "_post_json_with_retries", side_effect=response), \
@@ -148,10 +149,10 @@ class ClassificationProfileTests(unittest.TestCase):
             self.assertEqual(len(json.loads((self.root / "artifacts/report_boundaries.json").read_text())), 1)
         elif kind == "minutes":
             orders = json.loads((self.root / "artifacts/minutes_boundaries.json").read_text())
-            self.assertEqual(len(orders), 2)
+            self.assertEqual(len(orders), 2 if date_value else 0)
             self.assertTrue(all(order["date"] == date_value for order in orders))
             toc = (self.root / "artifacts/toc.txt").read_text()
-            self.assertEqual(toc.count(date_value if date_value else "Date unresolved"), 1 if date_value else 2)
+            self.assertEqual(toc.count(date_value if date_value else "Date unresolved"), 1 if date_value else 0)
             with patch.object(ui, 'load_classifier_settings', return_value=self.settings):
                 self.assertTrue(ui.RecordPrepWindow._step_artifact_complete(worker, "correct_toc", self.root))
             if date_value:
@@ -240,11 +241,23 @@ class ClassificationProfileTests(unittest.TestCase):
             self.assertEqual(stage_issues(self.root, stage, self.profile, self.settings), [])
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in watched})
 
-    def test_profile_orders_with_unknown_dates_are_not_erased_or_deduplicated(self):
+    def test_profile_orders_with_unknown_dates_preserve_sources_but_omit_selection(self):
         (self.root / "text_pages/0002.txt").write_text("Another distinct minute order.")
         (self.root / "image_pages/0002.png").write_bytes(b"second synthetic image payload")
         apply_manual_override(self.root, mode="ct_only")
+        sources = list((self.root / 'text_pages').iterdir()) + list((self.root / 'image_pages').iterdir())
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in sources}
         self._run_gui_pipeline("minutes")
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in sources})
+        rows = [json.loads(line) for line in (self.root / 'classification/CT_basic_advanced_dates_names.jsonl').read_text().splitlines()]
+        self.assertEqual([r['page_type'] for r in rows], ['CT_minute_order_first_page'] * 2)
+        from recordprep import minute_summaries as minutes
+        project = self.root / 'project/.pi'
+        import shutil
+        shutil.copytree(Path(__file__).resolve().parents[1] / '.pi', project)
+        generate = Mock()
+        minutes.run_stage(self.root, project, generate)
+        generate.assert_not_called()
 
     def test_known_same_day_orders_have_one_toc_entry_but_two_boundaries_and_checkpoints(self):
         (self.root / 'text_pages/0002.txt').write_text('A separate same-day ruling.')

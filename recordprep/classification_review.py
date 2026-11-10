@@ -26,6 +26,7 @@ from .profile_store import _check_directory
 from .recognition_contract import load_recognition
 from .report_pages import report_detection_mode, report_ranges
 from .motion_pages import motion_detection_mode, motion_ranges
+from .minute_selection import candidate_ranges, omission_warnings
 from .document_naming import compile_motion_naming
 from .skill_commands import skill_launch
 from .summary_agents import _atomic_write
@@ -100,7 +101,8 @@ def capture(root, project_dir):
     guidance += "\n\n".join(c.prompt for c in contracts.values()) if contracts else "No selected naming catalog: do not add or change nonempty names; flag missing identities for manual review."
     resources = [project_dir / "SYSTEM.md", project_dir / "skills" / SKILL / "SKILL.md",
                  project_dir / "extensions" / EXTENSION, project_dir / "extensions/recordprep-auto-exit.ts",
-                 Path(__file__), Path(files.__file__), Path(__file__).with_name("skill_commands.py")]
+                 Path(__file__), Path(files.__file__), Path(__file__).with_name("skill_commands.py"),
+                 Path(__file__).with_name("minute_selection.py")]
     stat = root.stat()
     prior = _sha(_read(root / RECEIPT, 8 * 1024 * 1024)) if (root / RECEIPT).exists() else None
     guard = {"root": [stat.st_dev, stat.st_ino], "inputs": {k: _sha(v) for k, v in blobs.items()},
@@ -144,14 +146,17 @@ def selected_documents(rows):
     for group in motion_ranges(entries, -1):
         if _document_name(rows[group.start_file]):
             add("motion", group.start_file, group.end_file)
+    # Review the complete candidate projection, BEFORE downstream date eligibility.
+    for minute in candidate_ranges(ordered, -1):
+        add("minute_order", minute.start_file, minute.end_file)
     for i, row in enumerate(ordered):
         kind = row["page_type"]
         start = row["file_name"]
         if kind == "CT_form_first_page" and _document_name(row):
             add("form", start, start)
-        if kind not in {"RT_body_first_page", "CT_minute_order_first_page"}:
+        if kind != "RT_body_first_page":
             continue
-        body = "RT_body" if kind.startswith("RT_") else "CT_minute_order"
+        body = "RT_body"
         end = start
         for following in ordered[i+1:]:
             if following["page_type"] != body or int(Path(following["file_name"]).stem) != int(Path(end).stem)+1:
@@ -173,6 +178,8 @@ def prioritized_worklist(rows):
     starts = [d for d in documents if d["kind"] in {"hearing", "minute_order"}]
     for i, document in enumerate(starts):
         document["opening_neighbors"] = neighbors(document["start"])
+        if document["kind"] == "minute_order":
+            document["ending_neighbors"] = neighbors(document["end"])
         previous = starts[i-1] if i else None
         document["same_date_as_previous_start"] = bool(previous and previous["kind"] == document["kind"]
             and document["date"] and document["date"] == previous["date"])
@@ -520,6 +527,7 @@ def publish(root, project_dir, guard, ref, candidate, *, check_stop=lambda: None
                   else f"{invalid_events} read-journal entries were unusable. ")
         audit["warnings"].append({"code": "read_journal", "reason": reason + "This limits evidence confirmation, not publication of useful findings."})
     corrected, audit = retain_effective_changes(rows, corrected, audit)
+    audit["warnings"].extend(omission_warnings(corrected.values()))
     outputs = {}
     for filename, data in blobs.items():
         original = [_json(line) for line in data.decode().splitlines() if line.strip()]

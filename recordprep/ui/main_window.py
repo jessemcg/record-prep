@@ -4112,7 +4112,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         self.step_correct_boundaries_row = Adw.ActionRow(
             title="Filter boundary entries",
-            subtitle="Filter ineligible hearing, report, and motion entries; keep named single-page reports and all source pages.",
+            subtitle="Filter ineligible hearing, report, motion, and undated minute entries; keep named single-page reports and all source pages.",
         )
         self.step_correct_boundaries_row.set_activatable(False)
         self._attach_step_controls(
@@ -7877,11 +7877,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                                                f"{g['anchor_page']:04d}") for g in groups]
                 if grouping_warning:
                     GLib.idle_add(self.show_toast, grouping_warning)
-            minute_order_lines: list[str] = []
+            from recordprep.minute_selection import candidate_ranges, partition_candidates, omission_messages
+            eligible_minutes, omitted_minutes = partition_candidates(candidate_ranges(basic_entries, split_page))
+            minute_order_lines = [_format_toc_line(item.date.strip(), _page_label_from_filename(item.start_file))
+                                  for item in eligible_minutes]
             hearing_lines: list[str] = []
-            minute_first_types = {
-                "ct_minute_order_first_page",
-            }
             hearing_first_types = {
                 "rt_body_first_page",
             }
@@ -7901,11 +7901,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                     continue
                 page = _page_label_from_filename(file_name)
                 line = _format_toc_line(date_value, page)
-                if page_type in minute_first_types:
-                    if page_number <= split_page:
-                        continue
-                    minute_order_lines.append(line)
-                elif page_type in hearing_first_types:
+                if page_type in hearing_first_types:
                     if page_number > split_page:
                         continue
                     hearing_lines.append(line)
@@ -7925,6 +7921,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "HEARINGS",
                 *hearing_lines,
             ]
+            self._raise_if_stop_requested()
             publish_toc(root_dir, toc_profile, toc_expected, load_classifier_settings(), "\n".join(toc_lines).rstrip() + "\n", grouping_sha256=toc_grouping_sha256)
         except StopRequested:
             success = None
@@ -7941,6 +7938,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 },
             )
             GLib.idle_add(self.show_toast, "Build TOC complete.")
+            for message in omission_messages(omitted_minutes):
+                GLib.idle_add(self.show_toast, message, "WARN")
             if unresolved_names:
                 GLib.idle_add(
                     self.show_toast,
@@ -8094,12 +8093,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             hearing_body_types = {
                 "rt_body",
             }
-            minute_start_types = {
-                "ct_minute_order_first_page",
-            }
-            minute_body_types = {
-                "ct_minute_order",
-            }
+            from recordprep.minute_selection import candidate_ranges, partition_candidates, omission_messages
+            eligible_minutes, omitted_minutes = partition_candidates(candidate_ranges(payload_entries, split_page))
+            for minute in eligible_minutes:
+                self._raise_if_stop_requested()
+                self._append_boundary_entry(
+                    "minute_order", minute.start_file, minute.end_file, date_by_file,
+                    report_name_by_file, hearing_boundaries, report_boundaries, minutes_boundaries,
+                )
             index = 0
             total = len(entries)
             while index < total:
@@ -8136,51 +8137,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                         minutes_boundaries,
                     )
                     continue
-                if page_type in minute_start_types:
-                    if page_number <= split_page:
-                        index += 1
-                        continue
-                    end_file = file_name
-                    last_number = page_number
-                    index += 1
-                    while index < total:
-                        self._raise_if_stop_requested()
-                        next_file, next_type, next_number = entries[index]
-                        if next_number <= split_page:
-                            break
-                        if (
-                            next_type not in minute_body_types
-                            or next_number != last_number + 1
-                        ):
-                            break
-                        end_file = next_file
-                        last_number = next_number
-                        index += 1
-                    self._append_boundary_entry(
-                        "minute_order",
-                        file_name,
-                        end_file,
-                        date_by_file,
-                        report_name_by_file,
-                        hearing_boundaries,
-                        report_boundaries,
-                        minutes_boundaries,
-                    )
-                    continue
                 index += 1
-            filtered_minutes: list[dict[str, str]] = []
-            seen_minute_dates: set[str] = set()
-            for entry in minutes_boundaries:
-                if boundary_profile is not None:
-                    # Date uncertainty and a shared date never erase distinct
-                    # source orders in the profile-aware fidelity contract.
-                    filtered_minutes.append(entry)
-                    continue
-                date_value = str(entry.get("date", "")).strip()
-                if not date_value or date_value in seen_minute_dates:
-                    continue
-                seen_minute_dates.add(date_value)
-                filtered_minutes.append(entry)
+            # Distinct same-day candidates remain separate; only TOC correction deduplicates.
+            filtered_minutes = minutes_boundaries
+            self._raise_if_stop_requested()
             publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
                 "hearing_boundaries.json": hearing_boundaries, "report_boundaries.json": report_boundaries,
                 "minutes_boundaries.json": filtered_minutes,
@@ -8214,6 +8174,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 )
             else:
                 GLib.idle_add(self.show_toast, "Find boundaries complete.")
+            for message in omission_messages(omitted_minutes):
+                GLib.idle_add(self.show_toast, message, "WARN")
             if unnamed_report_runs:
                 GLib.idle_add(
                     self.show_toast,
@@ -8239,9 +8201,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             derived_dir = root_dir / "artifacts"
             hearing_path = derived_dir / "hearing_boundaries.json"
             report_path = derived_dir / "report_boundaries.json"
-            if not hearing_path.exists() or not report_path.exists():
+            if not any(path.exists() for path in (hearing_path, report_path,
+                       derived_dir / "minutes_boundaries.json", derived_dir / "motion_boundaries.json")):
                 raise FileNotFoundError(
-                    "Run Find boundaries to generate hearing, report, and motion-paper boundaries first."
+                    "Run Find boundaries to generate hearing, report, minute, and motion-paper boundaries first."
                 )
             from recordprep.case_profiles import resolve_case_profile
             from recordprep.boundary_profiles import boundary_inputs, publish_boundaries
@@ -8253,10 +8216,15 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             motion_entries = _load_json_entries(motion_path) if motion_path.is_file() else None
             from recordprep.motion_groups import output_fingerprint
             boundary_grouping_sha256 = output_fingerprint(root_dir)
-            if not hearing_entries and not report_entries and not motion_entries:
+            from recordprep.minute_selection import filter_boundaries, omission_messages
+            minute_path = derived_dir / "minutes_boundaries.json"
+            # Do not let the permissive historical loader turn corruption into an empty selection.
+            minute_entries = json.loads(minute_path.read_text(encoding="utf-8")) if minute_path.exists() else []
+            filtered_minutes, omitted_minutes = filter_boundaries(minute_entries)
+            if not hearing_entries and not report_entries and not motion_entries and not minute_entries:
                 GLib.idle_add(
                     self.show_toast,
-                    "No hearing, report, or motion-paper boundaries found. Skipping Filter boundary entries.",
+                    "No hearing, report, minute, or motion-paper boundaries found. Skipping Filter boundary entries.",
                     "WARN",
                 )
                 success = "Skipped"
@@ -8295,12 +8263,14 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                               if motion_entries is not None else {})
             motion_removed = (len(motion_entries) - len(motion_payload["motion_boundaries.json"])
                               if motion_entries is not None else 0)
+            self._raise_if_stop_requested()
             publish_boundaries(root_dir, boundary_profile, boundary_expected, load_classifier_settings(), {
                 "hearing_boundaries.json": filtered_hearings, "report_boundaries.json": filtered_reports,
-                "minutes_boundaries.json": _load_json_entries(derived_dir / "minutes_boundaries.json"),
+                "minutes_boundaries.json": filtered_minutes,
                 **motion_payload,
             }, grouping_sha256=boundary_grouping_sha256)
-            removed = hearing_removed + report_removed + motion_removed
+            minute_removed = len(omitted_minutes)
+            removed = hearing_removed + report_removed + motion_removed + minute_removed
         except StopRequested:
             success = None
         except Exception as exc:
@@ -8320,9 +8290,12 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 "Filter boundary entries complete. "
                 f"{hearing_removed} hearing entries without dates and "
                 f"{report_removed} unnamed/unresolved report entries and "
-                f"{motion_removed} unnamed/unresolved motion entries omitted from standalone summaries "
+                f"{motion_removed} unnamed/unresolved motion entries and "
+                f"{minute_removed} minute entries without recognized dates omitted from standalone summaries "
                 f"({removed} total); source pages retained.",
             )
+            for message in omission_messages(omitted_minutes):
+                GLib.idle_add(self.show_toast, message, "WARN")
         finally:
             GLib.idle_add(self.step_correct_boundaries_row.set_sensitive, True)
             GLib.idle_add(self._finish_step, self.step_correct_boundaries_row, success)

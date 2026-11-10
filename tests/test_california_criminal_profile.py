@@ -299,7 +299,7 @@ class CriminalPipelineTests(unittest.TestCase):
 class EmbeddedTranscriptTests(unittest.TestCase):
     def test_resource_and_skill_clarifications_delivered(self):
         contract = load_recognition()
-        self.assertEqual(contract.identity,'recordprep-recognition-v4')
+        self.assertEqual(contract.identity,'recordprep-recognition-v5')
         definitions = dict(contract.descriptions('ct'))
         for text in ('custom-written or handwritten', 'unused/unsigned', 'written stipulations',
                      'court responses', 'Motion advocacy', 'record-authentication'):
@@ -345,7 +345,7 @@ class EmbeddedTranscriptTests(unittest.TestCase):
             self.assertEqual([e['transcript_page_number'] for e in actual],[210,211,None,None])
             self.assertEqual(before,{p:p.read_bytes() for p in before})
 
-    def test_v3_changes_explicit_basic_advanced_not_dates_or_names(self):
+    def test_current_changes_basic_advanced_and_minute_dates_not_names(self):
         from dataclasses import replace
         current = load_recognition()
         previous = json.loads((ROOT/'recordprep/resources/classification/recognition-v2.json').read_bytes())
@@ -356,7 +356,7 @@ class EmbeddedTranscriptTests(unittest.TestCase):
             for stage in ('basic','advanced','dates','names'):
                 if profile is None and stage=='names': continue  # Unassigned naming uses its separate compatibility path.
                 self.assertEqual(component(profile,stage,contract=current)!=component(profile,stage,contract=historical),
-                                 stage in ('basic','advanced'))
+                                 stage in ('basic','advanced','dates'))
 
     def test_scripted_layout_artifacts_route_outer_collections_not_enclosed_transcripts(self):
         scenarios = [

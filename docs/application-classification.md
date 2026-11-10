@@ -1,9 +1,10 @@
 # Application-owned classification
 
-This is the current recognition-v4 contract (content schema **14**, unchanged
+This is the current recognition-v5 contract (content schema **14**, unchanged
 `profile_api: 1`; Dependency **1.19.0**, Criminal **1.1.0**). It supersedes the editable-classification portions of
 [structured classification](structured-classification.md), older settings reports
-and schema-8 adoption notes. [Validation and limits](application-classification-validation.md).
+and schema-8 adoption notes. [Historical validation](application-classification-validation.md) and
+[recognition-v5 / dated-minute validation and limits](dated-minute-selection-validation.md).
 
 ## Ownership and maintenance
 
@@ -27,12 +28,13 @@ retains the pipeline explanation and progression, without the extra ownership/po
 paragraph, repeated catalog-entry hint or a classification-reference link.
 
 See [Procedural filings](procedural-filings.md) for the function-first motion/form
-boundary, compatibility and explicit adoption of recognition-v4.
+boundary and compatibility. Recognition-v5 adds the minute/order distinction below;
+see [minute selection](dated-minute-selection.md) for explicit adoption and limits.
 
 ## Purpose, not a checklist
 
-`recordprep/resources/classification/recognition-v4.json` is the selected packaged
-recognition resource (JSON schema 1). v1/v2/v3 remain byte-preserved historical resources. Definitions explain document purpose, identifying clues,
+`recordprep/resources/classification/recognition-v5.json` is the selected packaged
+recognition resource (JSON schema 1). v1/v2/v3/v4 remain byte-preserved historical resources. Definitions explain document purpose, identifying clues,
 continuations/endings, and important near neighbors. Clues are not compulsory
 headings, codes, signatures, layouts or a decision cascade. Best fit compares the
 whole taxonomy; no practice-specific name catalog or form-code allowlist determines
@@ -47,7 +49,7 @@ a page type. Each model request sees **one image**, not unseen adjacent pages.
 | RT_other | Other RT material — genuinely different or unidentifiable material, not merely a sparse continuation |
 | CT_cover | Transcript cover — collection/volume/section front matter, not a substantive document caption |
 | CT_index | Document index — navigation through the record, not an embedded substantive table |
-| CT_minute_order | Minute order — court/clerk record of proceedings and judicial action |
+| CT_minute_order | Minute order — actual clerk/court minute record of a particular proceeding, not any document reciting orders |
 | CT_report | Court-directed report — authored information/assessment prepared for the court, including table/signature continuations |
 | CT_form | Procedural filings — bounded non-motion procedural instruments, standardized or custom-written |
 | CT_certificate | Record certificate — distinct authentication/completeness of the record or copies |
@@ -60,13 +62,38 @@ No Basic key or first-page marker was added, removed or renamed. Advanced still
 uses `first_page: yes/no` and the five existing `*_first_page` markers. It checks
 all eligible report pages independently; unnamed and adjacent report starts still
 end earlier ranges. JSON validation, exact-name rules, stage order and the fixed
-hearing/minute date wording and date normalization are unchanged. Report naming
+hearing-date wording and calendar normalization are unchanged. Minute-date rules
+now reuse the frozen minute definition, accept identifying top-of-page hearing
+fields, and reject unrelated filing/service/print/revision/reference/future dates.
+Nonminutes and missing/conflicting/unreadable minute dates yield an empty string;
+no neighbor borrowing or inference to make a candidate eligible. Report naming
 now permits contextual same-image header/footer identity evidence, without making
 footers mandatory or allowing them to establish a start. Dependency 1.13.0 selects
 agency-authored court-directed reports under one Child Welfare Agency Report card,
 then extracts their own first-page titles using the practice-neutral Source title
 naming approach. The category name is only the missing-title fallback. See [report naming](dependency-report-naming.md);
 this catalog change never enters Basic or first-page prompts.
+
+### Actual minutes versus separate orders
+
+A prominent Minute Order/minutes heading is strong evidence, not compulsory.
+A recognizable hearing-record structure combining hearing identification, court
+personnel, appearances/proceedings and recorded action can suffice without every
+field or a particular county layout. Genuine continuations and integral endings
+need not repeat the heading/date. Separate findings-and-orders templates and local
+standardized order forms stay CT_form whether blank, proposed, signed or entered.
+Standalone written orders outside that procedural-filing definition stay CT_other.
+Dates/signatures, the court finds/orders language, adjacency or incorporation by
+reference do not turn those documents into minutes. Incidental quotation in a
+report, brief, index or service proof is not minute identity.
+
+The first-minute task treats Basic as a hypothesis and requires an actual fresh
+minute opening, not repeated headers, continuation findings or internal signature/
+service sections. Answering no cannot repair a false underlying type: Agent
+correction must change confirmed false minutes to their appropriate nonminute type,
+not simply minute bodies that merge into a preceding range. Missing dates alone
+never prove a type error. [New minute selections](dated-minute-selection.md) omit undated
+candidates with counts/ranges while preserving every source and classification row.
 
 ### Bounded procedural instruments, including custom-written documents
 
@@ -142,9 +169,10 @@ values/absence; they never recreate those keys. Legacy initialization imports no
 classification/start/date/caption prose. Naming catalogs, summary topics and minute
 guidance keep their existing profile ownership and compatibility formats.
 
-Basic hashes its RT/CT prompts; Advanced its four starts; Corrected both. Their
+Basic hashes its RT/CT prompts; Advanced its five starts; Corrected both. Their
 identity also includes the recognition contract and existing page-flow identity.
-Dates hashes only its unchanged date prompts. Display titles do not change model
+Dates hashes its actual date prompts: hearing bytes are unchanged; minute bytes
+change with the new rules and frozen minute definition. Display titles do not change model
 bytes/freshness. Catalog changes affect Names, not Basic or start detection; source
 or actual upstream-file changes still invalidate the dependent run honestly.
 

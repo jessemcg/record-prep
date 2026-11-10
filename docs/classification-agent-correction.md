@@ -41,7 +41,15 @@ neighbors and hearing/minute starts first, then potentially eligible unnamed rep
 starts and named forms. RT cover/index-to-body transitions and consecutive hearing
 starts receive explicit evidence checks, never automatic promotion/demotion. A
 recovered hearing start also needs a date check because Dates has already run.
-Repeated dates are hints, never proof of duplicate orders.
+Repeated dates are hints, never proof of duplicate orders. All minute candidates,
+including undated ones, remain in this review worklist and the counterfactual
+impact projection. Shared minute range enumeration adds ending-neighbor hints:
+inspect separately identifiable orders/forms incorrectly absorbed as continuations.
+During the existing pass, check minute identity and recover a supported proceeding
+or minute-record date (including identifying top fields), also after recovering a
+missed minute start. No extra mandatory pass is added. A confirmed false minute
+needs its appropriate nonminute type, not merely demotion to a minute body; an
+empty date alone is never grounds to guess a type.
 The agent still scans every classification metadata block for additional missed
 eligible documents, but uses targeted text to triage before opening images. It
 avoids repeatedly rescanning all blocks and prioritizes:
@@ -68,6 +76,16 @@ misclassified as a minute-order start can be corrected and its inapplicable minu
 date removed without choosing among conflicting form dates. Only a still-material
 remaining question belongs in unresolved; it does not block the confident change.
 This is reasoning guidance, not a deterministic visual classifier.
+
+After accepted/impact-effective corrections, Python appends deterministic
+`minute_date_unresolved` warnings to the **new** receipt for remaining undated or
+invalid-date minute candidates. Each includes its complete source range and explains
+omission on explicit downstream rebuilding, source availability and the distinction
+between eligibility failure and misclassification. A repaired date/type removes that
+candidate from these post-correction notes. Historical receipts are never changed on
+load. No receipt schema or read-only View review/save workflow changes. The shared
+`minute_selection.py` implementation is part of the review runtime guard.
+See [minute selection](dated-minute-selection.md) and its [validation](dated-minute-selection-validation.md).
 
 Python applies supported changes to separate `*_dates_names_corrected.jsonl`
 finals. Names inputs retain their exact bytes and mtime. Zero-change output copies
@@ -200,7 +218,7 @@ A rollback failure intentionally leaves the marker. No startup repair/migration.
   private candidate-only writes, successful-read journal, no shell or other tools.
 - The established native runner owns the interactive VTE session, shared model
   settings, Stop/process-group termination, stall monitoring and workspace cleanup.
-- No new framework, dependencies, profile schema, Focus contract, classifier prompt,
+- No new framework, dependencies, profile schema, Focus contract, classifier model call,
   launcher or keyboard mapping. No stage-specific model overrides.
 - The agent is instructed to read and report every metadata block, but incomplete
   coverage is a visible limitation, not a reason to discard useful work or stop

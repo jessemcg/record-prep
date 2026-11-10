@@ -16,23 +16,24 @@ FILES = (*LEGACY_FILES, "motion_boundaries.json")
 
 
 def boundary_inputs(root, profile, settings, *, verify_source_bytes=True):
-    if profile is None:
-        return None
+    from .minute_selection import SELECTION_ID
     # Freeze actual inputs for this run, not the settings that created them.
     # Old markers and filesystem timestamps never authorize or block a new run.
     from .classification_profiles import prepared_classification_digest
-    return {"contract_version": 5,
-            "classification_sha256": prepared_classification_digest(root, "final"),
-            "classification_component": component(profile, "basic"),
-            "naming_component": component(profile, "names")}
+    return {"contract_version": 6,
+            "minute_selection": SELECTION_ID,
+            "minute_selection_sha256": _digest(Path(__file__).with_name("minute_selection.py")),
+            "classification_sha256": prepared_classification_digest(root, "final") if profile is not None else None,
+            "classification_component": component(profile, "basic") if profile is not None else None,
+            "naming_component": component(profile, "names") if profile is not None else None}
 
 
 def publish_boundaries(root: Path, profile, expected_inputs, settings: dict, payloads: dict, *, grouping_sha256=None):
     if set(payloads) not in (set(FILES), set(LEGACY_FILES)) or any(not isinstance(value, list) for value in payloads.values()):
         raise ValueError("Invalid application boundary publication contract.")
-    if profile is not None:
-        if read_case_profile_ref(root) != profile.ref or boundary_inputs(root, profile, settings) != expected_inputs:
-            raise ValueError("Preparation selection or classifier inputs changed; prior boundaries preserved.")
+    if (read_case_profile_ref(root) != (profile.ref if profile is not None else None)
+            or boundary_inputs(root, profile, settings) != expected_inputs):
+        raise ValueError("Preparation selection, selection rules or classifier inputs changed; prior boundaries preserved.")
     outputs = {name: json.dumps(value, indent=2) for name, value in payloads.items()}
     with case_profile_publication(root, profile.ref if profile is not None else None):
         from .motion_groups import output_fingerprint
@@ -92,8 +93,9 @@ def require_current_boundaries(root, profile, project_dir, *, verify_source_byte
 
 
 def publish_toc(root, profile, expected_inputs, settings, text, *, grouping_sha256=None):
-    if profile is not None and (read_case_profile_ref(root) != profile.ref or boundary_inputs(root, profile, settings) != expected_inputs):
-        raise ValueError("Preparation selection or classifier inputs changed; prior TOC preserved.")
+    if (read_case_profile_ref(root) != (profile.ref if profile is not None else None)
+            or boundary_inputs(root, profile, settings) != expected_inputs):
+        raise ValueError("Preparation selection, selection rules or classifier inputs changed; prior TOC preserved.")
     with case_profile_publication(root, profile.ref if profile is not None else None):
         from .motion_groups import output_fingerprint
         if grouping_sha256 is not None and output_fingerprint(root) != grouping_sha256:

@@ -63,6 +63,21 @@ class GroupedMotionTests(unittest.TestCase):
         candidate.write_text(json.dumps({'groups': proposals, 'coverage_status': coverage}))
         return org.publish(self.root, self.project, guard, ref, candidate)
 
+    def test_continuity_policy_is_delivered_without_changing_physical_inventory(self):
+        inventory = self.papers()
+        workspace = self.base / 'policy-work'; workspace.mkdir()
+        _guard, _ref, _candidate, _spec, prompt = org.stage_inputs(self.root, self.project, workspace)
+        for phrase in ('continuous supporting paperwork', 'another independent',
+                       'without requiring an express', 'back-to-back',
+                       'requires express source linkage', "lead paper's inventory source_title",
+                       'Never replace a known lead date'):
+            self.assertIn(phrase, prompt)
+        self.assertEqual(org.selected_inventory(self.root)[0], inventory)
+        skill = (self.project / 'skills' / org.SKILL / 'SKILL.md').read_text()
+        self.assertIn('continuous declarations', skill)
+        self.assertIn('oppositions or replies', skill)
+        self.assertNotIn('Short names describe', skill)
+
     def test_four_physical_papers_nine_pages_one_entry_and_v3_roundtrip(self):
         inventory = self.papers()
         saved = self.save([self.proposal(inventory)])
@@ -72,7 +87,7 @@ class GroupedMotionTests(unittest.TestCase):
         item, = sa.build_work_items(self.root, sa.ExtractionConfig('motions', 'CANARY', additional_guidance='CANARY'))
         self.assertEqual(sa.item_source_pages(item), tuple(range(98, 107)))
         self.assertEqual(item.item_id, 'motion:0098')
-        self.assertIn('Motion to compel inspection', item.label)
+        self.assertIn(inventory[0]['source_title'], item.label)
         row = sa.canonicalize_extraction_candidate({'categories': [{'id': 'reasons', 'digest': {
             'text': 'The inspection is needed to resolve a material dispute.',
             'evidence': [{'text': 'unique phrase here', 'file_page': 106}]}}]}, item, self.root / 'text_pages')
@@ -166,7 +181,7 @@ class GroupedMotionTests(unittest.TestCase):
                         proposal = self.proposal(inventory) | {'date_basis': basis}
                         if value is not missing:
                             proposal['date'] = value
-                        attempted = not original_date or (original_basis != 'filed' and basis == 'filed')
+                        attempted = not original_date
                         result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'},
                                                         inventory, 'a' * 64)
                         saved = self.save([proposal])
@@ -320,7 +335,7 @@ class GroupedMotionTests(unittest.TestCase):
         self.assertTrue(all(Path(p).is_relative_to(work) for p in access['reads']))
         self.assertIn(str(work / 'source-10001.txt'), access['reads'])
         self.assertTrue(prompt.startswith('/skill:recordprep-organize-motion-papers '))
-        self.assertIn('Motion to compel police records', prompt)
+        self.assertIn("lead paper's inventory source_title", prompt)
         self.assertNotIn('Mother to compel police records', prompt)
 
     def test_zero_selection_has_no_model_call(self):
@@ -416,18 +431,65 @@ Path(spec['candidate']).write_text(json.dumps({'groups':[{'lead_paper_id':invent
         with self.assertRaises(ValueError): sa.build_work_items(self.root, sa.ExtractionConfig('motions', ''))
         self.assertEqual((saved.read_bytes(), saved.stat().st_mtime_ns), before)
 
-    def test_title_fallback_is_advisory_and_no_editorial_length_gate(self):
+    def test_lead_title_is_authoritative_even_with_missing_or_rewritten_proposal_title(self):
         inventory = self.papers()
-        proposal = self.proposal(inventory)
-        proposal['display_title'] = 'Motion to compel inspection with ' + 'material qualification ' * 20
-        result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
-        self.assertEqual(result['groups'][0]['display_title'], proposal['display_title'].strip())
-        proposal['display_title'] = []
-        result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
-        self.assertEqual(len(result['groups']), 1)
-        self.assertEqual(result['groups'][0]['display_title'], inventory[0]['source_title'])
-        self.assertEqual(result['coverage_status'], 'complete')
-        self.assertIn('source title retained', ' '.join(result['findings']))
+        before = copy.deepcopy(inventory)
+        for title in (None, [], {}, '', 'A newly composed short name', 'qualification ' * 200):
+            with self.subTest(title=type(title).__name__):
+                proposal = self.proposal(inventory, title=title)
+                result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
+                self.assertEqual(len(result['groups']), 1)
+                self.assertEqual(result['groups'][0]['display_title'], inventory[0]['source_title'])
+                self.assertEqual(result['coverage_status'], 'complete')
+                self.assertEqual(result['findings'], [])
+        self.assertEqual(inventory, before)
+
+    def test_invalid_optional_role_retains_complete_packet_through_publication(self):
+        inventory = self.papers()
+        for role in (None, [], {}, '', 'moving papers', 'MOTION', 42):
+            with self.subTest(role=role):
+                saved = self.save([self.proposal(inventory, role=role)])
+                self.assertEqual(saved['coverage_status'], 'complete')
+                group, = saved['groups']
+                self.assertEqual(group['member_paper_ids'], [p['paper_id'] for p in inventory])
+                self.assertEqual(group['filing_role'], 'unresolved supporting paper')
+                self.assertIn('invalid filing_role', ' '.join(saved['findings']))
+                item, = sa.build_work_items(self.root, sa.ExtractionConfig('motions', ''))
+                self.assertEqual(sa.item_source_pages(item), tuple(range(98, 107)))
+                self.assertIn(inventory[0]['source_title'], item.label)
+
+    def test_specific_membership_diagnostics_do_not_echo_raw_model_values(self):
+        inventory = self.papers()
+        base = self.proposal(inventory)
+        cases = [
+            ([], 'group must be an object'),
+            (base | {'member_paper_ids': []}, 'nonempty list'),
+            (base | {'member_paper_ids': [{}]}, 'non-string ID'),
+            (base | {'member_paper_ids': ['motion:0098'] * 2}, 'duplicate IDs'),
+            (base | {'member_paper_ids': ['RAW_PRIVATE_VALUE']}, 'unknown inventory IDs'),
+            (base | {'lead_paper_id': {}}, 'identify an inventory paper'),
+            (base | {'member_paper_ids': ['motion:0100']}, 'is not a member'),
+        ]
+        for proposal, reason in cases:
+            with self.subTest(reason=reason):
+                result = mg.normalize_candidate({'groups': [proposal], 'coverage_status': 'complete'}, inventory, 'a' * 64)
+                self.assertEqual(result['coverage_status'], 'incomplete')
+                self.assertEqual(len(result['groups']), 4)
+                diagnostic = ' '.join(result['findings'])
+                self.assertIn('Group proposal 1 rejected:', diagnostic)
+                self.assertIn(reason, diagnostic)
+                self.assertNotIn('RAW_PRIVATE_VALUE', diagnostic)
+
+    def test_continuous_independent_motions_are_not_mechanically_merged(self):
+        inventory = self.papers()
+        proposals = [self.proposal(inventory, lead=inventory[n]['paper_id'],
+                                  members=[p['paper_id'] for p in inventory[n:n+2]])
+                     for n in (0, 2)]
+        saved = self.save(proposals)
+        self.assertEqual(len(saved['groups']), 2)
+        self.assertEqual([g['display_title'] for g in saved['groups']],
+                         [inventory[n]['source_title'] for n in (0, 2)])
+        self.assertEqual(saved['coverage_status'], 'complete')
 
     def test_review_coverage_is_independent_of_advisory_notes(self):
         inventory = self.papers()

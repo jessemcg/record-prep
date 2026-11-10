@@ -118,7 +118,7 @@ assert [d['id'] for d in source_map['documents']] == [f'motion:{n:04d}' for n in
 if grouped:
     assert source_map['counts']['motion_entries'] == 3
     support = next(d for d in source_map['documents'] if d['id'] == 'motion:0007')
-    assert support['motion_group_id'] == 'motion:0005' and 'Motion to compel inspection' in support['aliases']
+    assert support['motion_group_id'] == 'motion:0005' and titles[5] in support['aliases']
     assert len(source_map['documents']) == 5
     from recordprep.profile_artifacts import source_map_profile_metadata
     source_map_profile_metadata(source_map)

@@ -187,7 +187,12 @@ case overview → deterministic source map. See `docs/workflow.md`.
 - Motion flow: immutable physical inventory → restricted candidate → independent Python
   normalization → locked guarded atomic grouping → existing consumers. Lead ID/anchor,
   exact member spans (even preceding/nonadjacent support), separate motion/opposition/
-  reply; ambiguous support stays singleton. Preserve known filed dates. Optional model
+  reply. Default continuous supporting paperwork to the lead when request/party/position
+  agree; independent filings and non-motion categories end the packet. Nonadjacent support
+  requires express linkage; never mechanically merge CT_motion runs. Ambiguous support stays
+  singleton. Use the lead inventory title and known date; recover only unknown lead dates.
+  Invalid optional roles retain membership with an unresolved-role finding. Membership
+  rejection diagnostics identify the field/reason without raw model values. Optional model
   metadata is advisory, not a coverage/quality gate. Stale grouping warns/singletons;
   corrupt stores and Stop/source/model/race/publication failures preserve prior output.
   Resume skips historical missing preparation honestly; explicit work hashes resources.

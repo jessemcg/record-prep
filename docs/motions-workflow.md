@@ -50,7 +50,7 @@ rewritten to implement grouping.
 The native **Organize motion papers** stage runs after final classification and
 before Build TOC, using the shared Agent model/reasoning and its own canonical
 skill/restricted tool guard. Python supplies the immutable inventory and exact
-staged source files. The agent may propose relationships and concise entry names;
+staged source files. The agent proposes relationships; Python retains the lead title/date;
 it cannot invent physical IDs/ranges, execute a shell or write canonical outputs.
 **View grouping** is a read-only plain-text review of entries, members and findings.
 
@@ -59,8 +59,8 @@ source/input fingerprints, model/resource identity, logical groups, findings and
 honest review coverage, independently of advisory notes. For a nonempty inventory,
 complete requires an explicit complete candidate and every paper accepted exactly once,
 without malformed/contradictory membership, duplicate assignments or automatic fallback.
-Reviewed ambiguous singletons, source-title fallbacks and omitted invalid optional
-relationships may have complete review coverage; that is not semantic certainty.
+Reviewed ambiguous singletons and omitted/normalized invalid optional metadata
+may have complete review coverage; that is not semantic certainty.
 Missing or explicitly incomplete candidates remain incomplete. Saved historical statuses
 are displayed as saved, never recalculated on viewing. The review separates components,
 relationship explanations and notes, with entry/physical-paper counts.
@@ -74,17 +74,27 @@ navigation anchor, exact ordered components, role, title, source-supported party
 purpose/date/date basis and optional relationships. Components need not be adjacent
 and support can precede the lead. Never use an enclosing range as source scope.
 
-A motion/application, opposition and reply remain **separate entries**, each with
-its own explicitly linked support. A declaration, separate statement or memorandum
-belongs with a lead only when the papers establish the relationship. Unlinked,
-ambiguous or multiply assigned papers remain visible singletons with advisory notes.
-Useful independent proposals survive malformed proposals; incomplete successful
-output is not an all-or-nothing failure or a mandatory paid repair pass.
+Default to one logical entry for a lead and its continuous supporting declarations,
+separate statements and memoranda. Consistent request, party and position suffice
+without an express cross-reference in every component. A component title, physical
+start or page-number restart does not create a separate TOC entry. Another independent
+filing or a non-motion category ends the packet. Independent motions, oppositions and
+replies remain **separate entries**, even back-to-back; conflicting requests, parties
+or positions override continuity. Non-adjacent support requires express source linkage;
+intervening unselected pages never enter the source scope. This is an agent instruction,
+not a Python merge of every uninterrupted CT_motion run.
 
-Short titles identify the filing/request: **Motion to compel police records**, not
-“Mother to compel police records.” Keep the filing party in metadata and the opening
-narrative. Preserve opposition/reply and consequential amended/supplemental qualifiers.
-No regex renaming, silent truncation, word quota or numerical brevity validator.
+Python uses the lead's inventory source title and known date/date basis, ignoring
+proposed replacement names or dates. Only an unknown lead date may be recovered from
+the lead itself. Supporting names/ranges remain physical inventory, not separate TOC
+entries. Historical saved titles remain as recorded until explicit organization.
+
+Missing/invalid optional filing roles retain valid membership with an unresolved-role
+finding; they no longer reject the whole group. Unknown IDs, non-string IDs, duplicate
+members and invalid/nonmember leads still reject membership with specific numbered
+proposal diagnostics (without echoing raw model values). Duplicate assignments across
+proposals still reject all affected groups. Unlinked/ambiguous papers remain singletons;
+useful independent proposals survive rejected proposals. No mandatory paid repair pass.
 
 The stage uses its own lock, private candidate, Stop handling, guarded source/model/
 resource/selection/prior-output checks and atomic publication. Genuine failures,
@@ -172,6 +182,33 @@ The organization method and membership rules are unchanged; its existing conserv
 resource identity nevertheless hashes the whole `motion_guidance.py` module, so a
 separately requested organization run may re-review rather than reuse its old receipt.
 That does not force organization or alter saved groups, presence badges or Resume.
+
+## Continuous-packet follow-up validation (2026-11-10)
+
+Isolated source/environment: `/tmp/recordprep-grouping-validation/RecordPrep` and
+`/tmp/recordprep-grouping-validation/env`, synthetic records, temporary HOME/XDG/Pi,
+no paid calls or real-bundle changes. Full unittest discovery: 1,033 tests,
+1,025 passed and 8 skipped. Regressions cover four papers/nine exact source pages,
+invalid optional role retention, lead title/date ownership, specific sanitized membership
+errors, adjacent independent motions, separate opposition/reply and nonadjacent support.
+Prompt delivery tests check the continuity default and its exceptions; offline tests
+establish application contracts, not live-model semantic accuracy.
+
+Native grouped-motion acceptance passed under `G_DEBUG=fatal-criticals` and
+`GSK_RENDERER=cairo`: real Build TOC lead anchor/title, supporting titles absent from
+TOC but present in read-only grouping, three fixed inspectors, unchanged settings/bundle
+bytes and mtimes during inspection. Computer Use observed the synthetic inspector.
+The first default-renderer run detected shader-cache writes in its overly broad
+inventory assertion; Cairo avoided that test-environment noise, without product changes.
+Skill validation, sequential resources, compileall and offline registered-tool/SDK
+expansion audit passed (audit refreshed with local Pi 1.5.2). Initial discovery also
+caught the intentionally stale skill audit and missing Git metadata in the disposable
+checkout; both were corrected before the passing full run.
+
+For an existing bundle, explicitly rerun **Organize motion papers**, review grouping,
+then rebuild TOC and regenerate motion summaries and dependent editions/overview/map.
+Installing this change never rewrites old groups, physical boundaries or summaries.
+No Focus/shared-schema, launcher, classification or source-text changes are required.
 
 ## Validation and publication
 

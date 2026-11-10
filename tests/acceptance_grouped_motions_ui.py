@@ -73,7 +73,7 @@ with patch.object(main, '_resolve_case_root', return_value=bundle):
     assert main._run_step_six(), 'Actual Build TOC worker failed'
     drain()
     toc = (bundle / 'artifacts/toc.txt').read_text()
-    assert any('Motion to compel inspection' in line and int(line.rsplit(' ', 1)[1]) == 5 for line in toc.splitlines())
+    assert any('Motion to Compel Inspection' in line and int(line.rsplit(' ', 1)[1]) == 5 for line in toc.splitlines())
     assert not any('Supporting Declaration' in line for line in toc.splitlines())
     before = inventory()
     main._show_motion_grouping(None); drain()
@@ -81,7 +81,7 @@ with patch.object(main, '_resolve_case_root', return_value=bundle):
     grouping = next(windows.get_item(i) for i in range(windows.get_n_items()) if windows.get_item(i).get_title() == 'Motion grouping')
     view = next(w for w in descendants(grouping) if isinstance(w, Gtk.TextView))
     text = view.get_buffer().get_text(*view.get_buffer().get_bounds(), True)
-    assert not view.get_editable() and 'Supporting Declaration' in text and 'Motion to compel inspection' in text
+    assert not view.get_editable() and 'Supporting Declaration' in text and 'Motion to Compel Inspection' in text
     capture(grouping, 'grouping'); grouping.destroy(); drain()
 snapshot = api.bundled_profile_for_identity('recordprep', api.DEFAULT_PROFILE_ID)
 editor = editable_profile(snapshot)

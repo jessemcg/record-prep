@@ -1,6 +1,6 @@
 """Logical motion entries over immutable physical paper identities/ranges.
 
-No inference from proximity. Only the organization agent proposes relationships;
+No mechanical merging by proximity. The organization agent proposes relationships;
 Python normalizes proposals independently, retains singletons and owns publication.
 """
 from __future__ import annotations
@@ -89,15 +89,28 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
     raw = candidate["groups"] if good_output else []
     if not good_output and inventory:
         findings.append("Successful agent returned no usable grouping candidate; singleton coverage is incomplete.")
-    for value in raw:
+    for index, value in enumerate(raw, 1):
         members = value.get("member_paper_ids") if isinstance(value, dict) else None
         lead = value.get("lead_paper_id") if isinstance(value, dict) else None
-        if (not isinstance(members, list) or not members or any(not isinstance(m, str) for m in members)
-                or len(members) != len(set(members)) or lead not in members
-                or any(m not in by_id for m in members) or not isinstance(value.get("filing_role"), str)
-                or value["filing_role"] not in ROLES):
+        problems = []
+        if not isinstance(value, dict):
+            problems.append("group must be an object")
+        if not isinstance(members, list) or not members:
+            problems.append("member_paper_ids must be a nonempty list")
+        elif any(not isinstance(m, str) for m in members):
+            problems.append("member_paper_ids contains a non-string ID")
+        else:
+            if len(members) != len(set(members)):
+                problems.append("member_paper_ids contains duplicate IDs")
+            if any(m not in by_id for m in members):
+                problems.append("member_paper_ids contains unknown inventory IDs")
+        if not isinstance(lead, str) or lead not in by_id:
+            problems.append("lead_paper_id must identify an inventory paper")
+        elif not isinstance(members, list) or lead not in members:
+            problems.append("lead_paper_id is not a member")
+        if problems:
             coverage_problem = True
-            findings.append("Malformed group or unknown/contradictory references; affected papers remain standalone.")
+            findings.append(f"Group proposal {index} rejected: {'; '.join(problems)}. Affected papers remain standalone.")
             # Known IDs in malformed proposals also participate in duplicate checks.
             for m in members if isinstance(members, list) else []:
                 if isinstance(m, str) and m in by_id:
@@ -115,23 +128,25 @@ def normalize_candidate(candidate, inventory, input_sha256, *, inputs=None):
             continue
         lead = by_id[proposal["lead_paper_id"]]
         group = singleton(lead, "")
-        if not text(proposal.get("display_title")):
-            findings.append("Short title unavailable; original source title retained without truncation.")
+        filing_role = text(proposal.get("filing_role"))
+        if filing_role not in ROLES:
+            filing_role = "unresolved supporting paper"
+            findings.append(f"Group {lead['paper_id']}: missing or invalid filing_role; membership retained with unresolved role.")
         ordered = sorted(members, key=lambda m: by_id[m]["start_page"])
         roles = {}
         for component in proposal.get("components", []) if isinstance(proposal.get("components"), list) else []:
             if isinstance(component, dict) and component.get("paper_id") in ordered:
                 roles[component["paper_id"]] = text(component.get("role"), "support", 160)
-        group.update(member_paper_ids=ordered, filing_role=proposal["filing_role"],
+        group.update(member_paper_ids=ordered, filing_role=filing_role,
                      components=[{"paper_id": m, "role": roles.get(m, "lead" if m == lead["paper_id"] else "support"),
                                   "start_page": by_id[m]["start_page"], "end_page": by_id[m]["end_page"]} for m in ordered],
-                     display_title=text(proposal.get("display_title"), lead["source_title"]),
+                     display_title=lead["source_title"],
                      filing_party=text(proposal.get("filing_party")), purpose=text(proposal.get("purpose")),
                      relationship_notes=text(proposal.get("relationship_notes"), text(proposal.get("evidence"))),
                      relationship_to=text(proposal.get("relationship_to")))
-        # Never replace a known filed date with a model-recovered signature date.
+        # The lead's recorded date owns the entry; recover only an unknown lead date.
         basis = proposal.get("date_basis")
-        if isinstance(basis, str) and basis in {"filed", "document"} and (not lead["date"] or (lead["date_basis"] != "filed" and basis == "filed")):
+        if isinstance(basis, str) and basis in {"filed", "document"} and not lead["date"]:
             from .document_naming import _date_value
             candidate_date = proposal.get("date")
             recovered = _date_value(candidate_date) if isinstance(candidate_date, str) else None

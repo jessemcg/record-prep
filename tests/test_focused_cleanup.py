@@ -25,12 +25,13 @@ class FocusedCleanupTests(unittest.TestCase):
                     subtitles[values['title']] = values['subtitle']
         for title, phrase in (
             ('Classification names', 'motion-paper names'), ('Build TOC', 'motions'),
-            ('Find boundaries', 'motion papers'), ('Correct boundaries', 'keep named single-page reports'),
+            ('Find boundaries', 'motion papers'), ('Filter boundary entries', 'keep named single-page reports'),
             ('Create hearing summaries', 'proceedings, arguments, and rulings'),
             ('Create minute-order summaries', 'compact appearances, orders, and next-hearing entries'),
         ):
             self.assertIn(phrase, subtitles[title])
-        self.assertNotIn('single-page report boundaries unless', subtitles['Correct boundaries'])
+        self.assertNotIn('Correct boundaries', subtitles)
+        self.assertNotIn('single-page report boundaries unless', subtitles['Filter boundary entries'])
         self.assertNotIn('paragraphs', subtitles['Create minute-order summaries'])
 
     def test_missing_edition_summary_error_has_no_fixed_category_count(self):

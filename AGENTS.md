@@ -135,7 +135,7 @@ Only explicit Create/Save/Reset publishes current revisions; no private migratio
 
 Create files → Detect transcript layout → Strip characters → Infer case → Basic /
 Advanced / Dates / Names / Agent correction → Organize motion papers → Build/correct
-TOC → Find/correct boundaries → Number transcript pages → Participants → independent
+TOC → Find boundaries → Filter boundary entries → Number transcript pages → Participants → independent
 hearing/report/motion/minute summary stages → deterministic summary editions → concise
 case overview → deterministic source map. See `docs/workflow.md`.
 

@@ -208,7 +208,7 @@ already-prepared bundle with complete source pages.
 5. Classify RT/CT pages.
 6. Run Advanced → Dates → Names → **Correct classification with agent**. The earlier deterministic correction stage is removed. The agent reviews consequential boundaries using the shared Pi agent, preserves Names inputs, publishes separate `*_dates_names_corrected.jsonl` finals (including zero-change reviews), and records applied changes/unresolved findings. Legacy filenames remain readable without renaming; a failed or stopped new review blocks stale-final fallback. See [classification agent correction](classification-agent-correction.md).
 7. Organize motion papers, then build/correct the TOC for forms, reports, logical motions, minute orders and hearings. Classification Names includes report, form and physical motion-paper names.
-8. Find/correct hearing, report, motion-paper and minute-order boundaries. Correct boundaries filters ineligible entries, retaining named single-page reports and all original source pages. Its completion total includes removed motion entries.
+8. Find hearing, report, motion-paper and minute-order boundaries, then **Filter boundary entries** to omit ineligible entries, retaining named single-page reports and all original source pages. Its completion total includes removed motion entries.
 
 **Modify TOC**, beside Correct TOC, becomes available once the TOC is built;
 you can edit and save it while boundaries, numbering, and summaries run. Editing

@@ -4112,7 +4112,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._attach_step_status(self.step_seven_row)
 
         self.step_correct_boundaries_row = Adw.ActionRow(
-            title="Correct boundaries",
+            title="Filter boundary entries",
             subtitle="Filter ineligible hearing, report, and motion entries; keep named single-page reports and all source pages.",
         )
         self.step_correct_boundaries_row.set_activatable(False)
@@ -8247,7 +8247,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             if not hearing_entries and not report_entries and not motion_entries:
                 GLib.idle_add(
                     self.show_toast,
-                    "No hearing, report, or motion-paper boundaries found. Skipping Correct boundaries.",
+                    "No hearing, report, or motion-paper boundaries found. Skipping Filter boundary entries.",
                     "WARN",
                 )
                 success = "Skipped"
@@ -8286,7 +8286,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         except StopRequested:
             success = None
         except Exception as exc:
-            GLib.idle_add(self.show_toast, f"Correct boundaries failed: {exc}")
+            GLib.idle_add(self.show_toast, f"Filter boundary entries failed: {exc}")
         else:
             success = True
             self._safe_update_manifest(
@@ -8299,7 +8299,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
             GLib.idle_add(
                 self.show_toast,
-                "Correct boundaries complete. "
+                "Filter boundary entries complete. "
                 f"{hearing_removed} hearing entries without dates and "
                 f"{report_removed} unnamed/unresolved report entries and "
                 f"{motion_removed} unnamed/unresolved motion entries omitted from standalone summaries "

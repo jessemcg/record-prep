@@ -271,7 +271,7 @@ This approved policy replaces the former provisional-report-label policy. Forms
 with no accepted name are omitted from the Forms TOC, without deleting their source
 pages or structural classifications. An empty form name is not replaced by an
 “Untitled form” entry. Existing output stays unchanged until explicit application
-runs: **Build TOC → Correct TOC → Find boundaries → Correct boundaries**.
+runs: **Build TOC → Correct TOC → Find boundaries → Filter boundary entries**.
 Correct TOC retains the first entry per recognized minute-order date in source order;
 unknown dates remain separate. This applies to profiles too, but does not deduplicate
 their underlying same-day order boundaries, summaries or checkpoints. Old output is

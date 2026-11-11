@@ -48,20 +48,18 @@ class SettingsPermissions(unittest.TestCase):
         self.assertTrue(mode & stat.S_IWUSR)
         self.assertEqual(mode, 0o600)
 
-    def test_world_writable_settings_remain_rejected(self):
+    def test_world_writable_settings_are_read_without_repair(self):
         self.path.chmod(0o666)
         before = self.path.read_bytes()
         with store.Store(self.path) as settings:
-            with self.assertRaisesRegex(store.Failure, "unsafe_settings_file"):
-                settings.read()
+            self.assertEqual(settings.read()['bytes'], before)
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o666)
 
-    def test_write_access_for_a_different_group_remains_rejected(self):
+    def test_settings_group_does_not_control_acceptance(self):
         with patch.object(store.os, "getgid", return_value=os.getgid() + 1):
             with store.Store(self.path) as settings:
-                with self.assertRaisesRegex(store.Failure, "unsafe_settings_file"):
-                    settings.read()
+                self.assertEqual(settings.read()['bytes'], self.path.read_bytes())
 
     def test_private_state_does_not_inherit_ordinary_settings_permission_policy(self):
         with self.assertRaisesRegex(store.Failure, "unsafe_state_file"):

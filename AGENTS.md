@@ -112,8 +112,11 @@ Only explicit Create/Save/Reset publishes current revisions; no private migratio
   absolute config, shared Pi and classifier request connection. App-owned vendored
   schema/store use CAS/locks; stale writes fail even without raise_errors. Failed
   drafts never become baselines; Reconcile/Retain receipts are not rollback authority.
-  RecordPrep settings accept owner/primary-group 0664, not world/foreign-group write,
-  wrong owner or extra links. Private state/locks are 0700/0600. Stable writer locks
+  Ordinary settings and their ancestors accept synchronized group/other write bits
+  (including 0664/0666 and 0775/0777 directories), regardless of group identity.
+  Never reject or chmod settings solely for these bits. Keep owner/no-link/JSON/CAS,
+  writer exclusion and sync-conflict checks. Explicit saves still publish 0600.
+  Machine-local private state/locks remain 0700/0600. Stable writer locks
   live under local `$XDG_STATE_HOME/recordprep/settings-locks`, keyed by absolute path,
   never adjacent to synced settings; do not delete locks. Old adjacent locks are ignored;
   close all processes before lock-policy upgrades. Cooperating processes need identical

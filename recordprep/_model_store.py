@@ -1,6 +1,8 @@
 """Application-owned, standard-library-only settings safety and protocol v1.
 Vendored independently in each owner; no sibling runtime dependency. No discovery,
 GUI, credentials, provider requests or migrations. Only explicit saves publish.
+Ordinary settings may have Dropbox-synchronized permission bits; ownership,
+no-link, revision and conflict checks still apply. Machine-local state/locks are private.
 """
 from __future__ import annotations
 import contextlib
@@ -71,7 +73,7 @@ def directory(path):
             nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
             os.close(fd); fd = nxt
             m = os.fstat(fd)
-            if m.st_uid not in (0, os.getuid()) or (m.st_mode & 0o002 and not m.st_mode & stat.S_ISVTX):
+            if m.st_uid not in (0, os.getuid()):
                 fail('unsafe_settings_directory')
         return fd
     except BaseException:
@@ -131,11 +133,7 @@ class Store:
         return os.open(name, flags | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, mode, dir_fd=self.fd)
     def read_fd(self, fd):
         before = os.fstat(fd)
-        # RecordPrep's synchronized settings legitimately use 0664. Accept
-        # primary-group write only on current-user-owned ordinary settings;
-        # private state/locks retain their separate strict 0700/0600 checks.
-        unsafe_write = before.st_mode & 0o002 or (before.st_mode & 0o020 and before.st_gid != os.getgid())
-        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_nlink != 1 or unsafe_write:
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_nlink != 1:
             fail('unsafe_settings_file')
         if before.st_size > LIMIT: fail('settings_too_large')
         os.lseek(fd,0,0); data = b''

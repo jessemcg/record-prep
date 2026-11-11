@@ -251,16 +251,21 @@ class StructuredClassificationTests(unittest.TestCase):
         b=bundle()
         golden=json.loads((ROOT/'tests/fixtures/summary-inspection-golden.json').read_bytes())
         # Keep frozen historical fixtures intact. Hearings now use fixed neutral
-        # topics and canonical skills; report contracts remain unchanged.
+        # topics and canonical skills. Current synthesis adds case-only display
+        # guidance to both kinds; current report editorial examples live in SKILL.
         golden.update({
             'hearings-extract': {
                 'component_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
                 'prompt_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
                 'staged_skill_sha256': '3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492'},
             'hearings-synthesize': {
-                'component_sha256': 'a6407991499dd6d065dd3b4fbd4e7d575e10a37d4971c0c933192e4d323608cd',
-                'prompt_sha256': 'a6407991499dd6d065dd3b4fbd4e7d575e10a37d4971c0c933192e4d323608cd',
+                'component_sha256': '66f1b27d820893e1b805feb4ef595480033179e0d53e2d743d89744caadb413f',
+                'prompt_sha256': '66f1b27d820893e1b805feb4ef595480033179e0d53e2d743d89744caadb413f',
                 'staged_skill_sha256': '61e7b23ba424c5185244f5a589e358e6436e394f3444301e443ea94f83c93670'},
+            'reports-synthesize': {
+                'component_sha256': '354a9190da58b478c0a4e083bbbf0162641c02f66411d90a76fcd0f4260af34d',
+                'prompt_sha256': 'b62213a142e722724cbfd34fc8bf89e4e0cbf09b3ac6fab2bde6e0c867e949a5',
+                'staged_skill_sha256': 'c4412073f6bb8334b817afc2a2f1ff852d9e78f2b599edfb70391c5d978dca83'},
             'reports-extract': {
                 'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
                 'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',

@@ -8,6 +8,8 @@ from copy import deepcopy
 import hashlib
 import json
 
+from .quote_display import QUOTE_CASE_GUIDANCE
+from .synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
 from .summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
 
 MOTION_ELIGIBILITY = (
@@ -146,6 +148,7 @@ def application_guidance(phase):
                   "without typed quotes/page links. Do not use an anchor if its expansion would reverse, "
                   "overstate or contradict the supported proposition. Do not invent missing evidence. "
                   "An all-null entry needs no paragraphs. Python fills missing or unusable sections with saved digest prose.\n")
+        method += "\n" + QUOTATION_INTEGRATION_GUIDANCE + "\n" + QUOTE_CASE_GUIDANCE
     return EDITORIAL + method + "\nFIXED TOPICS\n" + json.dumps(MOTION_TOPICS, ensure_ascii=False)
 
 

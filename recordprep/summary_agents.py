@@ -26,6 +26,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_quote, valid_quote_capitalization
+from .synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -65,8 +66,8 @@ SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-7"
 # Kind-specific presentation identities; the shared renderer-7 name above is
 # retained for historical callers, not current report freshness.
 # Version 9 removes model-authored backtick formatting before quote expansion.
-HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-9"
-REPORT_RENDERER_VERSION = "recordprep-report-renderer-9"
+HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-10"
+REPORT_RENDERER_VERSION = "recordprep-report-renderer-10"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -109,7 +110,7 @@ REPORT_DUPLICATION_SHINGLE_WORDS = 15
 def summary_renderer_version(kind: str) -> str:
     """Scope presentation changes independently for hearing/report synthesis."""
     return {"hearings": HEARING_RENDERER_VERSION, "reports": REPORT_RENDERER_VERSION,
-            "motions": "recordprep-motion-renderer-2"}[kind]
+            "motions": "recordprep-motion-renderer-3"}[kind]
 
 
 @dataclass(frozen=True, slots=True)
@@ -4316,7 +4317,7 @@ def effective_synthesis_config(project_dir: Path, kind: str, *, profile: Profile
     return {
         "kind": kind,
         "guidance": compiled.prompt if compiled is not None else resolution.immutable_guidance + "\n\n" + (
-            {"hearings": "", "reports": REPORT_QUOTE_CASE_GUIDANCE,
+            {"hearings": "", "reports": QUOTATION_INTEGRATION_GUIDANCE + "\n" + REPORT_QUOTE_CASE_GUIDANCE,
              "motions": ""}[kind]),
         "additional_guidance": "" if compiled is not None else resolution.custom_guidance,
         **({"profile_component": compiled.component_sha256} if compiled is not None else {}),

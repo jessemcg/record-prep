@@ -32,6 +32,10 @@ from recordprep.settings_navigation import descendants
 from recordprep.paths import resource_root
 from recordprep.summary_editions import build_summary_edition, publish_summary_edition
 from recordprep.summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
+from recordprep.quote_display import QUOTE_CASE_GUIDANCE
+from recordprep.synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
+
+display_repeated = 'the court finds that notice has been given as required by law'
 
 fixture = json.loads((Path(__file__).parent / 'fixtures/summary_quote_navigation.json').read_bytes())
 case = root / 'bundle'
@@ -72,16 +76,19 @@ for kind in sa.SUMMARY_KINDS:
         paragraphs = (['The order provides for {{quote:' + bank[0]['quote_id'] + '}}.'] +
                       ['Orientation.'] * padding +
                       ['The court reviewed the disputed conditions and explained that {{quote:' + bank[1]['quote_id'] + '}}.'])
-        sections, flags = sa.normalize_synthesis_sections(restored, [{'item_id': item.item_id, 'paragraphs': paragraphs}])
+        sections, flags = sa.normalize_synthesis_sections(restored, [{'item_id': item.item_id, 'paragraphs': paragraphs,
+            'quote_capitalizations': {bank[1]['quote_id']: display_repeated}}])
+        assert not any(f.startswith('quote_capitalization_rejected:') for f in flags)
         text = sa.render_final_summary(kind, 'SyntheticQuoteCase', restored, sections, {item.item_id: (1, None)})
         path.write_text(text)
         edition = build_summary_edition(kind, path, case)
-        fragments = [p.page for p in edition.pages if any(q.phrase == fixture['repeated_boilerplate'] for q in p.quotes)]
+        fragments = [p.page for p in edition.pages if any(q.phrase == display_repeated for q in p.quotes)]
         if len(fragments) > 1:
             break
     assert len(fragments) > 1, 'Synthetic fixture must exercise an actual paper split'
     publish_summary_edition(edition, path)
-    assert {q.phrase for p in edition.pages for q in p.quotes} == {fixture['distinctive'], fixture['repeated_boilerplate']}
+    assert {q.phrase for p in edition.pages for q in p.quotes} == {fixture['distinctive'], display_repeated}
+    assert bank[1]['text'] == fixture['repeated_boilerplate']
 
 Adw.init()
 app = Adw.Application(application_id='org.synthetic.RecordPrep.QuotePolicy')
@@ -110,29 +117,40 @@ def inventory():
 
 drain()
 before = inventory()
-w._select_page('hearings-topics')
-explanation = next(x for x in descendants(w.pages['hearings-topics'])
+w._select_page('reports-topics')
+explanation = next(x for x in descendants(w.pages['reports-topics'])
                    if isinstance(x, Gtk.Expander) and x.get_label() == 'About summaries')
 explanation.set_expanded(True)
 button = next(x for x in descendants(explanation)
               if isinstance(x, Gtk.Button) and x.get_label() == 'View full prompts…')
 button.emit('clicked')
 view = w.prompt_inspector
-for task in ('hearings-extract', 'reports-extract', 'motions-extract'):
+for task in ('hearings-extract', 'reports-extract', 'motions-extract',
+             'hearings-synthesize', 'reports-synthesize', 'motions-synthesize'):
     view.selector.set_selected(next(i for i, (k, _) in enumerate(view.tasks) if k == task))
     view._refresh()
     drain()
     text = view.text.get_buffer().get_text(*view.text.get_buffer().get_bounds(), True)
-    assert EXTRACTION_QUOTE_GUIDANCE.strip() in text
-    assert '6–12' in text and 'usually 8–10' in text
-    assert 'another-model-pass trigger' in text
+    if task.endswith('extract'):
+        assert EXTRACTION_QUOTE_GUIDANCE.strip() in text
+        assert '6–12' in text and 'usually 8–10' in text
+        assert 'another-model-pass trigger' in text
+        assert QUOTE_CASE_GUIDANCE.strip() not in text
+        assert QUOTATION_INTEGRATION_GUIDANCE.strip() not in text
+    else:
+        assert QUOTE_CASE_GUIDANCE.strip() in text
+        assert QUOTATION_INTEGRATION_GUIDANCE.strip() in text
+        assert 'sentence-case, mixed-case or lowercase quotes' in text
+        assert 'For all-caps quotes, optionally' not in text
+        if not task.startswith('hearings'):
+            assert 'Let the quotation carry the proposition' in ' '.join(text.split())
     assert not view.status.get_text(), view.status.get_text()
     assert not view.text.get_editable()
 assert inventory() == before
 assert not store.registry_path.exists()
-view.selector.set_selected(next(i for i, (k, _) in enumerate(view.tasks) if k == 'hearings-extract'))
+view.selector.set_selected(next(i for i, (k, _) in enumerate(view.tasks) if k == 'reports-synthesize'))
 view._refresh()
-print(f'PASS: production View full prompts click, 3 extraction views, clean audit, no persistence; PID {os.getpid()}; bundle {case}', flush=True)
+print(f'PASS: production View full prompts handler, 3 extraction + 3 synthesis views, clean audit, no persistence; PID {os.getpid()}; bundle {case}', flush=True)
 if os.environ.get('QUOTE_UI_HOLD') == '1':
     while view.get_visible():
         GLib.MainContext.default().iteration(True)

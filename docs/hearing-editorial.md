@@ -1,5 +1,10 @@
 # Hearing editorial follow-up
 
+Current capitalization follow-up: [fluid quotation integration](fluid-quotation-integration.md).
+The hearing skill and HEARING_READABILITY remain unchanged; display-only proposals
+now cover any source capitalization. See that document for current validation and
+limitations, not the historical validation records below.
+
 ## Quotation integration — 2026-11-09
 
 Hearing synthesis now explicitly lets quotations carry the proposition rather than

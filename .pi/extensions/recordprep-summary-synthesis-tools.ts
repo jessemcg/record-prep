@@ -18,9 +18,12 @@ export default function synthesisTools(pi: ExtensionAPI) {
             "keep each paragraph short and focused, regroup dense digest topics, " +
             "and distribute appropriate quote anchors across substantive " +
             "paragraphs. Review attribution; never force or repeat a quote " +
-            "merely for formatting. For all-caps quotes, optionally supply quote_capitalizations: an " +
+            "merely for formatting. For all-caps, sentence-case, mixed-case or lowercase quotes, " +
+            "optionally supply quote_capitalizations when sentence position warrants adjustment: an " +
             "object mapping exact quote ids to case-only display spellings. " +
-            "Preserve names, acronyms, identifiers, wording and punctuation. " +
+            "Preserve proper names, acronyms, initials, first-person I, legal identifiers and meaningful " +
+            "capitalization; retain source spelling when uncertain. Preserve every word, character position, " +
+            "space and punctuation mark. No bracketed capitalization markers or narrative announcements. " +
             "Keep the original quote placeholders in paragraphs; Python " +
             "validates each proposal and otherwise retains source capitalization.",
           parameters: {

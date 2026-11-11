@@ -50,8 +50,26 @@ Select anchors about relief or reasons for or against it, not identifiers or pac
 Preserve exact wording, negation, attribution and qualifications. Do not use an anchor
 if its expansion would reverse, overstate or contradict the supported proposition.
 Do not type quotation marks, invent IDs or add page links. Quotes are anchors, not
-independent proof of inferred facts. Do not repeat paraphrase-plus-quote accounts. There are
-no word, paragraph, topic-fill or quotation quotas or required Request/Reasons
+independent proof of inferred facts. Let the quotation carry the proposition;
+surrounding prose adds attribution, context, qualification or consequence, not a
+complete paraphrase repeated by the quote. A colon or dash introducing nonredundant
+content is permissible. Distinguish sentence-completing phrases from quotations
+with their own subject and finite verb. Do not prepend a second subject, verb,
+infinitive or modal (it + quoted subject, would + quoted will, asked someone to +
+quoted finite recommends). Attribute complete first-person statements; preserve I.
+Mentally expand every placeholder and read the entire sentence before normal
+submission. Recast the surrounding prose, choose another suitable saved anchor or
+paraphrase if needed; never trim, splice, grammatically repair or reassign stored
+wording. Preserve useful quotation distribution, not a checklist or a goal of fewer
+quotations. Use the application's optional quote_capitalizations map for case-only
+display changes, retaining the original bare placeholder and meaningful capitalization.
+Do not repeat the same ground in an opening synopsis and the declaration account.
+A request to test whether an event occurred does not establish an opponent asserted
+it occurred. Supporting a request does not establish the declarant's employment or
+affiliation. Use supplied names/roles, not guessed pronouns or possessives. Keep
+conditions attached to the same relief/actor; exact words can still be misattached.
+Follow the application-supplied expanded-sentence fidelity examples while drafting.
+There are no word, paragraph, topic-fill or quotation quotas or required Request/Reasons
 headings. No extra mandatory validation/repair pass. An all-null entry needs no
 paragraphs; report incomplete coverage honestly and submit useful material you have.
 
@@ -61,3 +79,25 @@ The launch message supplies fictional motion, opposition and reply examples show
 how to keep requests, grounds and consequential qualifications while dropping filing
 particulars. They are not source facts, output templates or length limits. Never invent
 a corresponding opposition, reply or qualification for this entry.
+
+## Fictional quotation integration — not available evidence
+
+Request phrase — bank motion:0001/request/1 = 'access only to the inspection entries':
+Avoid: The claimant seeks access only to inspection entries: {{quote:motion:0001/request/1}}.
+Prefer: The claimant seeks {{quote:motion:0001/request/1}}.
+Retain any supported alternative relief or conditions in the surrounding account.
+
+Reason with its own subject — bank motion:0001/reasons/1 = 'The gaps do not establish that inspections were omitted':
+Avoid: The owner says they {{quote:motion:0001/reasons/1}}.
+Prefer: The owner argues that {{quote:motion:0001/reasons/1}}.
+Keep the placeholder unchanged. Separately, the optional quote_capitalizations
+argument maps motion:0001/reasons/1 to 'the gaps do not establish that inspections were omitted'.
+Do not remove the negation, alter wording or invent an independent opposition.
+
+Supporting declaration — bank motion:0001/reasons/2 = 'I could not locate the inspection entries':
+Avoid: The custodian {{quote:motion:0001/reasons/2}}.
+Prefer: {{quote:motion:0001/reasons/2}}, the custodian declared, supporting the
+claimant's request to examine the retained logs.
+Use that connection only if the digest supports it; integrate the declaration into
+the relevant ground, not an inventory. All placeholders expand to complete bank
+entries; none authorizes shortening a quote or converting requested relief to a ruling.

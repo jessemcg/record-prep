@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .profile_artifacts import category_descriptor
 from .quote_display import QUOTE_CASE_GUIDANCE
+from .synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
 from .summary_quote_policy import EXTRACTION_QUOTE_GUIDANCE
 from .profile_contract import ProfileSnapshot, compile_stage_profile
 
@@ -220,16 +221,9 @@ suitable anchor for its distinctive reason if available; do not invent one.
 Use only actual digest facts and ids, never these examples' facts, phrases or ids.
 """
 
-# Case-only safeguards are identical for both kinds. Neither active synthesis
-# contract promises a reader-facing capitalization announcement.
-HEARING_QUOTE_CASE_GUIDANCE = QUOTE_CASE_GUIDANCE.replace(
-    "Do not add an editorial note yourself: Python adds\n"
-    "one normalization notice only when case-adjusted quotations are actually used.",
-    "Do not add an editorial announcement about capitalization; hearing summaries\n"
-    "contain only their substantive narrative.",
-)
-
-REPORT_QUOTE_CASE_GUIDANCE = HEARING_QUOTE_CASE_GUIDANCE.replace("hearing summaries", "report summaries")
+# Compatibility names; all narrative kinds use the same notice-free display rule.
+HEARING_QUOTE_CASE_GUIDANCE = QUOTE_CASE_GUIDANCE
+REPORT_QUOTE_CASE_GUIDANCE = QUOTE_CASE_GUIDANCE
 
 HEARING_EXTRACTION = """HEARING ATTRIBUTION
 Preserve participant attribution and testimony distinctions. Counsel-only
@@ -335,7 +329,7 @@ def summary_core(kind: str, phase: str) -> str:
     if kind not in ("hearings", "reports") or phase not in ("extract", "synthesize"):
         raise ValueError("Unsupported summary kind or phase.")
     return CORE + (EXTRACTION + (HEARING_QUOTE_COVERAGE + HEARING_EXTRACTION if kind == "hearings" else REPORT_EXTRACTION)
-                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
+                   if phase == "extract" else (HEARING_READABILITY if kind == "hearings" else "") + SYNTHESIS + QUOTATION_INTEGRATION_GUIDANCE + (HEARING_QUOTE_CASE_GUIDANCE if kind == "hearings" else REPORT_QUOTE_CASE_GUIDANCE) + (REPORT_SYNTHESIS if kind == "reports" else ""))
 
 
 def compile_summary(snapshot: ProfileSnapshot, kind: str, phase: str) -> SummaryProfile:

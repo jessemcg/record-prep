@@ -103,6 +103,25 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                             self.assertEqual(issues, ())
                             self.assertEqual({t['name']: t for t in json.loads(audit)},
                                              {t['name']: t for t in registered})
+                        if phase == 'synthesize':
+                            from recordprep.quote_display import QUOTE_CASE_GUIDANCE
+                            self.assertIn(QUOTE_CASE_GUIDANCE.strip(), message)
+                            from recordprep.synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
+                            self.assertIn(QUOTATION_INTEGRATION_GUIDANCE.strip(), message)
+                            system = next(m for m in context['messages'] if m['role'] == 'system')
+                            description = next(t['description'] for t in system['toolsAdded']
+                                               if t['name'] == 'recordprep_submit_summary_section')
+                            self.assertIn('sentence-case, mixed-case or lowercase quotes', description)
+                            self.assertIn('first-person I', description)
+                            self.assertNotIn('For all-caps quotes, optionally', description)
+                            if kind != 'hearings':
+                                self.assertIn('Let the quotation carry the proposition', ' '.join(message.split()))
+                                self.assertIn('Fictional', message)
+                            audit, issues = tool_audit(ROOT / '.pi', 'synthesize')
+                            self.assertEqual(issues, ())
+                            self.assertEqual({t['name']: t for t in json.loads(audit)},
+                                {t['name']: {k: t[k] for k in ('name', 'description', 'parameters')}
+                                 for t in system['toolsAdded']})
                         if kind == 'motions':
                             # Check the real expanded child message, not just the staged
                             # filename or /skill prefix. Both phases select before output.

@@ -67,7 +67,7 @@ class ReportEditorialTests(unittest.TestCase):
                     self.assertEqual(config['skill_sha256'], sa._resource_sha256(source))
                     self.assertIn(sp.REPORT_QUOTE_CASE_GUIDANCE, config['guidance'])
                     self.assertNotIn('Python adds\none normalization notice', config['guidance'])
-                    self.assertEqual(config['renderer_version'], 'recordprep-report-renderer-9')
+                    self.assertEqual(config['renderer_version'], 'recordprep-report-renderer-10')
                     source.write_text(contents)
             # Hearing profile staging remains the existing generic template.
             self.assertEqual((project / 'skills/recordprep-synthesize-hearings/SKILL.md').read_text(), sp.profile_skill_text(project, 'recordprep-synthesize-hearings', 'synthesize'))

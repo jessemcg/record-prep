@@ -45,12 +45,33 @@ connection, identity, pronoun, or a current finding from a historical allegation
 Prefer useful exact quotation anchors for consequential assessments, disputed
 language, reasons, conditions and observations over generic names, dates or stock
 filing formulas. Distribute suitable anchors through substantive discussion, but
-never force a quotation merely to fill a paragraph. Read each expanded quotation
-as part of the whole sentence: avoid doubled subjects/verbs, repeated names,
-dangling fragments, repeated modifiers and paraphrase immediately repeated as a
-quote. Preserve the speaker, actor and duty bearer; exact words alone do not prove
-who said them or who must act. Choose another supported anchor or paraphrase when
-needed; never repair, shorten, rewrite or reassign a stored quotation.
+never force a quotation merely to fill a paragraph. Let the quotation carry the
+proposition: surrounding prose adds attribution, context, transition, qualification
+or consequence, not an equivalent complete paraphrase. A colon or dash may introduce
+nonredundant quoted content; punctuation itself is not the problem. Do not treat
+the evidence bank as a checklist or aim for fewer quotations overall.
+
+Distinguish a phrase that completes your sentence from a quotation containing its
+own subject and finite verb. Do not prepend a second subject, verb, infinitive or
+modal: check pronoun + quoted subject, would + quoted will, and asked someone to +
+quoted finite recommends. Give complete first-person statements supported attribution
+instead of splicing them into third-person narration; preserve first-person I.
+Before normal submission, mentally expand every placeholder and read the entire
+resulting sentence: avoid doubled subjects/verbs, repeated names, dangling fragments,
+repeated modifiers and paraphrase immediately repeated as a quote. Preserve the
+speaker, actor and duty bearer; exact words alone do not prove who said them or who
+must act. If an anchor does not fit naturally, recast the surrounding prose, choose
+another suitable saved anchor or paraphrase the material point; never repair, shorten,
+rewrite or reassign a stored quotation. Never trim, splice or grammatically repair
+stored wording.
+
+Check what the **whole expanded sentence asserts**, not just whether its words
+sound fluent. Keep a condition attached to the same act and actor: closure pending
+inspection is not closure warranted only after inspection. A quote with its own
+subject and finite verb cannot become a noun phrase after an article such as an.
+Paraphrase a material point rather than force such an anchor. Do not infer a
+speaker, affiliation or gender, or recast an appearance as a court announcement.
+Follow the application-supplied expanded-sentence fidelity examples while drafting.
 
 Review the opener, repetition, expanded quotation grammar, attribution and material
 coverage while drafting in the existing synthesis process. No separate quality
@@ -81,8 +102,35 @@ Avoid: The inspector recommended reopening only after repairs, requiring
 
 Prefer: The inspector recommended reopening {{quote:report:0001/assessment/1}}.
 
-Do not attach an owner's repair obligation to the inspector. Use only actual digest
-facts and complete known quote ids, never these examples' facts, phrases or ids.
+Subject and verb — bank report:0001/assessment/2 = 'the owner will retain the logs':
+Avoid: The inspector said it would {{quote:report:0001/assessment/2}}.
+Prefer: The inspector reported that {{quote:report:0001/assessment/2}}.
+
+Embedded sentence-case — bank report:0001/assessment/3 = 'The eastern support remained unstable after the repair':
+Avoid: The engineer reported that it {{quote:report:0001/assessment/3}}.
+Prefer: The engineer reported that {{quote:report:0001/assessment/3}}.
+Submit that unchanged bare placeholder in paragraphs. Separately, the optional
+quote_capitalizations tool argument maps the exact id report:0001/assessment/3 to
+the display spelling 'the eastern support remained unstable after the repair'.
+The fully rendered sentence is: The engineer reported that “the eastern support
+remained unstable after the repair”. The map changes letter case only, not the
+stored evidence or the placeholder. Follow the application capitalization rule;
+preserve proper names, acronyms and first-person I rather than blindly lowercasing.
+
+Complete first-person statement — bank report:0001/assessment/4 = 'I cannot certify the structure as safe':
+Avoid: The engineer {{quote:report:0001/assessment/4}}.
+Prefer: {{quote:report:0001/assessment/4}}, the engineer explained.
+Do not append a duplicate paraphrase of that assessment.
+
+Unhelpful confirmation — bank report:0001/assessment/5 = 'I have reviewed the earlier inspection report':
+Avoid: The engineer reviewed the earlier report: {{quote:report:0001/assessment/5}}.
+Prefer, if review is material: The engineer reviewed the earlier report.
+Otherwise omit that routine recital, retaining material reasons and qualifications.
+
+Do not attach an owner's repair obligation to the inspector. These examples assume
+the digest supports each attribution. Use only actual digest facts and complete
+known quote ids, never these examples' facts, phrases or ids. Each placeholder uses
+the complete bank entry; no example authorizes trimming or repairing it.
 
 ## Reading a digest block
 

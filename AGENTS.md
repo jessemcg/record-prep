@@ -267,12 +267,27 @@ case overview → deterministic source map. See `docs/workflow.md`.
   after compaction. Notes are not evidence and never published/logged; restart resumability
   is deferred. Keep chronology; unknown quote IDs use digest fallback, not silent deletion.
   Deterministic rendering preserves plain text/quote anchors, no generated page-link markup.
-- Quote display permits exact used-ID case-only proposals for all-caps source quotes,
-  preserving evidence/offsets. Reject invalid/wording-changing proposals nonfatally; no
-  automatic lower/title fallback. No capitalization announcements. Hearing/report
-  renderer9 and motion renderer2 remove model-authored backticks before evidence
-  expansion; never strip characters from stored source quotations. Bare report
-  placeholders are demonstrated in the skill. See docs/summary-backticks.md.
+- Quote display permits exact used-ID case-only proposals for all-caps, sentence-case,
+  mixed-case and lowercase source quotes in hearings/reports/motions. Preserve evidence,
+  offsets, every character position, spaces/punctuation and meaningful capitalization
+  (proper names/acronyms/initials/I/legal identifiers); uncertain tokens retain source
+  spelling. Characterwise validation proves fidelity, not semantic casing or grammar.
+  Revalidate at normalization/rendering; reject nonfatally without losing usable prose.
+  No automatic lower/title fallback, bracket markers or capitalization announcements.
+  Hearing/report renderer10 and motion renderer3 retain backtick removal before evidence
+  expansion; never strip source-quotation characters. Report/motion skills teach bare
+  complete placeholders, letting quotes carry propositions, reading entire expanded
+  sentences and supported first-person attribution. Hearing SKILL/HEARING_READABILITY
+  are unchanged. After the explicitly requested paid follow-up, all three kinds also
+  receive synthesis_fidelity.QUOTATION_INTEGRATION_GUIDANCE: finite clauses are not noun
+  phrases; preserve condition/actor/action attachment, avoid repeated rationales and
+  invented affiliation/gender/court attribution. Extraction, minutes, schemas and profile
+  resources are unchanged. See docs/fluid-quotation-integration.md for delivery/desktop
+  validation and both bounded paid comparisons' failures: mechanics pass does not mean
+  writing-quality acceptance; the shared prompt improved targeted errors but is not a
+  guarantee of material fidelity. No automatic prose repair or blocking quality gate.
+  Existing prose is not repaired; explicit synthesis then editions is required for
+  adoption. See also docs/summary-backticks.md.
   Preserve synthesis-only wrapper isolation, paragraph breaks and current contiguous ordinals;
   dataset order/identity changes require synthesis, even with reusable extraction.
 - New minutes use canonical neutral SKILL and unconditional complete-order

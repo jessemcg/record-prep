@@ -31,15 +31,19 @@ def entry(proposal, paragraph=None):
 
 
 class QuoteDisplayTests(unittest.TestCase):
-    def test_case_only_and_all_caps_only(self):
+    def test_characterwise_case_only_for_any_source_capitalization(self):
         for original, proposed in [('RECEIVED THE REPORT', 'received the report'),
                                    ('VIA WEBEX', 'via Webex'), ('ICWA JV-190', 'ICWA JV-190'),
-                                   ('I AM HERE', 'I am here'), ('ÉTAT CIVIL', 'État civil')]:
+                                   ('I AM HERE', 'I am here'), ('ÉTAT CIVIL', 'État civil'),
+                                   ('The support remained unstable', 'the support remained unstable'),
+                                   ('the ICWA and Webex review', 'The ICWA and Webex review'),
+                                   ('Mixed Case', 'mixed case')]:
             self.assertEqual(display_quote(original, proposed), proposed)
         for original, proposed in [('NO ORDER', 'an order'), ('NO ORDER', 'no  order'),
                                    ('NO ORDER', 'no order.'), ('NO ORDER', None),
-                                   ('NO ORDER', ['no order']), ('Mixed Case', 'mixed case'),
-                                   ('SS', 'ß'), ('A-B', 'a–b'), ('"YES"', '“yes”')]:
+                                   ('NO ORDER', ['no order']), ('NO ORDER', {'text': 'no order'}),
+                                   ('SS', 'ß'), ('ß', 'SS'), ('İ', 'i'), ('A-B', 'a–b'),
+                                   ('"YES"', '“yes”'), ('not safe', 'safe')]:
             self.assertEqual(display_quote(original, proposed), original)
 
     def test_source_preserved_and_hearing_normalization_has_no_announcement(self):
@@ -137,11 +141,13 @@ class QuoteDisplayTests(unittest.TestCase):
             candidate = base / 'candidate.json'
             dataset = base / 'dataset.json'
             dataset.write_text(json.dumps({'artifact': 'recordprep-summary-digest-dataset', 'kind': 'hearings',
-                'total_rows': 1, 'rows': [row()], 'documents': ['Synthetic digest.'], 'candidate_path': str(candidate)}))
+                'total_rows': 1, 'rows': [row('The ICWA reviewer joined by Webex')],
+                'documents': ['Synthetic digest.'], 'candidate_path': str(candidate)}))
             frames = []
             for i, (name, args) in enumerate([
                 ('recordprep_get_facts', {'ordinal': 1}),
-                ('recordprep_submit_summary_section', entry({QUOTE: 'JCO to the mother'})),
+                ('recordprep_submit_summary_section', entry({QUOTE: 'the ICWA reviewer joined by Webex'},
+                    'The clerk reported that {{quote:' + QUOTE + '}}.')),
                 ('recordprep_finish_summary', {})]):
                 frames.append({'stopReason': 'toolUse', 'content': [{'type': 'toolCall', 'id': str(i), 'name': name, 'arguments': args}]})
             plan = base / 'plan.json'; plan.write_text(json.dumps({'frames': frames, 'followup': False}))
@@ -163,7 +169,8 @@ class QuoteDisplayTests(unittest.TestCase):
             self.assertEqual(len(results), 3)
             self.assertFalse(any(m.get('isError') for m in results))
             payload = json.loads(candidate.read_text())
-            self.assertEqual(payload['sections'][0]['quote_capitalizations'], {QUOTE: 'JCO to the mother'})
-            sections, _ = sa.normalize_synthesis_sections([row()], payload['sections'])
-            text = sa.render_final_summary('hearings', '', [row()], sections, {ITEM: (1, None)})
-            self.assertIn('“JCO to the mother”', text)
+            self.assertEqual(payload['sections'][0]['quote_capitalizations'], {QUOTE: 'the ICWA reviewer joined by Webex'})
+            source = row('The ICWA reviewer joined by Webex')
+            sections, _ = sa.normalize_synthesis_sections([source], payload['sections'])
+            text = sa.render_final_summary('hearings', '', [source], sections, {ITEM: (1, None)})
+            self.assertIn('“the ICWA reviewer joined by Webex”', text)

@@ -1,5 +1,10 @@
 # Report-synthesis editorial follow-up — 2026-10-16
 
+Current follow-up: [fluid quotation integration](fluid-quotation-integration.md)
+adds explicit report/motion integration examples and shared any-case display rules.
+That document records current validation and paid-comparison failures; the historical
+validation records below are not current acceptance claims.
+
 ## Approved scope
 
 After a read-only review of the supplied report-summary TXT, the user agreed that

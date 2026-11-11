@@ -77,9 +77,9 @@ For a fictional digest recommending reopening only after repairs, with an exact
 quote bank entry `only after repairs` identified as `report:0001/assessment/1`:
 
 Avoid: The inspector recommended reopening only after repairs, requiring
-`{{quote:report:0001/assessment/1}}`.
+{{quote:report:0001/assessment/1}}.
 
-Prefer: The inspector recommended reopening `{{quote:report:0001/assessment/1}}`.
+Prefer: The inspector recommended reopening {{quote:report:0001/assessment/1}}.
 
 Do not attach an owner's repair obligation to the inspector. Use only actual digest
 facts and complete known quote ids, never these examples' facts, phrases or ids.
@@ -149,10 +149,11 @@ Work incrementally. Do not read every document before drafting.
    blocks you need with `recordprep_get_facts`, and retrieve an
    already-submitted draft with `view: "submitted_section"` — never rely
    solely on the compaction summary.
-8. Weave short direct quotations into your sentences as
-   `{{quote:<quote_id>}}` placeholders, copying each complete quote id
+8. Write plain-text narrative without backticks or Markdown code formatting.
+   Weave short direct quotations into your sentences as bare
+   {{quote:<quote_id>}} placeholders, copying each complete quote id
    exactly from the dataset — for example
-   `{{quote:report:0016/agency_recommendations/2}}` — never guessing,
+   {{quote:report:0016/agency_recommendations/2}} — never guessing,
    shortening, or borrowing an id from another document. The digest prose
    supplies the meaning and context; a quote is only an exact-wording anchor
    attached to its whole category, never independent proof of an inferred

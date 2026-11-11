@@ -17,7 +17,7 @@
   "reports-synthesize": {
     "component_sha256": "dcfbed18258a2371d9e08eeafbb663190c77821718be29f3532fb1443ccd4250",
     "prompt_sha256": "249750f5a5db7f6fc479a2bf7f084f4ee676d156123a936f227cfa07e2eb1d98",
-    "staged_skill_sha256": "a7212d589e64f6256707df67a89b7be1b0e14f298cde5225f913605c0741328a"
+    "staged_skill_sha256": "3ff9a6cd263b78a9dc5ea8cd645780477c08063aaec43267faf7288792ee312a"
   },
   "minutes": {
     "prompt_sha256": "c60a77500d83ac6140739098b45c7e9bc9244930362851047c285e0120fc0f11"

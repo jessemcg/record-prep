@@ -77,8 +77,8 @@ class HearingEditorialTests(unittest.TestCase):
         self.assertNotEqual(before['hearings', 'synthesize'], after['hearings', 'synthesize'])
         for key in before.keys() - {('hearings', 'synthesize')}:
             self.assertEqual(before[key], after[key])
-        self.assertEqual(sa.summary_renderer_version('reports'), 'recordprep-report-renderer-8')
-        self.assertEqual(sa.summary_renderer_version('hearings'), 'recordprep-hearing-renderer-8')
+        self.assertEqual(sa.summary_renderer_version('reports'), 'recordprep-report-renderer-9')
+        self.assertEqual(sa.summary_renderer_version('hearings'), 'recordprep-hearing-renderer-9')
         self.assertNotIn(sp.HEARING_READABILITY, sa.effective_synthesis_config(PROJECT, 'reports')['guidance'])
 
 

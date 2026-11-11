@@ -78,7 +78,8 @@ class ExternalSettingsTests(unittest.TestCase):
         # semantic/stage-isolation coverage lives in test_hearing_editorial.
         changed_contracts = {
             'extraction': 'f11328ab4cf786a7bb1f5d10c464d5e075cb576d68a97fa2bdc6c927f15ff0d8',
-            'synthesis': '3655f5a5be6ce70f900d0350c1b1fa22b6f69f8a3deba839561f43aac3267a34',
+            # Backtick-free prose rendering and bare report placeholder examples.
+            'synthesis': 'f610ed23cf9074f98278031c8f2e256ae674cbc23fcc2cebaf9ab4153db822c3',
             'minutes': '4fecbf5c56e1fdd1dd59b6b44a76d5a4452cdf573ae0c7505b10f7560c3bdcd1',
         }
         for key, value in current.items():

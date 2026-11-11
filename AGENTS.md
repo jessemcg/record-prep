@@ -269,8 +269,11 @@ case overview → deterministic source map. See `docs/workflow.md`.
   Deterministic rendering preserves plain text/quote anchors, no generated page-link markup.
 - Quote display permits exact used-ID case-only proposals for all-caps source quotes,
   preserving evidence/offsets. Reject invalid/wording-changing proposals nonfatally; no
-  automatic lower/title fallback. No capitalization announcements. Preserve renderer8,
-  synthesis-only wrapper isolation, paragraph breaks and current contiguous ordinals;
+  automatic lower/title fallback. No capitalization announcements. Hearing/report
+  renderer9 and motion renderer2 remove model-authored backticks before evidence
+  expansion; never strip characters from stored source quotations. Bare report
+  placeholders are demonstrated in the skill. See docs/summary-backticks.md.
+  Preserve synthesis-only wrapper isolation, paragraph breaks and current contiguous ordinals;
   dataset order/identity changes require synthesis, even with reusable extraction.
 - New minutes use canonical neutral SKILL and unconditional complete-order
   recordprep-profile-minute-tools.ts, contract9/envelope5, compact-labels-2. No profile,

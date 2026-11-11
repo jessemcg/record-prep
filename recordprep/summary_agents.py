@@ -64,8 +64,9 @@ SUMMARY_FINAL_META_ARTIFACT = "recordprep-summary-final-meta"
 SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-7"
 # Kind-specific presentation identities; the shared renderer-7 name above is
 # retained for historical callers, not current report freshness.
-HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-8"
-REPORT_RENDERER_VERSION = "recordprep-report-renderer-8"
+# Version 9 removes model-authored backtick formatting before quote expansion.
+HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-9"
+REPORT_RENDERER_VERSION = "recordprep-report-renderer-9"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -108,7 +109,7 @@ REPORT_DUPLICATION_SHINGLE_WORDS = 15
 def summary_renderer_version(kind: str) -> str:
     """Scope presentation changes independently for hearing/report synthesis."""
     return {"hearings": HEARING_RENDERER_VERSION, "reports": REPORT_RENDERER_VERSION,
-            "motions": "recordprep-motion-renderer-1"}[kind]
+            "motions": "recordprep-motion-renderer-2"}[kind]
 
 
 @dataclass(frozen=True, slots=True)
@@ -3929,6 +3930,10 @@ def render_section_paragraphs(
 ) -> list[str]:
     rendered: list[str] = []
     for paragraph in normalize_paragraphs(paragraphs):
+        # Canonical narratives are plain text, not Markdown code. Remove all
+        # model-authored backticks (including escaped/repeated/unpaired ones),
+        # before substitution so stored source-exact evidence is never edited.
+        paragraph = re.sub(r"\\?`", "", paragraph)
         # A model sometimes wraps placeholders in its own straight quotation
         # marks; resolving inside them would publish doubled quoting. The
         # typed marks remain a sanitized diagnostic, but the renderer presents

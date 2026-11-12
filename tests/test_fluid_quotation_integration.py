@@ -141,8 +141,9 @@ class FluidQuotationTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(sp.HEARING_READABILITY.encode()).hexdigest(),
                          '3d93853d55044da6caf8494477d32cce61992bb6047ba821375400839d329811')
         self.assertEqual(hashlib.sha256(mg.EDITORIAL.encode()).hexdigest(), '5f03d3766f25c87d1079cf4144039eef376392b16105429d57604b4bdd828b92')
+        # Only the requested verified-only anchor selection rule changes the skill.
         self.assertEqual(hashlib.sha256((ROOT / '.pi/skills/recordprep-synthesize-hearings/SKILL.md').read_bytes()).hexdigest(),
-                         '61e7b23ba424c5185244f5a589e358e6436e394f3444301e443ea94f83c93670')
+                         '631398ad339c9984e31617a84774945ea2d391aaca98b39e7dce604bd060024a')
 
     def test_followup_fidelity_examples_preserve_condition_and_attribution(self):
         text = ' '.join(QUOTATION_INTEGRATION_GUIDANCE.split())

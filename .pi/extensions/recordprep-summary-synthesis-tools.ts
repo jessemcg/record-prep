@@ -14,7 +14,10 @@ export default function synthesisTools(pi: ExtensionAPI) {
         return target.registerTool({
           ...tool,
           description: tool.description +
-            " Submit one paragraph per paragraphs array entry. For hearings, " +
+            " Use direct quotations only from entries explicitly marked Verified in the digest. " +
+            "Never use Unverified quote placeholders or copy their text as direct quotations; " +
+            "paraphrase the supported digest point or choose another relevant Verified anchor. " +
+            "Submit one paragraph per paragraphs array entry. For hearings, " +
             "keep each paragraph short and focused, regroup dense digest topics, " +
             "and distribute appropriate quote anchors across substantive " +
             "paragraphs. Review attribution; never force or repeat a quote " +

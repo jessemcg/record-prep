@@ -77,9 +77,10 @@ class ExternalSettingsTests(unittest.TestCase):
         # Current hearing synthesis integrates quotations as propositions; its
         # semantic/stage-isolation coverage lives in test_hearing_editorial.
         changed_contracts = {
-            'extraction': 'f11328ab4cf786a7bb1f5d10c464d5e075cb576d68a97fa2bdc6c927f15ff0d8',
-            # Shared any-case display, report/motion integration; hearing method intact.
-            'synthesis': 'ac667722a45bd90c7be6cf77c96061396606ea6996a1b71d9d1313aaaab9e65f',
+            # Includes the separately maintained party-only appearance guidance.
+            'extraction': '865e675005f5a92a4e6d078e6db9ddce472af5a225acafd3a077980362b3cec2',
+            # Record-wide verification plus the current appearance guidance.
+            'synthesis': 'a57091f2dd6acef62e677fb9a0f328590a2c3cc911c657cab137b78f787572a5',
             'minutes': '4fecbf5c56e1fdd1dd59b6b44a76d5a4452cdf573ae0c7505b10f7560c3bdcd1',
         }
         for key, value in current.items():

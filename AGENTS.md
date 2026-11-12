@@ -240,8 +240,10 @@ case overview → deterministic source map. See `docs/workflow.md`.
   Stop, execution/source failure, changed inputs, corrupt stores, unsafe paths, rendering
   integrity and publication failures remain separate safeguards preserving prior finals.
   See `docs/summary-best-effort.md`.
-- Fixed hearings cover Appearances (express absence/personal vs representative attendance,
-  never absence from silence) plus the other five established topics. Current rows4 /
+- Fixed hearings cover party-only Appearances (source-established standing, express
+  absence/personal vs representative attendance, never absence from silence or counsel
+  alone). Exclude lawyer/representative identities, counsel logistics and nonparty rosters;
+  kinship/caregiving alone is not standing. The other five established topics are unchanged. Current rows4 /
   Markdown3 / meta6 have application authority; historical rows2/3 / Markdown1/2 retain
   recorded headings/catalogs. Explicit generation re-extracts incompatible rows.
   See `docs/application-hearing-topics.md`.
@@ -255,7 +257,19 @@ case overview → deterministic source map. See `docs/workflow.md`.
 - Extraction serves each complete document once, no windows/proposal cutoff. Advisory
   quotes are continuous source-exact 6–12 words, usually 8–10, shortest useful anchors;
   no padding/stitching/truncation/quote quotas. Preserve provenance/negation/attribution;
-  useful outliers and unverified matches remain with sanitized warnings. Reports include
+  useful outliers and unverified matches remain with sanitized warnings. New verification
+  uses record_quote_search.py: try the model-reported page, then every other source
+  page individually with Focus-compatible matching. Any hit is Verified; repeated
+  hits are fine, no page joining or semantic/attribution certification. The model's
+  source scope stays document-local. Preserve reported file_page/hash/offset semantics;
+  visible labels say Model-reported file page, with historical grammar still readable.
+  quote_search.py retains numeric bridges and ASCII `|`→space normalization
+  (`focus-phrase-search-2`). Each searched page's strict Focus hearing classification
+  controls gutter projection, using pinned vendor copies focus_record_categories.py
+  and focus_transcript_reading.py; no display reflow or raw-page rewriting.
+  The run-local bounded lazy cache honors Stop; whole-record contents/eligibility
+  bind generation freshness under focus-record-search-1. No global/persistent index,
+  extra model call or read-time relabeling. See docs/quote-search-verification.md. Reports include
   all later/proposed sections but distinguish requests/recommendations from orders.
   See `docs/summary-quotation-policy.md`, `docs/summary-contract-reconciliation.md`.
 - Python owns IDs/category order, digest Markdown/meta and final text publication under
@@ -270,6 +284,10 @@ case overview → deterministic source map. See `docs/workflow.md`.
   after compaction. Notes are not evidence and never published/logged; restart resumability
   is deferred. Keep chronology; unknown quote IDs use digest fallback, not silent deletion.
   Deterministic rendering preserves plain text/quote anchors, no generated page-link markup.
+  All three synthesis skills/application guidance/submission descriptions instruct the
+  model to use only explicitly Verified direct quotes, paraphrasing supported points
+  otherwise. This instruction is not a new publication gate; retain unverified-use
+  diagnostics for noncompliance. No extra repair/model pass.
 - Quote display permits exact used-ID case-only proposals for all-caps, sentence-case,
   mixed-case and lowercase source quotes in hearings/reports/motions. Preserve evidence,
   offsets, every character position, spaces/punctuation and meaningful capitalization
@@ -280,8 +298,9 @@ case overview → deterministic source map. See `docs/workflow.md`.
   Hearing/report renderer10 and motion renderer3 retain backtick removal before evidence
   expansion; never strip source-quotation characters. Report/motion skills teach bare
   complete placeholders, letting quotes carry propositions, reading entire expanded
-  sentences and supported first-person attribution. Hearing SKILL/HEARING_READABILITY
-  are unchanged. After the explicitly requested paid follow-up, all three kinds also
+  sentences and supported first-person attribution. HEARING_READABILITY is unchanged;
+  hearing SKILL adds the requested Verified-only selection instruction.
+  After the explicitly requested paid follow-up, all three kinds also
   receive synthesis_fidelity.QUOTATION_INTEGRATION_GUIDANCE: finite clauses are not noun
   phrases; preserve condition/actor/action attachment, avoid repeated rationales and
   invented affiliation/gender/court attribution. Extraction, minutes, schemas and profile

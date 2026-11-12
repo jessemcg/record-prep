@@ -108,11 +108,15 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                             self.assertIn(QUOTE_CASE_GUIDANCE.strip(), message)
                             from recordprep.synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
                             self.assertIn(QUOTATION_INTEGRATION_GUIDANCE.strip(), message)
+                            self.assertIn('not necessarily the model-reported page', message)
                             system = next(m for m in context['messages'] if m['role'] == 'system')
                             description = next(t['description'] for t in system['toolsAdded']
                                                if t['name'] == 'recordprep_submit_summary_section')
                             self.assertIn('sentence-case, mixed-case or lowercase quotes', description)
                             self.assertIn('first-person I', description)
+                            for delivered in (message, description):
+                                self.assertIn('Use direct quotations only from entries explicitly marked Verified in the digest.', delivered)
+                                self.assertIn('Unverified', delivered)
                             self.assertNotIn('For all-caps quotes, optionally', description)
                             if kind != 'hearings':
                                 self.assertIn('Let the quotation carry the proposition', ' '.join(message.split()))

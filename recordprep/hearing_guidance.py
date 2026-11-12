@@ -8,11 +8,20 @@ HEARING_TOPICS = [
     # Retain the established serialized ID; its new display title and scope are neutral.
     {'id': 'parent_appearances', 'title': 'Appearances', 'guidance':
      "Which parties appeared and how (in person or remotely), and any expressly recorded absence. "
-     "Distinguish a party's personal appearance from appearance by counsel or a representative; "
-     "counsel appearing alone does not establish the party's personal presence. "
-     "For an entity, describe its stated representation without implying personal physical presence. "
-     "Use the source's party names or roles. Silence does not establish absence; if the source supplies "
-     "no party-appearance information, the category is null."},
+     "Keep this a concise account of parties' attendance, not a participant roster. Parties are "
+     "individuals or entities with standing to participate in the proceedings, as established by the "
+     "source; attendance, speaking, kinship or caregiving alone does not establish party status. "
+     "Exclude relatives, caregivers, witnesses, social workers, court staff and other nonparties "
+     "unless the source establishes that they are parties in their own right. "
+     "Do not list lawyers, law firms, counsel appointments or substitutions, introductions, "
+     "greetings or attendance at earlier hearings. Distinguish a party's personal appearance "
+     "from appearance only through counsel or a representative, without identifying that lawyer "
+     "or representative; counsel appearing alone does not establish the party's personal presence "
+     "or absence. For an entity party, state only that it appeared through counsel or a representative "
+     "when recorded, without implying personal physical presence. "
+     "Use the source's party names or roles; do not infer party status when unclear. "
+     "Silence does not establish absence; if the source supplies no party-appearance information, "
+     "the category is null."},
     {'id': 'evidence_considered', 'title': 'Evidence Considered', 'guidance':
      'Testimony, reports, exhibits, records, and stipulations the court\nconsidered, plus evidentiary objections and rulings on evidence. Do not\ninclude argument or orders here.'},
     {'id': 'testimony', 'title': 'Testimony', 'guidance':

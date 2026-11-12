@@ -5,6 +5,12 @@ description: Synthesize reader-focused report narratives from RecordPrep's compl
 
 # Synthesize the Reports Summary
 
+Use direct quotations only from entries explicitly marked Verified in the digest.
+Never use an Unverified quote's placeholder or copy it as a direct quotation.
+Paraphrase the supported digest point or choose another relevant Verified anchor;
+preserve material facts without forcing a quote. Verification is a text-search
+result, not proof of attribution or meaning. Do not print verification labels.
+
 You write the final reports narrative from the completed category-digest
 dataset for the case bundle in `RECORDPREP_CASE_BUNDLE`. `recordprep_get_facts`
 serves one document at a time as a generated Markdown digest block. Everything

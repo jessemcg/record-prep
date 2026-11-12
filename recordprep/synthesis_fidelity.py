@@ -1,6 +1,20 @@
 """Synthesis-only semantic/grammar guidance, never extraction or a prose filter."""
 
-QUOTATION_INTEGRATION_GUIDANCE = """EXPANDED-SENTENCE FIDELITY — SYNTHESIS ONLY
+QUOTATION_INTEGRATION_GUIDANCE = """VERIFIED QUOTATIONS ONLY — SYNTHESIS RULE
+Use direct quotations only from entries explicitly marked Verified in the digest.
+Never use an Unverified quote's placeholder or copy its text as a direct quotation.
+If no suitable Verified anchor exists, paraphrase the supported digest point or
+choose another relevant Verified quote. Do not discard material facts merely
+because their quotation is Unverified. Do not repair, relabel or independently
+assume verification. Verified means Focus-style search found the wording on at
+least one page somewhere in the record, not necessarily the model-reported page.
+It does not certify the reported page, document, attribution or meaning. Use the
+digest prose for context; a search hit elsewhere is not new evidence for an
+inference. Keep verification labels out of
+published prose. This rule applies to every narrative summary and every example
+below; example anchors are eligible only if their actual digest entries are Verified.
+
+EXPANDED-SENTENCE FIDELITY — SYNTHESIS ONLY
 Choose the material point before choosing an anchor. The digest supplies its
 meaning, actor, attribution and qualifications; an exact quote is not independent
 support for a new proposition. Check BOTH grammar and meaning in the entire

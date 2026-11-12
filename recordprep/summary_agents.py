@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 
 from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_quote, valid_quote_capitalization
 from .synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
+from .quote_search import QUOTE_SEARCH_CONTRACT, TRANSCRIPT_SEARCH_CONTRACT
+from .record_quote_search import RECORD_SEARCH_CONTRACT, RecordQuoteSearch
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -1304,6 +1306,7 @@ class SummaryWorkItem:
     members: tuple[dict, ...] = ()
     anchor_page: int = 0
     group_metadata: dict | None = None
+    record_search_sha256: str = ""
 
 
 def item_source_pages(item):
@@ -1637,6 +1640,9 @@ class ExtractionConfig:
             "provider": self.provider,
             "thinking": self.thinking,
             "content_contract": SUMMARY_EXTRACTION_CONTRACT_VERSION,
+            "quote_search_contract": QUOTE_SEARCH_CONTRACT,
+            "record_search_contract": RECORD_SEARCH_CONTRACT,
+            "transcript_search_contract": TRANSCRIPT_SEARCH_CONTRACT,
             **({"report_source_contract": "complete-document-no-cutoff-v1"}
                if self.kind == "reports" else {}),
         }
@@ -1687,6 +1693,8 @@ def item_fingerprint_payload(
             "label": item.label,
         }
     )
+    if getattr(item, "record_search_sha256", ""):
+        payload["record_search_sha256"] = item.record_search_sha256
     if item.kind == "motions":
         from .motion_guidance import APPLICATION_CONTRACT
         payload.update(motion_date_basis=item.date_basis, application_contract=APPLICATION_CONTRACT,
@@ -1778,6 +1786,7 @@ def build_work_items(
                     participant_by_range[(start, end)] = hearing
     citation_map = transcript_citation_map(root)
     items: list[SummaryWorkItem] = []
+    record_search_sha256 = RecordQuoteSearch(text_dir).fingerprint() if entries else ""
     seen_item_ids: dict[str, int] = {}
     for ordinal, entry in enumerate(entries, start=1):
         start = _boundary_page(entry, "start_page", "start")
@@ -1859,6 +1868,7 @@ def build_work_items(
         page_text = _item_page_text_map(text_dir, item)
         item.input_sha256 = (sha256_json([[n, page_text[n]] for n in item_source_pages(item)]) if kind == "motions"
                              else _item_input_sha256(page_text, start, end))
+        item.record_search_sha256 = record_search_sha256
         item.generation_sha256 = sha256_json(
             item_fingerprint_payload(item, config, citation_map)
         )
@@ -2046,6 +2056,7 @@ def canonicalize_extraction_candidate(
     item: SummaryWorkItem,
     text_dir: Path,
     warnings: list[str] | None = None,
+    *, record_search: RecordQuoteSearch | None = None,
 ) -> dict[str, Any]:
     """Normalize an extraction candidate into the canonical digest row.
 
@@ -2061,8 +2072,9 @@ def canonicalize_extraction_candidate(
     Only source/model execution failures (a corrupt on-disk canonical store,
     unreadable source pages) raise from here. Quote fidelity stays
     best-effort: unmatched in-range quotes are kept with ``verified: false``.
-    Quotes can be verified anywhere within the current document; headings
-    never exclude source pages or discard a category digest.
+    Verification checks each source page across the record independently, not
+    just this document. The declared page remains model-reported; the model's
+    own source scope is unchanged. No match is semantic/attribution proof.
     """
     kind = item.kind
     profile_metadata = extraction_metadata(item.profile, kind) if item.profile is not None and kind == "reports" else None
@@ -2072,6 +2084,9 @@ def canonicalize_extraction_candidate(
                     else list(SUMMARY_CATEGORY_IDS[kind]))
     flags: list[str] = []
     page_text = _item_page_text_map(text_dir, item)
+    # The model's source scope is unchanged. Verification alone may find its
+    # quotation elsewhere in the record; file_page remains model-reported.
+    record_search = record_search or RecordQuoteSearch(text_dir)
 
     submitted: list[Any] = []
     if isinstance(candidate, dict) and isinstance(candidate.get("categories"), list):
@@ -2159,17 +2174,13 @@ def canonicalize_extraction_candidate(
                     discarded_evidence_count += 1
                     continue
                 eligible_page_text = page_text[file_page]
-                # Best-effort quote verification: exact normalized match first
-                # (ambiguity keeps the first occurrence), then a typography-
-                # and case-insensitive fallback; otherwise keep as submitted.
-                span = find_quote_span(
+                # A Focus-style hit anywhere in the record is enough. Never
+                # join pages, infer attribution or pretend the reported page
+                # was corrected. Exact offsets below refer only to that page.
+                verified = record_search.matches(quote_text, file_page)
+                span = (find_quote_span(
                     quote_text, eligible_page_text, allow_ambiguous=True
-                )
-                verified = span is not None
-                if not verified and find_quote_span_relaxed(
-                    quote_text, eligible_page_text
-                ):
-                    verified = True
+                ) if verified else None)
                 evidence_entry: dict[str, Any] = {
                     "text": quote_text,
                     "file_page": file_page,
@@ -2392,7 +2403,7 @@ _ROW_HEADING_PATTERN = re.compile(
 )
 _SOURCE_PAGES_PATTERN = re.compile(r"^Source pages: (?P<start>\d+)-(?P<end>\d+)$")
 _QUOTE_LINE_PATTERN = re.compile(
-    r"^Quote: `(?P<quote_id>[^`]+)` — File page (?P<page>\d+) — "
+    r"^Quote: `(?P<quote_id>[^`]+)` — (?:Model-reported file page|File page) (?P<page>\d+) — "
     r"(?P<status>Verified|Unverified)$"
 )
 # Canonical Python-generated quote ids appear raw in Markdown so synthesis
@@ -2645,7 +2656,7 @@ def _render_row_lines(row: dict[str, Any], *, include_metadata: bool) -> list[st
                     f"{_escape_comment_json(payload)} -->"
                 )
             lines.extend([
-                f"Quote: `{raw_quote_id}` — File page "
+                f"Quote: `{raw_quote_id}` — Model-reported file page "
                 f"{int(quote.get('file_page') or 0)} — {status}",
                 "",
                 f"> {_escape_markdown_text(str(quote.get('text') or ''))}",
@@ -3012,7 +3023,12 @@ def parse_digest_markdown(
                 f"line {heading_line}: {'; '.join(issues)}; {preserved}"
             )
         rows.append(row)
-    if serialize_digest_markdown(kind, case_stem, rows) != text:
+    canonical = serialize_digest_markdown(kind, case_stem, rows)
+    # Historical visible labels remain readable; this never rewrites their file
+    # or changes recorded verification results. All other canonical bytes agree.
+    historical = re.sub(r"(?m)^(Quote: `[^`\n]+` — )Model-reported file page ",
+                        r"\1File page ", canonical)
+    if text not in (canonical, historical):
         raise ValueError(
             f"the digest Markdown is not in canonical generated form; {preserved}"
         )

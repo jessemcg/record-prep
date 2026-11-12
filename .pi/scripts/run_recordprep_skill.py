@@ -1470,6 +1470,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                 root, kind, items, extraction_config
             )
             items_by_id = {item.item_id: item for item in items}
+            record_search = sa.RecordQuoteSearch(root / "text_pages", check_stop=_check_stop) if pending_ids else None
             for index, item_id in enumerate(pending_ids, start=1):
                 _check_stop()
                 item = items_by_id[item_id]
@@ -1499,6 +1500,7 @@ def _run_summary_stage(stage: SkillStage, root: Path, project_dir: Path) -> int:
                         item,
                         root / "text_pages",
                         warnings=row_warnings,
+                        record_search=record_search,
                     )
                     for warning in row_warnings:
                         _line(f"\033[33m[warn]\033[0m {warning}")

@@ -1099,7 +1099,7 @@ class MarkdownCodecRoundTripTests(unittest.TestCase):
         self.assertIn("### Testimony (testimony)", block)
         self.assertIn(sa.DIGEST_NULL_MARKER, block)
         self.assertIn("#### Direct quotes", block)
-        self.assertIn("Quote: `hearing:0007/parent_appearances/1` — File page 7 — Verified", block)
+        self.assertIn("Quote: `hearing:0007/parent_appearances/1` — Model-reported file page 7 — Verified", block)
         self.assertIn("— Unverified", block)
         self.assertIn("> Line one", block)
 

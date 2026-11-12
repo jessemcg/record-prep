@@ -52,6 +52,59 @@ class ApplicationHearingTopicsTests(unittest.TestCase):
         historical = historical_snapshot(bundle(), 10).resource('hearings')
         self.assertEqual(topics[1:], historical[1:])
 
+    def test_appearances_are_party_only_in_extraction_synthesis_and_inspection(self):
+        topic = application_catalog()[0]
+        self.assertEqual(topic['id'], 'parent_appearances')
+        self.assertEqual(topic['title'], 'Appearances')
+        guidance = topic['guidance']
+        for instruction in (
+            "concise account of parties' attendance, not a participant roster",
+            'standing to participate in the proceedings, as established by the source',
+            'attendance, speaking, kinship or caregiving alone does not establish party status',
+            'Exclude relatives, caregivers, witnesses, social workers, court staff and other nonparties',
+            'unless the source establishes that they are parties in their own right',
+            'Do not list lawyers, law firms, counsel appointments or substitutions',
+            'greetings or attendance at earlier hearings',
+            'without identifying that lawyer or representative',
+            "counsel appearing alone does not establish the party's personal presence or absence",
+            'For an entity party, state only that it appeared through counsel or a representative',
+            'do not infer party status when unclear',
+            'Silence does not establish absence',
+            'the category is null',
+        ):
+            with self.subTest(instruction=instruction):
+                self.assertIn(instruction, guidance)
+        for phase in ('extract', 'synthesize'):
+            with self.subTest(phase=phase):
+                self.assertIn(guidance, application_guidance(phase))
+                view = inspect_prompt({}, 'hearings-' + phase, ROOT / '.pi')
+                self.assertFalse(view.issues)
+                self.assertIn(guidance, view.display_text())
+
+    def test_previous_broad_appearances_guidance_is_not_reused(self):
+        from recordprep import hearing_guidance
+        previous = application_catalog()
+        previous[0]['guidance'] = (
+            "Which parties appeared and how (in person or remotely), and any expressly recorded absence. "
+            "Distinguish a party's personal appearance from appearance by counsel or a representative; "
+            "counsel appearing alone does not establish the party's personal presence. "
+            "For an entity, describe its stated representation without implying personal physical presence. "
+            "Use the source's party names or roles. Silence does not establish absence; if the source supplies "
+            "no party-appearance information, the category is null."
+        )
+        kinds = ('hearings', 'reports', 'motions')
+        before_metadata = application_metadata()
+        with patch.object(hearing_guidance, 'HEARING_TOPICS', previous):
+            old = {kind: sa.ExtractionConfig(kind, 'fixture').fingerprint for kind in kinds}
+            old_synthesis = hearing_guidance.application_fingerprint('synthesize')
+        current = {kind: sa.ExtractionConfig(kind, 'fixture').fingerprint for kind in kinds}
+        self.assertNotEqual(old['hearings'], current['hearings'])
+        self.assertNotEqual(old_synthesis, hearing_guidance.application_fingerprint('synthesize'))
+        for kind in ('reports', 'motions'):
+            self.assertEqual(old[kind], current[kind])
+        self.assertEqual(application_metadata(), before_metadata)
+        self.assertEqual(application_catalog()[1:], previous[1:])
+
     def test_report_topics_remain_editable_and_motion_and_hearing_stay_fixed(self):
         base = bundle(); editor = ProfileEditor(base)
         editor.resources['reports'][0]['guidance'] += ' CANARY probation focus.'

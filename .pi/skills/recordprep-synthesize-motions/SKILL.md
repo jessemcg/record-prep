@@ -5,6 +5,12 @@ description: Write one request-and-reasons section per supplied motion packet, p
 
 # Synthesize the motions summary
 
+Use direct quotations only from entries explicitly marked Verified in the digest.
+Never use an Unverified quote's placeholder or copy it as a direct quotation.
+Paraphrase the supported digest point or choose another relevant Verified anchor;
+preserve material facts without forcing a quote. Verification is a text-search
+result, not proof of attribution or meaning. Do not print verification labels.
+
 Use the fixed application-owned method supplied in the launch message. Read the
 dataset overview, then digest blocks with recordprep_get_facts. Use the private
 recordprep_synthesis_scratchpad to retain orientation across compaction and retrieve

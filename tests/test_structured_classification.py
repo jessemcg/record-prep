@@ -251,21 +251,21 @@ class StructuredClassificationTests(unittest.TestCase):
         b=bundle()
         golden=json.loads((ROOT/'tests/fixtures/summary-inspection-golden.json').read_bytes())
         # Keep frozen historical fixtures intact. Hearings now use fixed neutral
-        # topics and canonical skills. Current synthesis adds case-only display
-        # guidance to both kinds; current report editorial examples live in SKILL.
+        # topics and canonical skills. Current synthesis adds verified-only quote
+        # selection and case-only display; report editorial examples live in SKILL.
         golden.update({
             'hearings-extract': {
-                'component_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
-                'prompt_sha256': '682761e40d8764035ac0dc3d17aa0cff123f32096dcddde12a556cc62b8db4a7',
+                'component_sha256': '0e28b2e1917718b7a2a07e9a4143ae4d4321ff6e235d2f7147a1cb1eafdb4abd',
+                'prompt_sha256': '0e28b2e1917718b7a2a07e9a4143ae4d4321ff6e235d2f7147a1cb1eafdb4abd',
                 'staged_skill_sha256': '3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492'},
             'hearings-synthesize': {
-                'component_sha256': '66f1b27d820893e1b805feb4ef595480033179e0d53e2d743d89744caadb413f',
-                'prompt_sha256': '66f1b27d820893e1b805feb4ef595480033179e0d53e2d743d89744caadb413f',
-                'staged_skill_sha256': '61e7b23ba424c5185244f5a589e358e6436e394f3444301e443ea94f83c93670'},
+                'component_sha256': '45ff809b583b88c3161eb66ee4d7dfcc6621f92c66d904bb000ecf1d5c7f450e',
+                'prompt_sha256': '45ff809b583b88c3161eb66ee4d7dfcc6621f92c66d904bb000ecf1d5c7f450e',
+                'staged_skill_sha256': '631398ad339c9984e31617a84774945ea2d391aaca98b39e7dce604bd060024a'},
             'reports-synthesize': {
-                'component_sha256': '354a9190da58b478c0a4e083bbbf0162641c02f66411d90a76fcd0f4260af34d',
-                'prompt_sha256': 'b62213a142e722724cbfd34fc8bf89e4e0cbf09b3ac6fab2bde6e0c867e949a5',
-                'staged_skill_sha256': 'c4412073f6bb8334b817afc2a2f1ff852d9e78f2b599edfb70391c5d978dca83'},
+                'component_sha256': '79bfcca8b3d4f9fb89e5035a79c56a42841e883d57a76741883d97c3185e91f4',
+                'prompt_sha256': 'a978435792fa34f6542a57eda04dbe6fe6ef67e17a0f9d3555603885942e1666',
+                'staged_skill_sha256': 'e333541348ae794ecf827d5e159fad2a1d8ced73410d8b41ee5eb38c51d57754'},
             'reports-extract': {
                 'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
                 'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',

@@ -149,7 +149,8 @@ HEARING_READABILITY = """HEARING READABILITY AND QUOTATION CHECKLIST
 - Read the expanded quoted words as part of the sentence. Make the surrounding
   prose grammatical, avoiding doubled subjects/verbs, dangling fragments and a
   paraphrase immediately repeated by a quote. Choose another suitable anchor or
-  paraphrase if needed; never repair, shorten or rewrite the stored quotation.
+  paraphrase if needed; never repair or rewrite the stored quotation. Display-only
+  end-trimming is permitted under the application quote-selection rule.
   Let the quotation carry the proposition: surrounding prose adds attribution,
   context, transition or consequence, not a second statement of the same meaning.
   Do not write a complete paraphrase followed by an equivalent quotation, whether
@@ -196,7 +197,8 @@ with that subject or paraphrase; do not attach it to an unsupported agency duty.
 
 Fictional quote-bank examples below assume the digest supports the stated facts and
 attribution. Each placeholder expands to the complete exact bank entry shown; the
-examples never authorize trimming an existing quote or adding unsupported reasons.
+examples use full quotes; the application quote-selection rule separately permits
+faithful end-trimming, never unsupported reasons or changes to saved evidence.
 
 Phrase carrying the point — bank hearing:0001/orders/2 = 'only after an inspection':
 Avoid: Access required an inspection: {{quote:hearing:0001/orders/2}}.
@@ -272,7 +274,8 @@ report. Integrate each quotation grammatically instead of stating a paraphrase a
 then duplicating it as a quotation, and preserve the digest's speaker attribution,
 denials, uncertainty, and event dates around the quoted words. Never type quotation
 marks or Markdown page links yourself, never reuse a placeholder twice in one
-section, never mechanically shorten a stored quotation, and never fabricate a
+section, never rewrite saved evidence (use the display-selection rule for trimming),
+and never fabricate a
 quotation when no suitable anchor exists.
 
 If the submission tool reports feedback, such as invalid quote ids or typed

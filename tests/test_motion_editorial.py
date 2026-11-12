@@ -36,6 +36,34 @@ def historical_custom_profile():
 
 
 class MotionEditorialTests(unittest.TestCase):
+    def test_motion_skill_prioritizes_plain_english_requests_and_objections(self):
+        skill = (ROOT / '.pi/skills/recordprep-synthesize-motions/SKILL.md').read_text()
+        text = ' '.join(skill.split())
+        synthesis = skill.split('## Synthesis\n', 1)[1].split('## Reading a digest block', 1)[0]
+        self.assertIn("Respect the reader's time", synthesis)
+        for phrase in (
+            'Concisely explain in plain English',
+            'asked the court to do or not do, and why',
+            'without unnecessary legalese',
+            'what the party objected to and why',
+            'denial, a narrower order or another result',
+            'how it answered the objections',
+            'Write the narrative in past tense',
+            'Mother asked the court to order',
+            'past tense does not imply that the court granted it',
+            'Preserve the tense inside direct quotations exactly',
+            'do not re-segment', 'grouping does not imply agreement',
+            'material conditions, alternative requests',
+            'Never turn a request into a ruling',
+            'Let the quotation carry the proposition',
+            'For EVERY used quote id',
+        ):
+            self.assertIn(phrase, text)
+        self.assertNotIn('## Selection examples', skill)
+        self.assertNotIn('## Fictional quotation integration', skill)
+        self.assertNotIn('Avoid:', skill)
+        self.assertNotIn('`{{quote:', skill)
+
     def test_fixed_topics_select_requests_and_grounds_not_filing_particulars(self):
         topics = guidance.application_catalog()
         self.assertEqual([(t['id'], t['title']) for t in topics], [('request', 'Request'), ('reasons', 'Reasons')])
@@ -88,7 +116,13 @@ class MotionEditorialTests(unittest.TestCase):
                     self.assertIn(fixed, view.display_text())
                     self.assertIn(fixed, launch)
                     self.assertNotIn('CANARY', launch + view.display_text())
-                    self.assertIn('Exclude hearing dates/times/departments', view.components[1][1])
+                    self.assertIn('Exclude hearing dates/times/departments', view.display_text())
+                    if phase == 'extract':
+                        self.assertIn('Exclude hearing dates/times/departments', view.components[1][1])
+                    else:
+                        self.assertIn('Concisely explain in plain English', view.components[1][1])
+                        self.assertIn('hearing-setting, service and other administrative particulars',
+                                      ' '.join(view.components[1][1].split()))
             self.assertEqual(watched, {p: p.read_bytes() for p in watched})
 
     def test_each_motion_phase_tracks_its_skill_and_shared_selection_only_affects_motions(self):
@@ -109,6 +143,16 @@ class MotionEditorialTests(unittest.TestCase):
                     self.assertEqual(before[key][1], after[key][1])
                 else:
                     self.assertEqual(before[key], after[key])
+            synthesis_skill = project / 'skills/recordprep-synthesize-motions/SKILL.md'
+            synthesis_skill.write_text(synthesis_skill.read_text() + '\nSynthetic plain-English clarification.\n')
+            synthesis_only = configs()
+            for key in after:
+                if key[0] == 'motions':
+                    self.assertEqual(after[key][0], synthesis_only[key][0])
+                    self.assertNotEqual(after[key][1], synthesis_only[key][1])
+                else:
+                    self.assertEqual(after[key], synthesis_only[key])
+            after = synthesis_only
             original = guidance.application_guidance
             with patch.object(guidance, 'application_guidance', side_effect=lambda phase:
                               original(phase) + '\nFictional shared selection refinement.'):

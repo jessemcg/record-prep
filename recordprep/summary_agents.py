@@ -25,7 +25,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_quote, valid_quote_capitalization
+from .quote_display import QUOTE_CASE_GUIDANCE, NORMALIZATION_NOTICE, display_quote, valid_quote_capitalization, valid_quote_selection
 from .synthesis_fidelity import QUOTATION_INTEGRATION_GUIDANCE
 from .quote_search import QUOTE_SEARCH_CONTRACT, TRANSCRIPT_SEARCH_CONTRACT
 from .record_quote_search import RECORD_SEARCH_CONTRACT, RecordQuoteSearch
@@ -68,8 +68,8 @@ SUMMARY_RENDERER_VERSION = "recordprep-summary-renderer-7"
 # Kind-specific presentation identities; the shared renderer-7 name above is
 # retained for historical callers, not current report freshness.
 # Version 9 removes model-authored backtick formatting before quote expansion.
-HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-10"
-REPORT_RENDERER_VERSION = "recordprep-report-renderer-10"
+HEARING_RENDERER_VERSION = "recordprep-hearing-renderer-11"
+REPORT_RENDERER_VERSION = "recordprep-report-renderer-11"
 # The canonical digest store is a self-contained, versioned Markdown document
 # (format version tracked separately from the v2 row schema it carries).
 SUMMARY_DIGEST_MARKDOWN_ARTIFACT = "recordprep-summary-digest-markdown"
@@ -112,7 +112,7 @@ REPORT_DUPLICATION_SHINGLE_WORDS = 15
 def summary_renderer_version(kind: str) -> str:
     """Scope presentation changes independently for hearing/report synthesis."""
     return {"hearings": HEARING_RENDERER_VERSION, "reports": REPORT_RENDERER_VERSION,
-            "motions": "recordprep-motion-renderer-3"}[kind]
+            "motions": "recordprep-motion-renderer-4"}[kind]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1037,6 +1037,7 @@ HISTORICAL_BUILTIN_GUIDANCE: dict[tuple[str, str], tuple[str, ...]] = {
         PREVIOUS_HEARING_READABILITY + "\n" + PREVIOUS_HEARING_READABILITY_GUIDANCE,
     ),
     ("reports", "synthesize"): (
+        DEFAULT_REPORT_SYNTHESIS_GUIDANCE,
         _HISTORIC_REPORT_SYNTHESIS_V1_FACTS,
         PRIOR_REPORT_SYNTHESIS_GUIDANCE,
         PRIOR_DIGEST_REPORT_SYNTHESIS_GUIDANCE,
@@ -1062,6 +1063,11 @@ def default_guidance(kind: str, phase: str) -> str:
     guidance = _DEFAULT_GUIDANCE.get((kind, phase))
     if guidance is None:
         raise ValueError(f"Unknown summary kind/phase: {kind}/{phase}")
+    if phase == "synthesize":
+        # Preserve historical built-in literals above; current display selections
+        # shorten only rendered spans, never the original evidence bank.
+        guidance = guidance.replace("never mechanically shorten a stored quotation",
+                                    "never rewrite saved evidence")
     return guidance
 
 
@@ -3611,6 +3617,7 @@ class SynthesisSectionCandidate:
     item_id: str
     paragraphs: list[str]
     quote_capitalizations: dict[str, str] = field(default_factory=dict)
+    quote_selections: dict[str, str] = field(default_factory=dict)
 
 
 def fallback_section_paragraphs(row: dict[str, Any]) -> list[str]:
@@ -3819,6 +3826,7 @@ def normalize_synthesis_sections(
     rows_by_id = {str(row.get("item_id")): row for row in rows}
     submitted: dict[str, list[str]] = {}
     proposed_capitalizations: dict[str, Any] = {}
+    proposed_selections: dict[str, Any] = {}
     if not isinstance(sections_payload, list):
         flags.append("candidate_unusable:all_fallback")
         payload: list[Any] = []
@@ -3846,6 +3854,7 @@ def normalize_synthesis_sections(
         # contract of the submission tool.
         submitted[item_id] = paragraphs
         proposed_capitalizations[item_id] = entry.get("quote_capitalizations", {})
+        proposed_selections[item_id] = entry.get("quote_selections", {})
 
     sections: list[SynthesisSectionCandidate] = []
     for row in rows:
@@ -3897,19 +3906,33 @@ def normalize_synthesis_sections(
         capitalizations: dict[str, str] = {}
         used_ids = {match.group(1).strip() for paragraph in normalized_paragraphs
                     for match in _PLACEHOLDER_PATTERN.finditer(paragraph)}
+        selections: dict[str, str] = {}
+        selection_proposals = proposed_selections.get(item_id, {})
+        if not isinstance(selection_proposals, dict):
+            flags.append(f"quote_selection_rejected:{item_id}")
+        else:
+            for quote_id, selected in selection_proposals.items():
+                original = row_quote_text(row, quote_id) if quote_id in used_ids else None
+                if original is not None and valid_quote_selection(original, selected):
+                    if selected != original:
+                        selections[quote_id] = selected
+                else:
+                    flags.append(f"quote_selection_rejected:{item_id}")
         if not isinstance(proposals, dict):
             flags.append(f"quote_capitalization_rejected:{item_id}")
         else:
             for quote_id, proposed in proposals.items():
                 original = row_quote_text(row, quote_id) if quote_id in used_ids else None
-                if original is not None and valid_quote_capitalization(original, proposed):
-                    if proposed != original:
+                selected = selections.get(quote_id, original)
+                if selected is not None and valid_quote_capitalization(selected, proposed):
+                    if proposed != selected:
                         capitalizations[quote_id] = proposed
                 else:
                     flags.append(f"quote_capitalization_rejected:{item_id}")
         sections.append(
             SynthesisSectionCandidate(item_id=item_id, paragraphs=normalized_paragraphs,
-                                      quote_capitalizations=capitalizations)
+                                      quote_capitalizations=capitalizations,
+                                      quote_selections=selections)
         )
         flags.extend(_section_quality_flags(row, normalized_paragraphs))
     flags.extend(_repetition_flags(rows, sections))
@@ -3922,9 +3945,10 @@ def normalize_synthesis_sections(
 # --- Deterministic rendering ---
 
 
-def render_quote_text(row: dict[str, Any], quote_id: str, proposed: object = None) -> str:
-    """Render a source quote with independently checked display-only casing."""
-    text = display_quote(row_quote_text(row, quote_id) or "", proposed)
+def render_quote_text(row: dict[str, Any], quote_id: str, proposed: object = None,
+                      selection: object = None) -> str:
+    """Revalidate display-only end-trimming and casing against original evidence."""
+    text = display_quote(row_quote_text(row, quote_id) or "", proposed, selection)
     return f"\u201c{text}\u201d"
 
 
@@ -3944,6 +3968,7 @@ def render_section_paragraphs(
     row: dict[str, Any],
     paragraphs: Sequence[str],
     quote_capitalizations: dict[str, str] | None = None,
+    quote_selections: dict[str, str] | None = None,
 ) -> list[str]:
     rendered: list[str] = []
     for paragraph in normalize_paragraphs(paragraphs):
@@ -3963,7 +3988,8 @@ def render_section_paragraphs(
 
         def _replace(match: re.Match[str]) -> str:
             quote_id = match.group(1).strip()
-            return render_quote_text(row, quote_id, (quote_capitalizations or {}).get(quote_id))
+            return render_quote_text(row, quote_id, (quote_capitalizations or {}).get(quote_id),
+                                     (quote_selections or {}).get(quote_id))
 
         rendered.append(_PLACEHOLDER_PATTERN.sub(_replace, paragraph))
     return rendered
@@ -4007,7 +4033,8 @@ def render_final_summary(
         # All-null documents keep their required heading without any sentinel
         # paragraph; unusable extraction is distinguished through private
         # warnings, never technical narrative.
-        for paragraph in render_section_paragraphs(row, section.paragraphs, section.quote_capitalizations):
+        for paragraph in render_section_paragraphs(row, section.paragraphs, section.quote_capitalizations,
+                                                   section.quote_selections):
             normalized = " ".join(paragraph.split()).strip()
             if normalized:
                 lines.extend([normalized, ""])

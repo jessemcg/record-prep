@@ -31,7 +31,7 @@ class HearingEditorialTests(unittest.TestCase):
         skill = (PROJECT / 'skills/recordprep-synthesize-hearings/SKILL.md').read_text()
         self.assertIn('open with the substantive purpose', skill)
         self.assertIn('otherwise briefly attribute', skill)
-        self.assertIn('never rewrite a stored quotation', skill)
+        self.assertIn('No internal deletions, splicing, ellipses or rewriting', skill)
 
     def test_quotations_carry_the_point_in_runtime_and_canonical_skill(self):
         for profile in (None, bundled('general'), bundled('california_dependency'),
@@ -44,7 +44,7 @@ class HearingEditorialTests(unittest.TestCase):
                 'a redundant lead-in is', 'not a goal of fewer quotations overall',
                 'mentally expand every placeholder', 'not the stored quotation',
                 'Complete spoken statement', 'First-person grammar',
-                'Unhelpful confirmation', 'never authorize trimming an existing quote',
+                'Unhelpful confirmation', 'faithful end-trimming',
                 'Prefer: The court permitted access {{quote:hearing:0001/orders/2}}.',
                 'Prefer: {{quote:hearing:0001/orders/3}}, the court ruled.',
                 'Prefer: {{quote:hearing:0001/orders/4}}, the court explained',
@@ -55,7 +55,7 @@ class HearingEditorialTests(unittest.TestCase):
         self.assertEqual(skill, sp.profile_skill_text(
             PROJECT, 'recordprep-synthesize-hearings', 'synthesize'))
         for phrase in ('Let the quotation carry the proposition',
-                       'mentally expand every placeholder', 'never trim the saved quote'):
+                       'mentally expand every placeholder', 'No internal deletions, splicing, ellipses or rewriting'):
             self.assertIn(phrase, skill)
 
     def test_preceding_builtin_is_recognized_without_reattaching_old_method(self):
@@ -77,8 +77,8 @@ class HearingEditorialTests(unittest.TestCase):
         self.assertNotEqual(before['hearings', 'synthesize'], after['hearings', 'synthesize'])
         for key in before.keys() - {('hearings', 'synthesize')}:
             self.assertEqual(before[key], after[key])
-        self.assertEqual(sa.summary_renderer_version('reports'), 'recordprep-report-renderer-10')
-        self.assertEqual(sa.summary_renderer_version('hearings'), 'recordprep-hearing-renderer-10')
+        self.assertEqual(sa.summary_renderer_version('reports'), 'recordprep-report-renderer-11')
+        self.assertEqual(sa.summary_renderer_version('hearings'), 'recordprep-hearing-renderer-11')
         self.assertNotIn(sp.HEARING_READABILITY, sa.effective_synthesis_config(PROJECT, 'reports')['guidance'])
 
 

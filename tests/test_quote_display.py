@@ -31,6 +31,38 @@ def entry(proposal, paragraph=None):
 
 
 class QuoteDisplayTests(unittest.TestCase):
+    def test_all_narrative_skills_require_capitalization_check(self):
+        self.assertIn('For EVERY used quote id', QUOTE_CASE_GUIDANCE)
+        for kind in ('hearings', 'reports', 'motions'):
+            with self.subTest(kind=kind):
+                skill = (PROJECT / '.pi/skills' / ('recordprep-synthesize-' + kind) / 'SKILL.md').read_text()
+                self.assertNotIn('## Quotation capitalization', skill)
+                self.assertIn('For EVERY used quote id', skill)
+                self.assertIn('Only quote-free sections may omit the map', skill)
+                self.assertIn('`quote_selections`', skill)
+                self.assertNotIn('optional quote_capitalizations', skill)
+
+    def test_sentence_initial_word_adjustment_for_all_narrative_kinds(self):
+        for kind, prefix in (('hearings', 'hearing'), ('reports', 'report'), ('motions', 'motion')):
+            with self.subTest(kind=kind):
+                source = row('The ICWA reviewer joined by Webex')
+                item = prefix + ':0001'
+                quote = item + '/court_orders_and_reasons/1'
+                source.update(kind=kind, item_id=item)
+                source['categories'][0]['digest']['evidence'][0]['quote_id'] = quote
+                before = copy.deepcopy(source)
+                candidate = {'item_id': item, 'paragraphs': ['The author stated that {{quote:' + quote + '}}.'],
+                             'quote_capitalizations': {quote: 'the ICWA reviewer joined by Webex'}}
+                sections, flags = sa.normalize_synthesis_sections([source], [candidate])
+                text = sa.render_final_summary(kind, 'Synthetic', [source], sections, {item: (1, None)})
+                self.assertIn('that “the ICWA reviewer joined by Webex”', text)
+                self.assertNotIn('quote_capitalization_rejected:' + item, flags)
+                self.assertEqual(source, before)
+                candidate.pop('quote_capitalizations')
+                sections, _ = sa.normalize_synthesis_sections([source], [candidate])
+                text = sa.render_final_summary(kind, 'Synthetic', [source], sections, {item: (1, None)})
+                self.assertIn('that “The ICWA reviewer joined by Webex”', text)
+
     def test_characterwise_case_only_for_any_source_capitalization(self):
         for original, proposed in [('RECEIVED THE REPORT', 'received the report'),
                                    ('VIA WEBEX', 'via Webex'), ('ICWA JV-190', 'ICWA JV-190'),
@@ -140,14 +172,29 @@ class QuoteDisplayTests(unittest.TestCase):
             base = Path(temporary)
             candidate = base / 'candidate.json'
             dataset = base / 'dataset.json'
+            dataset_row = row('The ICWA reviewer joined by Webex')
+            second_quote = ITEM + '/court_orders_and_reasons/2'
+            dataset_row['categories'][0]['digest']['evidence'].append({
+                'quote_id': second_quote, 'text': 'I agree', 'file_page': 1, 'verified': True})
             dataset.write_text(json.dumps({'artifact': 'recordprep-summary-digest-dataset', 'kind': 'hearings',
-                'total_rows': 1, 'rows': [row('The ICWA reviewer joined by Webex')],
+                'total_rows': 1, 'rows': [dataset_row],
                 'documents': ['Synthetic digest.'], 'candidate_path': str(candidate)}))
             frames = []
             for i, (name, args) in enumerate([
                 ('recordprep_get_facts', {'ordinal': 1}),
+                ('recordprep_submit_summary_section', {'item_id': ITEM, 'paragraphs': ['Paraphrase only.']}),
+                ('recordprep_submit_summary_section', {'item_id': ITEM, 'paragraphs': [
+                    '{{quote:' + QUOTE + '}} and {{quote:' + QUOTE + '}}.']}),
+                ('recordprep_submit_summary_section', entry({QUOTE: 'The ICWA reviewer joined by Webex'},
+                    '{{quote:' + QUOTE + '}}. {{quote:' + second_quote + '}}.')),
+                ('recordprep_submit_summary_section', entry({QUOTE: ''})),
+                ('recordprep_submit_summary_section', entry({QUOTE: 'The ICWA reviewer joined by Webex'})),
                 ('recordprep_submit_summary_section', entry({QUOTE: 'the ICWA reviewer joined by Webex'},
                     'The clerk reported that {{quote:' + QUOTE + '}}.')),
+                ('recordprep_submit_summary_section', {
+                    **entry({QUOTE: 'the ICWA reviewer joined'},
+                            'The clerk reported that {{quote:' + QUOTE + '}}.'),
+                    'quote_selections': {QUOTE: 'The ICWA reviewer joined'}}),
                 ('recordprep_finish_summary', {})]):
                 frames.append({'stopReason': 'toolUse', 'content': [{'type': 'toolCall', 'id': str(i), 'name': name, 'arguments': args}]})
             plan = base / 'plan.json'; plan.write_text(json.dumps({'frames': frames, 'followup': False}))
@@ -166,11 +213,22 @@ class QuoteDisplayTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             captured = json.loads(capture.read_text())
             results = [m for m in captured['messages'] if m.get('role') == 'toolResult']
-            self.assertEqual(len(results), 3)
+            self.assertEqual(len(results), 9)
             self.assertFalse(any(m.get('isError') for m in results))
+            feedback = [json.dumps(m.get('content', [])) for m in results]
+            self.assertIn('Capitalization decisions missing for 1 used quote(s)', feedback[2])
+            self.assertIn('complete original text', feedback[2])
+            self.assertIn('section remains recorded', feedback[2])
+            self.assertIn('Capitalization decisions missing for 1 used quote(s)', feedback[3])
+            self.assertIn(second_quote, feedback[3])
+            self.assertIn('Capitalization decisions missing for 1 used quote(s)', feedback[4])
+            for index in (0, 1, 5, 6, 7, 8):
+                self.assertNotIn('Capitalization decisions missing', feedback[index])
             payload = json.loads(candidate.read_text())
-            self.assertEqual(payload['sections'][0]['quote_capitalizations'], {QUOTE: 'the ICWA reviewer joined by Webex'})
+            self.assertEqual(payload['sections'][0]['quote_capitalizations'], {QUOTE: 'the ICWA reviewer joined'})
+            self.assertEqual(payload['sections'][0]['quote_selections'], {QUOTE: 'The ICWA reviewer joined'})
             source = row('The ICWA reviewer joined by Webex')
             sections, _ = sa.normalize_synthesis_sections([source], payload['sections'])
             text = sa.render_final_summary('hearings', '', [source], sections, {ITEM: (1, None)})
-            self.assertIn('“the ICWA reviewer joined by Webex”', text)
+            self.assertIn('“the ICWA reviewer joined”', text)
+            self.assertNotIn('by Webex', text)

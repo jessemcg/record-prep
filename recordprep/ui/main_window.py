@@ -4060,10 +4060,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             subtitle="Group continuous motion-classified pages from a named lead; no model calls.",
         )
         self.step_motion_organization_row.set_activatable(False)
-        grouping_button = Gtk.Button(label="View grouping", valign=Gtk.Align.CENTER)
-        grouping_button.add_css_class("flat")
-        grouping_button.connect("clicked", self._show_motion_grouping)
-        self.step_motion_organization_row.add_suffix(grouping_button)
         self._attach_step_controls("organize_motion_papers", self.step_motion_organization_row,
             lambda _btn: self._launch_single_step(self.step_motion_organization_row,
                 self._run_step_motion_organization, "organize_motion_papers"))

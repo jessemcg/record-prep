@@ -19,6 +19,161 @@ launcher, XREMAP, dependency, profile schema/catalog/version, private settings,
 maintained-application restart, commit, push or deployment change is included.
 README and frozen historical fixtures are unchanged.
 
+## Display-only end-trimming — November 12
+
+All three narrative skills now combine quote grammar, optional end-trimming and
+compact capitalization instructions under **Quotation integration**. The separate
+Quotation capitalization heading is removed; the five shared sections remain
+byte-identical. Document-specific focus is unchanged.
+
+`quote_selections` maps an exact used quote ID to one nonempty continuous exact
+substring of its original text, in source case. Python validates whole-word edges
+(including apostrophes, hyphens and combining marks) and disallows internal changes,
+splicing, inserted ellipses or partial-word cuts. No semantic correctness is claimed:
+for example, a literal substring can still lose a negation. Instructions explicitly
+require preserving the whole sentence's meaning, conditions, qualifications and
+attribution, and discourage tiny ambiguous search fragments. Restructure or paraphrase
+when faithful trimming is uncertain; no automatic semantic repair or new gate.
+
+`quote_capitalizations` remains required by instruction for every used ID, now relative
+to the selected text, or the whole original if untrimmed. The explicit unchanged option
+remains. The synthesis-only tool schema carries both maps; missing capitalization
+feedback still runs within the same session. The original quote ID, digest evidence,
+reported page/hash/offsets and extraction remain untouched. Normalization keeps only
+valid used-ID selections; rendering independently revalidates them. Invalid selections
+fall back to the original quote, invalid case proposals to accepted source spelling,
+with nonfatal diagnostics. Last-submission-wins and historical mapless candidates
+retain their previous behavior. No extra model pass is added.
+
+TXT and PDF/page-map quotation phrases use the accepted selected display text for
+Focus search. IDs do not become new evidence claims; verification still does not
+certify context or attribution. Existing source matching remains case-insensitive.
+Hearing/report renderer11 and motion renderer4 plus synthesis resources bind freshness;
+no old summaries are silently rewritten. Explicit synthesis and editions adopt this
+change. Shared active synthesis guidance no longer forbids the permitted display-only
+trimming; historical built-in literals/readers remain readable. The accounts below
+of capitalization-only display and unchanged HEARING_READABILITY are historical.
+
+Validation: 100 relevant offline tests passed (no GUI/full discovery). Coverage includes
+all-three skill parity and actual SDK delivery, selection/case-map transport, exact
+whole-word spans, rejection/fallback, repeated substrings, unchanged evidence and
+reported offsets/hashes, historical candidates, final render revalidation, TXT/PDF
+quotation phrases and case-insensitive source matching. These are mechanics/search
+checks, not a claim that model trimming preserves meaning. All three skill validators,
+the packaged-tool audit, changed-Python compilation and diff checks passed. No paid
+calls, real-bundle regeneration, private-file edits or Focus changes were performed.
+
+## November 12 update: explicit capitalization decisions
+
+Hearing, report and motion synthesis require checking every used quotation's
+capitalization in its expanded sentence during normal drafting. Supply a
+`quote_capitalizations` entry for **every used quote ID**: its complete case-adjusted
+display text, or its complete original text unchanged as an explicit retain decision.
+Uncertain meaningful capitalization must be explicitly retained, not omitted.
+Only sections without quote placeholders may omit the map or use an empty object.
+
+The synthesis-only submission wrapper preserves the base tool's recorded candidate
+and feedback, then identifies missing/empty/non-string decisions (distinct used IDs,
+not placeholder occurrences). It returns advisory feedback naming missing IDs and
+asking for a complete resubmission during the same synthesis session. Rejected
+prerequisites are returned unchanged. No publication gate, automatic lowercasing,
+separate model pass or forced repair loop is added. Existing Python validation
+still rejects non-case-only text and falls back to original spelling. Explicitly
+unchanged strings pass validation without creating a display override. Historical
+submissions without maps remain readable and render with source capitalization.
+Shared guidance, the tool description and all three skills carry this contract.
+
+This supersedes the first instruction-only attempt, which allowed unchanged or
+uncertain quotes to be omitted. A regenerated report used the new instructions but
+still missed obvious embedded capitals (3 of 25 quotes adjusted), motivating
+explicit coverage rather than another wording-only reminder.
+
+Original evidence, case-only validation, uncertainty safeguards, extraction and
+minutes are unchanged. Existing summaries are not edited; explicit synthesis and
+edition regeneration are needed to adopt the instruction. The historical statements
+below about the hearing skill's byte identity describe the earlier delivery, not
+this update; `HEARING_READABILITY` itself remains unchanged.
+
+Validation of the initial instruction-only change: isolated full discovery passed
+(1,080 tests, 5 skipped), including
+real offline SDK delivery of the shared rule/tool description and all three skills.
+New tests cover the required instruction and sentence-initial-word display changes
+across all three narrative kinds, unchanged evidence, and source-case fallback when
+no map is provided. Skill validators, resource validation, compilation and the
+offline packaged-tool audit passed. These checks establish delivery and mechanics,
+not guaranteed model compliance; no paid calls or real-bundle regeneration occurred.
+
+Explicit-decision follow-up validation: isolated full discovery passed (1,080 tests,
+5 skipped). Actual offline SDK submissions exercised absent maps, partial coverage,
+empty decisions, repeated placeholders (one missing decision per ID), explicit
+unchanged strings, adjusted strings, and quote-free prose. Missing-decision feedback
+is returned without losing the recorded candidate; complete resubmission retains
+the display map through Python rendering. Actual staged-launch tests verify the
+all-three-kinds contract. Skill validators, compilation, resources and packaged-tool
+audit passed. No paid evaluation or real-bundle regeneration was performed; this
+establishes feedback and delivery, not that the model will make correct decisions.
+
+## All-three-skill alignment — November 12
+
+Motions now use the same descriptions/title pattern, ordered subheadings and
+byte-identical shared sections as hearings/reports. Only Document-specific focus
+and kind metadata differ. Motion focus retains plain-English past-tense requests,
+objections/replies, quotation tense preservation, no presumed ruling, and one
+section per supplied packet with distinct parties/positions. The parity test now
+covers all three. Eleven focused tests, skill validation and the updated packaged
+audit passed; no GUI/full-suite run or real-bundle generation was performed.
+Shared runtime guidance and extraction remain unchanged by this skill alignment.
+
+## Hearing/report skill alignment — November 12
+
+The latest hearing/report edit gives both skills matching descriptions, headings
+and identical shared wording for synthesis, quote integration/capitalization, digest
+reading and procedure. Only their clearly labeled Document-specific focus and
+kind-specific titles/metadata differ. Shared runtime guidance, motion skills and
+extraction are unchanged. A dedicated parity test protects the common sections;
+17 focused tests passed. See [report editorial](report-editorial.md) for details.
+The report-only simplification described next preceded this alignment.
+
+## Report-skill simplification — November 12
+
+The later report-only simplification removes the separate Editorial method section
+and local fictional examples, placing a concise cohesive-narrative objective and
+reader-time guidance in Synthesis. Repeated procedure instructions are consolidated.
+Explicit capitalization decisions and the shared application fidelity examples
+remain. See [report editorial](report-editorial.md). Descriptions below of the long
+report skill and its local examples document the earlier implementation.
+
+## Motion-skill simplification — November 12
+
+The motion skill now opens its Synthesis section with a plain-English task: concisely
+explain what each party asks the court to do or not do, and why. Oppositions identify
+what the party objects to, why, and its desired result; replies explain the maintained
+or changed position and response to objections. Unnecessary legalese, component
+inventories and repeated instructions/local examples are removed. Shared application
+selection/fidelity guidance remains unchanged, including its examples.
+
+One section per supplied packet, distinct parties/requests/opposing positions,
+material conditions and contrary evidence, administrative-detail exclusions and
+source-exact Verified quotations remain protected. The explicit capitalization
+section is unchanged. Only the motion synthesis skill changes behavior in this
+follow-up; extraction, grouping, shared guidance, tools, renderers and hearing/report
+skills are unchanged. Tests cover the central task and motion-synthesis-only freshness.
+
+Validation: 9 focused tests passed, covering motion selection/fallback, skill-only
+freshness, actual offline SDK prompt delivery, inspection and explicit capitalization
+feedback/rendering. The changed skill validator, packaged prompt-tool audit and diff
+checks passed. An earlier full discovery run was interrupted and is not claimed as
+acceptance; completion used only relevant checks, with no further GUI/full-suite run.
+No paid calls or real-bundle regeneration were performed. These tests establish
+instruction delivery and mechanics, not guaranteed plain-English writing quality.
+
+The subsequent motion-only tense clarification requires past-tense narration of
+requests, objections and replies (Mother asked the court to order…), even when the
+filing uses present tense. Direct quotations keep their source tense; past-tense
+attribution or paraphrase provides the fit. Past tense never implies the request
+was granted. Six focused motion/delivery tests and skill/audit validation passed;
+no summary was regenerated.
+
 ## Editorial and display contract
 
 Reports retain substantive selection, attribution, continuity and incremental

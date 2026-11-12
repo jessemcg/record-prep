@@ -2,16 +2,16 @@
   "schema_version": 1,
   "sources": {
     ".pi/extensions/recordprep-summary-tools.ts": "0251c1234d70635ceee91b48ce91ca2f6741473171ff8ae34d4b8693b7dc644a",
-    ".pi/extensions/recordprep-summary-synthesis-tools.ts": "7fd8bd321cdfe787ffb8f8e19c6d9009c53fe49b661336a29d23c480ea17b211",
+    ".pi/extensions/recordprep-summary-synthesis-tools.ts": "204a59caf435416a61579082ab462796d211bfe3dfaa01eb825269ff4e8f6daf",
     ".pi/extensions/recordprep-profile-minute-tools.ts": "755775e5589586d380db4eb2df97ad713061e6a92807810db1346125893178f3",
     ".pi/extensions/recordprep-minute-tools.ts": "9abbd80a5b77ae32e932122fb78baef078aae6304249401ac19172c936778e05",
     ".pi/skills/recordprep-extract-hearing/SKILL.md": "3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492",
     ".pi/skills/recordprep-extract-report/SKILL.md": "f9a987a71260e08e34422660c8735a77b77ad809657ddd60ca363289ac8795b5",
-    ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "631398ad339c9984e31617a84774945ea2d391aaca98b39e7dce604bd060024a",
-    ".pi/skills/recordprep-synthesize-reports/SKILL.md": "e333541348ae794ecf827d5e159fad2a1d8ced73410d8b41ee5eb38c51d57754",
+    ".pi/skills/recordprep-synthesize-hearings/SKILL.md": "8a8034864f91a6d96f3e8d63f0b6a4c701406c5e0f10d635202beb7d65f58503",
+    ".pi/skills/recordprep-synthesize-reports/SKILL.md": "6e6db706f185e4de48268fe6d855211219a0a00e465f35398e239d8ae36f926f",
     ".pi/skills/recordprep-summarize-minutes/SKILL.md": "072ec2a476e44f377cb062782d79460349e1e750ae8b509925b0869649801af3",
     ".pi/skills/recordprep-extract-motion/SKILL.md": "08e1d2eeeed30766556b77c9c4828c41f223d6f25b30e3ce2ea9f71c167064d3",
-    ".pi/skills/recordprep-synthesize-motions/SKILL.md": "3bf476c93fcfb93623f80b5e7fb81d3d309cb9ce0acce5e7aea32511424cfc43",
+    ".pi/skills/recordprep-synthesize-motions/SKILL.md": "124909409639693750cf0d480fd888ec866bf42591c1818f4bb5180344dae01e",
     ".pi/scripts/run_recordprep_skill.py": "04026207f08eadcd88fd6df1e7bacf5424c187f76fc818243a811067a1506992",
     "recordprep/summary_prompts.py": "fc1deeca80b4cc739ede9f1e0c2948a3aaed00c2312c9b77c1eafa474f0e07fb",
     "recordprep/skill_commands.py": "d7e1dcc00727e740d125998948fcd86c245d1534601bbc28c8e5663edca8629c",
@@ -217,7 +217,7 @@
       },
       {
         "name": "recordprep_submit_summary_section",
-        "description": "Submit or replace the narrative section for one document: item_id plus flowing prose paragraphs with {{quote:<quote_id>}} placeholders for direct quotations. Placeholders must reference this document's exact quote ids. The tool records the section and returns nonfatal feedback when a placeholder references an unknown quote id — fix the section and submit the same item_id again before finalizing. Submit one section per document in boundary order before finalizing. Use direct quotations only from entries explicitly marked Verified in the digest. Never use Unverified quote placeholders or copy their text as direct quotations; paraphrase the supported digest point or choose another relevant Verified anchor. Submit one paragraph per paragraphs array entry. For hearings, keep each paragraph short and focused, regroup dense digest topics, and distribute appropriate quote anchors across substantive paragraphs. Review attribution; never force or repeat a quote merely for formatting. For all-caps, sentence-case, mixed-case or lowercase quotes, optionally supply quote_capitalizations when sentence position warrants adjustment: an object mapping exact quote ids to case-only display spellings. Preserve proper names, acronyms, initials, first-person I, legal identifiers and meaningful capitalization; retain source spelling when uncertain. Preserve every word, character position, space and punctuation mark. No bracketed capitalization markers or narrative announcements. Keep the original quote placeholders in paragraphs; Python validates each proposal and otherwise retains source capitalization.",
+        "description": "Submit or replace the narrative section for one document: item_id plus flowing prose paragraphs with {{quote:<quote_id>}} placeholders for direct quotations. Placeholders must reference this document's exact quote ids. The tool records the section and returns nonfatal feedback when a placeholder references an unknown quote id — fix the section and submit the same item_id again before finalizing. Submit one section per document in boundary order before finalizing. Use direct quotations only from entries explicitly marked Verified in the digest. Never use Unverified quote placeholders or copy their text as direct quotations; paraphrase the supported digest point or choose another relevant Verified anchor. Submit one focused paragraph per paragraphs entry. Keep original quote placeholders. Optionally supply quote_selections: exact used id -> one continuous exact substring of its original quote, in source case. Remove only whole words at either end; no internal deletions, splicing, ellipses or rewriting. Keep a useful search phrase and preserve negation, conditions, qualifications, attribution and the meaning of the whole sentence. Supply quote_capitalizations for EVERY used quote id: the full selected text (original text if untrimmed), case-adjusted or unchanged as an explicit retain decision. For all-caps, sentence-case, mixed-case or lowercase quotes, adjust ordinary sentence-position capitalization; preserve names, acronyms, first-person I and meaningful or uncertain case. Within the selected span, change letter case only; preserve spaces and punctuation. Do not omit decisions for unchanged quotes. Only quote-free sections may omit the map. Address missing-decision feedback in this session. No bracket markers or announcements. Python validates literal fidelity, not meaning, and falls back on rejected proposals.",
         "parameters": {
           "type": "object",
           "required": [
@@ -235,6 +235,12 @@
               }
             },
             "quote_capitalizations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "quote_selections": {
               "type": "object",
               "additionalProperties": {
                 "type": "string"

@@ -252,20 +252,20 @@ class StructuredClassificationTests(unittest.TestCase):
         golden=json.loads((ROOT/'tests/fixtures/summary-inspection-golden.json').read_bytes())
         # Keep frozen historical fixtures intact. Hearings now use fixed neutral
         # topics and canonical skills. Current synthesis adds verified-only quote
-        # selection and case-only display; report editorial examples live in SKILL.
+        # selection and explicit case-only display decisions; report SKILL is concise.
         golden.update({
             'hearings-extract': {
                 'component_sha256': '0e28b2e1917718b7a2a07e9a4143ae4d4321ff6e235d2f7147a1cb1eafdb4abd',
                 'prompt_sha256': '0e28b2e1917718b7a2a07e9a4143ae4d4321ff6e235d2f7147a1cb1eafdb4abd',
                 'staged_skill_sha256': '3c214b2bdd260641d8d992312b03bb52394a6d6e2f663cef2b1da80658682492'},
             'hearings-synthesize': {
-                'component_sha256': '45ff809b583b88c3161eb66ee4d7dfcc6621f92c66d904bb000ecf1d5c7f450e',
-                'prompt_sha256': '45ff809b583b88c3161eb66ee4d7dfcc6621f92c66d904bb000ecf1d5c7f450e',
-                'staged_skill_sha256': '631398ad339c9984e31617a84774945ea2d391aaca98b39e7dce604bd060024a'},
+                'component_sha256': 'd32a98fa2ef665ce99a07e5794464a2f9f213d25cc254207ba44cc334ffe1fbf',
+                'prompt_sha256': 'd32a98fa2ef665ce99a07e5794464a2f9f213d25cc254207ba44cc334ffe1fbf',
+                'staged_skill_sha256': '8a8034864f91a6d96f3e8d63f0b6a4c701406c5e0f10d635202beb7d65f58503'},
             'reports-synthesize': {
-                'component_sha256': '79bfcca8b3d4f9fb89e5035a79c56a42841e883d57a76741883d97c3185e91f4',
-                'prompt_sha256': 'a978435792fa34f6542a57eda04dbe6fe6ef67e17a0f9d3555603885942e1666',
-                'staged_skill_sha256': 'e333541348ae794ecf827d5e159fad2a1d8ced73410d8b41ee5eb38c51d57754'},
+                'component_sha256': '0a8e4f3bb3bd08cc6063bda4d1263747e5f8635b70155efd07bfcfcb490b0ecd',
+                'prompt_sha256': 'be91cae4966240fa2f912e4b25dff288542448b8ce1783c4a91244434b7fab17',
+                'staged_skill_sha256': '6e6db706f185e4de48268fe6d855211219a0a00e465f35398e239d8ae36f926f'},
             'reports-extract': {
                 'component_sha256': 'a4ca4965b769f7256618640fcb6ec17844450e83e8b940001f683c0f9d354710',
                 'prompt_sha256': '99d0ed45fbe6d67ed15f68bd45cf2ae972d976d532a3606a7f870ced9dec2f86',

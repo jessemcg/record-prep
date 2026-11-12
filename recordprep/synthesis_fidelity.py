@@ -20,7 +20,8 @@ meaning, actor, attribution and qualifications; an exact quote is not independen
 support for a new proposition. Check BOTH grammar and meaning in the entire
 expanded sentence during ordinary drafting/submission, not a separate review pass.
 
-Fit the complete saved quotation to its actual grammatical form. A clause with its
+Fit the selected quotation to its actual grammatical form. The display-selection
+rule permits faithful end-trimming; otherwise use the complete saved quote. A clause with its
 own subject and finite verb is not a noun phrase: do not put it after an article,
 possessive, preposition or another subject merely because it contains useful words.
 Do not introduce a quotation with an equivalent complete paraphrase or repeat the
@@ -28,7 +29,8 @@ same rationale across adjacent paragraphs. Attribution may introduce a complete
 statement without announcing its whole proposition again. If no natural and
 faithful construction fits, retain the material point as paraphrase and use other
 suitable anchors elsewhere. Do not exhaust the bank, force a review confirmation,
-shorten an anchor or change quoted words. Quotation distribution is not a quota.
+or change quoted words. End-trimming must preserve the complete sentence's meaning,
+negation, conditions, qualifications and attribution. Quotation distribution is not a quota.
 
 Preserve the relation between a condition and the act it qualifies. Identify exactly
 WHAT may/must/must not happen, WHO acts, and WHEN/UNDER WHAT CONDITION. Do not move a

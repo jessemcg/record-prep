@@ -1,9 +1,66 @@
 # Report-synthesis editorial follow-up — 2026-10-16
 
-Current follow-up: [fluid quotation integration](fluid-quotation-integration.md)
-adds explicit report/motion integration examples and shared any-case display rules.
-That document records current validation and paid-comparison failures; the historical
-validation records below are not current acceptance claims.
+## Current update — November 12: aligned narrative skills
+
+Hearing, report and motion skills now have parallel descriptions/titles and the same ordered subheadings:
+**Synthesis**, **Document-specific focus**, **Quotation integration**,
+**Reading a digest block**, and **Procedure**. Quotation integration now includes
+compact capitalization instructions and permission for validated, faithful end-trimming.
+All shared sections and introductory instructions are byte-identical; only the
+kind-specific name/title/description and Document-specific focus differ. Motion
+focus preserves past-tense requests/oppositions/replies, plain English, and one
+section per supplied packet with distinct party positions. The shared
+objective is a concise, cohesive narrative respecting the reader's time, with
+source-exact quotes integrated grammatically and without redundant paraphrase.
+
+Hearing focus retains arguments/rulings, consequential procedural qualifications,
+conditional directions and speaker attribution. Report focus retains attributed
+assessments/recommendations, report-to-report continuity and no repeated anchors
+from earlier reports. Every used quote still needs an explicit capitalization decision,
+now relative to its selected span when trimmed. The subsequent display-selection update
+also aligns shared runtime guidance with this permission; extraction is unchanged.
+See [display selection](fluid-quotation-integration.md#display-only-end-trimming--november-12)
+for validation, fallback and compatibility details.
+No runtime template generator was introduced: all three SKILL files stay directly readable.
+`test_synthesis_skill_parity.py` compares all three descriptions, headings and shared sections
+so future divergence must be deliberate rather than unnoticed wording drift.
+
+Validation: 17 focused tests passed, covering parity, both narrative methods,
+inspection, actual offline SDK delivery, fingerprints and quotation safeguards.
+Both skill validators and the packaged prompt-tool audit passed. The subsequent
+motion alignment passed 11 focused tests, its skill validator and the refreshed
+prompt-tool audit. No GUI/full-suite run, paid calls or real-bundle regeneration
+was performed for either alignment.
+
+## Earlier November 12 update: simpler report skill
+
+The report skill now follows the hearing counterpart's compact structure. A prominent
+**Synthesis** section opens with the central task: write a fluid, cohesive narrative,
+respect the reader's time, and explain the main attributed conclusion/development
+with its reasons and qualifications. The separate **Editorial method** section and
+its local before/after examples were removed, not relocated into another prompt.
+The procedure now refers to the synthesis guidance instead of repeating it.
+
+The skill retains report-to-report continuity, counterevidence/uncertainty, correct
+subject/actor attribution, source-exact Verified quote placeholders, explicit
+capitalization decisions for every used quote, and the incremental tool workflow.
+Its capitalization section is unchanged from the explicit-decision follow-up.
+The application already supplies shared fidelity rules and examples; these remain
+in the assembled runtime prompt, without another copy in the report skill.
+Hearing/motion skills, extraction, shared guidance, tools and renderers are unchanged
+by this simplification. It changes report synthesis freshness only, not saved output.
+No paid writing-quality comparison or real-bundle regeneration is implied.
+
+Validation: isolated full discovery passed (1,080 tests, 5 skipped), including
+actual offline SDK skill expansion, report-only freshness/staging checks, preserved
+capitalization decisions, and bare-placeholder regressions. Skill/resource validation,
+compilation and the packaged-tool audit passed. These establish delivery and safety,
+not improved model prose; no real bundle was regenerated or rewritten.
+
+See [fluid quotation integration](fluid-quotation-integration.md) for the shared
+display contract, explicit-decision feedback and prior paid-comparison limitations.
+The October implementation/validation account below is historical; in particular,
+its descriptions of local examples and older renderer versions are not current.
 
 ## Approved scope
 

@@ -79,8 +79,8 @@ class ExternalSettingsTests(unittest.TestCase):
         changed_contracts = {
             # Includes the separately maintained party-only appearance guidance.
             'extraction': '865e675005f5a92a4e6d078e6db9ddce472af5a225acafd3a077980362b3cec2',
-            # Record-wide verification plus the current appearance guidance.
-            'synthesis': 'a57091f2dd6acef62e677fb9a0f328590a2c3cc911c657cab137b78f787572a5',
+            # Validated end-trimming, merged quote guidance and updated narrative renderers.
+            'synthesis': '1eb25baecc1dc62847c884de0f157cebc7411813b84d0e4952b63f1d14385338',
             'minutes': '4fecbf5c56e1fdd1dd59b6b44a76d5a4452cdf573ae0c7505b10f7560c3bdcd1',
         }
         for key, value in current.items():

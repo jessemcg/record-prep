@@ -292,18 +292,21 @@ case overview → deterministic source map. See `docs/workflow.md`.
   model to use only explicitly Verified direct quotes, paraphrasing supported points
   otherwise. This instruction is not a new publication gate; retain unverified-use
   diagnostics for noncompliance. No extra repair/model pass.
-- Quote display permits exact used-ID case-only proposals for all-caps, sentence-case,
-  mixed-case and lowercase source quotes in hearings/reports/motions. Preserve evidence,
-  offsets, every character position, spaces/punctuation and meaningful capitalization
-  (proper names/acronyms/initials/I/legal identifiers); uncertain tokens retain source
-  spelling. Characterwise validation proves fidelity, not semantic casing or grammar.
+- Quote display accepts optional `quote_selections` (exact used ID → continuous exact
+  substring in source case) for whole-word end-trimming, then `quote_capitalizations`
+  for every used ID (full selected/original text with case-only adjustment or explicit
+  retain). No internal deletions/splicing/rewriting. Preserve original evidence,
+  offsets/hashes/IDs; within the selected span preserve spaces/punctuation and meaningful
+  capitalization (names/acronyms/initials/I/legal identifiers), retaining uncertain case.
+  Model instructions forbid losing negation, conditions, qualifications or attribution;
+  substring/case validation proves literal fidelity, not semantic safety or grammar.
   Revalidate at normalization/rendering; reject nonfatally without losing usable prose.
+  Invalid selections fall back to the original; invalid casing to accepted source case.
   No automatic lower/title fallback, bracket markers or capitalization announcements.
-  Hearing/report renderer10 and motion renderer3 retain backtick removal before evidence
-  expansion; never strip source-quotation characters. Report/motion skills teach bare
-  complete placeholders, letting quotes carry propositions, reading entire expanded
-  sentences and supported first-person attribution. HEARING_READABILITY is unchanged;
-  hearing SKILL adds the requested Verified-only selection instruction.
+  Hearing/report renderer11 and motion renderer4 retain backtick removal before evidence
+  expansion. All three skills share headings/common wording; Quotation integration
+  includes end-trimming and compact capitalization guidance, with no separate casing
+  section. Shared runtime guidance permits the same display-only selection contract.
   After the explicitly requested paid follow-up, all three kinds also
   receive synthesis_fidelity.QUOTATION_INTEGRATION_GUIDANCE: finite clauses are not noun
   phrases; preserve condition/actor/action attachment, avoid repeated rationales and
@@ -403,16 +406,32 @@ case overview → deterministic source map. See `docs/workflow.md`.
 
 ## Validation commands
 
-Use the absolute project-env helper with disposable source/environment overrides:
+Run only validation relevant to the changed behavior and its affected integrations.
+Select focused tests based on the actual diff; do not run full discovery, GUI tests,
+or unrelated resource checks as a routine requirement after every change. Expand
+coverage only when dependencies, failures or cross-cutting changes justify it, and
+explain why. Run the full suite only when its breadth is relevant or explicitly requested.
+
+Use the absolute project-env helper with disposable source/environment overrides.
+For example, select the affected test file rather than discovering the entire suite:
 
 ```text
-.../UvEnvironments/project-env --project /tmp/.../RecordPrep --environment /tmp/.../env run RecordPrep python -m unittest discover -s tests -v
-.../UvEnvironments/project-env --project /tmp/.../RecordPrep --environment /tmp/.../env run RecordPrep python -m compileall -q recordprep tests
-.../UvEnvironments/project-env --project /tmp/.../RecordPrep --environment /tmp/.../env run RecordPrep python .pi/scripts/run_recordprep_skill.py --validate-resources
+.../UvEnvironments/project-env --project /tmp/.../RecordPrep --environment /tmp/.../env run RecordPrep python -m unittest discover -s tests -p 'test_motion_editorial.py' -v
 ```
 
-Run affected unit/pipeline/native-guard tests, full discovery and resource/audit checks;
-validate changed skills with the Agent Skill validator. Keep package data complete,
-including historical resources and standalone `.pi/`. Use synthetic isolated GTK
-acceptance for UI parity, preserve the running user's state and report desktop limits.
-Dated validation reports remain historical; do not rewrite them to imply HEAD acceptance.
+- Python changes: run affected unit/pipeline/native-guard tests and compile checks
+  for changed Python files as appropriate; include callers when a shared contract changes.
+- Skill/prompt-only changes: validate changed skills with the Agent Skill validator;
+  run relevant prompt delivery, inspection, freshness and contract tests. Refresh/check
+  packaged resource audits when their tracked inputs change. Do not run GUI tests
+  merely because the application has a GUI.
+- UI changes: use affected UI tests and synthetic isolated GTK/desktop acceptance
+  where useful. Preserve the running user's state and report desktop limitations.
+- Packaging/resource changes: check affected package contents, resource validation
+  and audits, including historical resources and standalone `.pi/` when relevant.
+- Documentation-only changes: inspect the diff and check formatting/links as needed;
+  do not run application tests unless the documented contract also changes behavior.
+
+Report which checks ran and any relevant limits; focused tests do not establish
+full-suite acceptance or model writing quality. Dated validation reports remain
+historical; do not rewrite them to imply HEAD acceptance.

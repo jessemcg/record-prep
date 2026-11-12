@@ -75,4 +75,5 @@ class SummaryBacktickTests(unittest.TestCase):
         skill = (root / ".pi/skills/recordprep-synthesize-reports/SKILL.md").read_text()
         self.assertNotIn("`{{quote:", skill)
         self.assertIn("without backticks or Markdown code formatting", skill)
-        self.assertIn("Prefer: The inspector recommended reopening {{quote:", skill)
+        self.assertIn("Use bare {{quote:<quote_id>}} placeholders", skill)
+        self.assertIn("document's evidence bank", skill)

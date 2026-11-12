@@ -26,21 +26,31 @@ SKILL = 'recordprep-synthesize-reports'
 
 
 class ReportEditorialTests(unittest.TestCase):
-    def test_canonical_skill_encodes_the_approved_editorial_method(self):
+    def test_canonical_skill_prioritizes_cohesive_synthesis_without_editorial_appendix(self):
         skill = (PROJECT / 'skills' / SKILL / 'SKILL.md').read_text()
         text = ' '.join(skill.split())
+        self.assertNotIn('Editorial method', skill)
+        self.assertNotIn('### Fictional examples', skill)
+        self.assertNotIn('Before:', skill)
+        self.assertNotIn('Avoid:', skill)
+        synthesis = skill.split('## Synthesis\n', 1)[1].split('## Reading a digest block', 1)[0]
+        self.assertIn("Respect the reader's time", synthesis)
+        self.assertIn('Write a concise, cohesive narrative', synthesis)
+        self.assertLess(skill.index('## Synthesis'), skill.index('## Procedure'))
         for phrase in (
-            "respect the reader's time", "main attributed conclusion", "qualification needed",
-            "Do not open with filing metadata", "Digest categories organize extraction",
-            "each fact its fullest treatment in its best place once", "short and focused",
-            "opener should orient", "favorable observations, contrary evidence",
-            "attribute the specific discrepancy", "expanded quotation", "actor and duty bearer",
-            "never repair, shorten, rewrite or reassign", "No separate quality pass",
-            "Do not apply the minute summaries' one-or-two-outcome", "Fictional examples",
-            "Do not add editorial introductions or capitalization-normalization announcements",
+            'main attributed conclusion', 'Do not open with filing metadata',
+            'each fact its fullest treatment in its best place once', 'short, focused',
+            'favorable observations, contrary evidence', 'actor and duty bearer',
+            'entire resulting sentence', 'recommendation from an order',
+            'No internal deletions, splicing, ellipses or rewriting',
+            'not in an extra model pass', 'For EVERY used quote id',
+            'Only quote-free sections may omit the map',
+            'not an equivalent paraphrase followed by a colon, dash',
+            'A colon is acceptable when the lead-in is not redundant',
+            'A complete spoken statement needs brief supported attribution',
+            'do not insert its first-person subject into third-person prose',
         ):
             self.assertIn(phrase, text)
-        self.assertIn('only after repairs', text)
 
     def test_profile_staging_fingerprints_and_capacity_use_the_same_visible_report_skill(self):
         with tempfile.TemporaryDirectory() as td:
@@ -67,7 +77,7 @@ class ReportEditorialTests(unittest.TestCase):
                     self.assertEqual(config['skill_sha256'], sa._resource_sha256(source))
                     self.assertIn(sp.REPORT_QUOTE_CASE_GUIDANCE, config['guidance'])
                     self.assertNotIn('Python adds\none normalization notice', config['guidance'])
-                    self.assertEqual(config['renderer_version'], 'recordprep-report-renderer-10')
+                    self.assertEqual(config['renderer_version'], 'recordprep-report-renderer-11')
                     source.write_text(contents)
             # Hearing profile staging remains the existing generic template.
             self.assertEqual((project / 'skills/recordprep-synthesize-hearings/SKILL.md').read_text(), sp.profile_skill_text(project, 'recordprep-synthesize-hearings', 'synthesize'))

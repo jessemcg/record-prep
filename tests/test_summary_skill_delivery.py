@@ -117,7 +117,22 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                             for delivered in (message, description):
                                 self.assertIn('Use direct quotations only from entries explicitly marked Verified in the digest.', delivered)
                                 self.assertIn('Unverified', delivered)
-                            self.assertNotIn('For all-caps quotes, optionally', description)
+                            self.assertNotIn('optionally supply quote_capitalizations', description)
+                            self.assertIn('for EVERY used quote id', description)
+                            self.assertIn('Do not omit decisions for unchanged quotes', description)
+                            for delivered in (message, description):
+                                self.assertIn('quote_selections', delivered)
+                                self.assertIn('continuous exact substring', delivered)
+                            self.assertIn('For EVERY used quote id', message)
+                            self.assertIn('Only quote-free sections may omit the map', message)
+                            self.assertNotIn('## Quotation capitalization', message)
+                            self.assertNotIn('never mechanically shorten a stored quotation', message)
+                            self.assertNotIn('never repair, shorten or rewrite', message)
+                            if kind in ('hearings', 'reports'):
+                                self.assertIn('Write a concise, cohesive narrative', message)
+                                self.assertIn("Respect the reader's time", message)
+                                self.assertNotIn('## Editorial method', message)
+                                self.assertNotIn('### Fictional examples', message)
                             if kind != 'hearings':
                                 self.assertIn('Let the quotation carry the proposition', ' '.join(message.split()))
                                 self.assertIn('Fictional', message)
@@ -127,6 +142,12 @@ class SummarySkillDeliveryTests(unittest.TestCase):
                                 {t['name']: {k: t[k] for k in ('name', 'description', 'parameters')}
                                  for t in system['toolsAdded']})
                         if kind == 'motions':
+                            if phase == 'synthesize':
+                                self.assertIn('Concisely explain in plain English', message)
+                                self.assertIn('what the party objected to and why', ' '.join(message.split()))
+                                self.assertIn('Write the narrative in past tense', message)
+                                self.assertIn('without unnecessary legalese', message)
+                                self.assertNotIn('## Fictional quotation integration', message)
                             # Check the real expanded child message, not just the staged
                             # filename or /skill prefix. Both phases select before output.
                             from recordprep.motion_guidance import application_guidance

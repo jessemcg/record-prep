@@ -12,7 +12,7 @@ See [application-owned naming](application-motion-naming.md) and
 and before Build TOC. It needs no Pi executable, model, credentials, skill, VTE
 terminal or provider call. The old runner command dispatches to the same Python
 publisher before model/resource preflight. There is no candidate workspace or repair
-pass. View grouping is a read-only plain-text account of saved entries and components.
+pass. The row exposes the standard step controls, without a View grouping button.
 
 Starting at an explicitly detected, named motion start, include **every following
 adjacent motion-classified page** until another classification or missing numerical
@@ -50,7 +50,7 @@ The explanation states classification continuity, not a finding of substantive s
 
 **Selected-inventory accounting: complete** means deterministic accounting for the
 selected inventory only. It is not legal relationship review, semantic certainty, or
-inclusion of every motion-classified fragment. View grouping displays that distinction.
+inclusion of every motion-classified fragment.
 
 Publication retains the organization lock, root identity, safe reads, Stop checks,
 source/classification/policy/implementation/prior-output guards and unique-temp atomic
@@ -115,8 +115,8 @@ packets fail preflight honestly, never silently split or trigger paid repair cal
 ## Historical records and deliberate adoption
 
 Schema **1** / `recordprep-motion-organization-1` retains its saved relationships,
-nonadjacent/pre-lead support, historical names/dates and coverage statuses. View grouping
-keeps the exact **Review coverage** terminology for those records. New maximal-continuity
+nonadjacent/pre-lead support, historical names/dates and coverage statuses. Historical
+readers keep the exact **Review coverage** terminology for those records. New maximal-continuity
 rules never validate or migrate schema-1 output. Unknown version/contract pairs fail closed.
 
 Installing code changes no private settings, profiles, source pages, classifications,
@@ -127,7 +127,7 @@ publication replaces an older grouping artifact.
 
 To adopt deliberately:
 
-1. Run **Organize motion papers** (no model calls), then **View grouping**.
+1. Run **Organize motion papers** (no model calls).
 2. Rebuild/correct TOC; run **Find boundaries → Filter boundary entries** to retain
    unnamed internal components in saved physical boundaries.
 3. Explicitly create motion summaries; refresh summary editions, dependent overview as

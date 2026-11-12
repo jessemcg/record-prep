@@ -70,7 +70,7 @@ assert list(main._step_rows_by_id).index('organize_motion_papers') < list(main._
 assert main.step_motion_organization_row.get_title() == 'Organize motion papers'
 assert main.step_correct_boundaries_row.get_title() == 'Filter boundary entries'
 assert main._step_rows_by_id['correct_boundaries'] is main.step_correct_boundaries_row
-assert any(isinstance(w, Gtk.Button) and w.get_label() == 'View grouping' for w in descendants(main.step_motion_organization_row))
+assert not any(isinstance(w, Gtk.Button) and w.get_label() == 'View grouping' for w in descendants(main.step_motion_organization_row))
 with patch.object(main, '_resolve_case_root', return_value=bundle):
     assert main._run_step_six(), 'Actual Build TOC worker failed'
     drain()

@@ -90,7 +90,7 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
             )
             self.assertEqual(detection_status(root), ("resolved", "rt_only"))
             self.assertIn("Reporter's transcript only", layout_display_summary(root))
-            self.assertIn("automatic", layout_display_summary(root))
+            self.assertEqual(layout_display_summary(root), "Reporter's transcript only")
 
     def test_ct_only_round_trip_and_routing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -123,7 +123,7 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
             self.assertIn("RT + CT", summary)
             self.assertIn("through page 4", summary)
 
-    def test_summary_separator_spacing_for_every_mode_and_decision_source(self):
+    def test_summary_omits_detection_source_for_every_mode(self):
         for mode, prefix in (('rt_only', "Reporter's transcript only"),
                              ('ct_only', "Clerk's transcript only"),
                              ('split', 'RT + CT • RT through page 2')):
@@ -135,8 +135,7 @@ class TranscriptLayoutArtifactTests(unittest.TestCase):
                         rt_end=4 if mode == 'rt_only' else 2 if mode == 'split' else None,
                         ct_start=1 if mode == 'ct_only' else 3 if mode == 'split' else None)
                     finalize_layout_draft(root, draft)
-                    source = 'manual' if decision == 'manual' else 'automatic'
-                    self.assertEqual(layout_display_summary(root), prefix + f' • {source} detection')
+                    self.assertEqual(layout_display_summary(root), prefix)
 
     def test_split_boundary_must_be_adjacent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

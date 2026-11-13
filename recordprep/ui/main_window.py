@@ -3750,7 +3750,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._rt_ct_split_dropdown: Adw.ComboRow | None = None
         self._rt_ct_split_entry: Gtk.Entry | None = None
         self._rt_ct_split_page_row: Adw.ActionRow | None = None
-        self._source_row: Adw.ExpanderRow | None = None
+        self._source_row: Adw.ActionRow | None = None
         self._activity_status_label: Gtk.Label | None = None
         self._edit_toc_button: Gtk.Button | None = None
         self._rt_ct_split_pending: int | None = None
@@ -3795,11 +3795,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         status_box.set_halign(Gtk.Align.CENTER)
-        self.status_spinner = Gtk.Spinner()
+        self.status_spinner = Gtk.Spinner(visible=False)
         self.status_label = Gtk.Label(label=APPLICATION_NAME, xalign=0)
         self.status_label.set_ellipsize(3)
         self.status_label.set_max_width_chars(52)
-        status_box.append(self.status_spinner)
         self._title_widget = Adw.WindowTitle(title=APPLICATION_NAME)
         status_box.append(self._title_widget)
         header_bar.set_title_widget(status_box)
@@ -3820,7 +3819,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         content.append(self.status_label)
 
         scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._workspace_scroller = scroller
         scroller.set_child(content)
         scroller.set_vexpand(True)
         toolbar_view.set_content(scroller)
@@ -3881,11 +3881,13 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.run_all_button = Gtk.Button(label="Run")
         self.run_all_button.set_halign(Gtk.Align.START)
+        self.run_all_button.add_css_class("suggested-action")
         self.run_all_button.connect("clicked", self.on_run_all_clicked)
         action_box.append(self.run_all_button)
 
         self.resume_button = Gtk.Button(label="Resume")
         self.resume_button.set_halign(Gtk.Align.START)
+        self.resume_button.add_css_class("suggested-action")
         self.resume_button.connect("clicked", self.on_resume_clicked)
         action_box.append(self.resume_button)
 
@@ -3905,13 +3907,49 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             "Stop after the selected step with Run, Resume, or Run from here."
         )
         self._run_until_dropdown.connect("notify::selected", self._on_run_until_changed)
+        # Bound the selected label without truncating options in the popup.
+        factory = Gtk.SignalListItemFactory()
+        def setup_target(_factory, item):
+            label = Gtk.Label(xalign=0, ellipsize=3, width_chars=22, max_width_chars=26)
+            item.set_child(label)
+        def bind_target(_factory, item):
+            item.get_child().set_label(item.get_item().get_string())
+        factory.connect("setup", setup_target)
+        factory.connect("bind", bind_target)
+        self._run_until_dropdown.set_factory(factory)
+        list_factory = Gtk.SignalListItemFactory()
+        list_factory.connect("setup", lambda _factory, item: item.set_child(
+            Gtk.Label(xalign=0, wrap=True, width_chars=32, max_width_chars=38)
+        ))
+        list_factory.connect("bind", bind_target)
+        self._run_until_dropdown.set_list_factory(list_factory)
         run_target_box.append(self._run_until_dropdown)
-        action_box.append(run_target_box)
-
-        content.append(action_box)
+        target_clamp = Adw.Clamp(maximum_size=380, tightening_threshold=300)
+        target_clamp.set_child(run_target_box)
+        target_clamp.set_hexpand(True)
+        target_clamp.set_halign(Gtk.Align.START)
+        action_box.set_halign(Gtk.Align.END)
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        footer.set_margin_top(12)
+        footer.set_margin_bottom(12)
+        footer.set_margin_start(24)
+        footer.set_margin_end(24)
+        footer.append(target_clamp)
+        footer.append(action_box)
+        footer_shell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        footer_shell.append(Gtk.Separator())
+        footer_shell.append(footer)
+        toolbar_view.add_bottom_bar(footer_shell)
+        self._run_footer = footer
+        self._run_actions = action_box
+        self.set_size_request(420, 420)
+        breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 650sp"))
+        breakpoint.add_setter(footer, "orientation", Gtk.Orientation.VERTICAL)
+        self.add_breakpoint(breakpoint)
 
         activity_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         activity_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        activity_header.append(self.status_spinner)
         activity_title = Gtk.Label(label="Activity", xalign=0)
         activity_title.add_css_class("dim-label")
         activity_header.append(activity_title)
@@ -3921,6 +3959,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         activity_status.add_css_class("caption")
         activity_status.add_css_class("dim-label")
         activity_header.append(activity_status)
+        self._activity_details_toggle = Gtk.ToggleButton(label="Show details")
+        self._activity_details_toggle.add_css_class("flat")
+        self._activity_details_toggle.connect("toggled", self._on_activity_details_toggled)
+        activity_header.append(self._activity_details_toggle)
         activity_section.append(activity_header)
         self._activity_status_label = activity_status
 
@@ -3931,12 +3973,16 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         terminal_frame.set_overflow(Gtk.Overflow.HIDDEN)
         terminal_frame.add_css_class("recordprep-terminal-surface")
         terminal_frame.append(log_scroller)
-        activity_section.append(terminal_frame)
-        content.append(activity_section)
+        self._activity_details = Gtk.Revealer()
+        self._activity_details.set_transition_type(Gtk.RevealerTransitionType.NONE)
+        self._activity_details.set_child(terminal_frame)
+        activity_section.append(self._activity_details)
+        self._activity_section = activity_section
 
         self.step_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.step_list.add_css_class("boxed-list")
         content.append(self.step_list)
+        content.append(activity_section)
         self._build_pipeline_phase_rows()
 
         self.step_one_row = Adw.ActionRow(
@@ -4379,6 +4425,29 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         if self._activity_terminal is not None:
             self._activity_terminal.set_input_enabled(False)
 
+    def _on_activity_details_toggled(self, toggle: Gtk.ToggleButton) -> None:
+        if self._pi_terminal_active and not toggle.get_active():
+            toggle.set_active(True)
+            return
+        expanded = toggle.get_active()
+        self._activity_details.set_reveal_child(expanded)
+        toggle.set_label("Hide details" if expanded else "Show details")
+
+    def _reveal_activity(self, *, focus_terminal: bool = False) -> None:
+        toggle = getattr(self, "_activity_details_toggle", None)
+        if not isinstance(toggle, Gtk.ToggleButton):
+            return
+        toggle.set_active(True)
+        if focus_terminal:
+            # Run after GTK allocates the revealed terminal below the step list.
+            def focus():
+                if self._pi_terminal_active:
+                    adjustment = self._workspace_scroller.get_vadjustment()
+                    adjustment.set_value(max(0, adjustment.get_upper() - adjustment.get_page_size()))
+                    self._activity_terminal.grab_focus()
+                return False
+            GLib.idle_add(focus)
+
     def _append_log_message(self, message: str, level: str = "INFO") -> bool:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         text = _sanitize_terminal_log_text(message, preserve_newlines=False)
@@ -4387,6 +4456,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         level_normalized = str(level or "").upper()
         if level_normalized not in {"INFO", "WARN", "ERROR"}:
             level_normalized = self._infer_log_level(text)
+        if level_normalized in {"WARN", "ERROR"}:
+            RecordPrepWindow._reveal_activity(self)
         if self._activity_terminal is not None:
             self._feed_activity_terminal(_terminal_log_line(text, level_normalized))
         elif self._log_buffer is not None:
@@ -4437,6 +4508,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _set_status(self, message: str, active: bool) -> None:
         self.status_label.set_text(message)
         self.status_label.set_visible(message != APPLICATION_NAME)
+        self.status_spinner.set_visible(active)
         if active:
             self.status_spinner.start()
         else:
@@ -4869,6 +4941,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._set_step_status(row, "Done" if success else "Pending")
 
     def _start_step(self, row: Adw.ActionRow) -> None:
+        RecordPrepWindow._reveal_activity(self)
         title = row.get_title() or "Working"
         self._active_step_id = self._step_ids_by_row.get(row)
         self._open_phase_for_step(self._active_step_id)
@@ -4914,6 +4987,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         update_indicator(self)
         running = self._pipeline_running
         busy = running or self._pi_terminal_active
+        review_button = getattr(self, "_layout_review_button", None)
+        if isinstance(review_button, Gtk.Button):
+            review_button.set_sensitive(not busy)
         self.case_bundle_button.set_sensitive(not busy)
         self.file_button.set_sensitive(not busy)
         self.clear_case_button.set_sensitive(not busy and bool(self.selected_pdfs or self._resolve_case_root() is not None))
@@ -4943,59 +5019,54 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             )
         self._update_toc_button()
 
-    def _build_transcript_split_section(self) -> Adw.ExpanderRow:
-        source_row = Adw.ExpanderRow(
+    def _build_transcript_split_section(self) -> Adw.ActionRow:
+        source_row = Adw.ActionRow(
             title="No case selected",
             subtitle="Choose a case bundle or PDF files",
         )
-        source_row.set_expanded(False)
+        source_row.set_activatable(False)
 
-        dropdown = Adw.ComboRow(
-            title="Transcript layout",
-            subtitle=(
-                "Automatic detection is the default; manual choices override "
-                "the detected layout for this case only."
-            ),
-        )
-        dropdown.set_model(
-            Gtk.StringList.new(
-                [
-                    "Automatic detection",
-                    "RT + CT",
-                    "Reporter's transcript only",
-                    "Clerk's transcript only",
-                ]
-            )
-        )
-        dropdown.connect("notify::selected", self._on_rt_ct_split_mode_changed)
-        source_row.add_row(dropdown)
-
-        page_row = Adw.ActionRow(
-            title="RT ends at page",
-            subtitle=(
-                "Combined PDF file page, not an official RT citation page. "
-                "Must be less than the combined PDF page count."
-            ),
-        )
-
-        entry = Gtk.Entry()
-        entry.set_width_chars(3)
-        entry.set_max_width_chars(5)
-        entry.set_max_length(5)
-        entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
-        entry.connect("changed", self._on_rt_ct_split_entry_changed)
-        entry.connect("activate", self._on_rt_ct_split_commit)
-        entry.connect("notify::has-focus", self._on_rt_ct_split_focus_notify)
-        page_row.add_suffix(entry)
-        source_row.add_row(page_row)
-
+        review = Gtk.Button(label="Review transcript layout", valign=Gtk.Align.CENTER)
+        review.add_css_class("flat")
+        review.set_visible(False)
+        review.connect("clicked", lambda *_: self._show_layout_review())
+        source_row.add_suffix(review)
+        self._layout_review_button = review
+        self._layout_review_dialog = None
         self._source_row = source_row
-        self._rt_ct_split_dropdown = dropdown
-        self._rt_ct_split_spin = None
-        self._rt_ct_split_entry = entry
-        self._rt_ct_split_page_row = page_row
-        self._rt_ct_split_label = None
         return source_row
+
+    def _refresh_layout_review(self, *, present: bool = False) -> None:
+        button = getattr(self, "_layout_review_button", None)
+        if not isinstance(button, Gtk.Button):
+            return
+        root = self._resolve_case_root()
+        needs_review = root is not None and diagnose_layout(root).code == "needs_review"
+        button.set_visible(needs_review)
+        button.set_sensitive(not self._pipeline_running)
+        dialog = getattr(self, "_layout_review_dialog", None)
+        if dialog is not None and (not needs_review or dialog.root != root):
+            dialog.close()
+        if present and needs_review and not self._pipeline_running:
+            self._show_layout_review()
+
+    def _show_layout_review(self) -> None:
+        from .layout_review import LayoutReviewDialog
+
+        root = self._resolve_case_root()
+        if self._pipeline_running or root is None or diagnose_layout(root).code != "needs_review":
+            return
+        dialog = getattr(self, "_layout_review_dialog", None)
+        if dialog is None:
+            dialog = LayoutReviewDialog(self, root)
+            self._layout_review_dialog = dialog
+            dialog.connect("close-request", self._layout_review_closed)
+        dialog.present()
+
+    def _layout_review_closed(self, dialog) -> bool:
+        if self._layout_review_dialog is dialog:
+            self._layout_review_dialog = None
+        return False
 
     def _loaded_layout_mode(self, root_dir: Path | None) -> str:
         if root_dir is not None:
@@ -5010,6 +5081,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         split_mode: str | None = None,
     ) -> None:
         RecordPrepWindow._refresh_classification_review_result(self)
+        RecordPrepWindow._refresh_layout_review(self)
         source_row = self._source_row
         if source_row is None:
             return
@@ -5054,6 +5126,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         entry = self._rt_ct_split_entry
         dropdown = self._rt_ct_split_dropdown
         if entry is None or dropdown is None:
+            self._update_source_summary(split_page, split_mode)
             return
         self._rt_ct_split_updating = True
         if not entry.has_focus():
@@ -5208,14 +5281,11 @@ class RecordPrepWindow(Adw.ApplicationWindow):
                 mode=mode,
                 rt_end_file_page=rt_end,
                 note=(
-                    "Manual transcript layout chosen in the transcript "
-                    "expander."
+                    "Manual transcript layout chosen in the review dialog."
                 ),
             )
         except TranscriptLayoutError as exc:
             self.show_toast(str(exc), "WARN")
-            if self._source_row is not None:
-                self._source_row.set_expanded(True)
             return False
         self._rt_ct_split_mode_pending = None
         self._rt_ct_split_pending = None
@@ -5271,8 +5341,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             elif selected == 3:
                 split_mode = "ct_only"
         else:
-            root_dir = self._resolve_case_root()
-            split_mode = self._loaded_layout_mode(root_dir)
+            # Without inline overrides, the saved artifact alone routes stages.
+            # Do not reinterpret a resolved split as a new manual draft.
+            return "auto", None
         if entry is not None:
             raw = entry.get_text().strip()
             split_page = _normalize_rt_ct_split_page(int(raw) if raw.isdigit() else None)
@@ -5340,9 +5411,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return True
         diagnostic = diagnose_layout(root_dir)
         if diagnostic.code != "resolved":
-            if self._source_row is not None:
-                self._source_row.set_expanded(True)
             self.show_toast(diagnostic.message, "WARN")
+            RecordPrepWindow._refresh_layout_review(self, present=True)
             return False
         return True
 
@@ -5566,10 +5636,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.selected_label.set_text("Selected: None")
         self._load_rt_ct_split()
         self._update_source_summary()
-        self._source_row.set_expanded(False)
         self._reset_step_statuses()
         self._stop_status()
         self._set_activity_status_text("No activity yet")
+        self._activity_details_toggle.set_active(False)
         if self._log_buffer is not None:
             self._log_buffer.set_text("")
         if self._activity_terminal is not None:
@@ -6113,6 +6183,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self._run_pause_message = None
         if pause_message:
             self.show_toast(pause_message, "WARN")
+        RecordPrepWindow._refresh_layout_review(self, present=bool(pause_message))
 
     def on_step_one_clicked(self, _row: Adw.ActionRow) -> None:
         if not self.selected_pdfs:
@@ -6279,8 +6350,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         status, _mode = detection_status(root_dir)
         if status != "resolved":
             self._run_pause_message = (
-                "Transcript layout needs review: choose a manual layout to "
-                "continue (open the transcript expander)."
+                "Transcript layout needs review. Apply a layout in the review "
+                "dialog, then use Resume to continue."
             )
             return False
         if _layout_matches_legacy(root_dir):
@@ -6662,6 +6733,9 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             self.show_toast("Pipeline complete.")
         else:
             self.show_toast("Pipeline stopped. Fix the errors and try again.")
+        RecordPrepWindow._refresh_layout_review(
+            self, present=bool(pause_message) and not stop_requested
+        )
 
     def _spawn_pi_skill_terminal(
         self,
@@ -6703,6 +6777,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             terminal.reset(False, False)
             self._pi_terminal_sequence_started = True
         terminal.set_input_enabled(True)
+        RecordPrepWindow._reveal_activity(self, focus_terminal=True)
         _apply_recordprep_terminal_theme(terminal)
         if self._activity_status_label is not None:
             self._activity_status_label.set_label(f"{step_title} running…")

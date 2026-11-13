@@ -551,26 +551,20 @@ def detection_status(root: Path) -> tuple[str, str | None]:
 
 
 def layout_display_summary(root: Path) -> str:
-    """Human summary used by the transcript expander source row."""
+    """Concise layout and boundary summary for the case source row."""
     status, mode = detection_status(root)
     if status == "pending":
         return "Detection pending"
     if status == "needs_review":
         return "Needs review"
     payload = load_layout(root) or {}
-    source = (
-        "manual"
-        if payload.get("decision_source") == "manual"
-        else "automatic"
-    )
-    suffix = f" • {source} detection"
     if mode == "rt_only":
-        return "Reporter's transcript only" + suffix
+        return "Reporter's transcript only"
     if mode == "ct_only":
-        return "Clerk's transcript only" + suffix
+        return "Clerk's transcript only"
     rt_end = _as_int(payload.get("rt_end_file_page"))
     page = f" through page {rt_end}" if rt_end else ""
-    return f"RT + CT • RT{page}{suffix}"
+    return f"RT + CT • RT{page}"
 
 
 def is_resolved(root: Path) -> bool:
@@ -831,8 +825,8 @@ def resolve_rt_ct_split(root: Path, text_dir: Path) -> tuple[int, int, bool, boo
         status, _mode = detection_status(root)
         if status == "needs_review":
             raise TranscriptLayoutError(
-                "Transcript layout needs review: open the transcript expander "
-                "and choose a manual layout before continuing."
+                "Transcript layout needs review: open Review transcript layout "
+                "and apply a layout before continuing."
             )
         raise TranscriptLayoutError(diagnose_layout(root).message)
     mode = str(payload.get("mode") or "")

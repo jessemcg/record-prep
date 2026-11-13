@@ -78,7 +78,10 @@ Launch **RecordPrep** from your applications menu or run `recordprep`. Open
 
 Choose a preparation profile, then select PDFs for a new bundle or choose an
 existing case bundle. Run the pipeline or use **Resume** to continue prepared
-work without resetting it. Open the resulting bundle in Focus.
+work without resetting it. The fixed bottom bar keeps **Run through** and
+**Run/Resume/Stop** available while browsing steps. **Activity** below the steps
+opens its details when work starts; **Show details** also reveals current-session output.
+Open the resulting bundle in Focus.
 
 Customize the bundled **California Juvenile Dependency** or **California Criminal Law**
 profile, or use either as a starting point. See the [user guide](docs/workflow.md).

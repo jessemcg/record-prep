@@ -74,6 +74,12 @@ Only explicit Create/Save/Reset publishes current revisions; no private migratio
 
 ## Settings, storage and installation
 
+- Main workspace keeps boxed pipeline phases above Activity. Run-through and
+  Run/Resume/Stop live in a fixed bottom toolbar (stacked at 650sp); Run/Resume
+  use native suggested-action styling. Activity details start collapsed, reveal
+  for work/warnings/errors and remain open during interactive Pi; never destroy
+  or replace the terminal to collapse it. Preserve outputs/status semantics and
+  Settings layouts. See `docs/main-workspace-layout.md` for local validation.
 - Model/Profile settings have separate persistence boundaries. Use expandable homes
   and retained full-width editors, modern Libadwaita widgets and flat buttons, not
   permanent sidebars. Save all draft pages without closing/changing destination;
@@ -155,7 +161,11 @@ case overview → deterministic source map. See `docs/workflow.md`.
   differing layouts after preparation are refused. Never clear data to get work going.
 - Layout artifact is case-local/schema1, bound to current input identity/page count.
   OCR-first with targeted images (soft budget 12), no full image sweep. Ambiguity
-  publishes needs_review and pauses. Only guarded text-only normalization can rebind
+  publishes needs_review and pauses. The main case row has no inline manual controls;
+  fresh needs_review opens Review transcript layout after work stops, with a conditional
+  reopen button. Dialog drafts save only on Apply; Cancel/selection/source changes must
+  not leak pending overrides. Missing/stale detection requires rerunning detection.
+  Only guarded text-only normalization can rebind
   an unchanged resolved layout; changed pages/images or uncontrolled text require
   detection. Manifest split fields are legacy mirrors, not routing authority.
 - Caption uses fixed neutral `case_name_prompt.py`, native Pi/shared model and private

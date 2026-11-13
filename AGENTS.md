@@ -78,7 +78,9 @@ Only explicit Create/Save/Reset publishes current revisions; no private migratio
   Run/Resume/Stop live in a fixed bottom toolbar (stacked at 650sp); Run/Resume
   use native suggested-action styling. Activity details start collapsed, reveal
   for work/warnings/errors and remain open during interactive Pi; never destroy
-  or replace the terminal to collapse it. Preserve outputs/status semantics and
+  or replace the terminal to collapse it. Expanded Activity fills spare height
+  outside the independently scrolling source/steps area, with a 24px bottom gap
+  above Run and internal output scrolling. Preserve outputs/status semantics and
   Settings layouts. See `docs/main-workspace-layout.md` for local validation.
 - Model/Profile settings have separate persistence boundaries. Use expandable homes
   and retained full-width editors, modern Libadwaita widgets and flat buttons, not

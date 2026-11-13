@@ -41,7 +41,8 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_steps_precede_compact_activity_and_footer_is_fixed(self):
         win = self.window
-        self.assertIs(win.step_list.get_next_sibling(), win._activity_section)
+        self.assertIs(win._workspace_scroller.get_next_sibling(), win._activity_section)
+        self.assertFalse(win._activity_section.is_ancestor(win._workspace_scroller))
         self.assertFalse(win._activity_details.get_reveal_child())
         self.assertEqual(win._activity_details_toggle.get_label(), "Show details")
         self.assertFalse(win._run_footer.is_ancestor(win._workspace_scroller))
@@ -127,6 +128,65 @@ class WorkspaceTests(unittest.TestCase):
             minimum, natural, *_ = item.get_child().measure(Gtk.Orientation.HORIZONTAL, -1)
             self.assertGreater(minimum, 100)
             self.assertGreaterEqual(natural, minimum)
+
+    def test_activity_expansion_tracks_details_without_replacing_terminal(self):
+        win = self.window
+        terminal = win._activity_details.get_child()
+        win._reveal_activity()
+        self.assertTrue(win._activity_section.get_vexpand())
+        self.assertTrue(win._activity_details.get_vexpand())
+        self.assertEqual(terminal.get_size_request().height, 120)
+        win._activity_details_toggle.set_active(False)
+        self.assertFalse(win._activity_section.get_vexpand())
+        self.assertFalse(win._activity_details.get_vexpand())
+        self.assertIs(win._activity_details.get_child(), terminal)
+
+    def test_expanded_activity_fills_available_height(self):
+        win = self.window
+        win.set_default_size(900, 760)
+        win._reveal_activity()
+        win.present()
+        drain()
+        drain()
+        drain()  # Allow the initial phase-expander animation to finish.
+        adjustment = win._workspace_scroller.get_vadjustment()
+        # A compositor may constrain the requested height; verify fitting at
+        # the actual allocation whenever it provides normal-screen space.
+        if win.get_height() < 700:
+            self.skipTest("Compositor constrained normal-screen allocation")
+        frame = win._activity_details.get_child()
+        self.assertGreaterEqual(frame.get_height(), 120)
+        workspace = win._activity_section.get_parent()
+        self.assertEqual(workspace.get_margin_bottom(), 24)
+        self.assertLessEqual(win._activity_section.get_allocation().y
+                             + win._activity_section.get_height(), workspace.get_height())
+        # More output must scroll internally rather than enlarge the card.
+        before = frame.get_height()
+        for index in range(200):
+            win._append_log_message(f"Synthetic output {index}")
+        drain()
+        self.assertEqual(frame.get_height(), before)
+        win.set_default_size(900, 1600)
+        drain()
+        if win.get_height() >= 1500:
+            self.assertGreater(frame.get_height(), before + 300)
+            self.assertAlmostEqual(adjustment.get_upper(), adjustment.get_page_size(), delta=1)
+
+    def test_short_workspace_scrolls_steps_not_activity(self):
+        win = self.window
+        win.set_default_size(480, 420)
+        win._reveal_activity()
+        win.present()
+        for _ in range(3):
+            drain()
+        workspace = win._activity_section.get_parent()
+        self.assertGreaterEqual(win._activity_details.get_child().get_height(), 120)
+        self.assertLessEqual(win._activity_section.get_allocation().y
+                             + win._activity_section.get_height(), workspace.get_height())
+        if win.get_height() <= 500:
+            adjustment = win._workspace_scroller.get_vadjustment()
+            self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
+        self.assertGreater(win._run_footer.get_height(), 0)
 
     def test_responsive_footer(self):
         win = self.window

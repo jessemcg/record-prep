@@ -3811,19 +3811,23 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         toolbar_view.add_top_bar(header_bar)
         self.set_content(toolbar_view)
 
+        workspace = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        workspace.set_margin_top(24)
+        workspace.set_margin_bottom(24)
+        workspace.set_margin_start(24)
+        workspace.set_margin_end(24)
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(24)
-        content.set_margin_bottom(24)
-        content.set_margin_start(24)
-        content.set_margin_end(24)
         content.append(self.status_label)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._workspace_scroller = scroller
         scroller.set_child(content)
-        scroller.set_vexpand(True)
-        toolbar_view.set_content(scroller)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_min_content_height(120)
+        scroller.set_vexpand(False)
+        workspace.append(scroller)
+        toolbar_view.set_content(workspace)
 
         log_scroller = Gtk.ScrolledWindow()
         log_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -3968,8 +3972,10 @@ class RecordPrepWindow(Adw.ApplicationWindow):
 
         terminal_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         terminal_frame.set_hexpand(True)
-        terminal_frame.set_vexpand(False)
-        terminal_frame.set_size_request(-1, 440)
+        terminal_frame.set_vexpand(True)
+        # Fill remaining workspace space, not a fixed terminal height.
+        # When space is scarce, the separate source/steps area scrolls.
+        terminal_frame.set_size_request(-1, 120)
         terminal_frame.set_overflow(Gtk.Overflow.HIDDEN)
         terminal_frame.add_css_class("recordprep-terminal-surface")
         terminal_frame.append(log_scroller)
@@ -3982,7 +3988,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         self.step_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.step_list.add_css_class("boxed-list")
         content.append(self.step_list)
-        content.append(activity_section)
+        workspace.append(activity_section)
         self._build_pipeline_phase_rows()
 
         self.step_one_row = Adw.ActionRow(
@@ -4431,6 +4437,8 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             return
         expanded = toggle.get_active()
         self._activity_details.set_reveal_child(expanded)
+        self._activity_details.set_vexpand(expanded)
+        self._activity_section.set_vexpand(expanded)
         toggle.set_label("Hide details" if expanded else "Show details")
 
     def _reveal_activity(self, *, focus_terminal: bool = False) -> None:
@@ -4442,8 +4450,6 @@ class RecordPrepWindow(Adw.ApplicationWindow):
             # Run after GTK allocates the revealed terminal below the step list.
             def focus():
                 if self._pi_terminal_active:
-                    adjustment = self._workspace_scroller.get_vadjustment()
-                    adjustment.set_value(max(0, adjustment.get_upper() - adjustment.get_page_size()))
                     self._activity_terminal.grab_focus()
                 return False
             GLib.idle_add(focus)

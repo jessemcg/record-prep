@@ -145,7 +145,8 @@ class ClearCaseTests(unittest.TestCase):
                                _pi_terminal_sequence_started=True, _stop_event=threading.Event(),
                                selected_label=Mock(), _load_rt_ct_split=Mock(), _update_source_summary=Mock(),
                                _source_row=Mock(), _reset_step_statuses=Mock(), _stop_status=Mock(),
-                               _set_activity_status_text=Mock(), _log_buffer=Mock(), _activity_terminal=Mock(), show_toast=Mock())
+                               _set_activity_status_text=Mock(), _log_buffer=Mock(), _activity_terminal=Mock(),
+                               _activity_details_toggle=Mock(), show_toast=Mock())
 
     def test_clear_forgets_selection_but_preserves_files_and_other_settings(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -21,6 +21,9 @@ class Owner(Adw.Window):
     _refresh_layout_review = RecordPrepWindow._refresh_layout_review
     _show_layout_review = RecordPrepWindow._show_layout_review
     _layout_review_closed = RecordPrepWindow._layout_review_closed
+    _open_bundle_folder = RecordPrepWindow._open_bundle_folder
+    _available_bundle_folder = RecordPrepWindow._available_bundle_folder
+    _refresh_bundle_folder = RecordPrepWindow._refresh_bundle_folder
 
     def __init__(self, root):
         super().__init__(title="Synthetic RecordPrep layout review", default_width=650)

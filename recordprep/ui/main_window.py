@@ -19,6 +19,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import weakref
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -4991,6 +4992,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     def _sync_pipeline_controls(self) -> None:
         from recordprep.profile_integration import update_indicator
         update_indicator(self)
+        RecordPrepWindow._refresh_bundle_folder(self)
         running = self._pipeline_running
         busy = running or self._pi_terminal_active
         review_button = getattr(self, "_layout_review_button", None)
@@ -5039,8 +5041,61 @@ class RecordPrepWindow(Adw.ApplicationWindow):
         source_row.add_suffix(review)
         self._layout_review_button = review
         self._layout_review_dialog = None
+
+        folder = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
+        folder.add_css_class("flat")
+        folder.set_tooltip_text("Open bundle folder")
+        folder.update_property([Gtk.AccessibleProperty.LABEL], ["Open bundle folder"])
+        folder.set_visible(False)
+        folder.connect("clicked", self._open_bundle_folder)
+        source_row.add_suffix(folder)
+        self._bundle_folder_button = folder
         self._source_row = source_row
         return source_row
+
+    def _available_bundle_folder(self) -> Path | None:
+        try:
+            root = self._resolve_case_root()
+            return root if root is not None and root.is_dir() else None
+        except OSError:
+            return None
+
+    def _refresh_bundle_folder(self) -> None:
+        button = getattr(self, "_bundle_folder_button", None)
+        if isinstance(button, Gtk.Button):
+            button.set_visible(RecordPrepWindow._available_bundle_folder(self) is not None)
+
+    def _open_bundle_folder(self, _button=None) -> None:
+        root = self._available_bundle_folder()
+        if root is None:
+            self._refresh_bundle_folder()
+            self.show_toast("The bundle folder is no longer available.")
+            return
+
+        # Keep completion tied to this launch, without retaining a disposed owner
+        # or applying any state to a subsequently selected case.
+        owner = weakref.ref(self)
+
+        def report_error(error: GLib.Error) -> None:
+            if (error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED)
+                    or error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED)
+                    or error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.CANCELLED)):
+                return
+            window = owner()
+            if window is not None and window.get_application() is not None:
+                window.show_toast("Could not open the bundle folder.")
+
+        def finished(launcher, result) -> None:
+            try:
+                launcher.launch_finish(result)
+            except GLib.Error as error:
+                report_error(error)
+
+        try:
+            launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(os.fspath(root)))
+            launcher.launch(self, None, finished)
+        except GLib.Error as error:
+            report_error(error)
 
     def _refresh_layout_review(self, *, present: bool = False) -> None:
         button = getattr(self, "_layout_review_button", None)
@@ -5088,6 +5143,7 @@ class RecordPrepWindow(Adw.ApplicationWindow):
     ) -> None:
         RecordPrepWindow._refresh_classification_review_result(self)
         RecordPrepWindow._refresh_layout_review(self)
+        RecordPrepWindow._refresh_bundle_folder(self)
         source_row = self._source_row
         if source_row is None:
             return

@@ -4,6 +4,18 @@ The case summary comes first, followed by the existing boxed pipeline phases,
 then Activity. Phase contents, expansion/status behavior and individual-step
 menus are unchanged. Settings layouts are unchanged.
 
+The case-summary row ends with a small native flat folder icon, **Open bundle
+folder** (also its tooltip and accessible name), after Review transcript layout
+when that action is visible. It opens the actual `case_bundle` directory in the
+default file manager, without making the summary row activatable or showing a
+filesystem path. It appears only when the selected/restored bundle directory
+exists, including after Create files; no selection, different-parent PDFs and
+not-yet-created bundles leave no placeholder. Source-summary and pipeline-control
+updates refresh availability. Browsing remains enabled during preparation and
+requires no caption, valid layout, profile assignment or completed output.
+Activation rechecks the directory; missing folders and launch failures receive
+concise feedback, cancellation is silent, and no folder is created or substituted.
+
 ## Fixed run toolbar
 
 Run through and Run/Resume/Stop are outside the workspace scroller in the bottom
@@ -80,3 +92,41 @@ Linux Computer Use observed the actual synthetic window on the local desktop
 output scrollbar and gap above the fixed Run row were visible. Previews were
 closed. Real cases/settings and the user's app were untouched. No live Pi,
 model processing or physical keyboard/wheel acceptance was performed.
+
+## Bundle-folder action validation — home computer, 2026-11-14
+
+Used disposable tracked source `/tmp/recordprep-folder-8Eaev4/RecordPrep`, a
+separate machine-local Python environment through `UvEnvironments/project-env`,
+isolated HOME/XDG/config/Pi state, synthetic directories and disabled metrics.
+Startup configuration/resource paths and restoration were inspected before launch.
+
+- 91 focused tests passed: 11 new `test_bundle_folder_ui.py`, 12 case-selection,
+  50 main-window UI-state, 11 main-workspace and 7 layout-review tests. Launches in
+  automated tests were mocked. Coverage includes restored/prospective roots,
+  normal Create-files completion refresh, selection changes/Clear, running and
+  interactive state, directory removal/replacement, filesystem errors, Unicode /
+  spaces / `#` / `%`, success/cancellation/failure, late completion and disposal.
+- Updated the layout-review owner stub for the new handler and repaired the
+  existing Clear-case stub's missing Activity-toggle member. No production Clear
+  or layout-review behavior was changed.
+- Changed Python files compiled in the disposable copy; diff whitespace passed.
+- Linux Computer Use inspected the actual synthetic RecordPrep window empty and
+  selected, at 900×760 and the compositor-provided **420×720 logical pixels**.
+  With both actions visible at 420px, title/subtitle wrapped vertically, actions
+  remained inside the row and there was no horizontal page scrolling or new row.
+  The preview forced review-action visibility; actual review lifecycle is covered
+  by the separate native layout-review tests.
+- Accessibility exposed **Open bundle folder**. Pointer hover styling was observed
+  on the adjacent review action; Tab from it reached the folder action with the
+  native focus ring. Space activated the folder action. Tooltip text is asserted
+  by tests; a visible hover-tooltip popup was not separately accepted.
+- Actual FileLauncher launches opened two experiment-owned Nautilus windows.
+  Their location bars confirmed the exact first special-character `case_bundle`
+  and the second newly selected bundle. Clear removed the folder action. Both
+  owned file-manager windows and all previews were closed; pre-existing windows
+  were left untouched. Synthetic sentinel SHA-256 hashes matched before/after.
+
+No real settings/records, paid calls, pipeline processing, deployment, publication
+or user-application restart was performed. Running-state independence was tested
+with synthetic UI flags, not a live preparation job. These checks establish the
+browsing/UI contract, not full-pipeline or model-output acceptance.
